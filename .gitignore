@@ -1,0 +1,4 @@
+# Completed client intake packets (contain client PII) - never commit.
+data/
+__pycache__/
+*.pyc

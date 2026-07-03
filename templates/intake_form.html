@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ business }} - Client Intake</title>
+<style>
+  :root { --brand: #2563eb; --ink: #1f2937; --line: #d1d5db; }
+  * { box-sizing: border-box; }
+  body { font-family: system-ui, -apple-system, sans-serif; color: var(--ink);
+         background: #f3f4f6; margin: 0; padding: 16px; }
+  .card { max-width: 640px; margin: 0 auto; background: #fff; border-radius: 12px;
+          padding: 24px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  h1 { font-size: 1.4rem; margin: 0 0 4px; }
+  .sub { color: #6b7280; margin: 0 0 20px; font-size: .95rem; }
+  fieldset { border: 1px solid var(--line); border-radius: 8px; margin: 0 0 18px;
+             padding: 14px 16px 16px; }
+  legend { font-weight: 600; padding: 0 6px; }
+  label { display: block; font-size: .9rem; font-weight: 500; margin: 12px 0 4px; }
+  label:first-of-type { margin-top: 0; }
+  input[type=text], input[type=tel], input[type=email], input[type=number], select {
+    width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 6px;
+    font-size: 1rem; }
+  .radio-row label { font-weight: 400; margin: 6px 0; }
+  .radio-row input { margin-right: 8px; }
+  .hidden { display: none; }
+  .errors { background: #fef2f2; border: 1px solid #fca5a5; color: #991b1b;
+            border-radius: 8px; padding: 12px 16px; margin-bottom: 18px; }
+  canvas { border: 1px dashed var(--line); border-radius: 6px; width: 100%;
+           height: 140px; touch-action: none; background: #fafafa; }
+  .sig-tools { margin-top: 6px; }
+  button { font-size: 1rem; border-radius: 8px; cursor: pointer; }
+  .clear-btn { background: none; border: 1px solid var(--line); padding: 6px 14px; }
+  .submit-btn { background: var(--brand); color: #fff; border: none; width: 100%;
+                padding: 14px; font-weight: 600; margin-top: 6px; }
+  .consent { font-size: .85rem; font-weight: 400; display: flex; gap: 8px;
+             align-items: flex-start; margin-top: 14px; }
+  .consent input { margin-top: 3px; }
+  .note { font-size: .8rem; color: #6b7280; margin-top: 4px; }
+</style>
+</head>
+<body>
+<div class="card">
+  <h1>{{ business }} Client Intake</h1>
+  <p class="sub">Answer a few questions and we'll complete your full sign-up
+     packet for you - you just review and sign at the bottom.</p>
+
+  {% if errors %}
+  <div class="errors">
+    Please check these fields: {{ errors | join(', ') | replace('_', ' ') }}.
+  </div>
+  {% endif %}
+
+  <form method="POST" action="/intake" id="intakeForm">
+
+    <fieldset>
+      <legend>About you</legend>
+      <label for="full_name">Full name</label>
+      <input type="text" id="full_name" name="full_name" required
+             value="{{ form.get('full_name', '') }}">
+      <label for="phone">Phone number</label>
+      <input type="tel" id="phone" name="phone" required
+             value="{{ form.get('phone', '') }}">
+      <label for="email">Email (optional)</label>
+      <input type="email" id="email" name="email"
+             value="{{ form.get('email', '') }}">
+      <label>How should we contact you?</label>
+      <div class="radio-row">
+        <label><input type="radio" name="contact_pref" value="text" required
+          {% if form.get('contact_pref') == 'text' %}checked{% endif %}>Text me</label>
+        <label><input type="radio" name="contact_pref" value="call"
+          {% if form.get('contact_pref') == 'call' %}checked{% endif %}>Call me</label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>What do you need?</legend>
+      <div class="radio-row">
+        {% for value, text in service_types.items() %}
+        <label><input type="radio" name="service_type" value="{{ value }}" required
+          data-toggle="service"
+          {% if form.get('service_type') == value %}checked{% endif %}>{{ text }}</label>
+        {% endfor %}
+      </div>
+      <div id="reactivationFields" class="hidden">
+        <label for="account_name">Account name</label>
+        <input type="text" id="account_name" name="account_name"
+               value="{{ form.get('account_name', '') }}">
+        <label for="account_number">Account number (if you know it)</label>
+        <input type="text" id="account_number" name="account_number"
+               value="{{ form.get('account_number', '') }}">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Your device</legend>
+      <label for="device_type">What will you watch on?</label>
+      <select id="device_type" name="device_type" required>
+        <option value="">Choose one...</option>
+        {% for value, text in device_types.items() %}
+        <option value="{{ value }}"
+          {% if form.get('device_type') == value %}selected{% endif %}>{{ text }}</option>
+        {% endfor %}
+      </select>
+      <label for="device_count">How many devices?</label>
+      <input type="number" id="device_count" name="device_count" min="1" max="10"
+             required value="{{ form.get('device_count', '1') }}">
+      <div id="downloaderField" class="hidden">
+        <label>Do you already have the Downloader app on it?</label>
+        <div class="radio-row">
+          <label><input type="radio" name="has_downloader" value="yes"
+            {% if form.get('has_downloader') == 'yes' %}checked{% endif %}>Yes</label>
+          <label><input type="radio" name="has_downloader" value="no"
+            {% if form.get('has_downloader') == 'no' %}checked{% endif %}>No / not sure</label>
+        </div>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>Payment</legend>
+      <label>Which payment app do you use?</label>
+      <div class="radio-row">
+        {% for value, opt in payment_options.items() %}
+        <label><input type="radio" name="payment_method" value="{{ value }}" required
+          {% if form.get('payment_method') == value %}checked{% endif %}>{{ opt.label }}</label>
+        {% endfor %}
+      </div>
+      <label for="monthly_amount">Monthly amount agreed ($)</label>
+      <input type="text" id="monthly_amount" name="monthly_amount" required
+             inputmode="decimal" placeholder="e.g. 25"
+             value="{{ form.get('monthly_amount', '') }}">
+      <p class="note">Exact send-to details will be filled into your packet
+         based on the app you pick.</p>
+    </fieldset>
+
+    <fieldset>
+      <legend>Review and sign</legend>
+      <label for="typed_signature">Type your full legal name as your signature</label>
+      <input type="text" id="typed_signature" name="typed_signature" required
+             value="{{ form.get('typed_signature', '') }}">
+      <label>Draw your signature (optional)</label>
+      <canvas id="sigPad" width="600" height="140"></canvas>
+      <div class="sig-tools">
+        <button type="button" class="clear-btn" id="sigClear">Clear</button>
+      </div>
+      <input type="hidden" name="signature_image" id="signature_image">
+      <label class="consent">
+        <input type="checkbox" name="esign_consent" required>
+        <span>I agree to the terms in my completed packet and I consent to
+        signing electronically. I understand my electronic signature is as
+        valid as a handwritten one.</span>
+      </label>
+    </fieldset>
+
+    <button type="submit" class="submit-btn">Complete my packet</button>
+  </form>
+</div>
+
+<script>
+// --- Conditional questions: show follow-ups only when they apply ---
+function toggleService() {
+  var checked = document.querySelector('input[name="service_type"]:checked');
+  var show = checked && checked.value === 'reactivation';
+  document.getElementById('reactivationFields').classList.toggle('hidden', !show);
+  document.getElementById('account_name').required = show;
+}
+function toggleDownloader() {
+  var device = document.getElementById('device_type').value;
+  var show = device === 'firestick' || device === 'android';
+  document.getElementById('downloaderField').classList.toggle('hidden', !show);
+}
+document.querySelectorAll('input[name="service_type"]').forEach(function (el) {
+  el.addEventListener('change', toggleService);
+});
+document.getElementById('device_type').addEventListener('change', toggleDownloader);
+toggleService();
+toggleDownloader();
+
+// --- Signature pad ---
+var canvas = document.getElementById('sigPad');
+var ctx = canvas.getContext('2d');
+ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#1f2937';
+var drawing = false, drew = false;
+
+function pos(e) {
+  var r = canvas.getBoundingClientRect();
+  var p = e.touches ? e.touches[0] : e;
+  return { x: (p.clientX - r.left) * (canvas.width / r.width),
+           y: (p.clientY - r.top) * (canvas.height / r.height) };
+}
+function start(e) { drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); e.preventDefault(); }
+function move(e) { if (!drawing) return; var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); drew = true; e.preventDefault(); }
+function end() { drawing = false; }
+
+canvas.addEventListener('mousedown', start);
+canvas.addEventListener('mousemove', move);
+window.addEventListener('mouseup', end);
+canvas.addEventListener('touchstart', start);
+canvas.addEventListener('touchmove', move);
+canvas.addEventListener('touchend', end);
+
+document.getElementById('sigClear').addEventListener('click', function () {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  drew = false;
+});
+
+document.getElementById('intakeForm').addEventListener('submit', function () {
+  document.getElementById('signature_image').value = drew ? canvas.toDataURL('image/png') : '';
+});
+</script>
+</body>
+</html>
