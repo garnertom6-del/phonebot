@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{{ business }} - Completed Intake Packet</title>
+<style>
+  :root { --ink: #1f2937; --line: #d1d5db; }
+  * { box-sizing: border-box; }
+  body { font-family: Georgia, 'Times New Roman', serif; color: var(--ink);
+         background: #f3f4f6; margin: 0; padding: 16px; }
+  .paper { max-width: 700px; margin: 0 auto; background: #fff; padding: 36px;
+           box-shadow: 0 1px 4px rgba(0,0,0,.1); }
+  h1 { font-size: 1.5rem; margin: 0; }
+  .meta { color: #6b7280; font-size: .85rem; margin: 4px 0 24px;
+          font-family: system-ui, sans-serif; }
+  h2 { font-size: 1.05rem; border-bottom: 1px solid var(--line);
+       padding-bottom: 4px; margin: 24px 0 10px; }
+  ul { margin: 0; padding-left: 20px; }
+  li { margin: 5px 0; line-height: 1.45; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px;
+          font-size: .95rem; }
+  .grid dt { font-weight: 700; }
+  .grid dd { margin: 0 0 8px; }
+  .sig-block { display: flex; gap: 32px; flex-wrap: wrap; margin-top: 12px; }
+  .sig { flex: 1; min-width: 240px; }
+  .sig img { max-height: 80px; display: block; }
+  .sig .line { border-bottom: 1px solid var(--ink); padding: 4px 0;
+               font-family: 'Brush Script MT', cursive; font-size: 1.5rem; }
+  .sig .who { font-size: .8rem; color: #6b7280; margin-top: 4px;
+              font-family: system-ui, sans-serif; }
+  .badge { display: inline-block; background: #ecfdf5; color: #065f46;
+           border: 1px solid #a7f3d0; border-radius: 999px; padding: 2px 12px;
+           font-size: .8rem; font-family: system-ui, sans-serif; }
+  .print-btn { font-family: system-ui, sans-serif; margin: 20px auto 0;
+               display: block; padding: 10px 24px; border: 1px solid var(--line);
+               border-radius: 8px; background: #fff; cursor: pointer; }
+  @media print { body { background: #fff; padding: 0; }
+                 .paper { box-shadow: none; } .print-btn { display: none; } }
+</style>
+</head>
+<body>
+<div class="paper">
+  <h1>{{ business }} - Client Intake Packet</h1>
+  <p class="meta">Packet #{{ record.id }} &middot; Completed
+     {{ record.created_at[:10] }} &middot;
+     <span class="badge">Signed &amp; accepted</span></p>
+
+  <h2>Client information</h2>
+  <dl class="grid">
+    <dt>Name</dt><dd>{{ record.answers.full_name }}</dd>
+    <dt>Phone</dt><dd>{{ record.answers.phone }}</dd>
+    {% if record.answers.email %}<dt>Email</dt><dd>{{ record.answers.email }}</dd>{% endif %}
+    <dt>Request</dt><dd>{{ service_types[record.answers.service_type] }}</dd>
+    <dt>Device</dt><dd>{{ device_types[record.answers.device_type] }}
+        ({{ record.answers.device_count }} device{{ 's' if record.answers.device_count != '1' }})</dd>
+  </dl>
+
+  {% for section in record.packet.sections %}
+  <h2>{{ section.title }}</h2>
+  <ul>
+    {% for line in section.lines %}<li>{{ line }}</li>{% endfor %}
+  </ul>
+  {% endfor %}
+
+  <h2>Terms of service</h2>
+  <ul>
+    {% for term in record.packet.terms %}<li>{{ term }}</li>{% endfor %}
+  </ul>
+
+  <h2>Signatures</h2>
+  <div class="sig-block">
+    <div class="sig">
+      {% if record.client_signature.image %}
+      <img src="{{ record.client_signature.image }}" alt="Client signature">
+      {% endif %}
+      <div class="line">{{ record.client_signature.typed_name }}</div>
+      <div class="who">Client - signed electronically with consent on
+        {{ record.client_signature.signed_at[:10] }}</div>
+    </div>
+    <div class="sig">
+      <div class="line">{{ record.provider_signature.accepted_by }}</div>
+      <div class="who">Provider - accepted automatically on
+        {{ record.provider_signature.accepted_at[:10] }} (all intake decisions
+        resolved)</div>
+    </div>
+  </div>
+
+  <button class="print-btn" onclick="window.print()">Print / save as PDF</button>
+</div>
+</body>
+</html>
