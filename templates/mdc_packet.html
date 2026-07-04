@@ -1,0 +1,431 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Client Intake Packet - {{ a.client_name }}</title>
+<style>
+  body { font-family: Georgia, "Times New Roman", serif; color:#111; margin:0; background:#e9ecf1; }
+  .toolbar { background:#3b5b92; color:#fff; padding:10px 16px; font-family:Arial,sans-serif; font-size:14px;
+             display:flex; justify-content:space-between; align-items:center; }
+  .toolbar button { padding:8px 14px; border:none; border-radius:8px; cursor:pointer; font-weight:700; }
+  .page { background:#fff; max-width:820px; margin:14px auto; padding:34px 44px; box-shadow:0 1px 4px rgba(0,0,0,.15); }
+  .phdr { border-bottom:2px solid #333; padding-bottom:6px; margin-bottom:14px; font-size:11.5px;
+          font-family:Arial,sans-serif; display:flex; flex-wrap:wrap; gap:4px 16px; }
+  .phdr b { font-size:12.5px; width:100%; }
+  h2 { text-align:center; font-size:19px; margin:2px 0 14px; }
+  h3 { font-size:15px; margin:16px 0 6px; }
+  .fld { margin:5px 0; font-size:13.5px; }
+  .fld b { font-family:Arial,sans-serif; font-size:12px; color:#333; }
+  .v { border-bottom:1px solid #555; padding:0 4px; min-width:60px; display:inline-block; }
+  .empty { color:#999; font-style:italic; }
+  .legal { font-size:12px; color:#222; line-height:1.45; }
+  .sigrow { margin:26px 0 6px; display:flex; gap:34px; align-items:flex-end; flex-wrap:wrap; }
+  .sigslot { flex:1; min-width:240px; border-bottom:1px solid #333; padding:2px 6px; min-height:46px;
+             display:flex; align-items:flex-end; }
+  .sigslot img { max-height:44px; }
+  .sigslot .typed { font-family:"Segoe Script","Brush Script MT",cursive; font-size:24px; }
+  .siglabel { font-size:11px; font-family:Arial,sans-serif; color:#333; }
+  .dateslot { border-bottom:1px solid #333; padding:2px 8px; min-width:110px; font-size:13px; }
+  .staffslot { border-bottom:1px solid #333; min-width:240px; min-height:34px; flex:1; }
+  .initial { display:inline-block; border:1px solid #888; border-radius:4px; padding:1px 7px;
+             font-family:Arial,sans-serif; font-weight:700; font-size:12px; margin-right:6px; }
+  .anchor { color:#fff; font-size:8px; }
+  .checked::before { content:"☒ "; } .unchecked::before { content:"☐ "; }
+  table.grid { border-collapse:collapse; width:100%; font-size:12.5px; }
+  table.grid td, table.grid th { border:1px solid #666; padding:5px 7px; text-align:left; }
+  .audit { background:#f4f6fa; border:1px solid #c9d3e0; font-family:Arial,sans-serif; font-size:11.5px;
+           padding:12px 16px; border-radius:8px; }
+  @media print {
+    .toolbar { display:none; }
+    body { background:#fff; }
+    .page { box-shadow:none; margin:0; padding:24px 30px; page-break-after:always; max-width:none; }
+  }
+</style>
+</head>
+<body>
+<div class="toolbar">
+  <span>Completed Client Intake Packet &mdash; generated {{ record.intake_date }}</span>
+  <button onclick="window.print()">Print / Save as PDF</button>
+</div>
+
+{% macro hdr() %}
+<div class="phdr">
+  <b>{{ agency.name }} &nbsp;&mdash;&nbsp; Client Intake Package</b>
+  <span>Client Name: <u>{{ a.client_name }}</u></span>
+  <span>DOB: <u>{{ a.dob }}</u></span>
+  <span>MID#: <u>{{ a.mid or "____" }}</u></span>
+  <span>Record#: ______</span>
+  <span>Date of Intake: <u>{{ record.intake_date }}</u></span>
+  <span>Location: <u>{{ a.location or "Greensboro" }}</u></span>
+</div>
+{% endmacro %}
+
+{% macro V(value) %}<span class="v">{{ value if value else "" }}{% if not value %}<span class="empty">&mdash;</span>{% endif %}</span>{% endmacro %}
+
+{# Client signature slot: embedded drawn/typed signature, or DocuSign anchor #}
+{% macro clientsig(label) %}
+<div class="sigrow">
+  <div>
+    <div class="sigslot">
+      {% if docusign_mode %}<span class="anchor">{{ sign_anchor }}</span>
+      {% elif sig.image %}<img src="{{ sig.image }}" alt="signature">
+      {% else %}<span class="typed">{{ sig.typed or sig.signer_name }}</span>{% endif %}
+    </div>
+    <div class="siglabel">{{ label }} ({{ sig.signer_name }}, {{ sig.signer_role }})</div>
+  </div>
+  <div>
+    <div class="dateslot">{% if docusign_mode %}<span class="anchor">{{ date_anchor }}</span>{% else %}{{ record.intake_date }}{% endif %}</div>
+    <div class="siglabel">Date</div>
+  </div>
+</div>
+{% endmacro %}
+
+{% macro staffsig(label) %}
+<div class="sigrow">
+  <div style="flex:1"><div class="staffslot"></div><div class="siglabel">{{ label }}</div></div>
+  <div><div class="dateslot">&nbsp;</div><div class="siglabel">Date</div></div>
+</div>
+{% endmacro %}
+
+{% macro ini() %}{% if docusign_mode %}<span class="anchor">{{ initial_anchor }}</span>{% else %}<span class="initial">{{ sig.initials }}</span>{% endif %}{% endmacro %}
+
+<!-- ══════════════ Client Face Sheet ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Client Face Sheet</h2>
+  <div class="fld"><b>Gender:</b> {{ V(a.gender) }} &nbsp; <b>Race:</b> {{ V(a.race) }} &nbsp; <b>Ethnicity:</b> {{ V(a.ethnicity) }}</div>
+  <div class="fld"><b>Marital Status:</b> {{ V(a.marital) }} &nbsp; <b>Veteran:</b> {{ V(a.veteran) }}</div>
+  <div class="fld"><b>Street Address:</b> {{ V(a.address_street) }} <b>City:</b> {{ V(a.address_city) }} <b>State:</b> {{ V(a.address_state) }}</div>
+  <div class="fld"><b>Home Phone #:</b> {{ V(a.phone_home) }} &nbsp; <b>Cell Phone #:</b> {{ V(a.phone_cell) }}</div>
+  <div class="fld"><b>Living Arrangement:</b> {{ V(a.living) }}</div>
+  <div class="fld"><b>Employment Status:</b> {{ V(a.employment_status) }}</div>
+  {% if a.employment_status == "Employed" %}
+  <div class="fld"><b>Client Occupation:</b> {{ V(a.occupation) }} &nbsp; <b>Employer Name:</b> {{ V(a.employer_name) }}</div>
+  <div class="fld"><b>Employer Add:</b> {{ V(a.employer_addr) }} &nbsp; <b>Employer Phone #:</b> {{ V(a.employer_phone) }}</div>
+  {% endif %}
+  <div class="fld"><b>Education:</b> {{ V(a.education) }}</div>
+  <div class="fld"><b>Funding Sources:</b>
+    <span class="{{ 'checked' if a.has_medicaid == 'Yes' else 'unchecked' }}">Medicaid{% if a.medicaid_effective %} (Effective {{ a.medicaid_effective }}){% endif %}</span> &nbsp;
+    <span class="{{ 'checked' if a.has_medicare == 'Yes' else 'unchecked' }}">Medicare</span></div>
+  <div class="fld"><b>Income Sources:</b> {{ V(a.income|join(", ") if a.income else "") }}</div>
+  <div class="fld"><b>Client Email Address:</b> {{ V(a.email) }} &nbsp; <b>Guardian Email Address:</b> {{ V(a.guardian_email) }}</div>
+  <h3>Service Information (completed by staff after pre-screening and assessments)</h3>
+  <div class="fld"><b>Initial Screening Date:</b> ____________ &nbsp; <b>Initial Assessment Date:</b> ____________ &nbsp; <b>Official Admission Date:</b> ____________</div>
+</div>
+
+<!-- ══════════════ Client Screening Form ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Client Screening Form</h2>
+  <div class="fld"><b>Referral Date:</b> {{ record.intake_date }} &nbsp; <b>Referral Source:</b> {{ V(a.referral_source) }}</div>
+  <div class="fld"><b>MCO/LME / Health Plan:</b> {{ V(a.mco) }}</div>
+  <div class="fld"><b>Does client have a current Diagnosis?</b> {{ V(a.current_diagnosis_yn) }}
+    {% if a.diagnosis_list %}<br><b>If yes, list:</b> {{ a.diagnosis_list }}{% endif %}</div>
+  <div class="fld"><b>Does client have a current Therapist?</b> {{ V(a.current_therapist_yn) }}
+    {% if a.current_therapist_yn == "Yes" %} &nbsp; <b>Name:</b> {{ V(a.therapist_name) }} <b>Agency/Phone:</b> {{ V(a.therapist_agency_phone) }}{% endif %}</div>
+  <div class="fld"><b>Does client have Medicaid?</b> {{ V(a.has_medicaid) }}
+    {% if a.has_medicaid == "Yes" %} &nbsp; <b>MID#:</b> {{ V(a.mid) }} <b>Effective Date:</b> {{ V(a.medicaid_effective) }}{% endif %}</div>
+  <div class="fld"><b>NC Health Choice (NCHC) Policy #:</b> {{ V(a.nchc_policy) }}</div>
+  <div class="fld" style="margin-top:16px"><i>Staff section - to be completed by staff receiving intake:</i></div>
+  {{ staffsig("Staff Person receiving Intake / QP referred to") }}
+  <div class="fld"><b>Can the program meet the service, staffing and schedule needs of the individual referred?</b> ___ Y ___ N</div>
+  <div class="fld"><b>Admission Date:</b> ____________________</div>
+</div>
+
+<!-- ══════════════ Presenting Problem ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Presenting Problem</h2>
+  <div class="fld"><b>Presenting Problem (in the client's own words):</b><br>{{ V(a.presenting_problem) }}</div>
+  <div class="fld"><b>Pertinent Social, Family, or Medical History:</b><br>{{ V(a.mh_history) }}</div>
+  <div class="fld"><b>Other Agencies or Providers client has received / is receiving services from:</b><br>{{ V(a.other_agencies) }}</div>
+  <div class="fld" style="margin-top:14px"><i>Needs / Strengths / Abilities / Preferences, Diagnosis and Placement Considerations
+  to be completed by the Qualified Professional during assessment.</i></div>
+  {{ staffsig("Qualified Professional Signature") }}
+</div>
+
+<!-- ══════════════ Client Admission Assessment (client-provided portions) ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Client Admission Assessment</h2>
+  <div class="fld"><b>Date of Assessment:</b> {{ record.intake_date }}</div>
+  <div class="fld"><b>Gender:</b> {{ V(a.gender) }} &nbsp; <b>Street Address:</b> {{ V(a.address_street) }}</div>
+  <div class="fld"><b>Phone - Home:</b> {{ V(a.phone_home) }} &nbsp; <b>Mobile:</b> {{ V(a.phone_cell) }}</div>
+  <div class="fld"><b>Referral Source:</b> {{ V(a.referral_source) }}</div>
+  <div class="fld"><b>Funding Sources:</b> {{ "Medicaid" if a.has_medicaid == "Yes" }}{{ ", Medicare" if a.has_medicare == "Yes" }} &nbsp;
+       <b>Income Sources:</b> {{ V(a.income|join(", ") if a.income else "") }}</div>
+  <div class="fld"><b>Presenting Problems:</b><br>{{ V(a.presenting_problem) }}</div>
+  <div class="fld"><b>Consumer currently lives with / where:</b> {{ V(a.lives_with) }}</div>
+  <h3>Mental Health Information</h3>
+  <div class="fld"><b>Currently receiving Mental Health Services?</b> {{ V(a.current_therapist_yn) }}
+    {% if a.current_therapist_yn == "Yes" %}<br><b>Service Provider:</b> {{ V(a.therapist_name) }} {{ a.therapist_agency_phone }}{% endif %}</div>
+  <div class="fld"><b>History of Mental Health Issues:</b><br>{{ V(a.mh_history) }}</div>
+  <div class="fld"><b>Current Diagnosis if known:</b> {{ V(a.diagnosis_list) }}</div>
+  <h3>Medical Information</h3>
+  <div class="fld"><b>Limitations:</b> {{ V(a.limitations_desc) }}</div>
+  <div class="fld"><b>Primary Care Physician:</b> {{ V(a.pcp_name) }} &nbsp; <b>Telephone #:</b> {{ V(a.pcp_phone) }}</div>
+  <div class="fld"><b>Preferred Emergency Facility:</b> {{ V(a.emergency_facility or "Nearest emergency facility") }}</div>
+  <div class="fld"><b>Medical Diagnosis:</b> {{ V(a.medical_diagnoses) }}</div>
+  <div class="fld"><b>Medications:</b> {{ V(a.medications) }}</div>
+  <div class="fld"><b>Hospitalizations and Surgeries:</b> {{ V(a.hospitalizations) }}</div>
+  <div class="fld"><b>Allergies:</b> {{ V(((a.allergies_drug or "") ~ " " ~ (a.allergies_env or "")).strip()) }}</div>
+  <div class="fld"><b>Date of Last Physical Examination:</b> {{ V(a.last_physical) }}</div>
+  <h3>Legal Information</h3>
+  <div class="fld"><b>Pending court cases?</b> {{ V(a.court_pending_yn) }}
+    {% if a.court_desc %} &mdash; {{ a.court_desc }}{% endif %}</div>
+  <div class="fld"><b>Minor or adjudicated incompetent:</b> {{ V(a.is_minor_or_incompetent) }}</div>
+  {% if a.is_minor_or_incompetent == "Yes" %}
+  <div class="fld"><b>Legal Guardian:</b> {{ V(a.guardian_name) }} &nbsp; <b>Address:</b> {{ V(a.guardian_address) }} &nbsp; <b>Phone#:</b> {{ V(a.guardian_phone) }}</div>
+  {% endif %}
+  <div class="fld"><b>Emergency Contact:</b> {{ V(a.ec1_name) }} &nbsp; <b>Address:</b> {{ V(a.ec1_address) }} &nbsp; <b>Phone#:</b> {{ V(a.ec1_phone) }}</div>
+  <h3>Substance Abuse Information</h3>
+  <div class="fld"><b>Substance Abuse Diagnosis?</b>
+    {% if a.sa_status and "Denies" in a.sa_status %}Denies{% else %}{{ V(a.sa_status) }}{% endif %}</div>
+  {% if a.sa_status == "Yes" %}
+  <table class="grid">
+    <tr><th>Substance (client description)</th></tr>
+    {% for s in [a.sa1, a.sa2, a.sa3] %}{% if s %}<tr><td>{{ s }}</td></tr>{% endif %}{% endfor %}
+  </table>
+  {% endif %}
+  <div class="fld" style="margin-top:12px"><i>Severity of need, diagnosis coding and clinical determinations to be completed by the clinician.</i></div>
+  {{ staffsig("Signature of Clinician completing Admission Assessment") }}
+</div>
+
+<!-- ══════════════ Client Emergency Information ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Client Emergency Information</h2>
+  <div class="fld"><b>Client Street Address:</b> {{ V(a.address_street) }} <b>City:</b> {{ V(a.address_city) }} <b>State:</b> {{ V(a.address_state) }}</div>
+  <div class="fld"><b>Home Telephone #:</b> {{ V(a.phone_home) }} &nbsp; <b>Cell phone #:</b> {{ V(a.phone_cell) }}</div>
+  <div class="fld"><b>Height:</b> {{ V(a.height) }} <b>Weight:</b> {{ V(a.weight) }} <b>Hair Color:</b> {{ V(a.hair) }} <b>Eye Color:</b> {{ V(a.eyes) }}</div>
+  <div class="fld"><b>Medical Alerts and Conditions:</b> {{ V(a.medical_diagnoses) }}</div>
+  <div class="fld"><b>Drug Allergies:</b> {{ V(a.allergies_drug) }}</div>
+  <div class="fld"><b>Environmental Allergies:</b> {{ V(a.allergies_env) }}</div>
+  <div class="fld"><b>Medications:</b> {{ V(a.medications) }}</div>
+  <div class="fld"><b>Over The Counter Medications:</b> {{ V(a.otc_meds) }}</div>
+  <div class="fld"><b>Identifying Marks, Scars, Tattoos:</b> {{ V(a.marks) }}</div>
+  <div class="fld"><b>Special Diets:</b> {{ V(a.diets) }}</div>
+  <div class="fld"><b>Language:</b> {{ V(a.language) }}</div>
+  <p class="legal">The emergency information provided above is correct to the best of my knowledge. I hereby grant
+  {{ agency.name }} permission to administer or seek emergency treatment for me.</p>
+  <div class="fld"><b>Primary Care Physician:</b> {{ V(a.pcp_name) }} &nbsp; <b>Address:</b> {{ V(a.pcp_address) }} &nbsp; <b>Telephone #:</b> {{ V(a.pcp_phone) }}</div>
+  <div class="fld"><b>Preferred Emergency Facility:</b> {{ V(a.emergency_facility) }}</div>
+  {% if a.has_pcp == "No" %}
+  <div class="fld checked">I do not have a primary care or preferred physician and would like to seek treatment at the nearest emergency facility.</div>
+  {% endif %}
+  {{ clientsig("Client Signature / Guardian Signature") }}
+  <div class="fld"><b>Emergency Contact Name:</b> {{ V(a.ec1_name) }} &nbsp; <b>Address:</b> {{ V(a.ec1_address) }} &nbsp; <b>Phone #:</b> {{ V(a.ec1_phone) }}</div>
+  {% if a.ec2_name %}
+  <div class="fld"><b>Emergency Contact 2 Name:</b> {{ V(a.ec2_name) }} &nbsp; <b>Address:</b> {{ V(a.ec2_address) }} &nbsp; <b>Phone #:</b> {{ V(a.ec2_phone) }}</div>
+  {% endif %}
+</div>
+
+<!-- ══════════════ Consents (each rendered only if agreed) ══════════════ -->
+{% for key, title, text in consent_defs %}
+<div class="page">
+  {{ hdr() }}
+  <h2>{{ title }}</h2>
+  {% if key == "provider_choice" %}
+  <p class="legal">I understand that I have the right to choose which provider will provide services to me. I have
+  selected {{ agency.name }} as my provider of choice and have been offered a list of other providers who offer the
+  same or similar services based on my medical needs. I understand that at any time I may change my service provider
+  and will, if possible, provide {{ agency.name }} a reasonable notice so that my current provider can arrange the
+  discharge and transition of my records to the new provider that I have selected. I have been given a copy of this
+  statement and understand that if I have questions or concerns I may contact the appropriate Local Management Entity
+  for the county in which I reside.</p>
+  <div class="fld"><b>Plan selected:</b> {{ V(a.mco) }}</div>
+  {% elif key == "oncall" %}
+  <p class="legal">I, <u>{{ a.client_name }}</u>, have been informed that {{ agency.name }} provides a 24 hours,
+  7 days a week emergency telephone number. The {{ agency.name }} Crisis Number is {{ agency.crisis }}.</p>
+  {% elif key == "transport" %}
+  <p class="legal">I authorize {{ agency.name }} to provide transportation to <u>{{ a.client_name }}</u> for the
+  purpose of providing comprehensive Mental Health/Developmental/Substance Abuse Services and any other activities
+  associated with my treatment plan. I understand that {{ agency.name }} is not responsible for any accidents that may
+  occur while transportation is being provided. I certify that the above statements have been read and explained to me.</p>
+  {% elif key == "emergency_care" %}
+  <p class="legal">As a client, parent, or legal guardian I, <u>{{ sig.signer_name }}</u>, hereby authorize
+  {{ agency.name }} to obtain emergency medical care for me or my child if the need arises. I have provided the medical
+  facility of my preference. If this is not possible the nearest emergency facility will become my preference. Every
+  attempt will be made to contact my emergency contacts, for whom I have given consent for release of confidential
+  medical information.</p>
+  <div class="fld"><b>Emergency Contact:</b> {{ V(a.ec1_name) }} &nbsp; {{ V(a.ec1_address) }} &nbsp; {{ V(a.ec1_phone) }}</div>
+  {% if a.ec2_name %}<div class="fld"><b>Emergency Contact 2:</b> {{ V(a.ec2_name) }} &nbsp; {{ V(a.ec2_address) }} &nbsp; {{ V(a.ec2_phone) }}</div>{% endif %}
+  {% elif key == "treatment" %}
+  <p class="legal">{{ ini() }} 1. I understand: (a) my protection regarding confidential information and disclosure of
+  such; (b) how to receive a copy of my service plan; (c) fees charged and collection of those fees for treatment
+  provided; (d) grievance procedure to follow; (e) suspension and expulsion from services; (f) search and seizure of
+  personal possessions.</p>
+  <p class="legal">{{ ini() }} 2. I understand I can contact the Governor's Advocacy Council for Persons with
+  Disabilities (GACPD), 2626 Glenwood Avenue Suite 550, Raleigh NC 27608. Voice (919) 856-2195, Toll Free (877)
+  235-4210, TTY 888-268-5535, Email: info@disabilityrightsnc.org.</p>
+  <p class="legal">{{ ini() }} 3. I understand the benefits, potential risks, and possible alternative methods of treatment.</p>
+  <p class="legal">{{ ini() }} 4. I understand I have the right to refuse treatment at any time but choose to consent
+  to treatment at this time. My refusal will not be used as sole grounds for termination of services unless it is the
+  only viable option available.</p>
+  <p class="legal">{{ ini() }} 5. I have received a copy of "Your Rights as a Client" and understand I have the right
+  to be free from harm, abuse, neglect and exploitation.</p>
+  <p class="legal">{{ ini() }} 6. I have received a copy of the consumer handbook and related application information.</p>
+  {% else %}
+  <p class="legal">{{ text }}</p>
+  {% endif %}
+  {% if consents[key] %}
+  {{ clientsig("Client/Guardian Signature") }}
+  {% else %}
+  <p class="legal"><b>Status: NOT agreed during electronic intake - obtain signature in person.</b></p>
+  {% endif %}
+  {% if key in ("orientation", "rights", "bill_of_rights", "hipaa", "confidentiality", "transport", "emergency_care", "emergency_interventions") %}
+  {{ staffsig("Staff Explaining Signature") }}
+  {% endif %}
+</div>
+{% endfor %}
+
+<!-- ══════════════ Release of Information consents ══════════════ -->
+{% for n, to, items, purpose in [("1", a.roi1_to, a.roi1_items, a.roi1_purpose), ("2", a.roi2_to, none, none)] %}
+{% if to %}
+<div class="page">
+  {{ hdr() }}
+  <h2>Consent to Permit Use and Disclosure Pertaining to Protection of HIV/AIDs and Substance Abuse Information</h2>
+  <p class="legal">I, <u>{{ a.client_name }}</u>, give {{ agency.name }} consent to provide protected medical
+  information to <u>{{ to }}</u>. This includes all checked records and other information regarding my treatment,
+  hospitalization, and outpatient care including and not limited to HIV/AIDS, drug abuse, alcoholism or other
+  substance abuse.</p>
+  <div class="fld">
+    {% for item in roi_items %}
+      <span class="{{ 'checked' if items and item in items else 'unchecked' }}" style="display:inline-block;width:48%">{{ ini() if items and item in items }} {{ item }}</span>
+    {% endfor %}
+  </div>
+  <div class="fld"><b>Purpose of Disclosure:</b> {{ V(purpose or "Continuity of Care") }}</div>
+  <p class="legal">{{ ini() }} I understand that my alcohol and/or drug treatment records are protected under the
+  federal regulations governing Confidentiality of Alcohol and Drug Abuse Patient Records, 42 C.F.R. Part 2, and
+  HIPAA, 45 C.F.R. Pts. 160 &amp; 164, and cannot be disclosed without my written consent unless otherwise provided
+  for in the regulations. I may revoke this consent at any time except to the extent that action has been taken in
+  reliance on it.</p>
+  <p class="legal">{{ ini() }} I understand that confidential information relative to a service recipient with HIV
+  infection, AIDS or AIDS related conditions shall only be released in accordance with G.S. 130A-143.</p>
+  <p class="legal">{{ ini() }} I understand this authorization is made freely, voluntarily and without coercion, and
+  is valid for one (1) year from the date of my signature or until I notify {{ agency.name }} of revocation.</p>
+  {{ clientsig("Client/Legal Guardian/Appointed Representative") }}
+  {{ staffsig("Witness Signature") }}
+</div>
+{% endif %}
+{% endfor %}
+
+<!-- ══════════════ PCP Collaboration Form (prefilled for staff) ══════════════ -->
+{% if a.pcp_name %}
+<div class="page">
+  {{ hdr() }}
+  <h2>Primary Care Physician and Medical Director Collaboration Form</h2>
+  <div class="fld"><b>To:</b> {{ V(a.pcp_name) }} &nbsp; <b>Phone:</b> {{ V(a.pcp_phone) }}</div>
+  <div class="fld"><b>Name of practice / Address:</b> {{ V(a.pcp_address) }}</div>
+  <div class="fld"><b>Provider Agency:</b> {{ agency.name }} &nbsp; <b>Address:</b> {{ agency.address }} &nbsp; <b>Phone:</b> {{ agency.phone }}</div>
+  <p class="legal">Dear Primary Care Provider: We are sending this information to you for coordination of care. We
+  have been informed that you are the Primary Care Physician for this client. If you would like more information or
+  need to discuss this client, please contact {{ agency.name }} at the above address.</p>
+  <div class="fld"><b>Client Name:</b> {{ V(a.client_name) }} &nbsp; <b>Medicaid:</b> {{ V(a.mid) }} &nbsp; <b>Date of Birth:</b> {{ V(a.dob) }}</div>
+  <div class="fld"><b>Reason for this communication:</b> <span class="checked">Coordination of care</span></div>
+  <div class="fld" style="margin-top:10px"><i>Diagnosis, clinician details and send record to be completed by staff.</i></div>
+  {{ staffsig("Clinician completing form - Signature") }}
+</div>
+{% endif %}
+
+<!-- ══════════════ Welcome Letter ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Letter from the Executive and Leadership Team</h2>
+  <p class="legal">Dear <u>{{ a.client_name }}</u>,</p>
+  <p class="legal">We at {{ agency.name }} would like to welcome you to our agency. We are committed to making your
+  experience with our agency and staff one of quality service, quality care, and quality staff. Our mission and vision
+  is dedicated to the empowerment of all who walk through these doors:</p>
+  <p class="legal"><i>Dedicated to the empowerment of You, our client, and to strive to assist you, your families and
+  other stakeholders in achieving an enhanced quality of life through the provisioning of effective and efficient
+  person-centered services.</i></p>
+  <p class="legal"><b>Our Executive Team:</b><br>{% for m in agency.team %}{{ m }}<br>{% endfor %}</p>
+  <p class="legal"><b>Office Hours:</b> {{ agency.office_hours }}<br><b>Emergency Contact Number:</b> {{ agency.crisis }}</p>
+  <p class="legal">During your intake process you should have received a number of documents and a Client Handbook.
+  Please take the time to read over these documents. Do not hesitate to call your team member or a member of the
+  Executive and Leadership team for any issue or concern between 10:00am and 4:00pm Monday through Friday.</p>
+</div>
+
+<!-- ══════════════ Referrals ══════════════ -->
+{% if a.get("referral1_name") or true %}
+<div class="page">
+  {{ hdr() }}
+  <h2>Referrals for Services</h2>
+  <p class="legal">Are there others in your family or friends who may benefit from {{ agency.name }} services?</p>
+  <table class="grid">
+    <tr><th>Name</th><th>Can Be Reached At</th></tr>
+    <tr><td style="height:24px">{{ a.get("referral1_name","") }}</td><td>{{ a.get("referral1_phone","") }}</td></tr>
+    <tr><td style="height:24px"></td><td></td></tr>
+    <tr><td style="height:24px"></td><td></td></tr>
+  </table>
+</div>
+{% endif %}
+
+<!-- ══════════════ Comprehensive Clinical Assessment Signature Page ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Comprehensive Clinical Assessment Signature Page</h2>
+  <p class="legal">My signature below affirms that I have met with this clinician either via face to face,
+  telemedicine or any other approved form as mandated by state and federal laws, rules, or regulations and agree with
+  the information gathered during this assessment. I understand that the conclusions and recommendations made by the
+  clinician are based on the information that I have given the clinician and information given to the clinician from
+  collateral supports/contacts, and that they may change based on ongoing assessment of my needs as I receive
+  services from this agency.</p>
+  <div class="fld"><b>Printed name of Client:</b> {{ V(a.client_name) }}</div>
+  {{ clientsig("Signature of Client") }}
+  {% if a.is_minor_or_incompetent == "Yes" and a.guardian_name %}
+  <div class="fld"><b>Printed name of Legal Guardian:</b> {{ V(a.guardian_name) }}</div>
+  {% if sig.signer_role == "Parent/Guardian" %}{{ clientsig("Signature of Legal Guardian") }}{% else %}{{ staffsig("Signature of Legal Guardian") }}{% endif %}
+  {% endif %}
+  {{ staffsig("Printed Name & Signature of Licensed Clinician") }}
+  {{ staffsig("Printed Name & Signature of Medical Director") }}
+</div>
+
+<!-- ══════════════ Outpatient Treatment Plan Signature Page ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Outpatient Treatment Plan Signature Page</h2>
+  <div class="fld"><b>Client Name:</b> {{ V(a.client_name) }} &nbsp; <b>Record Number:</b> ______</div>
+  <p class="legal">Staff and Client/Legally Responsible Person/Guardian sign below whenever the plan is implemented,
+  reviewed, or revised.</p>
+  <p class="legal"><i>Staff:</i> Services included in this service plan have been determined to meet medical necessity
+  in accordance with criteria found in the service definition.</p>
+  {{ staffsig("Staff Signature") }}
+  <p class="legal"><i>Client:</i> I have met with staff at {{ agency.name }} and have had input into this plan.
+  I agree, and I have been given a copy of this plan.</p>
+  {% if consents.treatment_plan %}{{ clientsig("Client/Legally Responsible/Guardian Signature") }}{% else %}{{ staffsig("Client/Legally Responsible/Guardian Signature") }}{% endif %}
+</div>
+
+<!-- ══════════════ Tailored Plan permission ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Insurance / Tailored Plan Permission</h2>
+  <p class="legal">To whom it may concern: If the service ordered by the physician is not covered in my Insurance
+  Plan then I, <u>{{ a.client_name }}</u>, give {{ agency.name }} permission to switch my insurance to the Tailored
+  Plan that best suits my service needs.</p>
+  {% if consents.insurance_switch %}{{ clientsig("Consumer Signature") }}{% else %}<p class="legal"><b>Status: NOT agreed during electronic intake.</b></p>{% endif %}
+  {{ staffsig("Moore Divine Care Staff Witness") }}
+</div>
+
+<!-- ══════════════ Electronic signature audit trail ══════════════ -->
+<div class="page">
+  {{ hdr() }}
+  <h2>Electronic Signature Certificate</h2>
+  <div class="audit">
+    <p><b>This intake packet was completed and signed electronically.</b></p>
+    <p>Signer: <b>{{ sig.signer_name }}</b> ({{ sig.signer_role }})<br>
+    Signature method: {{ "Drawn on screen" if sig.image else "Typed signature" }}<br>
+    Applied initials: {{ sig.initials }}<br>
+    Consent to electronic signature: Yes<br>
+    Submitted (UTC): {{ record.audit.timestamp_utc }}<br>
+    IP address: {{ record.audit.ip }}<br>
+    Device: {{ record.audit.user_agent }}<br>
+    Intake ID: {{ record.id }}</p>
+    <p>Consents agreed electronically:
+    {% for key, title, text in consent_defs %}{% if consents[key] %}{{ title }}; {% endif %}{% endfor %}</p>
+  </div>
+</div>
+
+</body>
+</html>

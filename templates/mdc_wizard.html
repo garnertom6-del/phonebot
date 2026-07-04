@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>Moore Divine Care &mdash; Client Intake</title>
+<style>
+  :root { --brand:#3b5b92; --brand-dark:#2c4570; --ok:#2e7d32; --bg:#f4f6fa; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"Segoe UI",Roboto,Arial,sans-serif; background:var(--bg); color:#1d2733; }
+  .top { background:var(--brand); color:#fff; padding:14px 16px; position:sticky; top:0; z-index:5; }
+  .top h1 { margin:0; font-size:17px; font-weight:600; }
+  .top .sub { font-size:12px; opacity:.85; }
+  #bar { height:6px; background:rgba(255,255,255,.25); border-radius:3px; margin-top:8px; overflow:hidden; }
+  #bar div { height:100%; width:0%; background:#9fd68a; transition:width .3s; }
+  .wrap { max-width:640px; margin:0 auto; padding:16px 14px 120px; }
+  .step { display:none; animation:fade .25s; }
+  .step.active { display:block; }
+  @keyframes fade { from {opacity:0; transform:translateY(6px);} to {opacity:1;} }
+  h2 { font-size:20px; margin:10px 0 4px; }
+  .hint { color:#5a6a7d; font-size:14px; margin:0 0 14px; }
+  label.q { display:block; font-weight:600; font-size:15px; margin:16px 0 6px; }
+  .req { color:#c62828; }
+  input[type=text], input[type=date], input[type=email], input[type=tel], select, textarea {
+    width:100%; padding:13px 12px; font-size:16px; border:1.5px solid #c7d0dc; border-radius:10px; background:#fff;
+  }
+  textarea { min-height:96px; resize:vertical; }
+  input:focus, select:focus, textarea:focus { outline:none; border-color:var(--brand); }
+  .voice-row { display:flex; gap:8px; align-items:stretch; }
+  .voice-row > :first-child { flex:1; }
+  .mic { flex:0 0 52px; border:1.5px solid #c7d0dc; border-radius:10px; background:#fff; font-size:22px; cursor:pointer; }
+  .mic.listening { background:#ffebee; border-color:#c62828; animation:pulse 1s infinite; }
+  @keyframes pulse { 50% { transform:scale(1.06); } }
+  .choices { display:flex; flex-wrap:wrap; gap:8px; margin-top:4px; }
+  .choices button { padding:11px 15px; font-size:15px; border:1.5px solid #c7d0dc; background:#fff; border-radius:22px; cursor:pointer; }
+  .choices button.sel { background:var(--brand); color:#fff; border-color:var(--brand); }
+  .nav { position:fixed; bottom:0; left:0; right:0; background:#fff; border-top:1px solid #dde3ec; padding:12px 14px;
+         display:flex; gap:10px; max-width:100%; z-index:5; }
+  .nav .inner { max-width:640px; margin:0 auto; display:flex; gap:10px; width:100%; }
+  .btn { flex:1; padding:15px; font-size:17px; font-weight:600; border:none; border-radius:12px; cursor:pointer; }
+  .btn.next { background:var(--brand); color:#fff; }
+  .btn.next:active { background:var(--brand-dark); }
+  .btn.back { background:#e6ebf2; color:#33465e; flex:0 0 90px; }
+  .card { background:#fff; border:1px solid #dde3ec; border-radius:12px; padding:14px; margin:12px 0; }
+  .consent-title { font-weight:700; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+  .consent-text { font-size:13px; color:#4a5a6d; margin:8px 0; display:none; }
+  .consent-text.open { display:block; }
+  .toggle { font-size:13px; color:var(--brand); background:none; border:none; cursor:pointer; padding:0; }
+  .agree { display:flex; align-items:center; gap:10px; margin-top:8px; font-size:15px; }
+  .agree input { width:22px; height:22px; }
+  #sigpad { width:100%; height:170px; border:1.5px dashed #9fb0c4; border-radius:12px; background:#fff; touch-action:none; }
+  .sig-actions { display:flex; gap:10px; margin-top:8px; }
+  .sig-actions button { padding:9px 14px; border:1.5px solid #c7d0dc; background:#fff; border-radius:10px; cursor:pointer; }
+  .err { color:#c62828; font-size:14px; margin-top:10px; display:none; }
+  .mini { font-size:13px; color:#5a6a7d; }
+  .rowflex { display:flex; gap:10px; }
+  .rowflex > div { flex:1; }
+  .sub-block { border-left:3px solid #d8e0ea; padding-left:12px; margin-top:8px; }
+  .review-sec { margin:10px 0; }
+  .review-sec b { display:block; margin-bottom:4px; }
+  .voicehelp { background:#eef4ff; border:1px solid #c9daf5; border-radius:10px; padding:10px 12px; font-size:13.5px; margin-top:12px; }
+</style>
+</head>
+<body>
+<div class="top">
+  <h1>Moore Divine Care, Inc.</h1>
+  <div class="sub">Client Intake &mdash; answer by speaking or typing</div>
+  <div id="bar"><div></div></div>
+</div>
+
+<div class="wrap" id="steps">
+
+  <!-- 0 Welcome -->
+  <section class="step" data-title="Welcome">
+    <h2>Welcome!</h2>
+    <p class="hint">This replaces the paper intake packet. It usually takes about <b>15 minutes</b>
+    instead of an hour of paperwork. Your answers automatically fill in the entire packet, and you
+    only sign <b>once</b> at the end.</p>
+    <div class="voicehelp">🎤 <b>Prefer to talk?</b> Tap the microphone button next to any answer box
+    and just say your answer out loud. You can fix anything by typing.</div>
+    <p class="mini" style="margin-top:14px">Your information is sent securely to Moore Divine Care, Inc.
+    and used only for your care. Questions? Call {{ agency.phone }}.</p>
+  </section>
+
+  <!-- 1 About you -->
+  <section class="step" data-title="About you">
+    <h2>About you</h2>
+    <label class="q">Your full legal name <span class="req">*</span></label>
+    <div class="voice-row"><input type="text" id="client_name" autocomplete="name"><button class="mic" data-for="client_name">🎤</button></div>
+    <label class="q">Date of birth <span class="req">*</span></label>
+    <input type="date" id="dob">
+    <label class="q">Medicaid ID number (MID#) <span class="mini">- skip if you don't have it handy</span></label>
+    <div class="voice-row"><input type="text" id="mid" inputmode="numeric"><button class="mic" data-for="mid">🎤</button></div>
+    <label class="q">Social Security Number <span class="mini">- optional</span></label>
+    <input type="text" id="ssn" inputmode="numeric" autocomplete="off" placeholder="___-__-____">
+  </section>
+
+  <!-- 2 Demographics -->
+  <section class="step" data-title="Demographics">
+    <h2>A few details about you</h2>
+    <label class="q">Gender</label>
+    <div class="choices" data-single="gender">
+      <button>Female</button><button>Male</button><button>Transgender</button><button>Other</button>
+    </div>
+    <label class="q">Race</label>
+    <div class="choices" data-single="race">
+      <button>American Indian or Alaska Native</button><button>Asian</button>
+      <button>Black or African American</button><button>Caucasian or White</button>
+      <button>Multiracial</button><button>Native American</button>
+      <button>Native Hawaiian or Pacific Islander</button>
+    </div>
+    <label class="q">Ethnicity</label>
+    <div class="choices" data-single="ethnicity">
+      <button>Hispanic/White</button><button>Non-Hispanic/White</button><button>Latino</button>
+      <button>Hispanic/Black</button><button>Non-Hispanic/Black</button>
+    </div>
+    <label class="q">Marital status</label>
+    <div class="choices" data-single="marital">
+      <button>Single</button><button>Married</button><button>Separated</button><button>Widowed</button>
+    </div>
+    <label class="q">Are you a veteran?</label>
+    <div class="choices" data-single="veteran"><button>Yes</button><button>No</button></div>
+    <label class="q">Highest education</label>
+    <div class="choices" data-single="education">
+      <button>Grade/Elementary</button><button>High School/GED</button><button>College</button>
+      <button>Graduate</button><button>Post Graduate</button>
+    </div>
+    <label class="q">Preferred language</label>
+    <div class="choices" data-single="language">
+      <button>English</button><button>Spanish</button><button>French</button><button>German</button><button>Other</button>
+    </div>
+  </section>
+
+  <!-- 3 Contact -->
+  <section class="step" data-title="Contact">
+    <h2>How can we reach you?</h2>
+    <label class="q">Street address <span class="req">*</span></label>
+    <div class="voice-row"><input type="text" id="address_street" autocomplete="street-address"><button class="mic" data-for="address_street">🎤</button></div>
+    <div class="rowflex">
+      <div><label class="q">City</label><div class="voice-row"><input type="text" id="address_city"><button class="mic" data-for="address_city">🎤</button></div></div>
+      <div style="flex:0 0 90px"><label class="q">State</label><input type="text" id="address_state" value="NC" maxlength="2"></div>
+    </div>
+    <label class="q">Cell phone <span class="req">*</span></label>
+    <input type="tel" id="phone_cell" autocomplete="tel">
+    <label class="q">Home phone <span class="mini">- if different</span></label>
+    <input type="tel" id="phone_home">
+    <label class="q">Email address <span class="mini">- used to send you your copies / DocuSign</span></label>
+    <input type="email" id="email" autocomplete="email">
+    <label class="q">Living arrangement</label>
+    <div class="choices" data-single="living">
+      <button>Adult with Spouse</button><button>Adult with Relative</button><button>Adult Alone</button>
+      <button>Homeless</button><button>Residential</button><button>Living in hospital/institution</button>
+      <button>Child with Parent</button><button>Child with other relative</button><button>Child with Non-relative</button>
+    </div>
+    <label class="q">Who do you live with, and where?</label>
+    <div class="voice-row"><input type="text" id="lives_with" placeholder="e.g., my mother, in Greensboro"><button class="mic" data-for="lives_with">🎤</button></div>
+  </section>
+
+  <!-- 4 Work & money -->
+  <section class="step" data-title="Work &amp; income">
+    <h2>Work and income</h2>
+    <label class="q">Employment status</label>
+    <div class="choices" data-single="employment_status">
+      <button>Not in Labor Force</button><button>Unemployed</button><button>Disabled</button><button>Employed</button>
+    </div>
+    <div class="sub-block" id="emp_details" style="display:none">
+      <label class="q">Occupation</label>
+      <div class="voice-row"><input type="text" id="occupation"><button class="mic" data-for="occupation">🎤</button></div>
+      <label class="q">Employer name</label>
+      <div class="voice-row"><input type="text" id="employer_name"><button class="mic" data-for="employer_name">🎤</button></div>
+      <label class="q">Employer address</label>
+      <div class="voice-row"><input type="text" id="employer_addr"><button class="mic" data-for="employer_addr">🎤</button></div>
+      <label class="q">Employer phone</label>
+      <input type="tel" id="employer_phone">
+    </div>
+    <label class="q">Income sources <span class="mini">- pick all that apply</span></label>
+    <div class="choices" data-multi="income">
+      <button>Employment</button><button>Disability</button><button>VA Benefits</button><button>Other</button>
+    </div>
+  </section>
+
+  <!-- 5 Insurance -->
+  <section class="step" data-title="Insurance">
+    <h2>Insurance &amp; coverage</h2>
+    <label class="q">Do you have Medicaid?</label>
+    <div class="choices" data-single="has_medicaid"><button>Yes</button><button>No</button></div>
+    <div class="sub-block" id="medicaid_details" style="display:none">
+      <label class="q">Medicaid effective date <span class="mini">- if known</span></label>
+      <input type="date" id="medicaid_effective">
+    </div>
+    <label class="q">Do you have Medicare?</label>
+    <div class="choices" data-single="has_medicare"><button>Yes</button><button>No</button></div>
+    <label class="q">Your health plan (MCO/LME)</label>
+    <div class="choices" data-single="mco">
+      <button>Alliance</button><button>Partners BH</button><button>Trillium</button><button>Vaya</button>
+      <button>AmeriHealth</button><button>Carolina Complete</button><button>Healthy Blue</button>
+      <button>United Healthcare</button><button>Wellcare</button><button>Blue Cross Blue Shield</button>
+      <button>Medicaid Direct</button><button>Not sure</button>
+    </div>
+    <label class="q">NC Health Choice policy # <span class="mini">- only if you have NCHC</span></label>
+    <input type="text" id="nchc_policy">
+  </section>
+
+  <!-- 6 Why you're here -->
+  <section class="step" data-title="Reason for services">
+    <h2>What brings you in?</h2>
+    <p class="hint">Take your time - tap the mic and just talk. This is the most important answer.</p>
+    <label class="q">In your own words: what brings you in, and why do you feel the need for services? <span class="req">*</span></label>
+    <div class="voice-row"><textarea id="presenting_problem"></textarea><button class="mic" data-for="presenting_problem">🎤</button></div>
+    <label class="q">Who referred you to us?</label>
+    <div class="choices" data-single="referral_source">
+      <button>Myself</button><button>DSS</button><button>Family/Friend</button><button>School</button>
+      <button>Private Physician</button><button>Provider Agency</button><button>LME</button>
+      <button>State Facility</button><button>Social Agency</button><button>Employer</button>
+      <button>Voc. Rehab</button><button>Inpatient/Outpatient Facility</button>
+    </div>
+    <label class="q">Do you have a current mental health diagnosis?</label>
+    <div class="choices" data-single="current_diagnosis_yn"><button>Yes</button><button>No</button><button>Not sure</button></div>
+    <div class="sub-block" id="diag_details" style="display:none">
+      <label class="q">What diagnosis (as best you know)?</label>
+      <div class="voice-row"><textarea id="diagnosis_list"></textarea><button class="mic" data-for="diagnosis_list">🎤</button></div>
+    </div>
+    <label class="q">Do you currently see a therapist or receive mental health services?</label>
+    <div class="choices" data-single="current_therapist_yn"><button>Yes</button><button>No</button></div>
+    <div class="sub-block" id="therapist_details" style="display:none">
+      <label class="q">Therapist / provider name</label>
+      <div class="voice-row"><input type="text" id="therapist_name"><button class="mic" data-for="therapist_name">🎤</button></div>
+      <label class="q">Their agency and phone</label>
+      <div class="voice-row"><input type="text" id="therapist_agency_phone"><button class="mic" data-for="therapist_agency_phone">🎤</button></div>
+    </div>
+    <label class="q">Any history of mental health issues we should know about?</label>
+    <div class="voice-row"><textarea id="mh_history"></textarea><button class="mic" data-for="mh_history">🎤</button></div>
+    <label class="q">Other agencies or providers you receive services from now or in the past</label>
+    <div class="voice-row"><textarea id="other_agencies"></textarea><button class="mic" data-for="other_agencies">🎤</button></div>
+  </section>
+
+  <!-- 7 Medical -->
+  <section class="step" data-title="Medical">
+    <h2>Your health</h2>
+    <label class="q">Do you have a primary care doctor?</label>
+    <div class="choices" data-single="has_pcp"><button>Yes</button><button>No</button></div>
+    <div class="sub-block" id="pcp_details" style="display:none">
+      <label class="q">Doctor's name</label>
+      <div class="voice-row"><input type="text" id="pcp_name"><button class="mic" data-for="pcp_name">🎤</button></div>
+      <label class="q">Doctor's phone</label>
+      <input type="tel" id="pcp_phone">
+      <label class="q">Doctor's address / practice</label>
+      <div class="voice-row"><input type="text" id="pcp_address"><button class="mic" data-for="pcp_address">🎤</button></div>
+    </div>
+    <label class="q">Preferred emergency room / hospital <span class="mini">- leave blank for nearest facility</span></label>
+    <div class="voice-row"><input type="text" id="emergency_facility"><button class="mic" data-for="emergency_facility">🎤</button></div>
+    <label class="q">Medications you take now (prescription)</label>
+    <div class="voice-row"><textarea id="medications" placeholder="name and dose if you know it"></textarea><button class="mic" data-for="medications">🎤</button></div>
+    <label class="q">Over-the-counter medications</label>
+    <div class="voice-row"><textarea id="otc_meds"></textarea><button class="mic" data-for="otc_meds">🎤</button></div>
+    <label class="q">Drug allergies</label>
+    <div class="voice-row"><input type="text" id="allergies_drug" placeholder="None if none"><button class="mic" data-for="allergies_drug">🎤</button></div>
+    <label class="q">Other allergies (food, environment)</label>
+    <div class="voice-row"><input type="text" id="allergies_env"><button class="mic" data-for="allergies_env">🎤</button></div>
+    <label class="q">Medical conditions / diagnoses (physical health)</label>
+    <div class="voice-row"><textarea id="medical_diagnoses"></textarea><button class="mic" data-for="medical_diagnoses">🎤</button></div>
+    <label class="q">Past hospitalizations or surgeries</label>
+    <div class="voice-row"><textarea id="hospitalizations"></textarea><button class="mic" data-for="hospitalizations">🎤</button></div>
+    <label class="q">Any physical limitations?</label>
+    <div class="voice-row"><input type="text" id="limitations_desc" placeholder="None if none"><button class="mic" data-for="limitations_desc">🎤</button></div>
+    <label class="q">Date of last physical exam <span class="mini">- approximate is fine</span></label>
+    <div class="voice-row"><input type="text" id="last_physical" placeholder="e.g., March 2026"><button class="mic" data-for="last_physical">🎤</button></div>
+    <div class="rowflex">
+      <div><label class="q">Height</label><input type="text" id="height" placeholder="5'8&quot;"></div>
+      <div><label class="q">Weight</label><input type="text" id="weight" placeholder="160 lbs"></div>
+    </div>
+    <div class="rowflex">
+      <div><label class="q">Hair color</label><input type="text" id="hair"></div>
+      <div><label class="q">Eye color</label><input type="text" id="eyes"></div>
+    </div>
+    <label class="q">Identifying marks, scars, tattoos</label>
+    <div class="voice-row"><input type="text" id="marks"><button class="mic" data-for="marks">🎤</button></div>
+    <label class="q">Special diets</label>
+    <div class="voice-row"><input type="text" id="diets"><button class="mic" data-for="diets">🎤</button></div>
+  </section>
+
+  <!-- 8 Substance use -->
+  <section class="step" data-title="Substance use">
+    <h2>Substance use</h2>
+    <p class="hint">Honest answers help us take better care of you. This is confidential.</p>
+    <label class="q">Have you ever been given a substance abuse diagnosis, or do you use alcohol or other substances?</label>
+    <div class="choices" data-single="sa_status"><button>Yes</button><button>No</button><button>Prefer not to say (Denies)</button></div>
+    <div class="sub-block" id="sa_details" style="display:none">
+      <p class="mini">List up to three - say the substance, how old you were when you first used, how often, and when you last used.</p>
+      <label class="q">Substance 1</label>
+      <div class="voice-row"><input type="text" id="sa1" placeholder="e.g., alcohol, started 16, weekends, last used last week"><button class="mic" data-for="sa1">🎤</button></div>
+      <label class="q">Substance 2</label>
+      <div class="voice-row"><input type="text" id="sa2"><button class="mic" data-for="sa2">🎤</button></div>
+      <label class="q">Substance 3</label>
+      <div class="voice-row"><input type="text" id="sa3"><button class="mic" data-for="sa3">🎤</button></div>
+    </div>
+  </section>
+
+  <!-- 9 Legal & guardian -->
+  <section class="step" data-title="Legal">
+    <h2>Legal information</h2>
+    <label class="q">Any pending court cases?</label>
+    <div class="choices" data-single="court_pending_yn"><button>Yes</button><button>No</button></div>
+    <div class="sub-block" id="court_details" style="display:none">
+      <label class="q">Briefly describe</label>
+      <div class="voice-row"><textarea id="court_desc"></textarea><button class="mic" data-for="court_desc">🎤</button></div>
+    </div>
+    <label class="q">Is the client a minor, or an adult with a legal guardian?</label>
+    <div class="choices" data-single="is_minor_or_incompetent"><button>Yes</button><button>No</button></div>
+    <div class="sub-block" id="guardian_details" style="display:none">
+      <label class="q">Legal guardian's name</label>
+      <div class="voice-row"><input type="text" id="guardian_name"><button class="mic" data-for="guardian_name">🎤</button></div>
+      <label class="q">Guardian's address</label>
+      <div class="voice-row"><input type="text" id="guardian_address"><button class="mic" data-for="guardian_address">🎤</button></div>
+      <label class="q">Guardian's phone</label>
+      <input type="tel" id="guardian_phone">
+      <label class="q">Guardian's email</label>
+      <input type="email" id="guardian_email">
+    </div>
+  </section>
+
+  <!-- 10 Emergency contacts -->
+  <section class="step" data-title="Emergency contacts">
+    <h2>Emergency contacts</h2>
+    <label class="q">Contact 1 - name <span class="req">*</span></label>
+    <div class="voice-row"><input type="text" id="ec1_name"><button class="mic" data-for="ec1_name">🎤</button></div>
+    <label class="q">Contact 1 - phone <span class="req">*</span></label>
+    <input type="tel" id="ec1_phone">
+    <label class="q">Contact 1 - address</label>
+    <div class="voice-row"><input type="text" id="ec1_address"><button class="mic" data-for="ec1_address">🎤</button></div>
+    <label class="q">Contact 2 - name <span class="mini">- optional</span></label>
+    <div class="voice-row"><input type="text" id="ec2_name"><button class="mic" data-for="ec2_name">🎤</button></div>
+    <label class="q">Contact 2 - phone</label>
+    <input type="tel" id="ec2_phone">
+    <label class="q">Contact 2 - address</label>
+    <div class="voice-row"><input type="text" id="ec2_address"><button class="mic" data-for="ec2_address">🎤</button></div>
+  </section>
+
+  <!-- 11 Release of information -->
+  <section class="step" data-title="Sharing records">
+    <h2>Sharing your records</h2>
+    <p class="hint">If you want us to coordinate with another doctor, agency, school or family member,
+    add them here (this fills in the disclosure consent forms). You can skip this.</p>
+    <label class="q">Person/agency to share records with</label>
+    <div class="voice-row"><input type="text" id="roi1_to"><button class="mic" data-for="roi1_to">🎤</button></div>
+    <label class="q">What may we share with them?</label>
+    <div class="choices" data-multi="roi1_items">
+      {% for item in roi_items %}<button>{{ item }}</button>{% endfor %}
+    </div>
+    <label class="q">Purpose</label>
+    <div class="choices" data-single="roi1_purpose">
+      <button>Continuity of Care</button><button>Referral</button><button>Legal</button>
+      <button>Service Delivery</button><button>Service Authorization</button>
+    </div>
+    <label class="q">Second person/agency <span class="mini">- optional</span></label>
+    <div class="voice-row"><input type="text" id="roi2_to"><button class="mic" data-for="roi2_to">🎤</button></div>
+  </section>
+
+  <!-- 12 Consents -->
+  <section class="step" data-title="Consents">
+    <h2>Consents &amp; acknowledgments</h2>
+    <p class="hint">These are the forms you would normally sign one-by-one on paper. Tap
+    "Read" on any of them for the full text, then check <b>I agree</b>. Your initials and
+    signature will be applied to each one automatically.</p>
+    <div class="card" style="background:#f0f7ee;border-color:#bcd8b4">
+      <label class="agree"><input type="checkbox" id="agree_all"> <b>I agree to all items below</b></label>
+    </div>
+    {% for key, title, text in consents %}
+    <div class="card">
+      <div class="consent-title"><span>{{ title }}</span>
+        <button class="toggle" data-open="ct_{{ key }}">Read</button></div>
+      <div class="consent-text" id="ct_{{ key }}">{{ text }}</div>
+      <label class="agree"><input type="checkbox" class="consent-box" id="consent_{{ key }}"> I agree</label>
+    </div>
+    {% endfor %}
+  </section>
+
+  <!-- 13 Signature -->
+  <section class="step" data-title="Signature">
+    <h2>Sign once - we do the rest</h2>
+    <p class="hint">Your signature below is applied to every signature line in the intake packet,
+    with today's date. On paper you would sign about 15 times!</p>
+    <label class="q">Who is signing?</label>
+    <div class="choices" data-single="signer_role"><button>Client</button><button>Parent/Guardian</button></div>
+    <label class="q">Printed name of person signing <span class="req">*</span></label>
+    <div class="voice-row"><input type="text" id="signer_name"><button class="mic" data-for="signer_name">🎤</button></div>
+    <label class="q">Draw your signature <span class="req">*</span></label>
+    <canvas id="sigpad"></canvas>
+    <div class="sig-actions">
+      <button type="button" id="sig_clear">Clear</button>
+      <button type="button" id="sig_type">Can't draw? Type your signature instead</button>
+    </div>
+    <div id="typed_sig_row" style="display:none">
+      <label class="q">Type your full name as your signature</label>
+      <input type="text" id="signature_typed" style="font-family:'Segoe Script','Brush Script MT',cursive;font-size:22px">
+    </div>
+    <label class="agree" style="margin-top:16px">
+      <input type="checkbox" id="esign_consent">
+      <span>I agree to sign this intake packet electronically. I understand my electronic
+      signature is legally binding, just like a handwritten signature.</span>
+    </label>
+  </section>
+
+  <!-- 14 Review -->
+  <section class="step" data-title="Review">
+    <h2>Almost done - quick check</h2>
+    <div class="card" id="review"></div>
+    <p class="mini">Tap Back to fix anything. When you press <b>Submit my intake packet</b>, your
+    completed packet is generated instantly and sent to Moore Divine Care, Inc.</p>
+    <div class="err" id="submit_err"></div>
+  </section>
+
+  <!-- 15 Done -->
+  <section class="step" data-title="Done">
+    <h2>🎉 All done!</h2>
+    <p class="hint" id="done_msg">Your intake packet is complete. Moore Divine Care, Inc. has
+    received it. You can view or save your copy below.</p>
+    <p><a id="packet_link" href="#" style="font-size:18px;font-weight:700;color:var(--brand)">View my completed intake packet</a></p>
+    <p class="mini">Need help? Call {{ agency.phone }}.</p>
+  </section>
+</div>
+
+<div class="nav"><div class="inner">
+  <button class="btn back" id="btn_back">Back</button>
+  <button class="btn next" id="btn_next">Start</button>
+</div></div>
+
+<script>
+(function () {
+  "use strict";
+  var steps = Array.prototype.slice.call(document.querySelectorAll(".step"));
+  var cur = 0;
+  var singles = {};   // choice groups -> value
+  var multis = {};    // multi groups -> array
+
+  function show(i) {
+    steps[cur].classList.remove("active");
+    cur = Math.max(0, Math.min(i, steps.length - 1));
+    steps[cur].classList.add("active");
+    document.querySelector("#bar div").style.width = (cur / (steps.length - 1) * 100) + "%";
+    document.getElementById("btn_back").style.visibility = (cur === 0 || cur === steps.length - 1) ? "hidden" : "visible";
+    var next = document.getElementById("btn_next");
+    if (cur === 0) next.textContent = "Start";
+    else if (cur === steps.length - 2) next.textContent = "Submit my intake packet";
+    else if (cur === steps.length - 1) next.style.display = "none";
+    else next.textContent = "Next";
+    window.scrollTo(0, 0);
+    if (steps[cur].dataset.title === "Review") buildReview();
+  }
+
+  // --- choice chips -------------------------------------------------------
+  document.querySelectorAll(".choices").forEach(function (group) {
+    var single = group.dataset.single, multi = group.dataset.multi;
+    group.querySelectorAll("button").forEach(function (b) {
+      b.addEventListener("click", function () {
+        if (single) {
+          group.querySelectorAll("button").forEach(function (x) { x.classList.remove("sel"); });
+          b.classList.add("sel");
+          singles[single] = b.textContent;
+          onChoice(single, b.textContent);
+        } else {
+          b.classList.toggle("sel");
+          multis[multi] = Array.prototype.filter.call(group.querySelectorAll("button"), function (x) {
+            return x.classList.contains("sel");
+          }).map(function (x) { return x.textContent; });
+        }
+      });
+    });
+  });
+
+  function toggleBlock(id, on) { var el = document.getElementById(id); if (el) el.style.display = on ? "" : "none"; }
+  function onChoice(key, val) {
+    if (key === "employment_status") toggleBlock("emp_details", val === "Employed");
+    if (key === "has_medicaid") toggleBlock("medicaid_details", val === "Yes");
+    if (key === "current_diagnosis_yn") toggleBlock("diag_details", val === "Yes");
+    if (key === "current_therapist_yn") toggleBlock("therapist_details", val === "Yes");
+    if (key === "has_pcp") toggleBlock("pcp_details", val === "Yes");
+    if (key === "sa_status") toggleBlock("sa_details", val === "Yes");
+    if (key === "court_pending_yn") toggleBlock("court_details", val === "Yes");
+    if (key === "is_minor_or_incompetent") toggleBlock("guardian_details", val === "Yes");
+  }
+
+  // --- voice input --------------------------------------------------------
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var activeMic = null;
+  document.querySelectorAll(".mic").forEach(function (mic) {
+    if (!SR) { mic.style.display = "none"; return; }
+    mic.addEventListener("click", function () {
+      if (activeMic) return;
+      var target = document.getElementById(mic.dataset.for);
+      var rec = new SR();
+      rec.lang = "en-US"; rec.interimResults = false; rec.maxAlternatives = 1;
+      mic.classList.add("listening"); activeMic = mic;
+      rec.onresult = function (e) {
+        var text = e.results[0][0].transcript;
+        target.value = target.value ? target.value + " " + text : text;
+      };
+      rec.onend = function () { mic.classList.remove("listening"); activeMic = null; };
+      rec.onerror = rec.onend;
+      rec.start();
+    });
+  });
+
+  // --- consent cards ------------------------------------------------------
+  document.querySelectorAll(".toggle").forEach(function (t) {
+    t.addEventListener("click", function () {
+      var el = document.getElementById(t.dataset.open);
+      el.classList.toggle("open");
+      t.textContent = el.classList.contains("open") ? "Hide" : "Read";
+    });
+  });
+  document.getElementById("agree_all").addEventListener("change", function () {
+    var on = this.checked;
+    document.querySelectorAll(".consent-box").forEach(function (c) { c.checked = on; });
+  });
+
+  // --- signature pad ------------------------------------------------------
+  var pad = document.getElementById("sigpad");
+  var ctx = pad.getContext("2d");
+  var drawing = false, hasInk = false;
+  function resizePad() {
+    var data = pad.toDataURL();
+    pad.width = pad.offsetWidth * 2; pad.height = 340;
+    ctx.scale(2, 2); ctx.lineWidth = 2.2; ctx.lineCap = "round"; ctx.strokeStyle = "#16233a";
+    if (hasInk) { var img = new Image(); img.onload = function(){ ctx.drawImage(img,0,0,pad.offsetWidth,170); }; img.src = data; }
+  }
+  window.addEventListener("resize", resizePad);
+  setTimeout(resizePad, 50);
+  function pos(e) {
+    var r = pad.getBoundingClientRect();
+    var p = e.touches ? e.touches[0] : e;
+    return { x: p.clientX - r.left, y: p.clientY - r.top };
+  }
+  function down(e) { e.preventDefault(); drawing = true; var p = pos(e); ctx.beginPath(); ctx.moveTo(p.x, p.y); }
+  function move(e) { if (!drawing) return; e.preventDefault(); var p = pos(e); ctx.lineTo(p.x, p.y); ctx.stroke(); hasInk = true; }
+  function up() { drawing = false; }
+  pad.addEventListener("mousedown", down); pad.addEventListener("mousemove", move);
+  window.addEventListener("mouseup", up);
+  pad.addEventListener("touchstart", down, {passive:false}); pad.addEventListener("touchmove", move, {passive:false});
+  pad.addEventListener("touchend", up);
+  document.getElementById("sig_clear").addEventListener("click", function () {
+    ctx.clearRect(0, 0, pad.width, pad.height); hasInk = false;
+  });
+  document.getElementById("sig_type").addEventListener("click", function () {
+    document.getElementById("typed_sig_row").style.display = "";
+  });
+
+  // --- collect + validate -------------------------------------------------
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ""; }
+  function collect() {
+    var a = {};
+    document.querySelectorAll("input[type=text],input[type=date],input[type=email],input[type=tel],textarea")
+      .forEach(function (el) { if (el.id && el.id !== "signature_typed") a[el.id] = el.value.trim(); });
+    for (var k in singles) a[k] = singles[k];
+    for (var m in multis) a[m] = multis[m];
+    return a;
+  }
+  function validateStep() {
+    var title = steps[cur].dataset.title;
+    if (title === "About you" && (!val("client_name") || !val("dob"))) return "Please enter your name and date of birth.";
+    if (title === "Contact" && (!val("address_street") || !val("phone_cell"))) return "Please enter your address and cell phone.";
+    if (title === "Reason for services" && !val("presenting_problem")) return "Please tell us what brings you in - you can tap the mic and just talk.";
+    if (title === "Emergency contacts" && (!val("ec1_name") || !val("ec1_phone"))) return "Please give us at least one emergency contact.";
+    if (title === "Consents") {
+      var missing = Array.prototype.filter.call(document.querySelectorAll(".consent-box"), function (c) { return !c.checked; });
+      if (missing.length) return "Please review and agree to each consent (" + missing.length + " remaining).";
+    }
+    if (title === "Signature") {
+      if (!val("signer_name")) return "Please enter the printed name of the person signing.";
+      if (!hasInk && !val("signature_typed")) return "Please draw or type your signature.";
+      if (!document.getElementById("esign_consent").checked) return "Please check the electronic signature agreement.";
+    }
+    return null;
+  }
+
+  function buildReview() {
+    var a = collect();
+    var html = "";
+    function row(label, v) { if (v && String(v).length) html += "<div class='review-sec'><b>" + label + "</b>" + v + "</div>"; }
+    row("Name", a.client_name + " &nbsp;•&nbsp; DOB " + a.dob);
+    row("Contact", [a.address_street, a.address_city, a.address_state].filter(Boolean).join(", ") + " &nbsp;•&nbsp; " + a.phone_cell + (a.email ? " &nbsp;•&nbsp; " + a.email : ""));
+    row("Insurance", [a.has_medicaid === "Yes" ? "Medicaid" : "", a.mco].filter(Boolean).join(" - "));
+    row("What brings you in", a.presenting_problem);
+    row("Medications", a.medications);
+    row("Emergency contact", a.ec1_name + " " + a.ec1_phone);
+    row("Consents", document.querySelectorAll(".consent-box:checked").length + " of {{ consents|length }} agreed");
+    row("Signing as", (singles.signer_role || "Client") + " - " + val("signer_name"));
+    document.getElementById("review").innerHTML = html;
+  }
+
+  // --- submit -------------------------------------------------------------
+  function submit() {
+    var btn = document.getElementById("btn_next");
+    btn.disabled = true; btn.textContent = "Sending...";
+    var consents = {};
+    document.querySelectorAll(".consent-box").forEach(function (c) {
+      consents[c.id.replace("consent_", "")] = c.checked;
+    });
+    var body = {
+      answers: collect(),
+      consents: consents,
+      signature_image: hasInk ? pad.toDataURL("image/png") : "",
+      signature_typed: val("signature_typed"),
+      signer_name: val("signer_name"),
+      signer_role: singles.signer_role || "Client",
+      esign_consent: document.getElementById("esign_consent").checked
+    };
+    fetch("/mdc/submit", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body)
+    }).then(function (r) { return r.json().then(function (j) { return { ok: r.ok, j: j }; }); })
+      .then(function (res) {
+        btn.disabled = false;
+        if (!res.ok) throw new Error(res.j.error || "Something went wrong");
+        document.getElementById("packet_link").href = res.j.packet_url;
+        show(steps.length - 1);
+      })
+      .catch(function (e) {
+        btn.disabled = false; btn.textContent = "Submit my intake packet";
+        var er = document.getElementById("submit_err");
+        er.textContent = e.message + " - please try again or call {{ agency.phone }}.";
+        er.style.display = "block";
+      });
+  }
+
+  document.getElementById("btn_next").addEventListener("click", function () {
+    var err = validateStep();
+    if (err) { alert(err); return; }
+    if (steps[cur].dataset.title === "Review") { submit(); return; }
+    show(cur + 1);
+  });
+  document.getElementById("btn_back").addEventListener("click", function () { show(cur - 1); });
+  show(0);
+})();
+</script>
+</body>
+</html>

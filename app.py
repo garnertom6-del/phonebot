@@ -5,6 +5,7 @@ from twilio.twiml.voice_response import VoiceResponse, Gather
 import anthropic
 
 from intake import intake_bp
+from mdc_intake import mdc_bp
 
 # The Anthropic API key is read from a secure environment variable.
 # It is set as ANTHROPIC_API_KEY in your host's dashboard (Render) - NOT here.
@@ -12,6 +13,7 @@ API_KEY = os.environ.get("ANTHROPIC_API_KEY")
 
 app = Flask(__name__)
 app.register_blueprint(intake_bp)
+app.register_blueprint(mdc_bp)
 client = anthropic.Anthropic(api_key=API_KEY)
 
 conversations = {}
@@ -89,7 +91,8 @@ def respond():
 # Simple health check - open the site in a browser to confirm it's alive.
 @app.route("/")
 def home():
-    return 'Phone bot is running. <a href="/intake">Client intake packet</a>'
+    return ('Phone bot is running. <a href="/intake">Client intake packet</a> | '
+            '<a href="/mdc">Moore Divine Care client intake</a>')
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))

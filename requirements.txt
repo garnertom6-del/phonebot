@@ -1,4 +1,5 @@
- flask
+flask
 anthropic
-  twilio
- gunicorn
+twilio
+gunicorn
+requests
