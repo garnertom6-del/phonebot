@@ -1,0 +1,40 @@
+import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { requireStaff } from "@/lib/staffGuard";
+import { audit } from "@/lib/auditLog";
+import { fillPacket } from "@/lib/fillPdf";
+import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } from "@/lib/intakeData";
+import { readFile, fileExists } from "@/lib/storage";
+
+export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+  const { user, deny } = await requireStaff();
+  if (deny) return deny;
+  const intake = await prisma.intake.findUnique({
+    where: { id: params.id },
+    include: { client: true, generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 } },
+  });
+  if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const fresh = req.nextUrl.searchParams.get("fresh") === "1";
+  let bytes: Buffer;
+  const latest = intake.generatedPdfs[0];
+  if (!fresh && latest && fileExists(latest.filePath)) {
+    bytes = readFile(latest.filePath);
+  } else {
+    const answers = await loadAnswers(intake.id);
+    const result = await fillPacket({
+      answers,
+      signatures: await loadSignatures(intake.id),
+      consents: consentsFromAnswers(answers),
+      overrides: await mappingOverrides(),
+    });
+    bytes = Buffer.from(result.pdfBytes);
+  }
+  await audit("pdf_downloaded", { intakeId: intake.id, userId: user!.id });
+  const name = `MooreDivineCare-Intake-${intake.client.fullName.replace(/\W+/g, "-")}.pdf`;
+  return new NextResponse(bytes as unknown as BodyInit, {
+    headers: {
+      "Content-Type": "application/pdf",
+      "Content-Disposition": `inline; filename="${name}"`,
+    },
+  });
+}

@@ -1,0 +1,18 @@
+import { prisma } from "./prisma";
+
+export type AuditEvent =
+  | "intake_created" | "link_opened" | "section_started" | "section_completed"
+  | "signature_captured" | "packet_submitted" | "staff_reviewed"
+  | "pdf_generated" | "pdf_downloaded" | "link_reminder_sent"
+  | "docusign_sent" | "answers_updated" | "document_uploaded";
+
+export async function audit(
+  event: AuditEvent,
+  opts: { intakeId?: string; userId?: string; detail?: string; ip?: string } = {},
+) {
+  try {
+    await prisma.auditLog.create({ data: { event, ...opts } });
+  } catch (e) {
+    console.error("audit log failed", e);
+  }
+}
