@@ -26,6 +26,11 @@ export interface FieldMapping {
   role: "client" | "guardian" | "staff" | "clinician" | "medicalDirector" | "witness" | "auto";
   consentKey: string | null;
   notes: string;
+  // long-answer flow: the answer is wrapped once to `flowLines` total lines and
+  // this placement renders `lines` of them starting at `startLine` - lets one
+  // answer continue across ruled-line blocks (even onto the next page)
+  flowLines?: number;
+  startLine?: number;
 }
 
 export interface PacketMap {

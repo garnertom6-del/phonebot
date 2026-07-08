@@ -82,7 +82,17 @@ export async function extractFromCca(
       "in the document; omit anything not stated. Never guess or invent values. For fields with " +
       "a fixed option list, choose the single closest matching option; if nothing matches, omit " +
       "the field. Dates as MM/DD/YYYY (or YYYY-MM-DD for date-typed fields). Free-text fields " +
-      "should be concise summaries in plain language, quoting the document's substance faithfully.",
+      "should be concise summaries in plain language, quoting the document's substance faithfully. " +
+      "Answers are written onto the short ruled lines of a paper form, so keep each free-text " +
+      "answer under about 200 characters. Additional rules: " +
+      "(1) diagnosis fields: include DSM/ICD codes when the document lists them (e.g. 'PTSD - F43.10'); " +
+      "put the principal diagnosis first. " +
+      "(2) Substance rows sub1..sub5: one substance per row starting with the most significant; " +
+      "age_first is the age at first use; last_used is when the client last used it. " +
+      "(3) is_minor_or_incompetent and the guardian fields describe the client's CURRENT legal " +
+      "status - never fill them from a guardian the client had in the past (e.g. as a child). " +
+      "(4) A preferred/chosen name that differs from the legal name belongs in parentheses after " +
+      "the legal name in client_full_name, and staff should honor it in free-text summaries.",
     messages: [{
       role: "user",
       content: [

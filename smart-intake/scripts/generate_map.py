@@ -96,7 +96,7 @@ MISSES, ENTRIES = [], []
 
 
 def emit(pg_obj, key, source, ftype, x, y_top, w, h, **kw):
-    ENTRIES.append({
+    row = {
         "page": pg_obj.number, "fieldKey": key, "source": source, "type": ftype,
         "x": round(x, 1), "y": round(pg_obj.h - y_top - h, 1),
         "width": round(w, 1), "height": round(h, 1),
@@ -104,7 +104,13 @@ def emit(pg_obj, key, source, ftype, x, y_top, w, h, **kw):
         "lineHeight": kw.get("lineHeight", 11.6),
         "required": kw.get("required", False), "role": kw.get("role", "client"),
         "consentKey": kw.get("consent"), "notes": kw.get("notes", ""),
-    })
+    }
+    # long-answer flow: an answer wrapped to `flowLines` total lines can span
+    # several placements; each renders its slice starting at `startLine`
+    if kw.get("flowLines"):
+        row["flowLines"] = kw["flowLines"]
+        row["startLine"] = kw.get("startLine", 0)
+    ENTRIES.append(row)
 
 
 def miss(pg, key, why):
@@ -125,7 +131,7 @@ def frac_x(word, part=None):
 
 def field(pg, key, source, anchor, mode="after", occ=0, ftype="text", width=None,
           dx=4, dy=0, h=11, fs=9, lines=1, required=False, role="client",
-          consent=None, top_min=None, top_max=None, notes=""):
+          consent=None, top_min=None, top_max=None, notes="", **extra):
     p = PAGES[pg - 1]
     if mode in ("raw", "on_raw"):
         w = p.find_raw(anchor, occ=occ, top_min=top_min, top_max=top_max)
@@ -137,7 +143,7 @@ def field(pg, key, source, anchor, mode="after", occ=0, ftype="text", width=None
         else:              # text written on the underscore run
             emit(p, key, source, ftype, w["x0"] + 2 + dx, w["top"] + dy,
                  width or (w["x1"] - w["x0"] - 4), h, fs=fs, lines=lines,
-                 required=required, role=role, consent=consent, notes=notes)
+                 required=required, role=role, consent=consent, notes=notes, **extra)
         return
     if mode == "compound":
         # value goes right after the `notes` substring inside a raw token
@@ -147,7 +153,7 @@ def field(pg, key, source, anchor, mode="after", occ=0, ftype="text", width=None
             return miss(pg, key, "compound token not found: %r" % part)
         x = frac_x(w, part)
         emit(p, key, source, ftype, x, w["top"] + dy, width or max(RIGHT - x, 30), h,
-             fs=fs, lines=lines, required=required, role=role, consent=consent)
+             fs=fs, lines=lines, required=required, role=role, consent=consent, **extra)
         return
     bb = p.find(anchor, occ=occ, top_min=top_min, top_max=top_max)
     if not bb:
@@ -157,7 +163,7 @@ def field(pg, key, source, anchor, mode="after", occ=0, ftype="text", width=None
         x = frac_x(last) if last["text"].rstrip("_") != last["text"] else bb["x1"] + dx
         w = width or max(RIGHT - x, 30)
         emit(p, key, source, ftype, x, bb["top"] + dy, w, h, fs=fs, lines=lines,
-             required=required, role=role, consent=consent, notes=notes)
+             required=required, role=role, consent=consent, notes=notes, **extra)
     elif mode == "blank_after":
         blank = p.next_blank(bb)
         if blank is None:
@@ -184,7 +190,7 @@ def field(pg, key, source, anchor, mode="after", occ=0, ftype="text", width=None
     elif mode == "below":
         emit(p, key, source, ftype, LEFT, bb["bottom"] + 2 + dy, width or (RIGHT - LEFT),
              h * lines, fs=fs, lines=lines, lineHeight=11.6, required=required, role=role,
-             consent=consent, notes=notes)
+             consent=consent, notes=notes, **extra)
     elif mode == "check":
         emit(p, key, source, "checkbox", bb["x0"] - 12 + dx, bb["top"] + dy, 10, 10,
              fs=10, required=required, role=role, consent=consent, notes=notes)
@@ -483,16 +489,24 @@ for label, anchor in SVC:
     field(5, "svc_" + norm(label).replace(" ", "_").replace(".", "").replace("-", "_"),
           "services_requested~" + label, anchor, mode="check", top_min=497, top_max=538)
 field(5, "svc_other", "services_other", "Other", mode="after", top_min=518, top_max=538, width=60)
-field(5, "lives_with", "lives_with_whom", "lives with", mode="after", width=170)
+# 'lives with' shares one token with 'Where?' - anchor right after 'with:' so
+# the answer fills the first blank instead of colliding with the Where? blank
+field(5, "lives_with", "lives_with_whom", "with:", mode="compound", notes="with:",
+      top_min=540, top_max=560, width=180)
 field(5, "lives_where", "lives_where", "Where", mode="compound", notes="Where?", top_min=540, top_max=560, width=110)
 field(5, "home_relations", "effects_on_home", "relate to others in the home", mode="below", lines=2, h=11.6)
 field(5, "mh_yes", "receiving_mh_services=Yes", "Yes", mode="check", top_min=624, top_max=638)
 field(5, "mh_no", "receiving_mh_services=No", "No", mode="check", top_min=624, top_max=638)
 field(5, "mh_desc", "mh_services_desc", "If yes Describe", mode="after", width=300, lines=1)
 field(5, "mh_provider", "mh_service_provider", "Service Provider", mode="after", width=300)
-field(5, "mh_history", "mh_history", "History of Mental Health Issues?", mode="below", lines=1, h=11.6)
+# the history answer gets one ruled line at the bottom of page 5 and two more
+# at the top of page 6 - wrap it once (flowLines=3) and render each slice
+field(5, "mh_history", "mh_history", "History of Mental Health Issues?", mode="below",
+      lines=1, h=11.6, width=430, flowLines=3)
 
 # ── page 6: severity of need ────────────────────────────────────────────────
+field(6, "mh_history_cont", "mh_history", "___", mode="on_raw", occ=0,
+      top_min=95, top_max=105, width=430, h=23.2, lines=2, startLine=1, flowLines=3)
 field(6, "current_diag_known", "current_diagnosis_known", "Current Diagnosis if known", mode="after", width=300)
 field(6, "sev_emergent", "severity_of_need=Emergent", "Emergent (2", mode="check", role="staff")
 field(6, "sev_urgent", "severity_of_need=Urgent", "Urgent (48", mode="check", role="staff")
@@ -502,7 +516,9 @@ field(6, "sev_nonthreshold", "severity_of_need=Non-Threshold", "Non-Threshold Cl
 # ── page 7: medical & legal ─────────────────────────────────────────────────
 field(7, "limit_yes", "has_limitations=Yes", "Yes", mode="check", top_min=148, top_max=162)
 field(7, "limit_no", "has_limitations=No", "No", mode="check", top_min=148, top_max=162)
-field(7, "limit_desc", "limitations_desc", "If yes Describe", mode="after", width=330)
+field(7, "limit_desc", "limitations_desc", "If yes Describe", mode="after", width=375, flowLines=3)
+field(7, "limit_desc_cont", "limitations_desc", "___", mode="on_raw", occ=0,
+      top_min=172, top_max=183, width=375, h=23.2, lines=2, startLine=1, flowLines=3)
 p7 = PAGES[6]
 tok = p7.find_raw("Telephone", occ=0, top_min=205, top_max=222)
 if tok:  # the blank run and the word Telephone share one token: '_____Telephone'
@@ -520,8 +536,9 @@ field(7, "pref_er", "preferred_emergency_facility", "Preferred Emergency Facilit
 field(7, "medical_diag", "medical_diagnoses", "Medical Diagnosis", mode="after", width=420, lines=2)
 field(7, "treatments", "treatments", "Treatment", mode="blank_after", top_min=276, top_max=292, width=420, lines=2)
 field(7, "medications", "medications", "Medications:", mode="blank_after", width=420, lines=3)
-field(7, "hosp", "hospitalizations", "Hospitalizations and Surgeries", mode="after", width=300, lines=1)
-field(7, "hosp2", "hospitalizations_more", "Hospitalizations and Surgeries", mode="below", lines=1, h=11.6)
+field(7, "hosp", "hospitalizations", "Hospitalizations and Surgeries", mode="after", width=295, lines=1, flowLines=2)
+field(7, "hosp2", "hospitalizations", "Hospitalizations and Surgeries", mode="below",
+      lines=1, h=11.6, width=295, startLine=1, flowLines=2)
 field(7, "ace", "ace_events", "ACE is present)", mode="below", lines=3, h=11.6)
 field(7, "allergies", "allergies", "Allergies", mode="after", top_min=414, top_max=428, width=430)
 field(7, "last_physical", "last_physical_date", "Date of Last Physical Examination?", mode="blank_after", width=250)
