@@ -11,7 +11,7 @@ export const newIntakeSchema = z.object({
   fullName: z.string().min(1, "Client full name is required"),
   dob: z.string().min(1, "DOB is required"),
   midNumber: z.string().optional().default(""),
-  recordNumber: z.string().optional().default(""),
+  recordNumber: z.string().min(1, "Record # is required"),
   intakeDate: z.string().optional().default(""),
   location: z.string().optional().default(""),
   email: z.string().email().optional().or(z.literal("")),
