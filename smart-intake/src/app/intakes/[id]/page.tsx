@@ -21,6 +21,9 @@ interface Detail {
 export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Detail | null>(null);
   const [note, setNote] = useState("");
+  const [ccaBusy, setCcaBusy] = useState(false);
+  const [ccaResult, setCcaResult] = useState("");
+  const [ccaOverwrite, setCcaOverwrite] = useState(false);
 
   const load = useCallback(() => {
     fetch(`/api/intakes/${params.id}`).then(async (r) => r.ok && setD(await r.json()));
@@ -29,6 +32,24 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
+
+  async function uploadCca(file: File) {
+    setCcaBusy(true); setCcaResult("Reading the CCA... this can take a minute or two.");
+    const fd = new FormData();
+    fd.set("file", file);
+    fd.set("overwrite", String(ccaOverwrite));
+    const r = await fetch(`/api/intakes/${params.id}/cca`, { method: "POST", body: fd });
+    const b = await r.json().catch(() => ({}));
+    setCcaBusy(false);
+    if (r.ok) {
+      setCcaResult(`✓ Filled ${b.filled} answers from the CCA` +
+        (b.skipped ? ` (kept ${b.skipped} existing answers - check "replace" to overwrite)` : "") +
+        ". Review them, then Generate Completed Packet.");
+      load();
+    } else {
+      setCcaResult(`✗ ${b.error || "CCA import failed"}`);
+    }
+  }
 
   async function act(label: string, fn: () => Promise<Response>) {
     setNote(`${label}...`);
@@ -72,6 +93,24 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Reminder", () => fetch(`/api/intakes/${i.id}/remind`, { method: "POST" }))}>Send reminder</button>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Extend link", () => fetch(`/api/intakes/${i.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ extendToken: true }) }))}>Extend</button>
           </div>
+        </div>
+        <div className="card border-brand/40 bg-brand-light/40">
+          <h3 className="mb-1 font-bold">📄 Add CCA - auto-fill from the clinician&apos;s assessment</h3>
+          <p className="mb-3 text-sm text-slate-600">
+            Upload the completed Comprehensive Clinical Assessment (PDF or photo, e.g. from your
+            Downloads folder) and the system reads it and fills the matching intake answers -
+            same day or days later, and you can re-upload an updated CCA any time.
+          </p>
+          <label className={`btn-primary cursor-pointer ${ccaBusy ? "pointer-events-none opacity-60" : ""}`}>
+            {ccaBusy ? "Reading CCA..." : "Choose CCA file & fill packet"}
+            <input type="file" className="hidden" accept="application/pdf,image/*" disabled={ccaBusy}
+              onChange={(e) => e.target.files?.[0] && uploadCca(e.target.files[0])} />
+          </label>
+          <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
+            <input type="checkbox" checked={ccaOverwrite} onChange={(e) => setCcaOverwrite(e.target.checked)} />
+            Replace answers that already exist (otherwise existing answers are kept)
+          </label>
+          {ccaResult && <p className="mt-2 text-sm font-semibold text-brand">{ccaResult}</p>}
         </div>
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
         <div className="card">

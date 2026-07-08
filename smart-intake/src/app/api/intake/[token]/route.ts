@@ -28,6 +28,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   return NextResponse.json({
     clientName: intake.client.fullName,
     status: intake.status,
+    quick: intake.expectCca,
     answers,
     sectionStatus: Object.fromEntries(sections.map((s) => [s.sectionKey, s.status])),
     signatures: Object.fromEntries(Object.entries(sigs).map(([r, s]) => [r, { printedName: s.printedName, signedDate: s.signedDate }])),

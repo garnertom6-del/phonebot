@@ -37,6 +37,19 @@ end. Answers auto-save so they can stop and come back. The denser multi-question
 wizard is still available at `/intake/<token>?mode=full`. Simple wording lives
 in `src/config/easyLanguage.ts`.
 
+## Quick Intake + CCA auto-fill (cut client questions by ~80%)
+
+New intakes default to **Quick Intake**: the client link asks only ~33 essential
+screens (identity, contact, emergency contact, the consents, signature — mostly
+taps). Everything clinical comes from the clinician's **CCA**: on the intake
+page, staff click **📄 Add CCA**, pick the completed Comprehensive Clinical
+Assessment (PDF or photo, e.g. from Downloads), and Claude reads the document
+and fills the matching intake answers — demographics, presenting problem,
+history, diagnoses, medications, allergies, substance use, SNAP, PCP, guardian
+info. Works same-day or days later; client answers are never overwritten unless
+you check "replace". Requires `ANTHROPIC_API_KEY` in the host environment.
+Uncheck "Short client intake" when creating an intake for the full question set.
+
 ## The workflow
 
 1. **Staff** logs in → **Create New Intake** → enters the client's basic info

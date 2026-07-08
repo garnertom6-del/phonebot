@@ -19,6 +19,7 @@ export const newIntakeSchema = z.object({
   guardianName: z.string().optional().default(""),
   guardianEmail: z.string().email().optional().or(z.literal("")),
   guardianPhone: z.string().optional().default(""),
+  expectCca: z.boolean().optional(),
 });
 
 export const answersSchema = z.record(

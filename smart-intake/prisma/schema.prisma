@@ -43,6 +43,7 @@ model Intake {
   packageName    String    @default("Moore Divine Care Client Intake Package")
   status         String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | SUBMITTED | NEEDS_REVIEW | SIGNED | COMPLETED
   mode           String    @default("full") // fast | full
+  expectCca      Boolean   @default(true) // short client intake; clinician CCA fills the rest
   token          String    @unique
   tokenExpiresAt DateTime
   intakeDate     String?
