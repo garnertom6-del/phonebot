@@ -83,10 +83,21 @@ function drawTextField(
   }
 }
 
+function isPrintedSquareBox(f: FieldMapping): boolean {
+  const key = f.fieldKey;
+  if (f.page === 2) return /^(edu_|funding_|income_|veteran_)/.test(key);
+  if (f.page === 5) return /^(rs_|a_income_|a_medicaid$|a_medicare$|svc_|mh_)/.test(key);
+  if (f.page === 6) return /^sev_/.test(key);
+  if ([9, 10, 11].includes(f.page)) return true;
+  if ([19, 20, 21, 26, 29, 30, 34].includes(f.page)) return true;
+  return false;
+}
+
 function drawCenteredX(page: PDFPage, f: FieldMapping, font: PDFFont) {
   const size = f.fontSize || Math.min(f.width, f.height, 10);
   const textWidth = font.widthOfTextAtSize("X", size);
-  const x = f.x + (f.width - textWidth) / 2;
+  const boxLeft = isPrintedSquareBox(f) ? f.x - f.width : f.x;
+  const x = boxLeft + (f.width - textWidth) / 2;
   const y = f.y + (f.height - size) / 2 + 1;
   page.drawText("X", { x, y, size, font, color: INK });
   page.drawText("X", { x: x + 0.25, y, size, font, color: INK });
