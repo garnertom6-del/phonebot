@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadSignatures, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, missingRequired, percentComplete } from "@/lib/validation";
+import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
 async function findByToken(token: string) {
   const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true } });
@@ -16,7 +17,7 @@ async function findByToken(token: string) {
 export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
   const { error, intake } = await findByToken(params.token);
   if (error || !intake) return NextResponse.json({ error }, { status: 404 });
-  const answers = await loadAnswers(intake.id);
+  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const sigs = await loadSignatures(intake.id);
   if (intake.status === "NOT_STARTED") {
     await prisma.intake.update({ where: { id: intake.id }, data: { status: "IN_PROGRESS" } });
@@ -46,7 +47,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
   if (body.answers) {
     const parsed = answersSchema.safeParse(body.answers);
     if (!parsed.success) return NextResponse.json({ error: "Invalid answers" }, { status: 400 });
-    await saveAnswers(intake.id, parsed.data);
+    await saveAnswers(intake.id, applyOperationalDefaults(parsed.data));
   }
   if (body.section && ["started", "completed"].includes(body.event)) {
     const now = new Date();
@@ -71,12 +72,13 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   // final submit
   const { error, intake } = await findByToken(params.token);
   if (error || !intake) return NextResponse.json({ error }, { status: 404 });
-  const answers = await loadAnswers(intake.id);
+  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const sigs = await loadSignatures(intake.id);
   const missing = missingRequired(answers, !!(sigs.client || sigs.guardian));
   if (missing.length) {
     return NextResponse.json({ error: "Some required items are missing.", missing }, { status: 400 });
   }
+  await saveAnswers(intake.id, answers);
   await syncStructuredRows(intake.id, answers);
   await prisma.intake.update({
     where: { id: intake.id },
