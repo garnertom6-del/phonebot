@@ -7,6 +7,7 @@ import { newIntakeToken, tokenExpiry } from "@/lib/tokens";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { missingRequired, percentComplete } from "@/lib/validation";
+import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
 export async function GET() {
   const { deny } = await requireStaff();
@@ -16,7 +17,7 @@ export async function GET() {
     orderBy: { updatedAt: "desc" },
   });
   const rows = await Promise.all(intakes.map(async (i) => {
-    const answers = await loadAnswers(i.id);
+    const answers = applyOperationalDefaults(await loadAnswers(i.id));
     const sigs = await loadSignatures(i.id);
     return {
       id: i.id, status: i.status, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
@@ -55,14 +56,13 @@ export async function POST(req: NextRequest) {
     },
   });
   // Prefill answers from the staff-entered basics so the client doesn't retype them.
-  const prefill: Record<string, unknown> = {
+  const prefill: Record<string, unknown> = applyOperationalDefaults({
     client_full_name: d.fullName, dob: d.dob, mid_number: d.midNumber,
     record_number: d.recordNumber, intake_date: intake.intakeDate, location: intake.location,
     client_email: d.email, client_phone_cell: d.phone,
     guardian_name: d.guardianName, guardian_email: d.guardianEmail, guardian_phone: d.guardianPhone,
-    has_medicaid: d.midNumber ? "Yes" : undefined,
     is_minor_or_incompetent: d.guardianName ? "Yes" : undefined,
-  };
+  });
   const entries = Object.entries(prefill).filter(([, v]) => v !== undefined && v !== "");
   await prisma.$transaction(entries.map(([key, v]) =>
     prisma.intakeAnswer.create({ data: { intakeId: intake.id, key, value: JSON.stringify(v) } })));
