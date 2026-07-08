@@ -25,6 +25,18 @@ Staff login: **admin@mooredivinecare.local** / **IntakeDemo123!**
 After login you'll see two sample clients (Angela Demo, Jayden Sample) and can
 create a new intake.
 
+## Easy Mode (what clients see)
+
+Clients get **Easy Mode** by default: one big question per screen, written at a
+5th-grade reading level with a warm tone (built for clients who may be dealing
+with substance use or depression). They **tap a big answer button, pick from a
+dropdown, or press the microphone and talk**. Skip and Back on every screen,
+progress bar, encouragement between sections, plain-language consent summaries
+("Read the whole form" is one tap away), and a finger-drawn signature at the
+end. Answers auto-save so they can stop and come back. The denser multi-question
+wizard is still available at `/intake/<token>?mode=full`. Simple wording lives
+in `src/config/easyLanguage.ts`.
+
 ## The workflow
 
 1. **Staff** logs in → **Create New Intake** → enters the client's basic info
