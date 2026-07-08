@@ -1,0 +1,111 @@
+# Moore Divine Care Smart Intake Automation
+
+A working web application that turns the **actual 43-page Moore Divine Care, Inc.
+Client Intake Package PDF** into a guided, secure, voice-enabled client experience.
+
+Staff send a client one secure link → the client answers conversational questions
+by **typing or speaking**, agrees to each consent, and **signs once** → the system
+fills the real intake packet PDF in its entirety (coordinate-based overlay on all
+43 pages, 870 mapped fields), placing the signature only on forms the client
+agreed to and leaving staff/clinician lines blank for the office.
+
+## Run it locally
+
+```bash
+npm install
+npm run db:push
+npm run seed
+npm run dev
+```
+
+Open **http://localhost:3000**
+
+Staff login: **admin@mooredivinecare.local** / **IntakeDemo123!**
+
+After login you'll see two sample clients (Angela Demo, Jayden Sample) and can
+create a new intake.
+
+## Easy Mode (what clients see)
+
+Clients get **Easy Mode** by default: one big question per screen, written at a
+5th-grade reading level with a warm tone (built for clients who may be dealing
+with substance use or depression). They **tap a big answer button, pick from a
+dropdown, or press the microphone and talk**. Skip and Back on every screen,
+progress bar, encouragement between sections, plain-language consent summaries
+("Read the whole form" is one tap away), and a finger-drawn signature at the
+end. Answers auto-save so they can stop and come back. The denser multi-question
+wizard is still available at `/intake/<token>?mode=full`. Simple wording lives
+in `src/config/easyLanguage.ts`.
+
+## The workflow
+
+1. **Staff** logs in → **Create New Intake** → enters the client's basic info
+   (name, DOB, MID#, record#, contacts, guardian if applicable).
+2. The system creates a **secure random link** (`/intake/<token>`, expires in 7
+   days by default, configurable via `CLIENT_LINK_EXPIRY_DAYS`; no PHI in the URL).
+3. Staff copies the link or sends it via the email/SMS button (console-logged in
+   demo mode; SendGrid/Twilio-ready in production).
+4. **Client** opens the link on any device: conversational sections, a 🎤 button
+   on long answers (Web Speech API with transcript preview before accepting),
+   save-and-continue-later, Fast Intake (required questions first) or Full Intake.
+5. Client reviews each consent separately, checks "I agree," and **signs once**
+   on a canvas (draw or guardian signs for a minor). Submission is blocked until
+   all required items + signature are present.
+6. **Staff dashboard** shows status (Not Started → In Progress → Submitted →
+   Needs Review → Signed → Completed), percent complete, and a **missing-field
+   checklist**. Staff review/edit every answer plus staff-only sections
+   (page-1 document checklist, screening, clinical, PCP collaboration, discharge
+   summary) and can capture staff/clinician/witness/medical-director signatures.
+7. **Generate Completed Packet** fills the real PDF; preview, download, print,
+   or send to DocuSign (optional).
+
+## Useful commands
+
+| Command | What it does |
+|---|---|
+| `npm run dev` | Start the app at http://localhost:3000 |
+| `npm run db:push` | Create/update the SQLite database |
+| `npm run seed` | Seed staff login + two sample clients |
+| `npm run generate:samples` | Write `output/sample-completed-angela-demo.pdf` and `output/sample-completed-jayden-sample.pdf` |
+| `npm run check:mapping` | Validate the 870-field coordinate map |
+| `npm run test` | 11 end-to-end checks (login, tokens, 43-page fill, headers on every page, consent-gated signatures, validation, samples) |
+
+## PDF field mapping
+
+- `src/config/mooreDivinePacketMap.json` — 870 placements generated from the
+  actual PDF by `scripts/generate_map.py` (every field anchored to real label
+  text; re-run with `python3 scripts/generate_map.py` if the PDF changes).
+- `src/config/mooreDivinePacketMap.ts` — typed wrapper.
+- `src/config/mooreDivineQuestions.ts` — the client questionnaire (34 sections)
+  and staff-only field groups; question keys are the mapping `source` keys.
+- `src/lib/fillPdf.ts` / `pdfCoordinates.ts` / `signaturePlacement.ts` — fill engine.
+- **/admin/pdf-mapping** — visual mapping editor: preview any page, click to add
+  a field, drag/resize, edit properties, test-fill labels, save (stored as DB
+  overrides merged over the JSON), export JSON.
+
+The template PDF lives at `MooreDivineCare_Intake_Packet-1.pdf` (project root)
+and `public/templates/`. **If it is missing, place the file in the project root
+and copy it to `public/templates/` — the app is built around this exact document.**
+
+## Smart auto-fill
+
+One answer fills every place it appears: client name/DOB/MID#/record#/date/location
+fill the repeated header on all 43 pages; presenting problem fills pages 4 and 5;
+emergency contacts fill pages 7, 10 and 23; PCP info fills pages 7, 10 and 29;
+the client name flows into the welcome letter, consents, CCA and Tailored Plan pages.
+
+## Security
+
+- Random 192-bit tokens, 7-day expiry (configurable), no PHI in URLs.
+- Answers, signatures and uploads stored server-side; staff routes require login.
+- Full audit log: intake created, link opened, section started/completed,
+  signature captured, packet submitted, staff reviewed, PDF generated/downloaded.
+
+> ⚠️ **HIPAA:** this codebase implements technical safeguards, but production
+> HIPAA compliance requires BAA-covered hosting and vendors, access controls,
+> encrypted backups, and a legal/compliance review. See `COWORKER_HANDOFF.md`.
+
+## Deployment
+
+See `README_DEPLOYMENT.md` (Vercel or Render + Supabase/PostgreSQL, custom
+domain, public client links) and `README_DOCUSIGN.md` for optional DocuSign.
