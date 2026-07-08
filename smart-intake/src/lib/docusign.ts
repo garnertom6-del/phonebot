@@ -5,6 +5,8 @@
  * the completed packet out for a certified DocuSign signing ceremony.
  */
 import crypto from "crypto";
+import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
+import type { Answers } from "./fillPdf";
 
 export function docusignConfigured(): boolean {
   return !!(process.env.DOCUSIGN_INTEGRATION_KEY && process.env.DOCUSIGN_USER_ID &&
@@ -41,10 +43,66 @@ async function getAccessToken(): Promise<string> {
   return (await res.json()).access_token as string;
 }
 
+type DocuSignTab = {
+  documentId: string;
+  pageNumber: string;
+  recipientId: string;
+  tabLabel: string;
+  xPosition: string;
+  yPosition: string;
+};
+
+function appliesToClientSigner(f: FieldMapping, answers: Answers, consents: Record<string, boolean>): boolean {
+  if (!["client", "guardian", "auto"].includes(f.role)) return false;
+  if (f.consentKey && !consents[f.consentKey]) return false;
+
+  const roi = /^roi([123])_sig$/.exec(f.fieldKey);
+  if (roi) {
+    const slot = roi[1];
+    return !!answers[`roi${slot}_recipient`] && consents[`roi${slot}_agreed`] === true;
+  }
+
+  // Discharge and staff review signatures are not part of initial client DocuSign signing.
+  if (f.fieldKey.startsWith("dis_")) return false;
+  return true;
+}
+
+function toDocuSignTab(f: FieldMapping, kind: "sign" | "date"): DocuSignTab {
+  return {
+    documentId: "1",
+    pageNumber: String(f.page),
+    recipientId: "1",
+    tabLabel: `${kind}_${f.fieldKey}`,
+    xPosition: String(Math.round(f.x)),
+    yPosition: String(Math.round(PACKET_MAP.pageHeight - f.y - f.height)),
+  };
+}
+
+export function clientDocuSignTabs(
+  answers: Answers, consents: Record<string, boolean>, fields: FieldMapping[] = PACKET_MAP.fields,
+): { signHereTabs: DocuSignTab[]; dateSignedTabs: DocuSignTab[] } {
+  const signatureFields = fields
+    .filter((f) => f.type === "signature" || f.type === "signature_small")
+    .filter((f) => appliesToClientSigner(f, answers, consents));
+
+  const dateFields = fields
+    .filter((f) => f.source === "sign_date")
+    .filter((f) => appliesToClientSigner(f, answers, consents));
+
+  return {
+    signHereTabs: signatureFields.map((f) => toDocuSignTab(f, "sign")),
+    dateSignedTabs: dateFields.map((f) => toDocuSignTab(f, "date")),
+  };
+}
+
 export async function createDocuSignEnvelope(
   completedPdf: Buffer, clientEmail: string, clientName: string,
+  answers: Answers = {}, consents: Record<string, boolean> = {},
+  fields: FieldMapping[] = PACKET_MAP.fields,
 ): Promise<{ envelopeId: string }> {
   if (!docusignConfigured()) throw new Error("DocuSign not configured");
+  const tabs = clientDocuSignTabs(answers, consents, fields);
+  if (tabs.signHereTabs.length === 0) throw new Error("No client DocuSign signature tabs found");
   const token = await getAccessToken();
   const base = process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
   const res = await fetch(
@@ -62,7 +120,7 @@ export async function createDocuSignEnvelope(
         recipients: {
           signers: [{
             email: clientEmail, name: clientName, recipientId: "1", routingOrder: "1",
-            tabs: { signHereTabs: [{ documentId: "1", pageNumber: "10", xPosition: "40", yPosition: "640" }] },
+            tabs,
           }],
         },
       }),
