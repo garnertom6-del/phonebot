@@ -12,6 +12,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTIONS, isQuickIntakeQuestion, type Question } from "@/config/mooreDivineQuestions";
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied } from "@/lib/validation";
+import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -37,6 +38,7 @@ function flattenVisible(answers: Answers, quick: boolean): FlatQ[] {
       // Quick Intake: only the essentials + consents; the clinician's CCA
       // fills the rest after upload by staff.
       if (quick && !isQuickIntakeQuestion(q)) continue;
+      if (quick && q.key === "client_phone_home") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       out.push({ q, sectionKey: s.key, sectionTitle: s.title });
     }
@@ -52,7 +54,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
   signed: { client?: boolean; guardian?: boolean }; quick?: boolean;
 }) {
-  const [answers, setAnswers] = useState<Answers>(initialAnswers);
+  const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [phase, setPhase] = useState<Phase>(
     ["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus) ? "done" : "welcome");
   const [idx, setIdx] = useState(0);
