@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { createDocuSignEnvelope, docusignConfigured } from "@/lib/docusign";
-import { fillPacket } from "@/lib/fillPdf";
+import { fillPacket, mergedMap } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } from "@/lib/intakeData";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
@@ -19,12 +19,18 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!intake.client.email) return NextResponse.json({ error: "Client has no email on file" }, { status: 400 });
   const answers = await loadAnswers(intake.id);
+  const consents = consentsFromAnswers(answers);
+  const signatures = await loadSignatures(intake.id);
+  delete signatures.client;
+  delete signatures.guardian;
+  const overrides = await mappingOverrides();
   const result = await fillPacket({
-    answers, signatures: await loadSignatures(intake.id),
-    consents: consentsFromAnswers(answers), overrides: await mappingOverrides(),
+    answers, signatures,
+    consents, overrides,
   });
   const { envelopeId } = await createDocuSignEnvelope(
     Buffer.from(result.pdfBytes), intake.client.email, intake.client.fullName,
+    answers, consents, mergedMap(overrides),
   );
   await audit("docusign_sent", { intakeId: intake.id, userId: user!.id, detail: envelopeId });
   return NextResponse.json({ ok: true, envelopeId });
