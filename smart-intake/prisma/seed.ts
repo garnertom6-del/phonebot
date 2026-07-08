@@ -189,10 +189,14 @@ async function main() {
     where: { email: "admin@mooredivinecare.local" },
     create: {
       email: "admin@mooredivinecare.local",
-      passwordHash: await bcrypt.hash("IntakeDemo123!", 10),
+      passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD || "IntakeDemo123!", 10),
       name: "MDC Admin", role: "admin",
     },
-    update: {},
+    // Setting ADMIN_PASSWORD in the host's environment updates the admin
+    // password on the next deploy - no shell access or UI needed.
+    update: process.env.ADMIN_PASSWORD
+      ? { passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10) }
+      : {},
   });
   await prisma.pdfTemplate.upsert({
     where: { name: "Moore Divine Care Client Intake Package" },
