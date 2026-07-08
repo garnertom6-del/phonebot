@@ -33,17 +33,30 @@ function extractableQuestions(): Question[] {
 }
 
 function buildSchema(questions: Question[]) {
-  const properties: Record<string, object> = {};
-  for (const q of questions) {
-    if (q.type === "chips") {
-      properties[q.key] = { type: "array", items: q.options ? { type: "string", enum: q.options } : { type: "string" } };
-    } else if ((q.type === "radio" || q.type === "yesno") && q.options) {
-      properties[q.key] = { type: "string", enum: q.options };
-    } else {
-      properties[q.key] = { type: "string" };
-    }
-  }
-  return { type: "object", properties, required: [], additionalProperties: false } as const;
+  return {
+    type: "object",
+    properties: {
+      answers: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            key: { type: "string", enum: questions.map((q) => q.key) },
+            value: {
+              anyOf: [
+                { type: "string" },
+                { type: "array", items: { type: "string" } },
+              ],
+            },
+          },
+          required: ["key", "value"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["answers"],
+    additionalProperties: false,
+  } as const;
 }
 
 function fieldGuide(questions: Question[]): string {
@@ -55,6 +68,27 @@ function fieldGuide(questions: Question[]): string {
 export interface CcaExtractionResult {
   extracted: Answers;
   fieldCount: number;
+}
+
+function normalizeValue(q: Question, value: unknown): Answers[string] | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  if (q.type === "chips") {
+    const values = Array.isArray(value)
+      ? value
+      : String(value).split(/[,;|]/);
+    const clean = values.map((v) => String(v).trim()).filter(Boolean);
+    if (!clean.length) return undefined;
+    return q.options ? clean.filter((v) => q.options!.includes(v)) : clean;
+  }
+  if (Array.isArray(value)) {
+    value = value.map((v) => String(v).trim()).filter(Boolean).join(", ");
+  }
+  const text = String(value).trim();
+  if (!text) return undefined;
+  if ((q.type === "radio" || q.type === "yesno") && q.options && !q.options.includes(text)) {
+    return undefined;
+  }
+  return text;
 }
 
 export async function extractFromCca(
@@ -101,7 +135,9 @@ export async function extractFromCca(
           type: "text",
           text:
             "Extract everything this CCA contains for the following intake fields. " +
-            "Return a JSON object using exactly these keys (omit keys the document does not answer):\n\n" +
+            "Return JSON with an answers array, where each item has key and value. " +
+            "Use exactly these keys and omit fields the document does not answer. " +
+            "For checkbox/chip fields, return value as an array of option strings:\n\n" +
             fieldGuide(questions),
         },
       ],
@@ -114,15 +150,18 @@ export async function extractFromCca(
   }
   const text = response.content.find((b) => b.type === "text");
   if (!text || text.type !== "text") throw new Error("No extraction result returned.");
-  const raw = JSON.parse(text.text) as Record<string, unknown>;
+  const raw = JSON.parse(text.text) as { answers?: Array<{ key?: string; value?: unknown }> };
 
   // keep only known keys with non-empty values
-  const allowed = new Set(questions.map((q) => q.key));
+  const byKey = new Map(questions.map((q) => [q.key, q]));
   const extracted: Answers = {};
-  for (const [k, v] of Object.entries(raw)) {
-    if (!allowed.has(k)) continue;
-    if (v === null || v === undefined || v === "" || (Array.isArray(v) && v.length === 0)) continue;
-    extracted[k] = v as Answers[string];
+  for (const item of raw.answers || []) {
+    if (!item.key) continue;
+    const q = byKey.get(item.key);
+    if (!q) continue;
+    const normalized = normalizeValue(q, item.value);
+    if (normalized === undefined || (Array.isArray(normalized) && normalized.length === 0)) continue;
+    extracted[item.key] = normalized;
   }
   return { extracted, fieldCount: Object.keys(extracted).length };
 }
