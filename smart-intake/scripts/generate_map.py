@@ -255,22 +255,44 @@ def phone_line(pg, occ_line, home_key, work_key, cell_key, src_prefix):
 
 
 with pdfplumber.open(PDF) as pdf:
-    PAGES = [Page(pg, i + 1) for i, pg in enumerate(pdf.pages)]
+    PAGES = []
+    for i, pg in enumerate(pdf.pages):
+        page = Page(pg, i + 1)
+        # header table geometry: 7 vertical borders forming 6 cells; the value
+        # row sits between the middle (69.4) and bottom (83.6) horizontal rules
+        page.hdr_cols = sorted({round(l["x0"], 1) for l in pg.lines
+                                if l["top"] < 95 and abs(l["top"] - l["bottom"]) > 5})
+        hrows = sorted({round(l["top"], 1) for l in pg.lines
+                        if l["top"] < 95 and abs(l["x1"] - l["x0"]) > 100})
+        page.hdr_value_top = hrows[1] + 2 if len(hrows) >= 3 else 71.4
+        PAGES.append(page)
 
-# ── repeated header on all 43 pages ─────────────────────────────────────────
+# ── repeated header on all 43 pages: values go IN the box under each label ──
+HDR_COLS = [
+    ("hdr_client_name", "client_full_name"), ("hdr_dob", "dob"),
+    ("hdr_mid", "mid_number"), ("hdr_record", "record_number"),
+    ("hdr_intake_date", "intake_date"), ("hdr_location", "location"),
+]
 for p in PAGES:
-    for key, source, label, wdt in [
-            ("hdr_client_name", "client_full_name", "Client Name", 74),
-            ("hdr_dob", "dob", "DOB", 56), ("hdr_mid", "mid_number", "MID#", 60),
-            ("hdr_record", "record_number", "Record#", 48),
-            ("hdr_intake_date", "intake_date", "Date of Intake", 42),
-            ("hdr_location", "location", "Location", 48)]:
-        bb = p.find(label, top_max=75)
-        if bb:
-            emit(p, "%s_p%d" % (key, p.number), source, "text", bb["x1"] + 3, bb["top"],
-                 wdt, 10, fs=7, role="auto", notes="repeated page header")
-        else:
-            miss(p.number, key, "header label missing")
+    cols = getattr(p, "hdr_cols", [])
+    if len(cols) >= 7:
+        for ci, (key, source) in enumerate(HDR_COLS):
+            x0, x1 = cols[ci], cols[ci + 1]
+            emit(p, "%s_p%d" % (key, p.number), source, "text",
+                 x0 + 4, p.hdr_value_top, x1 - x0 - 8, 11, fs=8.5, role="auto",
+                 notes="value cell of repeated page-header table")
+    else:
+        # fallback: next to the label if a page ever lacks the table borders
+        for key, source in HDR_COLS:
+            label = {"hdr_client_name": "Client Name", "hdr_dob": "DOB", "hdr_mid": "MID#",
+                     "hdr_record": "Record#", "hdr_intake_date": "Date of Intake",
+                     "hdr_location": "Location"}[key]
+            bb = p.find(label, top_max=75)
+            if bb:
+                emit(p, "%s_p%d" % (key, p.number), source, "text", bb["x1"] + 3,
+                     bb["top"], 60, 10, fs=7, role="auto", notes="repeated page header")
+            else:
+                miss(p.number, key, "header label missing")
 
 # ── page 1: staff document checklist ────────────────────────────────────────
 for key, anchor in [
