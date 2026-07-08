@@ -59,6 +59,22 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     load();
   }
 
+  async function saveAssist(form: HTMLFormElement) {
+    setNote("Saving NC Tracks / helper info...");
+    const fd = new FormData(form);
+    const fields = Object.fromEntries(
+      Array.from(fd.entries())
+        .filter(([key]) => key !== "helperNotes")
+        .map(([key, value]) => [key, String(value)]),
+    );
+    const r = await fetch(`/api/intakes/${i.id}/assist`, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ fields, helperNotes: String(fd.get("helperNotes") || "") }),
+    });
+    setNote(r.ok ? "NC Tracks / helper info saved and smart defaults applied" : "Helper info failed to save");
+    load();
+  }
+
   return (
     <main className="mx-auto max-w-5xl p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">← Dashboard</Link>
@@ -71,11 +87,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href={`/intakes/${i.id}/review`} className="btn-primary">Review / edit answers</Link>
+          <Link href={`/intakes/${i.id}/plans`} className="btn-secondary">PCP / Crisis Plan</Link>
           <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
           <button className="btn-secondary" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
             Generate Completed Packet
           </button>
           <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
+          <button className="btn-ghost" onClick={() => act("Copies link", () => fetch(`/api/intakes/${i.id}/copies`, { method: "POST" }))}>
+            Send Copies Link
+          </button>
           <button className="btn-ghost" onClick={() => act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, { method: "POST" }))}>
             Send to DocuSign
           </button>
@@ -112,6 +132,46 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </label>
           {ccaResult && <p className="mt-2 text-sm font-semibold text-brand">{ccaResult}</p>}
         </div>
+        <div className="card md:col-span-2">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-bold">NC Tracks / staff helper info</h3>
+              <p className="mt-1 text-sm text-slate-500">
+                Look up manually, paste quick notes, then save. The app applies MID, PCP,
+                emergency, staff names, dates, Medicaid defaults, and repeated packet fields.
+              </p>
+            </div>
+            <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
+              Open NC Tracks
+            </a>
+          </div>
+          <form className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3" onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}>
+            <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
+            <HelperInput name="mid_number" label="MID #" value={d.answers.mid_number ?? ""} />
+            <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
+            <HelperInput name="pcp_name" label="Primary care doctor" value={d.answers.pcp_name ?? ""} />
+            <HelperInput name="pcp_phone" label="PCP phone" value={d.answers.pcp_phone ?? ""} />
+            <HelperInput name="pcp_address" label="PCP address / practice" value={d.answers.pcp_address ?? ""} />
+            <HelperInput name="ec1_name" label="Emergency contact" value={d.answers.ec1_name ?? ""} />
+            <HelperInput name="ec1_cell_phone" label="Emergency phone" value={d.answers.ec1_cell_phone ?? ""} />
+            <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={d.answers.staff_receiving_intake ?? d.answers.clinician_name ?? ""} />
+            <HelperInput name="height" label="Height" value={d.answers.height ?? ""} />
+            <HelperInput name="weight" label="Weight" value={d.answers.weight ?? ""} />
+            <HelperInput name="services_other" label="Other service note" value={d.answers.services_other ?? ""} />
+            <label className="md:col-span-3">
+              <span className="label">Paste quick notes</span>
+              <textarea name="helperNotes" className="input min-h-[110px]"
+                defaultValue={String(d.answers.staff_helper_notes ?? "")}
+                placeholder={"Examples:\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nHeight: 5'8\"\nWeight: 160\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101"} />
+            </label>
+            <div className="md:col-span-3 flex flex-wrap gap-2">
+              <button className="btn-primary" type="submit">Save helper info</button>
+              <span className="self-center text-xs text-slate-500">
+                Automatic NC Tracks retrieval can be added later if you have an approved portal/API workflow.
+              </span>
+            </div>
+          </form>
+        </div>
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
         <div className="card">
           <h3 className="mb-2 font-bold">Signatures</h3>
@@ -138,5 +198,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         </div>
       </div>
     </main>
+  );
+}
+
+function HelperInput({ name, label, value }: { name: string; label: string; value: unknown }) {
+  return (
+    <label>
+      <span className="label">{label}</span>
+      <input className="input" name={name} defaultValue={String(value ?? "")} />
+    </label>
   );
 }
