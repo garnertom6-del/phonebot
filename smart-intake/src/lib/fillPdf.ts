@@ -12,6 +12,7 @@ import {
   SignatureContext, SignatureRecord, drawSignature, embedSignatureImages,
   initialsFromName, signatureForRole,
 } from "./signaturePlacement";
+import { applyOperationalDefaults } from "./answerDefaults";
 
 export type Answers = Record<string, unknown>;
 
@@ -82,6 +83,15 @@ function drawTextField(
   }
 }
 
+function drawCenteredX(page: PDFPage, f: FieldMapping, font: PDFFont) {
+  const size = f.fontSize || Math.min(f.width, f.height, 10);
+  const textWidth = font.widthOfTextAtSize("X", size);
+  const x = f.x + (f.width - textWidth) / 2;
+  const y = f.y + (f.height - size) / 2 + 1;
+  page.drawText("X", { x, y, size, font, color: INK });
+  page.drawText("X", { x: x + 0.25, y, size, font, color: INK });
+}
+
 export interface FillInput {
   answers: Answers;
   signatures: Record<string, SignatureRecord>;
@@ -120,12 +130,11 @@ export function mergedMap(overrides?: FieldMapping[]): FieldMapping[] {
 
 export async function fillPacket(input: FillInput): Promise<FillResult> {
   const doc = await PDFDocument.load(loadTemplateBytes());
-  const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
   const pages = doc.getPages();
 
-  const answers: Answers = { ...input.answers };
+  const answers: Answers = applyOperationalDefaults(input.answers, { forPdf: true });
   // derived/auto values
   const signerName =
     input.signatures.guardian?.printedName || input.signatures.client?.printedName ||
@@ -188,13 +197,13 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
     const resolved = resolveValue(f.source, answers);
     if (f.type === "checkbox") {
       if (resolved.checked) {
-        page.drawText("X", { x: f.x, y: f.y + 1, size: f.fontSize, font: bold, color: INK });
+        drawCenteredX(page, f, bold);
         filled++;
       } else skipped.push(f.fieldKey);
       continue;
     }
     if (resolved.text) {
-      drawTextField(page, f, resolved.text, font);
+      drawTextField(page, f, resolved.text, bold);
       filled++;
     } else skipped.push(f.fieldKey);
   }
