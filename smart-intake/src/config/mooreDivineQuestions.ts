@@ -79,7 +79,7 @@ export const SECTIONS: Section[] = [
       { key: "address_city", essential: true, label: "City", type: "text", voice: true },
       { key: "address_state", essential: true, label: "State", type: "text", placeholder: "NC" },
       { key: "client_phone_cell", essential: true, label: "Cell phone", type: "phone", required: true },
-      { key: "client_phone_home", label: "Home phone (if different)", type: "phone" },
+      { key: "client_phone_home", label: "Home phone (same as cell unless different)", type: "phone" },
       { key: "client_phone_work", label: "Work phone", type: "phone" },
       { key: "living_arrangement", label: "Living arrangement", type: "radio", options: ["Adult with Spouse", "Adult with Relative", "Adult Alone", "Homeless", "Residential", "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative"] },
       { key: "lives_with_whom", label: "Who do you live with?", type: "text", voice: true },
@@ -356,7 +356,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "referrals", title: "Referrals for Services",
-    intro: "Are there family members or friends who may benefit from Moore Divine Care services?",
+    intro: "Moore Divine Care has adult and kids services. Add anyone who may benefit, plus their phone number if you have it.",
     questions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].flatMap((i): Question[] => [
       { key: `ref${i}_name`, label: `Referral ${i} - name`, type: "text", voice: true, askIf: i === 1 ? undefined : { key: `ref${i - 1}_name`, truthy: true } },
       { key: `ref${i}_phone`, label: `Referral ${i} - phone`, type: "phone", askIf: { key: `ref${i}_name`, truthy: true } },
@@ -518,7 +518,6 @@ export const REQUIRED_FOR_SUBMIT: { key: string; label: string; when?: AskIf }[]
   { key: "address_street", label: "Street address" },
   { key: "client_phone_cell", label: "Phone (or email)" },
   { key: "gender", label: "Gender" },
-  { key: "mid_number", label: "Medicaid MID#", when: { key: "has_medicaid", equals: "Yes" } },
   { key: "ec1_name", label: "Emergency contact" },
   { key: "presenting_problem", label: "Presenting problem" },
   { key: "consent_provider_choice", label: "Provider choice acknowledgment" },
