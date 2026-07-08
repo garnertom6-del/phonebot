@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTIONS, type Question, type Section } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied } from "@/lib/validation";
+import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -27,7 +28,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
   signed: { client?: boolean; guardian?: boolean };
 }) {
-  const [answers, setAnswers] = useState<Answers>(initialAnswers);
+  const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [stepIdx, setStepIdx] = useState(0);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
