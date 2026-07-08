@@ -15,6 +15,51 @@ const RELATIONSHIPS = [
   { value: "legalRepresentative", label: "Legal Representative" },
 ];
 
+const PAD_HEIGHT = 220;
+
+function croppedSignatureDataUrl(canvas: HTMLCanvasElement): string {
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas.toDataURL("image/png");
+
+  const { width, height } = canvas;
+  const pixels = ctx.getImageData(0, 0, width, height);
+  const { data } = pixels;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      if (data[(y * width + x) * 4 + 3] > 12) {
+        minX = Math.min(minX, x);
+        minY = Math.min(minY, y);
+        maxX = Math.max(maxX, x);
+        maxY = Math.max(maxY, y);
+      }
+    }
+  }
+
+  if (minX > maxX || minY > maxY) return canvas.toDataURL("image/png");
+
+  const margin = Math.ceil(Math.max(window.devicePixelRatio || 1, 1) * 12);
+  const sx = Math.max(0, minX - margin);
+  const sy = Math.max(0, minY - margin);
+  const sw = Math.min(width - sx, maxX - minX + 1 + margin * 2);
+  const sh = Math.min(height - sy, maxY - minY + 1 + margin * 2);
+  const out = document.createElement("canvas");
+  const thicken = Math.ceil(Math.max(window.devicePixelRatio || 1, 1) * 0.8);
+  out.width = sw + thicken * 2;
+  out.height = sh + thicken * 2;
+  const outCtx = out.getContext("2d");
+  if (!outCtx) return canvas.toDataURL("image/png");
+
+  for (const [dx, dy] of [[0, 0], [thicken, 0], [0, thicken], [-thicken, 0], [0, -thicken]]) {
+    outCtx.drawImage(canvas, sx, sy, sw, sh, thicken + dx, thicken + dy, sw, sh);
+  }
+  return out.toDataURL("image/png");
+}
+
 export default function SignaturePad({ onCapture, defaultName = "", roleLabel }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
@@ -32,12 +77,17 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel }:
       const data = padRef.current?.toData();
       const ratio = Math.max(window.devicePixelRatio || 1, 1);
       canvas.width = canvas.offsetWidth * ratio;
-      canvas.height = 180 * ratio;
+      canvas.height = PAD_HEIGHT * ratio;
       canvas.getContext("2d")!.scale(ratio, ratio);
       padRef.current?.clear();
       if (data) padRef.current?.fromData(data);
     };
-    padRef.current = new SignaturePadLib(canvas, { penColor: "#16233a" });
+    padRef.current = new SignaturePadLib(canvas, {
+      penColor: "#050505",
+      minWidth: 1.35,
+      maxWidth: 4.25,
+      velocityFilterWeight: 0.45,
+    });
     resize();
     window.addEventListener("resize", resize);
     return () => { window.removeEventListener("resize", resize); padRef.current?.off(); };
@@ -47,8 +97,9 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel }:
     setError("");
     if (!printedName.trim()) return setError("Please type your printed name.");
     if (padRef.current?.isEmpty()) return setError("Please draw your signature above.");
+    const canvas = canvasRef.current;
     onCapture({
-      imageData: padRef.current!.toDataURL("image/png"),
+      imageData: canvas ? croppedSignatureDataUrl(canvas) : padRef.current!.toDataURL("image/png"),
       printedName: printedName.trim(), relationship, signedDate,
     });
   }
@@ -56,7 +107,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel }:
   return (
     <div className="card">
       {roleLabel && <p className="mb-2 text-sm font-semibold text-brand">{roleLabel}</p>}
-      <canvas ref={canvasRef} className="w-full touch-none rounded-lg border-2 border-dashed border-slate-300 bg-white" style={{ height: 180 }} />
+      <canvas ref={canvasRef} className="w-full touch-none rounded-lg border-2 border-dashed border-slate-300 bg-white" style={{ height: PAD_HEIGHT }} />
       <div className="mt-2 flex gap-2">
         <button type="button" className="btn-ghost px-3 py-1.5 text-sm" onClick={() => padRef.current?.clear()}>Clear</button>
       </div>
