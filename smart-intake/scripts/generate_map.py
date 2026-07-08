@@ -206,17 +206,21 @@ def sig_pair(pg, caption, occ, key, consent, role="client", source="signature",
     bb = p.find(caption, occ=occ, top_min=top_min)
     if not bb:
         return miss(pg, key, "caption not found: %r" % caption)
+    # a signature line always sits ABOVE its caption in this packet; a line
+    # below a caption belongs to the next signer's caption
     line = None
     for w in p.words:
-        if "___" in w["text"] and w["x0"] < bb["x0"] + 30 and 2 < abs(w["top"] - bb["top"]) <= 20:
-            if line is None or abs(w["top"] - bb["top"]) < abs(line["top"] - bb["top"]):
+        if "___" in w["text"] and w["x0"] < bb["x0"] + 30 and 2 < bb["top"] - w["top"] <= 30:
+            if line is None or w["top"] > line["top"]:
                 line = w
-    sig_top = (line["top"] - 16) if line else (bb["top"] - 26)
-    emit(p, key, source, "signature", bb["x0"] + 6, sig_top, sig_w, 22,
+    # the underscore STROKE sits at the bottom of its glyph box - anchor there
+    line_ink = line["bottom"] - 1 if line else None
+    sig_top = (line_ink - 24) if line_ink else (bb["top"] - 26)
+    emit(p, key, source, "signature", bb["x0"] + 6, sig_top, sig_w, 23,
          role=role, consent=consent, notes="signature for caption: " + caption)
     for w in p.words:
         if abs(w["top"] - bb["top"]) <= 4 and w["x0"] >= date_x_min and w["n"].startswith("date"):
-            date_top = (line["top"] - 11) if line else (bb["top"] - 14)
+            date_top = (line_ink - 12) if line_ink else (bb["top"] - 14)
             emit(p, key + "_date", "sign_date", "text", w["x0"], date_top, 85, 11,
                  role=role, consent=consent)
             return

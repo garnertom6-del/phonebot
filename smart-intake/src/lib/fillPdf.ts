@@ -9,7 +9,8 @@ import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { PACKET_MAP, TEMPLATE_FILE, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { wrapText, fitFontSize } from "./pdfCoordinates";
 import {
-  SignatureContext, SignatureRecord, drawSignature, embedSignatureImages, initialsFromName,
+  SignatureContext, SignatureRecord, drawSignature, embedSignatureImages,
+  initialsFromName, signatureForRole,
 } from "./signaturePlacement";
 
 export type Answers = Record<string, unknown>;
@@ -157,6 +158,12 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       continue;
     }
     if (f.consentKey && !input.consents[f.consentKey]) {
+      skipped.push(f.fieldKey);
+      continue;
+    }
+    // a signing date only appears when that role actually signed
+    if (f.source.endsWith("sign_date") &&
+        !signatureForRole(ctx, f.role === "auto" ? "client" : f.role)) {
       skipped.push(f.fieldKey);
       continue;
     }
