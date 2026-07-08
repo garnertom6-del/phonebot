@@ -1,0 +1,22 @@
+# Render Blueprint - deploys the Moore Divine Care Smart Intake app with
+# zero manual configuration. In Render: New + -> Blueprint -> pick this repo.
+services:
+  - type: web
+    name: mdc-smart-intake
+    runtime: node
+    plan: free            # upgrade to "starter" + uncomment the disk below to keep data across restarts
+    rootDir: smart-intake
+    buildCommand: npm install && npm run build && mkdir -p storage && npx prisma db push && npm run seed
+    startCommand: npm run start
+    envVars:
+      - key: DATABASE_URL
+        value: file:/opt/render/project/src/smart-intake/storage/mdc.db
+      - key: SESSION_SECRET
+        generateValue: true
+      - key: CLIENT_LINK_EXPIRY_DAYS
+        value: "7"
+    # For real client use (Starter plan) keep data across restarts:
+    # disk:
+    #   name: mdc-data
+    #   mountPath: /opt/render/project/src/smart-intake/storage
+    #   sizeGB: 1

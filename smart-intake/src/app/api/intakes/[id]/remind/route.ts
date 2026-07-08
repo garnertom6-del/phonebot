@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { sendClientLinkEmail, sendClientLinkSms } from "@/lib/notify";
@@ -9,7 +10,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (deny) return deny;
   const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const base = process.env.APP_BASE_URL || "http://localhost:3000";
+  const base = appBaseUrl();
   const link = `${base}/intake/${intake.token}`;
   const results: string[] = [];
   if (intake.client.email) {

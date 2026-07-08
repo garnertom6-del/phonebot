@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadSignatures, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
@@ -19,7 +20,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const answers = await loadAnswers(intake.id);
   const sigs = await loadSignatures(intake.id);
-  const base = process.env.APP_BASE_URL || "http://localhost:3000";
+  const base = appBaseUrl();
   return NextResponse.json({
     intake: {
       ...intake,
