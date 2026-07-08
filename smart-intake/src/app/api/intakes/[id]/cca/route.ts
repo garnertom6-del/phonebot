@@ -6,6 +6,7 @@ import { ccaConfigured, extractFromCca, mergeCcaAnswers } from "@/lib/ccaExtract
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { saveFile } from "@/lib/storage";
 import { questionByKey } from "@/lib/validation";
+import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
@@ -49,8 +50,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const current = await loadAnswers(intake.id);
   const { merged, filled, skipped } = mergeCcaAnswers(current, extraction.extracted, overwrite);
+  const withDefaults = applyOperationalDefaults({ ...current, ...merged });
   if (filled.length) {
-    await saveAnswers(intake.id, merged);
+    await saveAnswers(intake.id, withDefaults);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
   }
   await prisma.intake.update({ where: { id: intake.id }, data: { status: "NEEDS_REVIEW" } });
