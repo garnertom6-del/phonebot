@@ -126,7 +126,10 @@ export async function extractFromCca(
       "(3) is_minor_or_incompetent and the guardian fields describe the client's CURRENT legal " +
       "status - never fill them from a guardian the client had in the past (e.g. as a child). " +
       "(4) A preferred/chosen name that differs from the legal name belongs in parentheses after " +
-      "the legal name in client_full_name, and staff should honor it in free-text summaries.",
+      "the legal name in client_full_name, and staff should honor it in free-text summaries. " +
+      "(5) mh_services_desc and mh_service_provider are only for current behavioral-health " +
+      "providers/services (therapy, CST, peer support, OPT, medication management provider, etc.); " +
+      "do not put medication names there.",
     messages: [{
       role: "user",
       content: [
