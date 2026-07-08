@@ -63,8 +63,11 @@ function drawTextField(
   if (!text) return;
   // baselines are lifted a few points so text floats just above the printed
   // underlines instead of touching them
-  if (f.lines > 1) {
-    const lines = wrapText(text, font, f.fontSize, f.width, f.lines);
+  const flowTotal = f.flowLines ?? f.lines;
+  const start = f.startLine ?? 0;
+  if (f.lines > 1 || flowTotal > f.lines || start > 0) {
+    const lines = wrapText(text, font, f.fontSize, f.width, flowTotal)
+      .slice(start, start + f.lines);
     lines.forEach((line, i) => {
       page.drawText(line, {
         x: f.x, y: f.y + f.height - f.fontSize - i * f.lineHeight + 2.5,
