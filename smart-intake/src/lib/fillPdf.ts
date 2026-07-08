@@ -88,7 +88,9 @@ function checkboxLeftShift(f: FieldMapping): number {
   if (f.page === 2 && /^(edu_|funding_|income_|veteran_)/.test(key)) return f.width;
   if (f.page === 5 && /^(rs_|a_income_|a_medicaid$|a_medicare$|svc_|mh_)/.test(key)) return f.width;
   if (f.page === 6 && /^sev_/.test(key)) return f.width * 2;
+  if (f.page === 9 && /^able_/.test(key)) return -f.width;
   if (f.page === 11 && /^pc_/.test(key)) return f.width;
+  if (f.page === 34 && /^hipaa_/.test(key)) return f.width / 2;
   return 0;
 }
 
