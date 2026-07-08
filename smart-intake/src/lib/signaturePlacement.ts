@@ -59,9 +59,14 @@ export function drawSignature(
   if (!match) return false;
   if (match.image) {
     const dims = match.image.scale(1);
-    const scale = Math.min(f.width / dims.width, f.height / dims.height);
+    const scale = Math.min((f.width * 0.98) / dims.width, (f.height * 0.95) / dims.height);
+    const width = dims.width * scale;
+    const height = dims.height * scale;
     page.drawImage(match.image, {
-      x: f.x, y: f.y, width: dims.width * scale, height: dims.height * scale,
+      x: f.x + (f.width - width) / 2,
+      y: f.y + (f.height - height) / 2,
+      width,
+      height,
     });
   } else {
     page.drawText(match.record.printedName, {
