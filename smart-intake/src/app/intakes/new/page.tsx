@@ -5,7 +5,7 @@ import { useState } from "react";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
-  ["midNumber", "MID#", "text"], ["recordNumber", "Record#", "text"],
+  ["midNumber", "MID#", "text"], ["recordNumber", "Record# *", "text"],
   ["intakeDate", "Date of intake", "date"], ["location", "Location", "text"],
   ["email", "Client email", "email"], ["phone", "Client phone", "tel"],
   ["guardianName", "Guardian name (if applicable)", "text"],
