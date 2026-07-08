@@ -5,6 +5,7 @@ import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadSignatures, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
+import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { deny } = await requireStaff();
@@ -18,7 +19,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const answers = await loadAnswers(intake.id);
+  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const sigs = await loadSignatures(intake.id);
   const base = appBaseUrl();
   return NextResponse.json({
@@ -43,7 +44,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (body.answers) {
     const parsed = answersSchema.safeParse(body.answers);
     if (!parsed.success) return NextResponse.json({ error: "Invalid answers" }, { status: 400 });
-    await saveAnswers(intake.id, parsed.data);
+    const answers = applyOperationalDefaults(parsed.data);
+    await saveAnswers(intake.id, answers);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
     await audit("answers_updated", { intakeId: intake.id, userId: user!.id, detail: "staff edit" });
     await audit("staff_reviewed", { intakeId: intake.id, userId: user!.id });
