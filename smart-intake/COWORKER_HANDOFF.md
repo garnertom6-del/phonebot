@@ -13,7 +13,11 @@ features are already built** — these are configuration tasks.
 - On Vercel, replace `saveFile`/`readFile` with Supabase Storage calls
   (`@supabase/supabase-js`, a private bucket, service-role key in env).
 
-## 3. DocuSign (optional)
+## 3. Claude API key for CCA auto-fill
+- Add `ANTHROPIC_API_KEY` (from platform.claude.com) to the host environment so
+  the "Add CCA" button can read assessments. Same key type the phone bot uses.
+
+## 3b. DocuSign (optional)
 - Follow README_DOCUSIGN.md; needs the org's DocuSign admin to create the
   integration key, RSA key, and grant consent.
 

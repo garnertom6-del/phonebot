@@ -4,7 +4,7 @@ export type AuditEvent =
   | "intake_created" | "link_opened" | "section_started" | "section_completed"
   | "signature_captured" | "packet_submitted" | "staff_reviewed"
   | "pdf_generated" | "pdf_downloaded" | "link_reminder_sent"
-  | "docusign_sent" | "answers_updated" | "document_uploaded";
+  | "docusign_sent" | "answers_updated" | "document_uploaded" | "cca_imported";
 
 export async function audit(
   event: AuditEvent,

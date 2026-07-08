@@ -45,9 +45,11 @@ export async function POST(req: NextRequest) {
       guardianEmail: d.guardianEmail || null, guardianPhone: d.guardianPhone || null,
     },
   });
+  const body = parsed.data as typeof parsed.data & { expectCca?: boolean };
   const intake = await prisma.intake.create({
     data: {
       clientId: client.id, token: newIntakeToken(), tokenExpiresAt: tokenExpiry(),
+      expectCca: body.expectCca !== false,
       intakeDate: d.intakeDate || new Date().toLocaleDateString("en-US"),
       location: d.location || "Greensboro",
     },

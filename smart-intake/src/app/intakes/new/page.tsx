@@ -15,6 +15,7 @@ const FIELDS = [
 export default function NewIntake() {
   const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro" });
+  const [expectCca, setExpectCca] = useState(true);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ id: string; clientLink: string } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -23,7 +24,7 @@ export default function NewIntake() {
     e.preventDefault();
     setError("");
     const res = await fetch("/api/intakes", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form),
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, expectCca }),
     });
     const body = await res.json();
     if (res.ok) setResult(body);
@@ -69,6 +70,13 @@ export default function NewIntake() {
             </div>
           ))}
         </div>
+        <label className="mt-4 flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-5 w-5" checked={expectCca}
+            onChange={(e) => setExpectCca(e.target.checked)} />
+          <span><b>Short client intake</b> - only ask the client the essentials (about 35 quick
+          taps + consents + signature). The clinician&apos;s CCA will fill in the rest when you
+          upload it with the <b>Add CCA</b> button. Uncheck for the full question set.</span>
+        </label>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         <button className="btn-primary mt-5 w-full">Create intake & generate secure link</button>
       </form>

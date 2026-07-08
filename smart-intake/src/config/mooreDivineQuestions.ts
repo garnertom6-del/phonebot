@@ -22,6 +22,7 @@ export interface Question {
   askIf?: AskIf;
   consentText?: string;     // for type=consent: the readable legal text
   staffOnly?: boolean;      // never shown to client; appears in staff review
+  essential?: boolean;      // asked even in Quick Intake (CCA-expected) mode
 }
 
 export interface Section {
@@ -51,16 +52,16 @@ export const SECTIONS: Section[] = [
   {
     key: "basic", title: "Basic Information", fastIntake: true,
     questions: [
-      { key: "client_full_name", label: "Client's full legal name", type: "text", required: true, voice: true },
-      { key: "dob", label: "Date of birth", type: "date", required: true },
-      { key: "mid_number", label: "Medicaid ID number (MID#)", type: "text", voice: true, help: "Skip if you don't have it handy - staff can add it later." },
-      { key: "client_email", label: "Email address", type: "email" },
+      { key: "client_full_name", essential: true, label: "Client's full legal name", type: "text", required: true, voice: true },
+      { key: "dob", essential: true, label: "Date of birth", type: "date", required: true },
+      { key: "mid_number", essential: true, label: "Medicaid ID number (MID#)", type: "text", voice: true, help: "Skip if you don't have it handy - staff can add it later." },
+      { key: "client_email", essential: true, label: "Email address", type: "email" },
     ],
   },
   {
     key: "demographics", title: "Demographics", fastIntake: true,
     questions: [
-      { key: "gender", label: "Gender", type: "radio", required: true, options: ["Female", "Male", "Transgender", "Other"] },
+      { key: "gender", essential: true, label: "Gender", type: "radio", required: true, options: ["Female", "Male", "Transgender", "Other"] },
       { key: "race", label: "Race", type: "radio", options: ["American Indian or Alaska Native", "Asian", "Black or African American", "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander"] },
       { key: "ethnicity", label: "Ethnicity", type: "radio", options: ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"] },
       { key: "marital_status", label: "Marital status", type: "radio", options: ["Single", "Married", "Separated", "Widowed"] },
@@ -74,10 +75,10 @@ export const SECTIONS: Section[] = [
   {
     key: "contact", title: "Address & Contact", fastIntake: true,
     questions: [
-      { key: "address_street", label: "Street address", type: "text", required: true, voice: true },
-      { key: "address_city", label: "City", type: "text", voice: true },
-      { key: "address_state", label: "State", type: "text", placeholder: "NC" },
-      { key: "client_phone_cell", label: "Cell phone", type: "phone", required: true },
+      { key: "address_street", essential: true, label: "Street address", type: "text", required: true, voice: true },
+      { key: "address_city", essential: true, label: "City", type: "text", voice: true },
+      { key: "address_state", essential: true, label: "State", type: "text", placeholder: "NC" },
+      { key: "client_phone_cell", essential: true, label: "Cell phone", type: "phone", required: true },
       { key: "client_phone_home", label: "Home phone (if different)", type: "phone" },
       { key: "client_phone_work", label: "Work phone", type: "phone" },
       { key: "living_arrangement", label: "Living arrangement", type: "radio", options: ["Adult with Spouse", "Adult with Relative", "Adult Alone", "Homeless", "Residential", "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative"] },
@@ -94,7 +95,7 @@ export const SECTIONS: Section[] = [
   {
     key: "insurance", title: "Insurance & Funding", fastIntake: true,
     questions: [
-      { key: "has_medicaid", label: "Do you have Medicaid?", type: "yesno", options: YN, required: true },
+      { key: "has_medicaid", essential: true, label: "Do you have Medicaid?", type: "yesno", options: YN, required: true },
       { key: "medicaid_effective_date", label: "Medicaid effective date (if known)", type: "date", askIf: { key: "has_medicaid", equals: "Yes" } },
       { key: "has_medicare", label: "Do you have Medicare?", type: "yesno", options: YN },
       { key: "medicare_effective_date", label: "Medicare effective date (if known)", type: "date", askIf: { key: "has_medicare", equals: "Yes" } },
@@ -127,7 +128,7 @@ export const SECTIONS: Section[] = [
     key: "presenting", title: "What Brings You In", fastIntake: true,
     intro: "Take your time here - tap the microphone and just talk. This is the most important answer in the packet.",
     questions: [
-      { key: "presenting_problem", label: "In your own words: what brings you in, and why do you feel the need for services?", type: "textarea", required: true, voice: true },
+      { key: "presenting_problem", essential: true, label: "In your own words: what brings you in, and why do you feel the need for services?", type: "textarea", required: true, voice: true },
       { key: "other_agencies", label: "Other agencies or providers you receive (or received) services from", type: "textarea", voice: true },
     ],
   },
@@ -194,24 +195,24 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "pending_court_cases", label: "Any pending court cases?", type: "yesno", options: YN },
       { key: "court_case_desc", label: "Briefly describe", type: "textarea", voice: true, askIf: { key: "pending_court_cases", equals: "Yes" } },
-      { key: "is_minor_or_incompetent", label: "Is the client a minor, or an adult with a legal guardian?", type: "yesno", options: YN, required: true },
+      { key: "is_minor_or_incompetent", essential: true, label: "Is the client a minor, or an adult with a legal guardian?", type: "yesno", options: YN, required: true },
       { key: "date_adjudicated", label: "Date adjudicated (attach documents for staff)", type: "text", askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
-      { key: "guardian_name", label: "Legal guardian's full name", type: "text", voice: true, askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
+      { key: "guardian_name", essential: true, label: "Legal guardian's full name", type: "text", voice: true, askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
       { key: "guardian_address", label: "Guardian's address", type: "text", voice: true, askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
-      { key: "guardian_phone", label: "Guardian's phone", type: "phone", askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
+      { key: "guardian_phone", essential: true, label: "Guardian's phone", type: "phone", askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
       { key: "guardian_email", label: "Guardian's email", type: "email", askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
     ],
   },
   {
     key: "emergency", title: "Emergency Contacts", fastIntake: true,
     questions: [
-      { key: "ec1_name", label: "Emergency contact 1 - name", type: "text", required: true, voice: true },
+      { key: "ec1_name", essential: true, label: "Emergency contact 1 - name", type: "text", required: true, voice: true },
       { key: "ec1_street", label: "Contact 1 - street address", type: "text", voice: true },
       { key: "ec1_city", label: "Contact 1 - city", type: "text" },
       { key: "ec1_state", label: "Contact 1 - state", type: "text", placeholder: "NC" },
       { key: "ec1_home_phone", label: "Contact 1 - home phone", type: "phone" },
       { key: "ec1_work_phone", label: "Contact 1 - work phone", type: "phone" },
-      { key: "ec1_cell_phone", label: "Contact 1 - cell phone", type: "phone", required: true },
+      { key: "ec1_cell_phone", essential: true, label: "Contact 1 - cell phone", type: "phone", required: true },
       { key: "ec2_name", label: "Emergency contact 2 - name (optional)", type: "text", voice: true },
       { key: "ec2_street", label: "Contact 2 - street address", type: "text", voice: true },
       { key: "ec2_city", label: "Contact 2 - city", type: "text" },
@@ -239,7 +240,7 @@ export const SECTIONS: Section[] = [
   {
     key: "provider_choice", title: "Provider Choice", fastIntake: true,
     questions: [
-      { key: "provider_choice_plan", label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare"] },
+      { key: "provider_choice_plan", essential: true, label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare"] },
       {
         key: "consent_provider_choice", label: "Provider Choice", type: "consent", required: true,
         consentText: "I understand that I have the right to choose which provider will provide services to me. I have selected Moore Divine Care, Inc. as my provider of choice and have been offered a list of other providers who offer the same or similar services based on my medical needs. I understand that at any time I may change my service provider and will, if possible, provide reasonable notice so my records can transition. I may contact my Local Management Entity with questions or concerns.",
@@ -321,8 +322,8 @@ export const SECTIONS: Section[] = [
     key: "hipaa", title: "HIPAA / Privacy Notice", fastIntake: true,
     intro: "Federal law protects your health information. The notice explains how medical information about you may be used and disclosed and how you can get access to it.",
     questions: [
-      { key: "hipaa_understood", label: "I understand the information that was explained to me and had the opportunity to ask questions", type: "yesno", options: YN, required: true },
-      { key: "hipaa_copy", label: "I was given a copy of this information", type: "yesno", options: YN, required: true },
+      { key: "hipaa_understood", essential: true, label: "I understand the information that was explained to me and had the opportunity to ask questions", type: "yesno", options: YN, required: true },
+      { key: "hipaa_copy", essential: true, label: "I was given a copy of this information", type: "yesno", options: YN, required: true },
       { key: "consent_hipaa", label: "Notice of Privacy Practices Acknowledgment", type: "consent", required: true, consentText: "I reviewed the notice describing how medical information about me may be used and disclosed and how I can get access to this information. I understand my rights: to see and get a copy of my health records, to have corrections added, to receive a notice about how my information is used and shared, to decide whether to give permission before my information is used for certain purposes such as marketing, and to get a report on when and why it was shared. My health information cannot be used or shared without my written permission unless the law allows it, and I may file a complaint with my provider or the U.S. Government (www.hhs.gov/ocr/hipaa) if I believe my rights are denied." },
     ],
   },
@@ -336,7 +337,7 @@ export const SECTIONS: Section[] = [
   {
     key: "welcome_letter", title: "Welcome Letter", fastIntake: true,
     intro: "A welcome letter from the Executive and Leadership Team (Karen Jones, Nurse Practitioner; Tonya Jones, Clinical Director; Thadeous Young, Qualified Professional). Office hours: Greensboro Office 10am-4pm. Emergency number: 336-285-5204. The mission: dedicated to the empowerment of You, our client, striving to assist you, your family and other stakeholders in achieving an enhanced quality of life through effective, efficient person-centered services.",
-    questions: [{ key: "welcome_letter_ack", label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
+    questions: [{ key: "welcome_letter_ack", essential: true, label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
   },
   {
     key: "survey", title: "First-Contact Survey",
@@ -534,4 +535,9 @@ export function questionByKey(key: string): Question | undefined {
   for (const s of SECTIONS) for (const q of s.questions) if (q.key === key) return q;
   for (const g of STAFF_FIELDS) for (const q of g.fields) if (q.key === key) return q;
   return undefined;
+}
+
+/** True when a question is part of the shortened Quick Intake (CCA-expected) flow. */
+export function isQuickIntakeQuestion(q: Question): boolean {
+  return q.essential === true || q.type === "consent";
 }

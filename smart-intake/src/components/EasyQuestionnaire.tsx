@@ -9,7 +9,7 @@
  * Drop-in replacement for ClientQuestionnaire (identical props).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, type Question } from "@/config/mooreDivineQuestions";
+import { SECTIONS, isQuickIntakeQuestion, type Question } from "@/config/mooreDivineQuestions";
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied } from "@/lib/validation";
 import VoiceInput from "./VoiceInput";
@@ -28,12 +28,15 @@ const easyOpt = (q: Question, opt: string) => EASY[q.key]?.options?.[opt] ?? opt
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
-function flattenVisible(answers: Answers): FlatQ[] {
+function flattenVisible(answers: Answers, quick: boolean): FlatQ[] {
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
     for (const q of s.questions) {
       if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
+      // Quick Intake: only the essentials + consents; the clinician's CCA
+      // fills the rest after upload by staff.
+      if (quick && !isQuickIntakeQuestion(q)) continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       out.push({ q, sectionKey: s.key, sectionTitle: s.title });
     }
@@ -45,9 +48,9 @@ function isAnswered(v: Answers[string] | undefined): boolean {
   return v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && !v.length);
 }
 
-export default function EasyQuestionnaire({ token, clientName, initialAnswers, initialStatus, signed }: {
+export default function EasyQuestionnaire({ token, clientName, initialAnswers, initialStatus, signed, quick = false }: {
   token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
-  signed: { client?: boolean; guardian?: boolean };
+  signed: { client?: boolean; guardian?: boolean }; quick?: boolean;
 }) {
   const [answers, setAnswers] = useState<Answers>(initialAnswers);
   const [phase, setPhase] = useState<Phase>(
@@ -62,7 +65,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
   const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
 
-  const flat = useMemo(() => flattenVisible(answers), [answers]);
+  const flat = useMemo(() => flattenVisible(answers, quick), [answers, quick]);
 
   // Refs so timers (auto-advance) always see the latest state.
   const answersRef = useRef(answers); answersRef.current = answers;

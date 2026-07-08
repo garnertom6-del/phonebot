@@ -14,7 +14,7 @@ function IntakeInner({ token }: { token: string }) {
   const fullMode = searchParams.get("mode") === "full";
   const [state, setState] = useState<"loading" | "error" | "ready">("loading");
   const [error, setError] = useState("");
-  const [data, setData] = useState<{ clientName: string; status: string;
+  const [data, setData] = useState<{ clientName: string; status: string; quick?: boolean;
     answers: Record<string, string | boolean | number | string[]>;
     signatures: Record<string, { printedName: string }> } | null>(null);
 
@@ -43,7 +43,7 @@ function IntakeInner({ token }: { token: string }) {
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ) : (
         <EasyQuestionnaire token={token} clientName={data.clientName}
-          initialAnswers={data.answers} initialStatus={data.status}
+          initialAnswers={data.answers} initialStatus={data.status} quick={!!data.quick}
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ))}
     </>
