@@ -45,7 +45,7 @@ export default function NewIntake() {
               await navigator.clipboard.writeText(result.clientLink); setCopied(true);
             }}>{copied ? "Copied ✓" : "Copy client link"}</button>
             <button className="btn-ghost" onClick={() => fetch(`/api/intakes/${result.id}/remind`, { method: "POST" })}>
-              Send by email/SMS
+              📱 Text (SMS) / email the link to the client
             </button>
             <Link href={`/intakes/${result.id}`} className="btn-secondary">Open intake</Link>
           </div>

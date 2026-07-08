@@ -1,0 +1,507 @@
+"use client";
+/**
+ * EasyQuestionnaire - an ultra-simple ONE-question-at-a-time intake for
+ * vulnerable clients (5th-grade reading level). One big question per screen,
+ * giant tap targets, plain words from easyLanguage.ts, voice input on long
+ * answers, auto-save after every answer, encouragement screens between
+ * sections, one signature at the end.
+ *
+ * Drop-in replacement for ClientQuestionnaire (identical props).
+ */
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { SECTIONS, type Question } from "@/config/mooreDivineQuestions";
+import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
+import { askIfSatisfied } from "@/lib/validation";
+import VoiceInput from "./VoiceInput";
+import SignaturePad from "./SignaturePad";
+import ProgressBar from "./ProgressBar";
+
+type Answers = Record<string, string | boolean | number | string[]>;
+type Phase = "welcome" | "question" | "break" | "signature" | "done";
+
+interface FlatQ { q: Question; sectionKey: string; sectionTitle: string }
+
+/** Plain-language helpers (fall back to the original packet wording). */
+const easyQ = (q: Question) => EASY[q.key]?.q ?? q.label;
+const easyHelp = (q: Question) => EASY[q.key]?.help ?? q.help;
+const easyOpt = (q: Question, opt: string) => EASY[q.key]?.options?.[opt] ?? opt;
+
+const SURVEY_OPTIONS = ["1", "2", "3"];
+
+function flattenVisible(answers: Answers): FlatQ[] {
+  const out: FlatQ[] = [];
+  for (const s of SECTIONS) {
+    if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
+    for (const q of s.questions) {
+      if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
+      if (!askIfSatisfied(q.askIf, answers)) continue;
+      out.push({ q, sectionKey: s.key, sectionTitle: s.title });
+    }
+  }
+  return out;
+}
+
+function isAnswered(v: Answers[string] | undefined): boolean {
+  return v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && !v.length);
+}
+
+export default function EasyQuestionnaire({ token, clientName, initialAnswers, initialStatus, signed }: {
+  token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
+  signed: { client?: boolean; guardian?: boolean };
+}) {
+  const [answers, setAnswers] = useState<Answers>(initialAnswers);
+  const [phase, setPhase] = useState<Phase>(
+    ["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus) ? "done" : "welcome");
+  const [idx, setIdx] = useState(0);
+  const [breakText, setBreakText] = useState("");
+  const [justPicked, setJustPicked] = useState<string | null>(null);
+  const [nudge, setNudge] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState("");
+  const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
+  const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
+
+  const flat = useMemo(() => flattenVisible(answers), [answers]);
+
+  // Refs so timers (auto-advance) always see the latest state.
+  const answersRef = useRef(answers); answersRef.current = answers;
+  const flatRef = useRef(flat); flatRef.current = flat;
+  const idxRef = useRef(idx); idxRef.current = idx;
+  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const breakCount = useRef(0);
+
+  useEffect(() => () => {
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+  }, []);
+
+  const cur = flat[Math.min(idx, Math.max(flat.length - 1, 0))];
+  const answeredCount = flat.filter((f) => isAnswered(answers[f.q.key])).length;
+  const percent = flat.length ? Math.round((answeredCount / flat.length) * 100) : 0;
+  const firstName = clientName.split(" ")[0] || "there";
+
+  /* ------------------------------ saving ------------------------------ */
+
+  const saveNow = useCallback(async (event?: "started" | "completed") => {
+    setSaving(true);
+    try {
+      await fetch(`/api/intake/${token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          answers: answersRef.current,
+          section: flatRef.current[idxRef.current]?.sectionKey,
+          event,
+        }),
+      });
+    } catch { /* network hiccup - answers stay in memory, next save retries */ }
+    finally { setSaving(false); }
+  }, [token]);
+
+  const queueSave = useCallback(() => {
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => { void saveNow(); }, 800);
+  }, [saveNow]);
+
+  const set = useCallback((key: string, value: Answers[string]) => {
+    setAnswers((a) => ({ ...a, [key]: value }));
+    setNudge("");
+    queueSave();
+  }, [queueSave]);
+
+  /* ---------------------------- navigation ---------------------------- */
+
+  const goNext = useCallback(() => {
+    const list = flatRef.current;
+    const i = idxRef.current;
+    const nextIdx = i + 1;
+    setJustPicked(null);
+    setNudge("");
+    if (nextIdx >= list.length) { void saveNow("completed"); setPhase("signature"); return; }
+    const here = list[i];
+    const next = list[nextIdx];
+    setIdx(nextIdx);
+    if (here && next.sectionKey !== here.sectionKey) {
+      const cheer = ENCOURAGEMENTS.length
+        ? ENCOURAGEMENTS[breakCount.current % ENCOURAGEMENTS.length]
+        : "Nice work! Keep going.";
+      breakCount.current += 1;
+      setBreakText(SECTION_INTROS[next.sectionKey] ?? cheer);
+      setPhase("break");
+    } else {
+      setPhase("question");
+    }
+    window.scrollTo(0, 0);
+  }, [saveNow]);
+
+  const goBack = useCallback(() => {
+    setJustPicked(null);
+    setNudge("");
+    if (phase === "signature") {
+      setIdx(Math.max(flatRef.current.length - 1, 0));
+      setPhase("question");
+    } else if (idxRef.current <= 0) {
+      setPhase("welcome");
+    } else {
+      setIdx(idxRef.current - 1);
+      setPhase("question");
+    }
+    window.scrollTo(0, 0);
+  }, [phase]);
+
+  /** Tap an answer -> brief highlight, then move to the next question. */
+  const pickAndAdvance = useCallback((key: string, value: Answers[string], display: string) => {
+    set(key, value);
+    setJustPicked(display);
+    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current = setTimeout(goNext, 350);
+  }, [set, goNext]);
+
+  const nextFromInput = useCallback(() => {
+    const q = flatRef.current[idxRef.current]?.q;
+    if (q?.required && !isAnswered(answersRef.current[q.key])) {
+      setNudge("Please answer this one - we really need it.");
+      return;
+    }
+    goNext();
+  }, [goNext]);
+
+  // Encouragement screens auto-advance after 1.2s (or tap to continue).
+  useEffect(() => {
+    if (phase !== "break") return;
+    const t = setTimeout(() => setPhase("question"), 1200);
+    return () => clearTimeout(t);
+  }, [phase, breakText]);
+
+  // Safety net: if there is somehow nothing left to ask, go to signing.
+  useEffect(() => {
+    if (phase === "question" && flat.length === 0) setPhase("signature");
+  }, [phase, flat.length]);
+
+  /* --------------------------- submit / sign -------------------------- */
+
+  const isGuardian = answers.is_minor_or_incompetent === "Yes";
+  const signRole: "client" | "guardian" = isGuardian ? "guardian" : "client";
+  const signDefaultName = String(
+    (isGuardian ? answers.guardian_name : answers.client_full_name) ?? clientName ?? "");
+
+  async function captureSignature(d: { imageData: string; printedName: string; relationship: string; signedDate: string }) {
+    setSubmitError("");
+    const res = await fetch(`/api/intake/${token}/signature`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ role: signRole, ...d }),
+    });
+    if (res.ok) setHasSignature(true);
+    else setSubmitError((await res.json()).error || "The signature did not save. Please try again.");
+  }
+
+  async function submit() {
+    setSubmitting(true);
+    setSubmitError("");
+    setMissing([]);
+    try {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      await saveNow();
+      const res = await fetch(`/api/intake/${token}`, { method: "POST" });
+      const body = await res.json();
+      if (res.ok) { setPhase("done"); }
+      else {
+        setSubmitError(body.error || "We could not send your answers yet.");
+        setMissing(body.missing || []);
+      }
+    } catch {
+      setSubmitError("Something went wrong. Check your connection and try again.");
+    } finally { setSubmitting(false); }
+  }
+
+  function jumpToFirstMissing() {
+    const first = missing.find((m) => flatRef.current.some((f) => f.q.key === m.key));
+    if (!first) return;
+    const i = flatRef.current.findIndex((f) => f.q.key === first.key);
+    setIdx(i);
+    setMissing([]);
+    setSubmitError("");
+    setPhase("question");
+    window.scrollTo(0, 0);
+  }
+
+  /* ------------------------------ screens ----------------------------- */
+
+  if (phase === "done") {
+    return (
+      <div className="card mx-auto mt-10 max-w-md text-center">
+        <p className="text-6xl">🎉</p>
+        <h2 className="mt-4 text-3xl font-bold text-brand">You did it!</h2>
+        <p className="mt-4 text-xl text-slate-600">
+          Moore Divine Care got your answers. We will call you soon.
+        </p>
+        <p className="mt-6 text-base text-slate-400">Questions? Call 336-285-5204.</p>
+      </div>
+    );
+  }
+
+  if (phase === "welcome") {
+    return (
+      <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center text-center">
+        <p className="text-6xl">👋</p>
+        <h2 className="mt-6 text-3xl font-bold text-brand">Hi {firstName}!</h2>
+        <p className="mt-5 text-2xl leading-relaxed text-slate-700">
+          We&apos;re going to ask you some easy questions.
+        </p>
+        <p className="mt-3 text-xl leading-relaxed text-slate-500">
+          You can talk 🎤 or tap to answer. Take your time.
+        </p>
+        <button type="button" className="btn-primary mt-10 min-h-[72px] w-full text-2xl"
+          onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
+          Start
+        </button>
+      </div>
+    );
+  }
+
+  if (phase === "break") {
+    return (
+      <button type="button" onClick={() => setPhase("question")}
+        className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col items-center justify-center text-center">
+        <span className="text-5xl">💙</span>
+        <span className="mt-6 text-2xl font-bold leading-relaxed text-brand">{breakText}</span>
+        <span className="mt-6 text-base text-slate-400">Tap anywhere to keep going</span>
+      </button>
+    );
+  }
+
+  if (phase === "signature") {
+    return (
+      <div className="mx-auto max-w-md pb-28">
+        <ProgressBar percent={100} label="Last step!" />
+        <h2 className="mt-6 text-3xl font-bold leading-snug text-brand">One last thing ✍️</h2>
+        <p className="mt-3 text-xl leading-relaxed text-slate-600">
+          Sign your name with your finger in the box.
+        </p>
+        <div className="mt-4">
+          {hasSignature ? (
+            <p className="rounded-xl bg-emerald-50 p-4 text-lg font-semibold text-emerald-700">
+              ✓ Got your signature. Thank you!
+            </p>
+          ) : (
+            <SignaturePad
+              roleLabel={isGuardian ? "Parent or guardian signs here" : "Sign here"}
+              defaultName={signDefaultName}
+              onCapture={(d) => { void captureSignature(d); }} />
+          )}
+        </div>
+
+        {submitError && (
+          <div className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
+            <p className="text-lg font-bold">We still need a few things:</p>
+            {missing.length > 0 ? (
+              <ul className="mt-2 list-inside list-disc space-y-1 text-base">
+                {missing.map((m) => {
+                  const q = flat.find((f) => f.q.key === m.key)?.q;
+                  return <li key={m.key}>{q ? easyQ(q) : m.label}</li>;
+                })}
+              </ul>
+            ) : <p className="mt-1 text-base">{submitError}</p>}
+            {missing.some((m) => flat.some((f) => f.q.key === m.key)) && (
+              <button type="button" className="btn-secondary mt-3 min-h-[56px] w-full text-lg"
+                onClick={jumpToFirstMissing}>
+                Take me to the first one
+              </button>
+            )}
+          </div>
+        )}
+
+        <button type="button" className="btn-primary mt-6 min-h-[72px] w-full text-2xl"
+          disabled={!hasSignature || submitting} onClick={() => { void submit(); }}>
+          {submitting ? "Sending..." : "Send my answers ✅"}
+        </button>
+        {!hasSignature && (
+          <p className="mt-2 text-center text-base text-slate-400">Sign in the box first, then you can send.</p>
+        )}
+
+        <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3">
+          <div className="mx-auto flex max-w-md items-center gap-3">
+            <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
+              ⬅ Back
+            </button>
+            <span className="text-xs text-slate-400">{saving ? "Saving..." : "Saved"}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  /* --------------------------- question screen ------------------------ */
+
+  if (!cur) return null; // effect above redirects to the signature step
+  const q = cur.q;
+
+  return (
+    <div className="mx-auto max-w-md pb-32">
+      <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} • ${percent}% done`} />
+
+      <div className="mt-8">
+        <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q)}</h2>
+        {easyHelp(q) && <p className="mt-3 text-lg leading-relaxed text-slate-500">{easyHelp(q)}</p>}
+      </div>
+
+      <div className="mt-6">
+        <AnswerWidget key={q.key} q={q} value={answers[q.key]} justPicked={justPicked}
+          set={set} pickAndAdvance={pickAndAdvance} onNext={nextFromInput} />
+      </div>
+
+      {nudge && (
+        <p className="mt-4 rounded-xl bg-amber-50 p-4 text-lg font-semibold text-amber-700">{nudge}</p>
+      )}
+
+      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3">
+        <div className="mx-auto flex max-w-md items-center gap-3">
+          <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
+            ⬅ Back
+          </button>
+          <span className="w-16 text-center text-xs text-slate-400">{saving ? "Saving..." : "Saved"}</span>
+          {!q.required && (
+            <button type="button" className="btn-ghost px-4 py-2 text-sm text-slate-500" onClick={goNext}>
+              Skip
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/*  One big answer widget per question type                            */
+/* ------------------------------------------------------------------ */
+
+function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
+  q: Question;
+  value: Answers[string] | undefined;
+  justPicked: string | null;
+  set: (key: string, v: Answers[string]) => void;
+  pickAndAdvance: (key: string, v: Answers[string], display: string) => void;
+  onNext: () => void;
+}) {
+  /* ---- consent: friendly summary + full text + agree/skip ---- */
+  if (q.type === "consent") {
+    const simple = EASY[q.key]?.consentSimple ??
+      `This form is called "${q.label}". It says it is OK for Moore Divine Care to help you.`;
+    return (
+      <div className="space-y-4">
+        <div className="rounded-2xl border border-brand/20 bg-brand-light p-5">
+          <p className="text-xl leading-relaxed text-slate-800">{simple}</p>
+          {value === true && <p className="mt-3 text-lg font-bold text-emerald-600">✓ You said yes to this.</p>}
+        </div>
+        <details className="rounded-xl border border-slate-200 p-4">
+          <summary className="cursor-pointer text-base font-semibold text-brand">Read the whole form</summary>
+          <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-600">{q.consentText}</p>
+        </details>
+        <button type="button"
+          className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
+          onClick={() => pickAndAdvance(q.key, true, "yes")}>
+          ✅ Yes, I agree
+        </button>
+        <button type="button" className="btn-ghost min-h-[56px] w-full text-lg text-slate-600"
+          onClick={() => pickAndAdvance(q.key, value ?? "", "skip")}>
+          I have a question - skip for now
+        </button>
+      </div>
+    );
+  }
+
+  /* ---- radio / yesno / survey: big tap buttons, auto-advance ---- */
+  if (q.type === "radio" || q.type === "yesno" || q.type === "survey") {
+    const options = q.options && q.options.length ? q.options : SURVEY_OPTIONS;
+    return (
+      <div className="space-y-3">
+        {options.length > 6 && (
+          <div className="mb-4">
+            <p className="mb-2 text-base text-slate-500">Tap your answer below, or pick from this list:</p>
+            <select className="input min-h-[56px] text-lg" value={String(value ?? "")}
+              onChange={(e) => { if (e.target.value) pickAndAdvance(q.key, e.target.value, e.target.value); }}>
+              <option value="">Choose one...</option>
+              {options.map((opt) => (
+                <option key={opt} value={opt}>{easyOpt(q, opt)}</option>
+              ))}
+            </select>
+          </div>
+        )}
+        {options.map((opt) => {
+          const on = value === opt || justPicked === opt;
+          return (
+            <button key={opt} type="button"
+              onClick={() => pickAndAdvance(q.key, opt, opt)}
+              className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
+                ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}
+                ${justPicked === opt ? "scale-[0.98] ring-4 ring-brand/30" : ""}`}>
+              {easyOpt(q, opt)}
+            </button>
+          );
+        })}
+      </div>
+    );
+  }
+
+  /* ---- chips: multi-select toggles + Done button ---- */
+  if (q.type === "chips") {
+    const arr = Array.isArray(value) ? value : [];
+    return (
+      <div className="space-y-3">
+        <p className="text-base text-slate-500">You can pick more than one.</p>
+        {(q.options || []).map((opt) => {
+          const on = arr.includes(opt);
+          return (
+            <button key={opt} type="button"
+              onClick={() => set(q.key, on ? arr.filter((x) => x !== opt) : [...arr, opt])}
+              className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
+                ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}`}>
+              {on ? "✓ " : ""}{easyOpt(q, opt)}
+            </button>
+          );
+        })}
+        <button type="button" className="btn-primary mt-2 min-h-[64px] w-full text-xl" onClick={onNext}>
+          Done - Next ➡
+        </button>
+      </div>
+    );
+  }
+
+  /* ---- date ---- */
+  if (q.type === "date") {
+    return (
+      <div className="space-y-4">
+        <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
+          onChange={(e) => set(q.key, e.target.value)} />
+        <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={onNext}>
+          Next ➡
+        </button>
+      </div>
+    );
+  }
+
+  /* ---- text / textarea / phone / email / number ---- */
+  const multiline = q.type === "textarea";
+  const inputMode = q.type === "phone" ? "tel" : q.type === "email" ? "email" : "text";
+  return (
+    <div className="space-y-4">
+      {q.voice || multiline ? (
+        <VoiceInput value={String(value ?? "")} onChange={(x) => set(q.key, x)}
+          multiline={multiline} placeholder={q.placeholder} inputMode={inputMode} />
+      ) : (
+        <input
+          className="input min-h-[64px] text-xl"
+          type={q.type === "email" ? "email" : q.type === "phone" ? "tel" : "text"}
+          inputMode={q.type === "number" ? "numeric" : undefined}
+          value={String(value ?? "")} placeholder={q.placeholder}
+          onChange={(e) => set(q.key, e.target.value)} />
+      )}
+      <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={onNext}>
+        Next ➡
+      </button>
+    </div>
+  );
+}
