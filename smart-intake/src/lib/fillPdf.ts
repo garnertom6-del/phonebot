@@ -60,11 +60,13 @@ function drawTextField(
   page: PDFPage, f: FieldMapping, text: string, font: PDFFont,
 ) {
   if (!text) return;
+  // baselines are lifted a few points so text floats just above the printed
+  // underlines instead of touching them
   if (f.lines > 1) {
     const lines = wrapText(text, font, f.fontSize, f.width, f.lines);
     lines.forEach((line, i) => {
       page.drawText(line, {
-        x: f.x, y: f.y + f.height - f.fontSize - i * f.lineHeight,
+        x: f.x, y: f.y + f.height - f.fontSize - i * f.lineHeight + 2.5,
         size: f.fontSize, font, color: INK,
       });
     });
@@ -72,7 +74,7 @@ function drawTextField(
     const size = fitFontSize(text, font, f.fontSize, f.width);
     let t = text;
     while (t.length > 1 && font.widthOfTextAtSize(t, size) > f.width) t = t.slice(0, -1);
-    page.drawText(t, { x: f.x, y: f.y + 2, size, font, color: INK });
+    page.drawText(t, { x: f.x, y: f.y + 4.5, size, font, color: INK });
   }
 }
 
