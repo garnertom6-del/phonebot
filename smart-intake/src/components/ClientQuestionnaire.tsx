@@ -31,6 +31,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [stepIdx, setStepIdx] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [error, setError] = useState("");
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
   const [done, setDone] = useState(["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus));
@@ -52,13 +53,19 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   const set = (key: string, value: Answers[string]) =>
     setAnswers((a) => ({ ...a, [key]: value }));
 
-  const save = useCallback(async (sectionKey?: string, event?: string) => {
+  const save = useCallback(async (sectionKey?: string, event?: string): Promise<boolean> => {
     setSaving(true);
     try {
-      await fetch(`/api/intake/${token}`, {
+      const res = await fetch(`/api/intake/${token}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers: answersRef.current, section: sectionKey, event }),
       });
+      if (!res.ok) throw new Error("Save failed");
+      setSaveError("");
+      return true;
+    } catch {
+      setSaveError("Not saved. Check connection.");
+      return false;
     } finally { setSaving(false); }
   }, [token]);
 
@@ -78,14 +85,22 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
         }
       }
     }
-    await save(step.key, "completed");
+    const saved = await save(step.key, "completed");
+    if (!saved) {
+      setError("We could not save this page. Check your connection and try again.");
+      return;
+    }
     setStepIdx((i) => Math.min(i + 1, steps.length - 1));
     window.scrollTo(0, 0);
   }
 
   async function submit() {
     setError("");
-    await save();
+    const saved = await save();
+    if (!saved) {
+      setError("We could not save your latest answers. Check your connection and try again.");
+      return;
+    }
     const res = await fetch(`/api/intake/${token}`, { method: "POST" });
     const body = await res.json();
     if (res.ok) { setDone(true); setMissing([]); }
@@ -107,7 +122,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
     fd.set("file", file); fd.set("docType", docType);
     setUploadStatus((s) => ({ ...s, [docType]: "Uploading..." }));
     const res = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
-    setUploadStatus((s) => ({ ...s, [docType]: res.ok ? `✓ ${file.name}` : "Upload failed" }));
+    setUploadStatus((s) => ({ ...s, [docType]: res.ok ? `Uploaded: ${file.name}` : "Upload failed" }));
   }
 
   const answeredCount = useMemo(() => {
@@ -124,7 +139,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   if (done) {
     return (
       <div className="card mx-auto max-w-xl text-center">
-        <p className="text-4xl">🎉</p>
+        <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
         <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
         <p className="mt-2 text-slate-600">
           Your intake has been submitted to Moore Divine Care, Inc. Our team will review your
@@ -137,7 +152,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   return (
     <div className="mx-auto max-w-2xl pb-28">
       <ProgressBar percent={answeredCount}
-        label={`You are ${answeredCount}% complete • Step ${stepIdx + 1} of ${steps.length}: ${step.title}`} />
+        label={`You are ${answeredCount}% complete - Step ${stepIdx + 1} of ${steps.length}: ${step.title}`} />
 
       <div className="card mt-4">
         <h2 className="text-lg font-bold text-brand">{step.title}</h2>
@@ -146,7 +161,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
         {step.key === "basic" && (
           <details className="mt-4 rounded-lg border border-slate-200 p-3">
             <summary className="cursor-pointer text-sm font-semibold text-slate-600">
-              📎 Have documents handy? Upload photos of them (optional)
+              Have documents handy? Upload photos of them (optional)
             </summary>
             <div className="mt-3 space-y-2">
               {UPLOAD_TYPES.map(([type, label]) => (
@@ -178,11 +193,14 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
 
       {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3">
+      <div
+        className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
         <div className="mx-auto flex max-w-2xl gap-3">
           <button className="btn-secondary w-28" disabled={stepIdx === 0}
             onClick={() => { setStepIdx((i) => i - 1); window.scrollTo(0, 0); }}>Back</button>
-          <span className="flex items-center text-xs text-slate-400">{saving ? "Saving..." : "Progress saved"}</span>
+          <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void save(step.key); }} />
           {step.key !== "__signature" && (
             <button className="btn-primary flex-1" onClick={next}>
               {stepIdx === 0 ? "Start" : "Save & Continue"}
@@ -302,6 +320,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
       </p>
       {!hasSignature || signedRoles.length === 0 ? (
         <SignaturePad roleLabel={isMinor ? "Parent / Legal Guardian signature" : "Client signature"}
+          expectedRole={isMinor ? "guardian" : "client"}
           defaultName={String((isMinor ? answers.guardian_name : answers.client_full_name) ?? "")}
           onCapture={async (d) => {
             const role = isMinor || ["parent", "guardian", "legalRepresentative"].includes(d.relationship)
@@ -311,7 +330,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
           }} />
       ) : (
         <p className="rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-700">
-          ✓ Signature captured ({signedRoles.join(", ") || "on file"})
+          Signature captured ({signedRoles.join(", ") || "on file"})
         </p>
       )}
       {isMinor && signedRoles.includes("guardian") && !signedRoles.includes("client") && (
@@ -319,6 +338,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
           <summary className="cursor-pointer text-sm font-semibold">Client also signing? (optional)</summary>
           <div className="mt-3">
             <SignaturePad roleLabel="Client signature" defaultName={String(answers.client_full_name ?? "")}
+              expectedRole="client"
               onCapture={async (d) => { await onCapture("client", d); setSignedRoles((r) => [...r, "client"]); }} />
           </div>
         </details>
@@ -334,4 +354,20 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
       </button>
     </div>
   );
+}
+
+function SaveIndicator({ saving, saveError, onRetry }: {
+  saving: boolean;
+  saveError: string;
+  onRetry: () => void;
+}) {
+  if (saving) return <span className="flex items-center text-xs text-slate-400">Saving...</span>;
+  if (saveError) {
+    return (
+      <button type="button" className="btn-ghost px-3 py-1.5 text-xs text-red-700" onClick={onRetry}>
+        Retry save
+      </button>
+    );
+  }
+  return <span className="flex items-center text-xs text-slate-400">Progress saved</span>;
 }
