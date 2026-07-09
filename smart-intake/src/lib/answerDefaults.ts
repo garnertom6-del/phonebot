@@ -124,6 +124,15 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
   setDefault(a, "ec2_home_phone", s(a.ec2_cell_phone));
 
+  const sharedStaffName =
+    s(a.staff_receiving_intake) || s(a.qp_referred_to) || s(a.clinician_name) ||
+    s(a.c_clinician) || s(a.dis_prepared_by);
+  setDefault(a, "staff_receiving_intake", sharedStaffName);
+  setDefault(a, "qp_referred_to", sharedStaffName);
+  setDefault(a, "clinician_name", sharedStaffName);
+  setDefault(a, "c_clinician", sharedStaffName);
+  setDefault(a, "dis_prepared_by", sharedStaffName);
+
   setDefault(a, "transport_destination", "Services / treatment plan activities");
   setDefault(a, "transport_purposes", [
     "Mental Health Services",
