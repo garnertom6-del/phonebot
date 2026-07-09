@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 
 interface Row {
   id: string; status: string; percentComplete: number; hasPdf: boolean;
+  hasCca: boolean; ccaDetail?: string;
   client: { fullName: string; dob: string; midNumber?: string; phone?: string; email?: string; guardianName?: string };
   missingRequired: { key: string; label: string }[];
   linkSentAt?: string; lastActivityAt?: string; submittedAt?: string; token: string;
@@ -64,7 +65,7 @@ export default function Dashboard() {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
-              {["Client", "DOB", "MID#", "Contact", "Guardian", "Status", "Complete", "Missing required", "Actions"].map((h) => (
+              {["Client", "DOB", "MID#", "Contact", "Guardian", "Status", "CCA / Packet", "Missing required", "Actions"].map((h) => (
                 <th key={h} className="px-4 py-3">{h}</th>
               ))}
             </tr>
@@ -82,7 +83,18 @@ export default function Dashboard() {
                 <td className="px-4 py-3 text-xs">{r.client.phone}<br />{r.client.email}</td>
                 <td className="px-4 py-3">{r.client.guardianName || "-"}</td>
                 <td className="px-4 py-3"><span className={`badge ${STATUS_COLORS[r.status]}`}>{r.status.replace("_", " ")}</span></td>
-                <td className="px-4 py-3">{r.percentComplete}%</td>
+                <td className="px-4 py-3 text-xs">
+                  <div className="flex flex-col gap-1">
+                    <span className={`badge ${r.hasCca ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
+                      {r.hasCca ? "CCA uploaded" : "CCA needed"}
+                    </span>
+                    <span className={`badge ${r.hasPdf ? "bg-emerald-600 text-white" : "bg-amber-100 text-amber-800"}`}>
+                      {r.hasPdf ? "Packet generated" : "Run packet"}
+                    </span>
+                    <span className="text-slate-400">{r.percentComplete}% answered</span>
+                    {r.ccaDetail && <span className="text-emerald-700">{r.ccaDetail}</span>}
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-xs text-red-600">
                   {r.missingRequired.length ? r.missingRequired.map((m) => m.label).join(", ") : <span className="text-emerald-600">None</span>}
                 </td>
