@@ -6,6 +6,7 @@ interface Props {
   onCapture: (data: { imageData: string; printedName: string; relationship: string; signedDate: string }) => void;
   defaultName?: string;
   roleLabel?: string;
+  expectedRole?: "client" | "guardian" | "staff" | "clinician" | "witness" | "medicalDirector";
 }
 
 const RELATIONSHIPS = [
@@ -60,15 +61,17 @@ function croppedSignatureDataUrl(canvas: HTMLCanvasElement): string {
   return out.toDataURL("image/png");
 }
 
-export default function SignaturePad({ onCapture, defaultName = "", roleLabel }: Props) {
+export default function SignaturePad({ onCapture, defaultName = "", roleLabel, expectedRole = "client" }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
+  const defaultRelationship = expectedRole === "guardian" ? "guardian" : "client";
   const [printedName, setPrintedName] = useState(defaultName);
-  const [relationship, setRelationship] = useState("client");
+  const [relationship, setRelationship] = useState(defaultRelationship);
   const [signedDate, setSignedDate] = useState(new Date().toLocaleDateString("en-US"));
   const [error, setError] = useState("");
 
   useEffect(() => { setPrintedName(defaultName); }, [defaultName]);
+  useEffect(() => { setRelationship(defaultRelationship); }, [defaultRelationship]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -96,6 +99,9 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel }:
   function accept() {
     setError("");
     if (!printedName.trim()) return setError("Please type your printed name.");
+    if (expectedRole === "guardian" && relationship === "client") {
+      return setError("Please choose Parent, Legal Guardian, or Legal Representative.");
+    }
     if (padRef.current?.isEmpty()) return setError("Please draw your signature above.");
     const canvas = canvasRef.current;
     onCapture({
