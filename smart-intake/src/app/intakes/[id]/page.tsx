@@ -34,6 +34,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ccaResultKind, setCcaResultKind] = useState<"success" | "error" | "info">("info");
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
   const [copiesLink, setCopiesLink] = useState("");
+  const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
   const [ncTracksResult, setNcTracksResult] = useState("");
 
@@ -58,7 +59,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const sent = Array.isArray(body.sent) ? body.sent : [];
     const failed = Array.isArray(body.failed) ? body.failed : [];
     if (sent.length) {
-      return `Queued: ${sent.join(", ")}${failed.length ? ` Not sent: ${failed.join("; ")}` : ""}`;
+      return `Sent successfully: ${sent.join(", ")}${failed.length ? `. Not sent: ${failed.join("; ")}` : "."}`;
     }
     return failed.length ? `Not sent: ${failed.join("; ")}` : fallback;
   }
@@ -116,14 +117,19 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   async function sendCopiesLink() {
     setNote("Sending copies link...");
-    const r = await fetch(`/api/intakes/${i.id}/copies`, { method: "POST" });
-    const b = await r.json().catch(() => ({}));
-    if (r.ok) {
-      setCopiesLink(b.link || "");
-      setNote(deliveryStatus(b, "Copies link created. Copy it below."));
-    } else {
-      setCopiesLink(b.link || "");
-      setNote(deliveryStatus(b, `Copies link failed: ${b.error || r.status}`));
+    setCopiesBusy(true);
+    try {
+      const r = await fetch(`/api/intakes/${i.id}/copies`, { method: "POST" });
+      const b = await r.json().catch(() => ({}));
+      if (r.ok) {
+        setCopiesLink(b.link || "");
+        setNote(deliveryStatus(b, "No email or phone is saved, so copies were not sent. Copies link created below."));
+      } else {
+        setCopiesLink(b.link || "");
+        setNote(deliveryStatus(b, `Copies link failed: ${b.error || r.status}`));
+      }
+    } finally {
+      setCopiesBusy(false);
     }
     load();
   }
@@ -179,8 +185,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             Generate Completed Packet
           </button>
           <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
-          <button className="btn-ghost" onClick={() => { void sendCopiesLink(); }}>
-            Send Copies Link
+          <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
+            {copiesBusy ? "Sending Copies..." : "Send Copies Link"}
           </button>
           <button className="btn-ghost" onClick={() => act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, { method: "POST" }))}>
             Send to DocuSign
