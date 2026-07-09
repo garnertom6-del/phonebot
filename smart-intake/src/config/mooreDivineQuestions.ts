@@ -509,6 +509,26 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
       { key: `otp_row${i}_client_date`, label: `Row ${i} - client date`, type: "date" },
     ]),
   },
+  {
+    // Captured from the clinician's CCA for the record and staff review.
+    // These have no packet blank to print into - they preserve clinical
+    // detail the paper form has no room for.
+    group: "Clinical details from the CCA (kept on record, not printed)",
+    fields: [
+      { key: "cca_assessment_date", label: "CCA assessment date", type: "text" },
+      { key: "cca_session_location", label: "CCA session location (office/virtual/home)", type: "text" },
+      { key: "cca_provider_credentials", label: "Assessing clinician - name, credentials & license #s", type: "text" },
+      { key: "diagnosis_third", label: "Additional diagnosis (3rd+) with code", type: "text" },
+      { key: "cca_asam_level", label: "ASAM level of care recommendation", type: "text" },
+      { key: "cca_asam_dimensions", label: "ASAM dimensions summary (1-6)", type: "textarea" },
+      { key: "cca_mse_summary", label: "Mental status exam summary", type: "textarea" },
+      { key: "cca_clinical_impressions", label: "Clinical impressions summary", type: "textarea" },
+      { key: "cca_recommendations", label: "Clinician's recommendations", type: "textarea" },
+      { key: "cca_employment_history", label: "Employment history", type: "text" },
+      { key: "cca_transportation", label: "Transportation situation / barriers", type: "text" },
+      { key: "cca_adl_needs", label: "Daily living / basic needs", type: "text" },
+    ],
+  },
 ];
 
 /** Required answer keys checked before the client may submit. */

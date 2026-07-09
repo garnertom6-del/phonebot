@@ -28,10 +28,19 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     answers, signatures,
     consents, overrides,
   });
-  const { envelopeId } = await createDocuSignEnvelope(
-    Buffer.from(result.pdfBytes), intake.client.email, intake.client.fullName,
-    answers, consents, mergedMap(overrides),
-  );
-  await audit("docusign_sent", { intakeId: intake.id, userId: user!.id, detail: envelopeId });
-  return NextResponse.json({ ok: true, envelopeId });
+  try {
+    const { envelopeId } = await createDocuSignEnvelope(
+      Buffer.from(result.pdfBytes), intake.client.email, intake.client.fullName,
+      answers, consents, mergedMap(overrides),
+    );
+    await prisma.intake.update({ where: { id: intake.id }, data: { docusignEnvelopeId: envelopeId } });
+    await audit("docusign_sent", { intakeId: intake.id, userId: user!.id, detail: envelopeId });
+    return NextResponse.json({ ok: true, envelopeId });
+  } catch (e) {
+    console.error("DocuSign send failed", e);
+    return NextResponse.json(
+      { error: "DocuSign could not send the packet. The client can still sign in the app. If this keeps happening, ask your administrator to check the DocuSign connection." },
+      { status: 502 },
+    );
+  }
 }

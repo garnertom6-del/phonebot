@@ -44,6 +44,8 @@ model Intake {
   status         String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | SUBMITTED | NEEDS_REVIEW | SIGNED | COMPLETED
   mode           String    @default("full") // fast | full
   expectCca      Boolean   @default(true) // short client intake; clinician CCA fills the rest
+  archived       Boolean   @default(false) // hidden from the dashboard list
+  docusignEnvelopeId String? // set when a DocuSign envelope is sent
   token          String    @unique
   tokenExpiresAt DateTime
   intakeDate     String?

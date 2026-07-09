@@ -6,7 +6,7 @@ export type AuditEvent =
   | "pdf_generated" | "pdf_downloaded" | "link_reminder_sent"
   | "copies_link_sent" | "docusign_sent" | "answers_updated" | "document_uploaded" | "cca_imported"
   | "nctracks_lookup_not_configured" | "nctracks_lookup_completed" | "nctracks_lookup_failed"
-  | "login_locked_out" | "backup_downloaded" | "document_downloaded";
+  | "login_locked_out" | "backup_downloaded" | "document_downloaded" | "docusign_completed";
 
 export async function audit(
   event: AuditEvent,

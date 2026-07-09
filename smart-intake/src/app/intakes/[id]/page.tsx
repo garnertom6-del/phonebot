@@ -14,6 +14,7 @@ import {
 interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
+    docusignEnvelopeId?: string | null;
     client: { fullName: string; dob: string; midNumber?: string; email?: string; phone?: string; guardianName?: string };
     signatures: { role: string; printedName: string; signedDate: string }[];
     uploadedDocuments: { id: string; docType: string; fileName: string }[];
@@ -194,8 +195,20 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <button className="btn-ghost" onClick={() => act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, { method: "POST" }))}>
             Send to DocuSign
           </button>
+          {i.docusignEnvelopeId && (
+            <button className="btn-ghost" onClick={async () => {
+              setNote("Checking DocuSign...");
+              const r = await fetch(`/api/intakes/${i.id}/docusign/status`, { method: "POST" });
+              const b = await r.json().catch(() => ({}));
+              setNote(r.ok ? `DocuSign: ${b.message || b.status}` : b.error || "DocuSign check failed.");
+              load();
+            }}>
+              Check DocuSign status
+            </button>
+          )}
         </div>
       </div>
+      <WorkflowSteps d={d} />
       {note && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{note}</p>}
       {copiesLink && (
         <div className="mt-3 rounded-lg border border-brand/30 bg-white p-3 text-sm">
@@ -357,5 +370,38 @@ function HelperInput({ name, label, value }: { name: string; label: string; valu
       <span className="label">{label}</span>
       <input className="input" name={name} defaultValue={String(value ?? "")} />
     </label>
+  );
+}
+
+/** Numbered guide showing where this intake is in the workflow and what to do next. */
+function WorkflowSteps({ d }: { d: Detail }) {
+  const i = d.intake;
+  const hasCca = i.uploadedDocuments.some((u) => u.docType === "CCA");
+  const reviewed = i.auditLogs.some((a) => a.event === "staff_reviewed");
+  const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
+  const copiesSent = i.auditLogs.some((a) => a.event === "copies_link_sent");
+  const steps = [
+    { label: "Send link", done: i.status !== "NOT_STARTED" },
+    { label: "Client answers", done: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(i.status) },
+    { label: "Add CCA", done: hasCca },
+    { label: "Review answers", done: reviewed },
+    { label: "Generate packet", done: i.generatedPdfs.length > 0 },
+    { label: "Signatures", done: signed },
+    { label: "Send copies", done: copiesSent },
+  ];
+  const current = steps.findIndex((s) => !s.done);
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+      {steps.map((s, idx) => (
+        <span key={s.label}
+          className={`flex items-center gap-1 rounded-full px-2 py-1 font-semibold ${
+            s.done ? "bg-emerald-100 text-emerald-700"
+            : idx === current ? "bg-brand text-white"
+            : "bg-slate-100 text-slate-400"}`}>
+          <span>{s.done ? "✓" : idx + 1}</span> {s.label}
+          {idx === current && <span className="font-normal">← next</span>}
+        </span>
+      ))}
+    </div>
   );
 }

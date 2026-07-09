@@ -9,10 +9,12 @@ import { loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const { deny } = await requireStaff();
   if (deny) return deny;
+  const showArchived = new URL(req.url).searchParams.get("archived") === "1";
   const intakes = await prisma.intake.findMany({
+    where: { archived: showArchived },
     include: {
       client: true, signatures: true,
       uploadedDocuments: { where: { docType: "CCA" }, orderBy: { createdAt: "desc" }, take: 1 },
@@ -25,7 +27,7 @@ export async function GET() {
     const answers = applyOperationalDefaults(await loadAnswers(i.id));
     const sigs = await loadSignatures(i.id);
     return {
-      id: i.id, status: i.status, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
+      id: i.id, status: i.status, archived: i.archived, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
       client: i.client, linkSentAt: i.linkSentAt, lastActivityAt: i.lastActivityAt,
       submittedAt: i.submittedAt, createdAt: i.createdAt,
       percentComplete: percentComplete(answers),

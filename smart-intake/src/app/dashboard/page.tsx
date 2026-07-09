@@ -29,18 +29,32 @@ function displayDate(v?: string): string {
   return m ? `${m[2]}/${m[3]}/${m[1]}` : v;
 }
 
+const TABS = [
+  { key: "action", label: "Needs action", statuses: ["SUBMITTED", "NEEDS_REVIEW"] },
+  { key: "waiting", label: "Waiting on client", statuses: ["NOT_STARTED", "IN_PROGRESS"] },
+  { key: "signed", label: "Signed", statuses: ["SIGNED"] },
+  { key: "done", label: "Done", statuses: ["COMPLETED"] },
+  { key: "all", label: "All", statuses: [] as string[] },
+  { key: "archived", label: "Archived", statuses: [] as string[] },
+];
+
 export default function Dashboard() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
+  const [tab, setTab] = useState("all");
 
-  const load = useCallback(() => {
-    fetch("/api/intakes").then(async (r) => {
+  const load = useCallback((activeTab: string = "all") => {
+    fetch(`/api/intakes${activeTab === "archived" ? "?archived=1" : ""}`).then(async (r) => {
       if (r.status === 401) return router.push("/login");
       setRows((await r.json()).intakes);
     });
   }, [router]);
-  useEffect(load, [load]);
+  useEffect(() => { load(tab); }, [load, tab]);
+
+  const tabDef = TABS.find((t) => t.key === tab);
+  const visible = rows?.filter((r) =>
+    tab === "archived" || tab === "all" || tabDef?.statuses.includes(r.status)) ?? null;
 
   async function copyLink(row: Row) {
     const link = `${window.location.origin}/intake/${row.token}`;
@@ -60,9 +74,13 @@ export default function Dashboard() {
     }
     setTimeout(() => setNote(""), 6000);
   }
-  async function archive(row: Row) {
-    await fetch(`/api/intakes/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archive: true }) });
-    load();
+  async function markCompleted(row: Row) {
+    await fetch(`/api/intakes/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "COMPLETED" }) });
+    load(tab);
+  }
+  async function setArchived(row: Row, archived: boolean) {
+    await fetch(`/api/intakes/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archive: archived }) });
+    load(tab);
   }
 
   return (
@@ -80,6 +98,14 @@ export default function Dashboard() {
         </div>
       </div>
       {note && <p className="mb-3 rounded-lg bg-emerald-50 p-2 text-sm font-semibold text-emerald-700">{note}</p>}
+      <div className="mb-3 flex flex-wrap gap-1">
+        {TABS.map((t) => (
+          <button key={t.key} onClick={() => setTab(t.key)}
+            className={`rounded-full px-3 py-1 text-sm font-semibold ${tab === t.key ? "bg-brand text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"}`}>
+            {t.label}
+          </button>
+        ))}
+      </div>
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
@@ -90,9 +116,10 @@ export default function Dashboard() {
             </tr>
           </thead>
           <tbody>
-            {rows === null && <tr><td colSpan={9} className="p-6 text-center text-slate-400">Loading...</td></tr>}
-            {rows?.length === 0 && <tr><td colSpan={9} className="p-6 text-center text-slate-400">No intakes yet - create one!</td></tr>}
-            {rows?.map((r) => (
+            {visible === null && <tr><td colSpan={9} className="p-6 text-center text-slate-400">Loading...</td></tr>}
+            {visible?.length === 0 && <tr><td colSpan={9} className="p-6 text-center text-slate-400">
+              {tab === "all" ? "No intakes yet - create one!" : "Nothing here right now."}</td></tr>}
+            {visible?.map((r) => (
               <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
                 <td className="px-4 py-3 font-semibold">
                   <Link className="text-brand hover:underline" href={`/intakes/${r.id}`}>{r.client.fullName}</Link>
@@ -124,7 +151,12 @@ export default function Dashboard() {
                     <Link href={`/intakes/${r.id}/pdf-preview`} className="btn-ghost px-2 py-1 text-xs">PDF</Link>
                     <button className="btn-ghost px-2 py-1 text-xs" onClick={() => copyLink(r)}>Copy link</button>
                     <button className="btn-ghost px-2 py-1 text-xs" onClick={() => remind(r)}>Remind</button>
-                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => archive(r)}>Mark completed</button>
+                    {r.status !== "COMPLETED" && (
+                      <button className="btn-ghost px-2 py-1 text-xs" onClick={() => markCompleted(r)}>Mark completed</button>
+                    )}
+                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setArchived(r, tab !== "archived")}>
+                      {tab === "archived" ? "Bring back" : "Archive"}
+                    </button>
                   </div>
                 </td>
               </tr>

@@ -147,3 +147,15 @@ export async function checkDocuSignStatus(envelopeId: string): Promise<string> {
   if (!res.ok) throw new Error(await res.text());
   return (await res.json()).status as string;
 }
+
+/** Download the signed packet (all documents combined) for a completed envelope. */
+export async function downloadDocuSignDocument(envelopeId: string): Promise<Buffer> {
+  const token = await getAccessToken();
+  const base = process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
+  const res = await fetch(
+    `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes/${envelopeId}/documents/combined`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(await res.text());
+  return Buffer.from(await res.arrayBuffer());
+}

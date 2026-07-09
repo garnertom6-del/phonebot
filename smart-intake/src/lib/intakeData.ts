@@ -95,8 +95,14 @@ export async function syncStructuredRows(intakeId: string, a: Answers): Promise<
     }
   }
   for (const [key, kind] of [["medications", "prescription"], ["otc_medications", "otc"]] as const) {
-    for (const name of s(key).split(/[,\n;]+/).map((x) => x.trim()).filter(Boolean)) {
-      creates.push(prisma.medication.create({ data: { intakeId, name, kind } }));
+    // split on ; or newline only - "Strattera, 40mg" is ONE medication with a dose
+    for (const entry of s(key).split(/[\n;]+/).map((x) => x.trim()).filter(Boolean)) {
+      const m = /^([^,]+),\s*(.+)$/.exec(entry);
+      creates.push(prisma.medication.create({
+        data: m
+          ? { intakeId, name: m[1].trim(), dosage: m[2].trim(), kind }
+          : { intakeId, name: entry, kind },
+      }));
     }
   }
   for (let i = 1; i <= 5; i++) {
