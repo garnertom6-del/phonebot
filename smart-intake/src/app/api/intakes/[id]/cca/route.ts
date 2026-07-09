@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (deny) return deny;
   if (!ccaConfigured()) {
     return NextResponse.json(
-      { error: "AI document reading is not configured - add ANTHROPIC_API_KEY in your host's environment (e.g. Render → Environment), then try again." },
+      { error: "AI document reading is not configured - add ANTHROPIC_API_KEY in your host's environment, then try again." },
       { status: 400 },
     );
   }
@@ -33,20 +33,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
-  // keep a copy of the source document with the record
-  const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
-  const rel = `uploads/${intake.id}/cca-${Date.now()}-${safeName}`;
-  saveFile(rel, buffer);
-  await prisma.uploadedDocument.create({
-    data: { intakeId: intake.id, docType: "other", fileName: `CCA: ${file.name}`, filePath: rel, mimeType: mime },
-  });
-
   let extraction;
   try {
     extraction = await extractFromCca(buffer, mime);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "CCA reading failed" }, { status: 502 });
   }
+  // Keep a copy only after the reader succeeds, so failed imports do not look completed.
+  const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
+  const rel = `uploads/${intake.id}/cca-${Date.now()}-${safeName}`;
+  saveFile(rel, buffer);
+  await prisma.uploadedDocument.create({
+    data: { intakeId: intake.id, docType: "CCA", fileName: `CCA: ${file.name}`, filePath: rel, mimeType: mime },
+  });
 
   const current = await loadAnswers(intake.id);
   const { merged, filled, skipped } = mergeCcaAnswers(current, extraction.extracted, overwrite);
