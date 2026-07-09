@@ -102,7 +102,7 @@ export default function PdfFieldMapper() {
       method: "PUT", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fields: changed }),
     });
-    setNote(r.ok ? `Saved ${changed.length} override(s) ✓` : "Save failed");
+    setNote(r.ok ? `Saved ${changed.length} override(s)` : "Save failed");
     if (r.ok) setDirty(new Set());
   }
 
@@ -121,9 +121,9 @@ export default function PdfFieldMapper() {
     <div className="flex gap-4">
       <div className="flex-1">
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>←</button>
+          <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>Prev</button>
           <span className="text-sm font-semibold">Page {pageNum} / {pageCount}</span>
-          <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.min(pageCount, p + 1))}>→</button>
+          <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.min(pageCount, p + 1))}>Next</button>
           <select className="input w-auto py-1" value={pageNum} onChange={(e) => setPageNum(Number(e.target.value))}>
             {Array.from({ length: pageCount }, (_, i) => <option key={i + 1} value={i + 1}>Page {i + 1}</option>)}
           </select>
@@ -136,7 +136,7 @@ export default function PdfFieldMapper() {
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
           <span className="text-sm text-emerald-600">{note}</span>
         </div>
-        <p className="mb-2 text-xs text-slate-500">Click empty space to add a field • drag a box to move • drag the corner dot to resize • click a box to edit its properties.</p>
+        <p className="mb-2 text-xs text-slate-500">Click empty space to add a field. Drag a box to move. Drag the corner dot to resize. Click a box to edit its properties.</p>
         <div className="relative inline-block border border-slate-300 shadow" onClick={addFieldAt}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
           <canvas ref={canvasRef} />
@@ -148,7 +148,7 @@ export default function PdfFieldMapper() {
                 onPointerDown={(e) => onPointerDown(e, f, false)}
                 className={`absolute cursor-move border text-[9px] leading-tight ${isSel ? "z-10 border-red-500 bg-red-200/50" : f.type === "signature" ? "border-purple-500 bg-purple-200/40" : f.type === "checkbox" ? "border-amber-500 bg-amber-200/40" : "border-sky-500 bg-sky-200/40"}`}
                 style={{ left: s.left, top: s.top, width: s.width, height: Math.max(s.height, 10) }}
-                title={`${f.fieldKey} ← ${f.source}`}>
+                title={`${f.fieldKey} from ${f.source}`}>
                 {testFill && <span className="pointer-events-none block truncate px-0.5 text-sky-900">{f.source || f.fieldKey}</span>}
                 {isSel && (
                   <div onPointerDown={(e) => onPointerDown(e, f, true)}
@@ -168,7 +168,7 @@ export default function PdfFieldMapper() {
               <div><label className="label">Field key</label><input className="input" value={sel.fieldKey} disabled /></div>
               <div><label className="label">Question key (source)</label>
                 <input className="input" value={sel.source} onChange={(e) => update(sel.fieldKey, { source: e.target.value })} />
-                <p className="text-xs text-slate-400">Plain key = text • key=Value = checkbox match • key~Value = multi-select match</p>
+                <p className="text-xs text-slate-400">Plain key = text. key=Value = checkbox match. key~Value = multi-select match.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
                 <div><label className="label">Type</label>
