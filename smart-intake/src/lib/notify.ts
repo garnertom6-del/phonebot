@@ -12,6 +12,15 @@ export interface NotifyResult {
   detail: string;
 }
 
+type TwilioMessage = {
+  sid?: string;
+  status?: string;
+  error_code?: number | null;
+  error_message?: string | null;
+  message?: string;
+  code?: number;
+};
+
 function normalizeUsPhone(value: string): string {
   const trimmed = value.trim();
   if (trimmed.startsWith("+")) return trimmed;
@@ -29,6 +38,52 @@ async function responseText(res: Response): Promise<string> {
   } catch {
     return text.slice(0, 300);
   }
+}
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function twilioFailureDetail(message: TwilioMessage): string {
+  if (message.error_code === 30034) {
+    return "Twilio blocked this SMS: the phone number needs A2P 10DLC registration before US carriers will deliver it (30034).";
+  }
+  const status = message.status ? `Twilio status ${message.status}` : "Twilio failed";
+  const code = message.error_code ? ` (${message.error_code})` : "";
+  const text = message.error_message ? `: ${message.error_message}` : "";
+  return `${status}${code}${text}`;
+}
+
+async function fetchTwilioMessage(sid: string, accountSid: string, auth: string): Promise<TwilioMessage | null> {
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${sid}.json`, {
+    headers: { Authorization: `Basic ${auth}` },
+  });
+  if (!res.ok) return null;
+  return await res.json().catch(() => null) as TwilioMessage | null;
+}
+
+async function twilioSmsResult(res: Response, accountSid: string, auth: string): Promise<{ ok: boolean; detail: string }> {
+  const message = await res.json().catch(() => null) as TwilioMessage | null;
+  if (!res.ok || !message) {
+    return { ok: false, detail: message?.message || message?.error_message || `Twilio returned ${res.status}` };
+  }
+  if (message.status === "failed" || message.status === "undelivered") {
+    return { ok: false, detail: twilioFailureDetail(message) };
+  }
+  if (message.sid) {
+    for (const delay of [800, 1200, 2000]) {
+      await wait(delay);
+      const latest = await fetchTwilioMessage(message.sid, accountSid, auth);
+      if (!latest) continue;
+      if (latest.status === "failed" || latest.status === "undelivered") {
+        return { ok: false, detail: twilioFailureDetail(latest) };
+      }
+      if (latest.status === "delivered") {
+        return { ok: true, detail: "delivered by Twilio" };
+      }
+    }
+  }
+  return { ok: true, detail: "queued by Twilio" };
 }
 
 export async function sendClientLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
@@ -57,26 +112,27 @@ export async function sendClientLinkEmail(to: string, clientName: string, link: 
     to,
     ok: res.ok,
     demo: false,
-    detail: res.ok ? "queued by SendGrid" : await responseText(res),
+    detail: res.ok ? "accepted by SendGrid" : await responseText(res),
   };
 }
 
 export async function sendClientLinkSms(to: string, link: string): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
-  const body = `Moore Divine Care: complete your intake here (secure link): ${link}`;
+  const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  if (!sid || !process.env.TWILIO_AUTH_TOKEN || !from) {
+  const body = `Moore Divine Care: complete your intake here (secure link): ${link}`;
+  if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] ${body}`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
   }
-  const auth = Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
+  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: "POST",
     headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ To: normalizeUsPhone(to), From: normalizeUsPhone(from), Body: body }),
   });
-  const detail = res.ok ? "queued by Twilio" : await responseText(res);
-  return { channel: "sms", to, ok: res.ok, demo: false, detail };
+  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
+  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
 }
 
 export async function sendCopiesLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
@@ -105,24 +161,25 @@ export async function sendCopiesLinkEmail(to: string, clientName: string, link: 
     to,
     ok: res.ok,
     demo: false,
-    detail: res.ok ? "queued by SendGrid" : await responseText(res),
+    detail: res.ok ? "accepted by SendGrid" : await responseText(res),
   };
 }
 
 export async function sendCopiesLinkSms(to: string, link: string): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
-  const body = `Moore Divine Care: copies from your intake are here: ${link}`;
+  const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  if (!sid || !process.env.TWILIO_AUTH_TOKEN || !from) {
+  const body = `Moore Divine Care: copies from your intake are here: ${link}`;
+  if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] ${body}`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
   }
-  const auth = Buffer.from(`${sid}:${process.env.TWILIO_AUTH_TOKEN}`).toString("base64");
+  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
   const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
     method: "POST",
     headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ To: normalizeUsPhone(to), From: normalizeUsPhone(from), Body: body }),
   });
-  const detail = res.ok ? "queued by Twilio" : await responseText(res);
-  return { channel: "sms", to, ok: res.ok, demo: false, detail };
+  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
+  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
 }
