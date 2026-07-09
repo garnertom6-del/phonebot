@@ -32,7 +32,6 @@ export default function LoginPage() {
         <input className="input mb-4" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <button className="btn-primary w-full" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
-        <p className="mt-4 text-xs text-slate-400">Demo login: admin@mooredivinecare.local / IntakeDemo123!</p>
       </form>
     </main>
   );
