@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   await syncStructuredRows(intake.id, answers);
   await prisma.intake.update({
     where: { id: intake.id },
-    data: { status: "SUBMITTED", submittedAt: new Date() },
+    data: { status: sigs.client || sigs.guardian ? "SIGNED" : "SUBMITTED", submittedAt: new Date() },
   });
   await audit("packet_submitted", {
     intakeId: intake.id, ip: req.headers.get("x-forwarded-for") ?? undefined,
