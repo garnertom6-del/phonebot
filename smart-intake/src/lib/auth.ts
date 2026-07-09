@@ -2,7 +2,13 @@ import crypto from "crypto";
 import { cookies } from "next/headers";
 import { prisma } from "./prisma";
 
-const SECRET = () => process.env.SESSION_SECRET || "dev-secret-change-me";
+const SECRET = () => {
+  const secret = process.env.SESSION_SECRET;
+  if (!secret && process.env.NODE_ENV === "production") {
+    throw new Error("SESSION_SECRET must be set in production.");
+  }
+  return secret || "dev-secret-change-me";
+};
 const COOKIE = "mdc_session";
 
 function sign(payload: string): string {
