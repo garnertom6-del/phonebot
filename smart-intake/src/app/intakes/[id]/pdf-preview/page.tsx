@@ -9,7 +9,7 @@ export default function PdfPreviewPage({ params }: { params: { id: string } }) {
   return (
     <main className="mx-auto max-w-5xl p-6">
       <div className="mb-3 flex items-center justify-between">
-        <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">← Back to intake</Link>
+        <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setBust(Date.now())}>Refresh</button>
           <a className="btn-primary" href={src} download>Download</a>
