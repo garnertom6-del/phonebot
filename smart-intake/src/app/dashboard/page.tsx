@@ -17,6 +17,18 @@ const STATUS_COLORS: Record<string, string> = {
   SIGNED: "bg-emerald-100 text-emerald-800", COMPLETED: "bg-emerald-600 text-white",
 };
 
+const STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
+  NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed",
+};
+
+/** Show dates as MM/DD/YYYY even when stored as ISO (YYYY-MM-DD). */
+function displayDate(v?: string): string {
+  if (!v) return "-";
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(v);
+  return m ? `${m[2]}/${m[3]}/${m[1]}` : v;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -84,18 +96,18 @@ export default function Dashboard() {
                 <td className="px-4 py-3 font-semibold">
                   <Link className="text-brand hover:underline" href={`/intakes/${r.id}`}>{r.client.fullName}</Link>
                 </td>
-                <td className="px-4 py-3">{r.client.dob}</td>
+                <td className="px-4 py-3">{displayDate(r.client.dob)}</td>
                 <td className="px-4 py-3">{r.client.midNumber || "-"}</td>
                 <td className="px-4 py-3 text-xs">{r.client.phone}<br />{r.client.email}</td>
                 <td className="px-4 py-3">{r.client.guardianName || "-"}</td>
-                <td className="px-4 py-3"><span className={`badge ${STATUS_COLORS[r.status]}`}>{r.status.replace("_", " ")}</span></td>
+                <td className="px-4 py-3"><span className={`badge ${STATUS_COLORS[r.status]}`}>{STATUS_LABELS[r.status] || r.status.replace("_", " ")}</span></td>
                 <td className="px-4 py-3 text-xs">
                   <div className="flex flex-col gap-1">
                     <span className={`badge ${r.hasCca ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
                       {r.hasCca ? "CCA uploaded" : "CCA needed"}
                     </span>
                     <span className={`badge ${r.hasPdf ? "bg-emerald-600 text-white" : "bg-amber-100 text-amber-800"}`}>
-                      {r.hasPdf ? "Packet generated" : "Run packet"}
+                      {r.hasPdf ? "Packet generated" : "Packet not generated yet"}
                     </span>
                     <span className="text-slate-400">{r.percentComplete}% answered</span>
                     {r.ccaDetail && <span className="text-emerald-700">{r.ccaDetail}</span>}
@@ -111,7 +123,7 @@ export default function Dashboard() {
                     <Link href={`/intakes/${r.id}/pdf-preview`} className="btn-ghost px-2 py-1 text-xs">PDF</Link>
                     <button className="btn-ghost px-2 py-1 text-xs" onClick={() => copyLink(r)}>Copy link</button>
                     <button className="btn-ghost px-2 py-1 text-xs" onClick={() => remind(r)}>Remind</button>
-                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => archive(r)}>Archive</button>
+                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => archive(r)}>Mark completed</button>
                   </div>
                 </td>
               </tr>
@@ -120,8 +132,8 @@ export default function Dashboard() {
         </table>
       </div>
       <p className="mt-4 text-xs text-slate-400">
-        HIPAA note: production use requires BAA-covered hosting/vendors, access controls, encryption,
-        backups, and a legal/compliance review. See COWORKER_HANDOFF.md.
+        HIPAA note: before using with real clients, make sure hosting and vendors have signed
+        privacy agreements (BAAs) and a compliance review is done. Ask your administrator.
       </p>
     </main>
   );

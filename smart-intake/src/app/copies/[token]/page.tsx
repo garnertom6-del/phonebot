@@ -6,7 +6,7 @@ const COPY_SECTIONS = [
     title: "Client Rights and Responsibilities",
     body:
       "You have the right to be treated with dignity and respect, to be informed about your care, " +
-      "to privacy and confidentiality, to ask questions, to file a grievance without retaliation, " +
+      "to privacy and confidentiality, to ask questions, to speak up or complain without getting in trouble, " +
       "and to receive services in a safe environment. You are responsible for participating in " +
       "services, sharing accurate information, respecting others, and following program safety rules.",
   },
@@ -14,7 +14,7 @@ const COPY_SECTIONS = [
     title: "Client Orientation",
     body:
       "Moore Divine Care explained program services, hours, after-hours access, emergency procedures, " +
-      "confidentiality, grievance procedures, financial responsibilities, service coordination, " +
+      "confidentiality, how to make a complaint, financial responsibilities, service coordination, " +
       "assessment, treatment planning, transition criteria, and program expectations.",
   },
   {
@@ -22,8 +22,8 @@ const COPY_SECTIONS = [
     body:
       "You consent to receive services from Moore Divine Care. You were told about confidentiality, " +
       "benefits and risks, alternatives, your right to refuse treatment, client rights, the consumer " +
-      "handbook, service-plan copies, fees, grievance procedures, suspension/expulsion policies, and " +
-      "search and seizure policies.",
+      "handbook, service-plan copies, fees, how to make a complaint, the rules about being paused or " +
+      "removed from the program, and the rules about checking personal belongings.",
   },
   {
     title: "Welcome Letter from the Executive Team",

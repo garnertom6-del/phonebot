@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
-import { newIntakeToken, tokenExpiry } from "@/lib/tokens";
+import { newIntakeToken, tokenExpiry, tokenExpiryDays } from "@/lib/tokens";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { missingRequired, percentComplete } from "@/lib/validation";
@@ -75,5 +75,5 @@ export async function POST(req: NextRequest) {
     prisma.intakeAnswer.create({ data: { intakeId: intake.id, key, value: JSON.stringify(v) } })));
   await audit("intake_created", { intakeId: intake.id, userId: user!.id, detail: d.fullName });
   const base = appBaseUrl();
-  return NextResponse.json({ id: intake.id, clientLink: `${base}/intake/${intake.token}` });
+  return NextResponse.json({ id: intake.id, clientLink: `${base}/intake/${intake.token}`, linkDays: tokenExpiryDays() });
 }

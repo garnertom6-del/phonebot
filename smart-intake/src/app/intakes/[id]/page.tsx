@@ -174,7 +174,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         <div>
           <h1 className="text-2xl font-bold">{i.client.fullName}</h1>
           <p className="text-sm text-slate-500">
-            DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status <b>{i.status}</b> - {d.percentComplete}% complete
+            DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status{" "}
+            <b>{({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
+              NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}</b>{" "}
+            - {d.percentComplete}% complete
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -266,7 +269,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <div>
               <h3 className="font-bold">NC Tracks / staff helper info</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Look up automatically when your approved lookup adapter is connected, or enter
+                Look up automatically when the NC Tracks connection is set up, or enter
                 details manually. The app applies MID, PCP, emergency, staff names, dates,
                 Medicaid defaults, and repeated packet fields.
               </p>
@@ -284,7 +287,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
           <form className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3" onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}>
             <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
-            <HelperInput name="mid_number" label="MID #" value={d.answers.mid_number ?? ""} />
+            <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
             <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
             <HelperInput name="race" label="Race" value={d.answers.race ?? ""} />
             <HelperInput name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} />
@@ -309,7 +312,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <div className="md:col-span-3 flex flex-wrap gap-2">
               <button className="btn-primary" type="submit">Save helper info</button>
               <span className="self-center text-xs text-slate-500">
-                Auto lookup uses your approved NC Tracks adapter settings. Manual entry always remains available.
+                Auto lookup works once the NC Tracks connection is set up. Typing the details in by hand always works.
               </span>
             </div>
           </form>

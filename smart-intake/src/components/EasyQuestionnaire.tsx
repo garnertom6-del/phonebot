@@ -102,6 +102,12 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
           event,
         }),
       });
+      if (res.status === 404) {
+        // the link expired mid-session - tell the client what to do, not "check connection"
+        const body = await res.json().catch(() => ({} as { error?: string }));
+        setSaveError(body.error || "This link has stopped working. Please call 336-285-5204 and we will text you a new one.");
+        return false;
+      }
       if (!res.ok) throw new Error("Save failed");
       setSaveError("");
       return true;
@@ -313,7 +319,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
 
         {submitError && (
           <div className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
-            <p className="text-lg font-bold">We still need a few things:</p>
+            <p className="text-lg font-bold">{missing.length > 0 ? "We still need a few things:" : "We could not send your answers."}</p>
             {missing.length > 0 ? (
               <ul className="mt-2 list-inside list-disc space-y-1 text-base">
                 {missing.map((m) => {
@@ -428,7 +434,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
   /* ---- consent: friendly summary + full text + agree/skip ---- */
   if (q.type === "consent") {
     const simple = EASY[q.key]?.consentSimple ??
-      `This form is called "${q.label}". It says it is OK for Moore Divine Care to help you.`;
+      `This form is called "${q.label}". Please read the whole form below before you agree.`;
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-brand/20 bg-brand-light p-5">

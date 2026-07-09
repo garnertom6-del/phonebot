@@ -108,7 +108,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
 
   function accept() {
     setError("");
-    if (!printedName.trim()) return setError("Please type your printed name.");
+    if (!printedName.trim()) return setError("Please type your name.");
     if (expectedRole === "guardian" && relationship === "client") {
       return setError("Please choose Parent, Legal Guardian, or Legal Representative.");
     }

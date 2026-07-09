@@ -88,13 +88,13 @@ async function twilioSmsResult(res: Response, accountSid: string, auth: string):
 
 export async function sendClientLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const subject = "Moore Divine Care, Inc. - Your intake questions";
+  const subject = "Moore Divine Care, Inc. - Your new-client questions";
   const body =
-    `Hello ${clientName},\n\nPlease complete your intake for Moore Divine Care, Inc. ` +
-    `using this secure link (expires in ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days):\n\n${link}\n\n` +
+    `Hello ${clientName},\n\nPlease answer your new-client questions for Moore Divine Care, Inc. ` +
+    `using this secure link (it works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days):\n\n${link}\n\n` +
     `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call 336-285-5204.`;
-  if (!key) {
-    console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}\n${body}`);
+  if (!key || !process.env.EMAIL_FROM) {
+    console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
   }
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
@@ -102,7 +102,7 @@ export async function sendClientLinkEmail(to: string, clientName: string, link: 
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }] }],
-      from: { email: process.env.EMAIL_FROM || "intake@example.com" },
+      from: { email: process.env.EMAIL_FROM as string },
       subject,
       content: [{ type: "text/plain", value: body }],
     }),
@@ -120,9 +120,9 @@ export async function sendClientLinkSms(to: string, link: string): Promise<Notif
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `Moore Divine Care: complete your intake here (secure link): ${link}`;
+  const body = `Moore Divine Care: please answer your new-client questions here (secure link): ${link}`;
   if (!sid || !token || !from) {
-    console.log(`[DEMO SMS to ${to}] ${body}`);
+    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
   }
   const auth = Buffer.from(`${sid}:${token}`).toString("base64");
@@ -137,13 +137,13 @@ export async function sendClientLinkSms(to: string, link: string): Promise<Notif
 
 export async function sendCopiesLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const subject = "Moore Divine Care, Inc. - Copies from your intake";
+  const subject = "Moore Divine Care, Inc. - Your copies";
   const body =
-    `Hello ${clientName},\n\nHere is your copy link for the intake materials Moore Divine Care provided: ` +
-    `Client Rights, Client Orientation, Consent for Treatment, Welcome Letter, and review acknowledgments.\n\n` +
-    `${link}\n\nQuestions? Call 336-285-5204.`;
-  if (!key) {
-    console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}\n${body}`);
+    `Hello ${clientName},\n\nHere are your copies of the papers from your visit: ` +
+    `Your Rights, How Our Program Works, Consent for Treatment, and our Welcome Letter. ` +
+    `Tap the link to see them:\n\n${link}\n\nQuestions? Call 336-285-5204.`;
+  if (!key || !process.env.EMAIL_FROM) {
+    console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
   }
   const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
@@ -151,7 +151,7 @@ export async function sendCopiesLinkEmail(to: string, clientName: string, link: 
     headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
     body: JSON.stringify({
       personalizations: [{ to: [{ email: to }] }],
-      from: { email: process.env.EMAIL_FROM || "intake@example.com" },
+      from: { email: process.env.EMAIL_FROM as string },
       subject,
       content: [{ type: "text/plain", value: body }],
     }),
@@ -169,9 +169,9 @@ export async function sendCopiesLinkSms(to: string, link: string): Promise<Notif
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `Moore Divine Care: copies from your intake are here: ${link}`;
+  const body = `Moore Divine Care: your copies from your visit are here: ${link}`;
   if (!sid || !token || !from) {
-    console.log(`[DEMO SMS to ${to}] ${body}`);
+    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
   }
   const auth = Buffer.from(`${sid}:${token}`).toString("base64");

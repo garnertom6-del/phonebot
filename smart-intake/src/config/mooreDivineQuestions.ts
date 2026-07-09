@@ -39,7 +39,7 @@ export const SECTIONS: Section[] = [
   {
     key: "welcome", title: "Welcome", fastIntake: true,
     intro:
-      "This secure link replaces the paper intake packet for Moore Divine Care, Inc. " +
+      "This secure link takes the place of the paper forms for Moore Divine Care, Inc. " +
       "Answer at your own pace - your progress is saved so you can come back later. " +
       "Every box with a microphone lets you SPEAK your answer instead of typing. " +
       "You will sign once at the end.",
@@ -126,7 +126,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "presenting", title: "What Brings You In", fastIntake: true,
-    intro: "Take your time here - tap the microphone and just talk. This is the most important answer in the packet.",
+    intro: "Take your time here - tap the microphone and just talk. This is the most important answer in here.",
     questions: [
       { key: "presenting_problem", essential: true, label: "In your own words: what brings you in, and why do you feel the need for services?", type: "textarea", required: true, voice: true },
       { key: "other_agencies", label: "Other agencies or providers you receive (or received) services from", type: "textarea", voice: true },
@@ -240,7 +240,7 @@ export const SECTIONS: Section[] = [
   {
     key: "provider_choice", title: "Provider Choice", fastIntake: true,
     questions: [
-      { key: "provider_choice_plan", essential: true, label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare"] },
+      { key: "provider_choice_plan", essential: true, label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare", "Not sure"] },
       {
         key: "consent_provider_choice", label: "Provider Choice", type: "consent", required: true,
         consentText: "I understand that I have the right to choose which provider will provide services to me. I have selected Moore Divine Care, Inc. as my provider of choice and have been offered a list of other providers who offer the same or similar services based on my medical needs. I understand that at any time I may change my service provider and will, if possible, provide reasonable notice so my records can transition. I may contact my Local Management Entity with questions or concerns.",
@@ -273,12 +273,12 @@ export const SECTIONS: Section[] = [
     key: "crisis", title: "24-Hour Crisis / Bill of Rights", fastIntake: true,
     questions: [{
       key: "consent_bill_of_rights", label: "24-Hour On-Call & Bill of Rights", type: "consent", required: true,
-      consentText: "I have been informed that Moore Divine Care, Inc. provides a 24 hours / 7 days a week emergency telephone number: the Crisis Number is 336-285-5204. I reviewed the Client Acknowledgement of 24 Hour On-Call Service, had the opportunity to ask questions, was provided the names of staff who will work with me and the days and times for each, and understand I should call to reschedule if there is a scheduling conflict. The Bill of Rights has been explained to me in terms that I understand, and I acknowledge that I have read and understand my rights and responsibilities.",
+      consentText: "I have been informed that Moore Divine Care, Inc. provides a 24 hours / 7 days a week emergency telephone number: the Crisis Number is 336-285-5204. I reviewed the Client Acknowledgment of 24 Hour On-Call Service, had the opportunity to ask questions, was provided the names of staff who will work with me and the days and times for each, and understand I should call to reschedule if there is a scheduling conflict. The Bill of Rights has been explained to me in terms that I understand, and I acknowledge that I have read and understand my rights and responsibilities.",
     }],
   },
   {
     key: "roi", title: "Release of Information",
-    intro: "If you want us to coordinate with other doctors, agencies, schools or family, add them here. Each one becomes a signed disclosure consent form (the packet includes three).",
+    intro: "If you want us to coordinate with other doctors, agencies, schools or family, add them here. You can add up to three, and each one becomes a signed permission form.",
     questions: [1, 2, 3].flatMap((i): Question[] => [
       { key: `roi${i}_recipient`, label: `Release ${i} - who may we share records with?`, type: "text", voice: true, askIf: i === 1 ? undefined : { key: `roi${i - 1}_recipient`, truthy: true } },
       { key: `roi${i}_items`, label: `Release ${i} - what may we share?`, type: "chips", options: ["Admission/ Screening Assessment", "HIV related information", "Service Notes", "VO", "Medication history/ physician orders", "Psychological testing", "Service Plan", "LME", "Discharge Information", "Substance Abuse Information", "Psychiatric Evaluation", "Reciprocal exchange permitted", "Accounting of Disclosure Report", "NCTOPPS"], askIf: { key: `roi${i}_recipient`, truthy: true } },
@@ -331,12 +331,12 @@ export const SECTIONS: Section[] = [
     key: "confidentiality", title: "Confidentiality Exceptions", fastIntake: true,
     questions: [{
       key: "consent_confidentiality", label: "Confidentiality Exception Form", type: "consent", required: true,
-      consentText: "I understand Moore Divine Care, Inc. has strict Confidentiality and Client Rights policies that prohibit release of confidential consumer information. The exceptions under N.C.G.S. §§ 122C-53 through 122C-56 have been explained to me and I agree with them - including disclosure of admission/discharge to next of kin when in my best interest; internal client advocate access; court orders and abuse reports; care and treatment coordination between facilities; emergencies where there is imminent danger; benefits and educational eligibility; referring physician requests; and research, planning and audits where allowed. If I feel my confidentiality rights have been violated I may contact the Client Rights Committee Chair Person at (336) 285-5204.",
+      consentText: "I understand Moore Divine Care, Inc. has strict Confidentiality and Client Rights policies that prohibit release of confidential consumer information. The exceptions under N.C.G.S. §§ 122C-53 through 122C-56 have been explained to me and I agree with them - including disclosure of admission/discharge to next of kin when in my best interest; internal client advocate access; court orders and abuse reports; care and treatment coordination between facilities; emergencies where there is imminent danger; benefits and educational eligibility; referring physician requests; and research, planning and audits where allowed. If I feel my confidentiality rights have been violated I may contact the Client Rights Committee Chair Person at 336-285-5204.",
     }],
   },
   {
     key: "welcome_letter", title: "Welcome Letter", fastIntake: true,
-    intro: "A welcome letter from the Executive and Leadership Team (Karen Jones, Nurse Practitioner; Tonya Jones, Clinical Director; Thadeous Young, Qualified Professional). Office hours: Greensboro Office 10am-4pm. Emergency number: 336-285-5204. The mission: dedicated to the empowerment of You, our client, striving to assist you, your family and other stakeholders in achieving an enhanced quality of life through effective, efficient person-centered services.",
+    intro: "A welcome letter from the Executive and Leadership Team (Karen Jones, Nurse Practitioner; Tonya Jones, Clinical Director; Thadeous Young, Qualified Professional). Office hours: Greensboro Office, Monday through Friday, 10am-4pm. Emergency number: 336-285-5204. The mission: dedicated to the empowerment of You, our client, striving to assist you, your family and other stakeholders in achieving an enhanced quality of life through effective, efficient person-centered services.",
     questions: [{ key: "welcome_letter_ack", essential: true, label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
   },
   {
@@ -467,8 +467,8 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
       { key: "dis_discharge_date", label: "Date of transition/discharge", type: "date" },
       { key: "dis_programs", label: "Program(s) client served in", type: "text" },
       ...[1, 2, 3, 4, 5].flatMap((i): Question[] => [
-        { key: `dis_adm_axis${i}`, label: `Admission diagnosis - Axis ${"I".repeat(Math.min(i, 3)) + (i === 4 ? "V" : i === 5 ? "" : "")}`.replace("Axis IIIV", "Axis IV").replace(`Axis ${"I".repeat(5)}`, "Axis V"), type: "text" },
-        { key: `dis_dc_axis${i}`, label: `Discharge diagnosis - Axis ${i}`, type: "text" },
+        { key: `dis_adm_axis${i}`, label: `Admission diagnosis - Axis ${["I", "II", "III", "IV", "V"][i - 1]}`, type: "text" },
+        { key: `dis_dc_axis${i}`, label: `Discharge diagnosis - Axis ${["I", "II", "III", "IV", "V"][i - 1]}`, type: "text" },
       ]),
       { key: "dis_summary", label: "Summary / presenting needs", type: "textarea" },
       { key: "dis_pcp_plan", label: "PCP plan description & progress", type: "textarea" },
