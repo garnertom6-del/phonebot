@@ -83,12 +83,12 @@ export default function VoiceInput({ value, onChange, multiline, placeholder, in
         {supported && (
           <button type="button" aria-label={recording ? "Stop recording" : "Speak your answer"}
             onClick={recording ? stop : start}
-            className={`h-12 w-12 shrink-0 rounded-lg border text-xl ${recording ? "animate-pulse border-red-400 bg-red-50" : "border-slate-300 bg-white"}`}>
-            {recording ? "⏹" : "🎤"}
+            className={`h-12 min-w-[72px] shrink-0 rounded-lg border px-3 text-sm font-bold ${recording ? "animate-pulse border-red-400 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
+            {recording ? "Stop" : "Speak"}
           </button>
         )}
       </div>
-      {recording && <p className="mt-1 text-sm text-red-600">Listening... tap ⏹ when you finish speaking.</p>}
+      {recording && <p className="mt-1 text-sm text-red-600">Listening... tap Stop when you finish speaking.</p>}
       {preview !== null && !recording && (
         <div className="mt-2 rounded-lg border border-brand/40 bg-brand-light p-3">
           <p className="mb-1 text-xs font-semibold text-brand">Transcript preview - edit if needed, then add it:</p>
