@@ -115,8 +115,10 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "program_can_meet_needs", "Yes");
   setDefault(a, "ability_to_provide", "Yes");
   setDefault(a, "severity_of_need", "Routine");
-  setDefault(a, "hipaa_understood", "Yes");
-  setDefault(a, "hipaa_copy", "Yes");
+  if (opts.forPdf) {
+    setDefault(a, "hipaa_understood", "Yes");
+    setDefault(a, "hipaa_copy", "Yes");
+  }
 
   setDefault(a, "client_phone_home", s(a.client_phone_cell));
   setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
