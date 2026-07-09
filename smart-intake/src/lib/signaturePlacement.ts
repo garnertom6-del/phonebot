@@ -38,6 +38,9 @@ export function signatureForRole(
   const tryRoles =
     role === "client" ? ["client", "guardian"] :   // guardian signs for minors
     role === "guardian" ? ["guardian"] :
+    role === "staff" ? ["staff", "clinician", "witness"] :
+    role === "clinician" ? ["clinician", "staff", "witness"] :
+    role === "witness" ? ["witness", "staff", "clinician"] :
     [role];
   for (const r of tryRoles) {
     const record = ctx.signatures[r];
