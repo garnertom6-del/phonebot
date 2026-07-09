@@ -20,10 +20,13 @@ npm run dev
 
 Open **http://localhost:3000**
 
-Staff login: **admin@mooredivinecare.local** / **IntakeDemo123!**
+Staff login: **admin@mooredivinecare.local** / **IntakeDemo123!** (local only —
+in production the password comes from the `ADMIN_PASSWORD` env var, and five
+wrong tries lock login for 15 minutes)
 
 After login you'll see two sample clients (Angela Demo, Jayden Sample) and can
-create a new intake.
+create a new intake. In production, `SEED_DEMO_DATA=false` keeps the sample
+clients out of the database.
 
 ## Easy Mode (what clients see)
 
@@ -64,13 +67,21 @@ Uncheck "Short client intake" when creating an intake for the full question set.
 5. Client reviews each consent separately, checks "I agree," and **signs once**
    on a canvas (draw or guardian signs for a minor). Submission is blocked until
    all required items + signature are present.
-6. **Staff dashboard** shows status (Not Started → In Progress → Submitted →
-   Needs Review → Signed → Completed), percent complete, and a **missing-field
-   checklist**. Staff review/edit every answer plus staff-only sections
-   (page-1 document checklist, screening, clinical, PCP collaboration, discharge
-   summary) and can capture staff/clinician/witness/medical-director signatures.
-7. **Generate Completed Packet** fills the real PDF; preview, download, print,
-   or send to DocuSign (optional).
+6. **Staff dashboard** has tabs (Needs action / Waiting on client / Signed /
+   Done / Archived), status badges, percent complete, a **missing-field
+   checklist**, a one-click **Download backup** (full JSON export), and a real
+   Archive. Each intake page shows a numbered workflow guide (Send link →
+   Client answers → Add CCA → Review → Generate → Signatures → Send copies)
+   with the next step highlighted. Staff review/edit every answer plus
+   staff-only sections and capture staff/clinician/witness/medical-director
+   signatures. Client-uploaded documents (insurance cards, IDs) have staff-only
+   Open buttons; every view is audited.
+7. **Generate Completed Packet** fills the real PDF and appends a
+   **Certificate of Electronic Signing** (signer identity checked by date of
+   birth, recorded time + IP, consents agreed, and a SHA-256 tamper
+   fingerprint of the packet pages). Preview, download, print, or send to
+   DocuSign — the envelope is tracked, and **Check DocuSign status** pulls the
+   certified signed PDF back into the record when the client finishes.
 
 ## Useful commands
 
@@ -109,10 +120,18 @@ the client name flows into the welcome letter, consents, CCA and Tailored Plan p
 
 ## Security
 
-- Random 192-bit tokens, 7-day expiry (configurable), no PHI in URLs.
+- Random 192-bit tokens, 7-day expiry (configurable), no PHI in URLs; expired
+  links are auto-renewed when staff hit Remind.
+- Client links can only write client-visible questions — staff/clinical fields
+  are unreachable from a token. Uploads accept photos/PDFs only.
+- Login lockout after 5 wrong tries; signature identity check by date of
+  birth; signer IP/device recorded; packet fingerprinted (SHA-256) against
+  tampering.
 - Answers, signatures and uploads stored server-side; staff routes require login.
 - Full audit log: intake created, link opened, section started/completed,
-  signature captured, packet submitted, staff reviewed, PDF generated/downloaded.
+  signature captured, packet submitted, staff reviewed, PDF generated /
+  downloaded, documents viewed, backups downloaded, CCA imports, DocuSign
+  sent/completed, login lockouts.
 
 > ⚠️ **HIPAA:** this codebase implements technical safeguards, but production
 > HIPAA compliance requires BAA-covered hosting and vendors, access controls,
