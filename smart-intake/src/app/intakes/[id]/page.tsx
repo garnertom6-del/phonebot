@@ -37,6 +37,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
+  const [ncTracksUploadBusy, setNcTracksUploadBusy] = useState(false);
   const [ncTracksResult, setNcTracksResult] = useState("");
 
   const load = useCallback(() => {
@@ -168,6 +169,24 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }
 
+  async function uploadNcTracks(file: File) {
+    setNcTracksUploadBusy(true);
+    setNcTracksResult("Reading the NC Tracks card...");
+    const fd = new FormData();
+    fd.set("file", file);
+    const r = await fetch(`/api/intakes/${i.id}/nctracks-upload`, { method: "POST", body: fd });
+    const b = await r.json().catch(() => ({}));
+    setNcTracksUploadBusy(false);
+    if (r.ok) {
+      setNcTracksResult(b.count
+        ? `NC Tracks upload filled ${b.count} field(s).`
+        : "NC Tracks upload finished, but no matching fields were returned.");
+      load();
+    } else {
+      setNcTracksResult(b.error || "NC Tracks upload failed.");
+    }
+  }
+
   return (
     <main className="mx-auto max-w-5xl p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
@@ -292,6 +311,16 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 onClick={() => { void lookupNcTracks(); }}>
                 {ncTracksBusy ? "Looking up..." : "Auto lookup NC Tracks"}
               </button>
+              <label className={`btn-secondary cursor-pointer px-3 py-1.5 text-sm ${ncTracksUploadBusy ? "pointer-events-none opacity-60" : ""}`}>
+                {ncTracksUploadBusy ? "Reading upload..." : "Upload NC Tracks card / PDF"}
+                <input
+                  type="file"
+                  className="hidden"
+                  accept="application/pdf,image/*"
+                  disabled={ncTracksUploadBusy}
+                  onChange={(e) => e.target.files?.[0] && uploadNcTracks(e.target.files[0])}
+                />
+              </label>
               <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
                 Open NC Tracks
               </a>
