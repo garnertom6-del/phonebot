@@ -4,6 +4,7 @@ import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadSignatures, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { CLIENT_ANSWER_KEYS } from "@/config/mooreDivineQuestions";
 
 async function findByToken(token: string) {
   const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true } });
@@ -47,7 +48,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
   if (body.answers) {
     const parsed = answersSchema.safeParse(body.answers);
     if (!parsed.success) return NextResponse.json({ error: "Invalid answers" }, { status: 400 });
-    await saveAnswers(intake.id, applyOperationalDefaults(parsed.data));
+    // a client link may only write client-visible questions - never staff fields
+    const clientOnly = Object.fromEntries(
+      Object.entries(parsed.data).filter(([k]) => CLIENT_ANSWER_KEYS.has(k)));
+    await saveAnswers(intake.id, applyOperationalDefaults(clientOnly));
   }
   if (body.section && ["started", "completed"].includes(body.event)) {
     const now = new Date();
