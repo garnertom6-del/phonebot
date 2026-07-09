@@ -5,7 +5,7 @@ export default function MissingFieldsPanel({ required, optional }: { required: M
     <div className="card">
       <h3 className="mb-2 font-bold">Missing field checklist</h3>
       {required.length === 0 ? (
-        <p className="mb-2 text-sm font-semibold text-emerald-600">✓ All required items complete</p>
+        <p className="mb-2 text-sm font-semibold text-emerald-600">All required items complete</p>
       ) : (
         <>
           <p className="mb-1 text-sm font-semibold text-red-600">Required before completion ({required.length}):</p>
