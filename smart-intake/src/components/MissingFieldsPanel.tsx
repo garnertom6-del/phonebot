@@ -17,7 +17,7 @@ export default function MissingFieldsPanel({ required, optional }: { required: M
       {optional.length > 0 && (
         <details>
           <summary className="cursor-pointer text-sm font-semibold text-slate-600">
-            Unanswered optional / staff items ({optional.length})
+            Key unanswered packet items to review ({optional.length})
           </summary>
           <ul className="mt-2 max-h-64 list-inside list-disc overflow-y-auto text-xs text-slate-500">
             {optional.map((m) => <li key={m.key}>{m.section ? `${m.section}: ` : ""}{m.label}</li>)}
