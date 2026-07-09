@@ -19,7 +19,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { status: 400 },
     );
   }
-  const intake = await prisma.intake.findUnique({ where: { id: params.id } });
+  const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const form = await req.formData();
@@ -53,6 +53,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (filled.length) {
     await saveAnswers(intake.id, withDefaults);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
+    await prisma.client.update({
+      where: { id: intake.clientId },
+      data: {
+        midNumber: typeof withDefaults.mid_number === "string" && withDefaults.mid_number.trim() ? withDefaults.mid_number.trim() : intake.client.midNumber,
+        recordNumber: typeof withDefaults.record_number === "string" && withDefaults.record_number.trim() ? withDefaults.record_number.trim() : intake.client.recordNumber,
+        phone: typeof withDefaults.client_phone_cell === "string" && withDefaults.client_phone_cell.trim() ? withDefaults.client_phone_cell.trim() : intake.client.phone,
+        email: typeof withDefaults.client_email === "string" && withDefaults.client_email.trim() ? withDefaults.client_email.trim() : intake.client.email,
+      },
+    });
   }
   await prisma.intake.update({ where: { id: intake.id }, data: { status: "NEEDS_REVIEW" } });
   await audit("cca_imported", {
