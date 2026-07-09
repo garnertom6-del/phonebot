@@ -38,13 +38,22 @@ export default function VoiceInput({ value, onChange, multiline, placeholder, in
     rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
     finalRef.current = "";
     rec.onresult = (e) => {
+      // Android Chrome re-delivers already-final results (and resultIndex can
+      // rewind), so appending across events repeats the speaker's words 2-3x.
+      // Rebuild the transcript from the full results list on every event and
+      // collapse back-to-back duplicate chunks instead.
+      const finals: string[] = [];
       let interim = "";
-      for (let i = e.resultIndex; i < e.results.length; i++) {
+      for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i];
-        if (r.isFinal) finalRef.current += r[0].transcript;
-        else interim += r[0].transcript;
+        const t = r[0].transcript.trim();
+        if (!t) continue;
+        if (r.isFinal) {
+          if (finals[finals.length - 1]?.toLowerCase() !== t.toLowerCase()) finals.push(t);
+        } else interim += " " + t;
       }
-      setPreview((finalRef.current + " " + interim).trim());
+      finalRef.current = finals.join(" ");
+      setPreview((finalRef.current + interim).trim());
     };
     rec.onend = () => setRecording(false);
     rec.onerror = () => setRecording(false);
