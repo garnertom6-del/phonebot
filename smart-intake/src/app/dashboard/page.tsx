@@ -38,9 +38,15 @@ export default function Dashboard() {
   }
   async function remind(row: Row) {
     const r = await fetch(`/api/intakes/${row.id}/remind`, { method: "POST" });
-    const b = await r.json();
-    setNote(b.demo ? "Demo mode: reminder logged to server console" : `Reminder sent: ${b.sent?.join(", ")}`);
-    setTimeout(() => setNote(""), 3500);
+    const b = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const sent = b.sent?.length ? `Queued: ${b.sent.join(", ")}` : "No phone or email saved for this client.";
+      const failed = b.failed?.length ? ` Not sent: ${b.failed.join("; ")}` : "";
+      setNote(`${sent}${failed}`);
+    } else {
+      setNote(`Not sent: ${b.failed?.join("; ") || b.error || r.status}`);
+    }
+    setTimeout(() => setNote(""), 6000);
   }
   async function archive(row: Row) {
     await fetch(`/api/intakes/${row.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ archive: true }) });
