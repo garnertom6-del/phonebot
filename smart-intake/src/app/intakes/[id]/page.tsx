@@ -25,6 +25,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ccaResult, setCcaResult] = useState("");
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
   const [copiesLink, setCopiesLink] = useState("");
+  const [ncTracksBusy, setNcTracksBusy] = useState(false);
+  const [ncTracksResult, setNcTracksResult] = useState("");
 
   const load = useCallback(() => {
     fetch(`/api/intakes/${params.id}`).then(async (r) => {
@@ -94,6 +96,20 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     });
     setNote(r.ok ? "NC Tracks / helper info saved and smart defaults applied" : "Helper info failed to save");
     load();
+  }
+
+  async function lookupNcTracks() {
+    setNcTracksBusy(true);
+    setNcTracksResult("Looking up NC Tracks...");
+    const r = await fetch(`/api/intakes/${i.id}/nctracks`, { method: "POST" });
+    const b = await r.json().catch(() => ({}));
+    setNcTracksBusy(false);
+    if (r.ok) {
+      setNcTracksResult(b.count ? `NC Tracks lookup filled ${b.count} field(s).` : "NC Tracks lookup finished, but no matching fields were returned.");
+      load();
+    } else {
+      setNcTracksResult(b.error || "NC Tracks lookup failed.");
+    }
   }
 
   return (
@@ -167,14 +183,22 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <div>
               <h3 className="font-bold">NC Tracks / staff helper info</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Look up manually, paste quick notes, then save. The app applies MID, PCP,
-                emergency, staff names, dates, Medicaid defaults, and repeated packet fields.
+                Look up automatically when your approved lookup adapter is connected, or enter
+                details manually. The app applies MID, PCP, emergency, staff names, dates,
+                Medicaid defaults, and repeated packet fields.
               </p>
             </div>
-            <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
-              Open NC Tracks
-            </a>
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-primary px-3 py-1.5 text-sm" type="button" disabled={ncTracksBusy}
+                onClick={() => { void lookupNcTracks(); }}>
+                {ncTracksBusy ? "Looking up..." : "Auto lookup NC Tracks"}
+              </button>
+              <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
+                Open NC Tracks
+              </a>
+            </div>
           </div>
+          {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
           <form className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3" onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}>
             <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
             <HelperInput name="mid_number" label="MID #" value={d.answers.mid_number ?? ""} />
@@ -197,7 +221,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <div className="md:col-span-3 flex flex-wrap gap-2">
               <button className="btn-primary" type="submit">Save helper info</button>
               <span className="self-center text-xs text-slate-500">
-                Automatic NC Tracks retrieval can be added later if you have an approved portal/API workflow.
+                Auto lookup uses your approved NC Tracks adapter settings. Manual entry always remains available.
               </span>
             </div>
           </form>
