@@ -38,11 +38,15 @@ export default function NewIntake() {
     const res = await fetch(`/api/intakes/${result.id}/remind`, { method: "POST" });
     const body = await res.json().catch(() => ({}));
     if (res.ok) {
-      const sent = body.sent?.length ? `Queued: ${body.sent.join(", ")}` : "No phone or email saved for this client.";
-      const failed = body.failed?.length ? ` Not sent: ${body.failed.join("; ")}` : "";
-      setSendStatus(`${sent}${failed}`);
+      const sent = Array.isArray(body.sent) ? body.sent : [];
+      const failed = Array.isArray(body.failed) ? body.failed : [];
+      const parts = [
+        sent.length ? `Sent: ${sent.join(", ")}` : "",
+        failed.length ? `Not sent: ${failed.join("; ")}` : "",
+      ].filter(Boolean);
+      setSendStatus(parts.length ? parts.join(" | ") : "No phone or email saved for this client.");
     } else {
-      setSendStatus(`Not sent: ${body.failed?.join("; ") || body.error || res.status}`);
+      setSendStatus(`Send failed: ${body.error || res.status}`);
     }
   }
 
