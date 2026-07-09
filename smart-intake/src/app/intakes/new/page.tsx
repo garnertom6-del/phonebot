@@ -35,7 +35,7 @@ export default function NewIntake() {
     return (
       <main className="mx-auto max-w-xl p-6">
         <div className="card">
-          <h1 className="text-xl font-bold text-emerald-600">✓ Intake created</h1>
+          <h1 className="text-xl font-bold text-emerald-600">Intake created</h1>
           <p className="mt-2 text-sm text-slate-600">
             Package: <b>Moore Divine Care Client Intake Package</b>. Send the client this secure
             link (expires in {process.env.NEXT_PUBLIC_LINK_DAYS || 7} days, no client info in the URL):
@@ -44,9 +44,9 @@ export default function NewIntake() {
           <div className="mt-4 flex gap-2">
             <button className="btn-primary" onClick={async () => {
               await navigator.clipboard.writeText(result.clientLink); setCopied(true);
-            }}>{copied ? "Copied ✓" : "Copy client link"}</button>
+            }}>{copied ? "Copied" : "Copy client link"}</button>
             <button className="btn-ghost" onClick={() => fetch(`/api/intakes/${result.id}/remind`, { method: "POST" })}>
-              📱 Text (SMS) / email the link to the client
+              Text (SMS) / email the link to the client
             </button>
             <Link href={`/intakes/${result.id}`} className="btn-secondary">Open intake</Link>
           </div>
@@ -57,7 +57,7 @@ export default function NewIntake() {
 
   return (
     <main className="mx-auto max-w-xl p-6">
-      <Link href="/dashboard" className="text-sm text-brand hover:underline">← Dashboard</Link>
+      <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
       <form onSubmit={submit} className="card mt-3">
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
         <p className="mb-4 text-sm text-slate-500">Package: Moore Divine Care Client Intake Package (43 pages)</p>
