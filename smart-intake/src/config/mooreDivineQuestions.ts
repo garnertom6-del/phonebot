@@ -538,5 +538,5 @@ export function questionByKey(key: string): Question | undefined {
 
 /** True when a question is part of the shortened Quick Intake (CCA-expected) flow. */
 export function isQuickIntakeQuestion(q: Question): boolean {
-  return q.essential === true || q.type === "consent";
+  return q.essential === true || q.required === true;
 }
