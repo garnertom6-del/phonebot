@@ -11,12 +11,27 @@ import { askIfSatisfied } from "@/lib/validation";
 import SignaturePad from "@/components/SignaturePad";
 
 type Answers = Record<string, string | boolean | number | string[]>;
+type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
+type SignMode = StaffSignatureRole | "careTeam";
+
+const SIGN_MODES: { mode: SignMode; label: string; padLabel: string; roles: StaffSignatureRole[] }[] = [
+  {
+    mode: "careTeam",
+    label: "Sign once as QP + clinician + witness",
+    padLabel: "QP / clinician / witness signature",
+    roles: ["staff", "clinician", "witness"],
+  },
+  { mode: "staff", label: "Sign as QP / Qualified Professional", padLabel: "QP / Qualified Professional signature", roles: ["staff"] },
+  { mode: "clinician", label: "Sign as clinician", padLabel: "Clinician signature", roles: ["clinician"] },
+  { mode: "witness", label: "Sign as witness", padLabel: "Witness signature", roles: ["witness"] },
+  { mode: "medicalDirector", label: "Sign as medical director", padLabel: "Medical director signature", roles: ["medicalDirector"] },
+];
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
   const [answers, setAnswers] = useState<Answers>({});
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
-  const [signRole, setSignRole] = useState<string | null>(null);
+  const [signMode, setSignMode] = useState<SignMode | null>(null);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
@@ -47,13 +62,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     setNote(r.ok ? "Saved (marked Needs Review until packet is generated)" : "Save failed");
   }
 
-  async function captureStaffSig(role: string, d: { imageData: string; printedName: string; relationship: string; signedDate: string }) {
-    const r = await fetch(`/api/intakes/${params.id}/signature`, {
+  async function captureStaffSig(mode: SignMode, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
+    const config = SIGN_MODES.find((m) => m.mode === mode);
+    const roles = config?.roles || [];
+    const results = await Promise.all(roles.map((role) => fetch(`/api/intakes/${params.id}/signature`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role, ...d }),
-    });
-    setNote(r.ok ? `${role} signature captured` : "Signature failed");
-    setSignRole(null);
+    })));
+    const ok = results.every((r) => r.ok);
+    setNote(ok ? `${config?.padLabel || "Staff"} captured` : "Signature failed");
+    setSignMode(null);
+    load();
   }
 
   if (!loaded) return <main className="p-10 text-center text-slate-400">Loading...</main>;
@@ -85,18 +104,23 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
       <div className="card mt-3">
         <h3 className="font-bold">Staff-side signatures</h3>
-        <p className="mb-2 text-xs text-slate-500">These stay blank on the PDF until captured here.</p>
+        <p className="mb-2 text-xs text-slate-500">
+          These are staff/QP/clinician/witness signatures. They are separate from the client signature.
+        </p>
         <div className="flex flex-wrap gap-2">
-          {["staff", "clinician", "witness", "medicalDirector"].map((r) => (
-            <button key={r} className="btn-ghost text-sm" onClick={() => setSignRole(r)}>Sign as {r}</button>
+          {SIGN_MODES.map((m) => (
+            <button key={m.mode} className={m.mode === "careTeam" ? "btn-primary text-sm" : "btn-ghost text-sm"}
+              onClick={() => setSignMode(m.mode)}>
+              {m.label}
+            </button>
           ))}
         </div>
-        {signRole && (
+        {signMode && (
           <div className="mt-3">
             <SignaturePad
-              roleLabel={`${signRole} signature`}
-              expectedRole={signRole as "staff" | "clinician" | "witness" | "medicalDirector"}
-              onCapture={(d) => captureStaffSig(signRole, d)}
+              roleLabel={SIGN_MODES.find((m) => m.mode === signMode)?.padLabel}
+              expectedRole={signMode === "careTeam" ? "staff" : signMode}
+              onCapture={(d) => captureStaffSig(signMode, d)}
             />
           </div>
         )}

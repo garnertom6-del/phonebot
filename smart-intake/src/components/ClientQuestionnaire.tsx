@@ -108,10 +108,11 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   }
 
   async function captureSignature(role: "client" | "guardian",
-    data: { imageData: string; printedName: string; relationship: string; signedDate: string }) {
+    data: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
+    const relationship = data.relationship || (role === "guardian" ? "guardian" : "client");
     const res = await fetch(`/api/intake/${token}/signature`, {
       method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role, ...data }),
+      body: JSON.stringify({ role, ...data, relationship }),
     });
     if (res.ok) { setHasSignature(true); setError(""); }
     else setError((await res.json()).error || "Signature failed");
@@ -305,7 +306,7 @@ function QuestionField({ q, answers, set }: {
 
 function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: {
   answers: Answers; hasSignature: boolean;
-  onCapture: (role: "client" | "guardian", d: { imageData: string; printedName: string; relationship: string; signedDate: string }) => Promise<void>;
+  onCapture: (role: "client" | "guardian", d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) => Promise<void>;
   onSubmit: () => void; missing: { key: string; label: string }[];
 }) {
   const isMinor = answers.is_minor_or_incompetent === "Yes";
@@ -323,9 +324,10 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
           expectedRole={isMinor ? "guardian" : "client"}
           defaultName={String((isMinor ? answers.guardian_name : answers.client_full_name) ?? "")}
           onCapture={async (d) => {
-            const role = isMinor || ["parent", "guardian", "legalRepresentative"].includes(d.relationship)
+            const relationship = d.relationship || "client";
+            const role = isMinor || ["parent", "guardian", "legalRepresentative"].includes(relationship)
               ? "guardian" : "client";
-            await onCapture(role, d);
+            await onCapture(role, { ...d, relationship });
             setSignedRoles((r) => [...r, role]);
           }} />
       ) : (
@@ -339,7 +341,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
           <div className="mt-3">
             <SignaturePad roleLabel="Client signature" defaultName={String(answers.client_full_name ?? "")}
               expectedRole="client"
-              onCapture={async (d) => { await onCapture("client", d); setSignedRoles((r) => [...r, "client"]); }} />
+              onCapture={async (d) => { await onCapture("client", { ...d, relationship: d.relationship || "client" }); setSignedRoles((r) => [...r, "client"]); }} />
           </div>
         </details>
       )}

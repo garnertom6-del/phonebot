@@ -200,12 +200,13 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const signDefaultName = String(
     (isGuardian ? answers.guardian_name : answers.client_full_name) ?? clientName ?? "");
 
-  async function captureSignature(d: { imageData: string; printedName: string; relationship: string; signedDate: string }) {
+  async function captureSignature(d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
     setSubmitError("");
+    const relationship = d.relationship || (signRole === "guardian" ? "guardian" : "client");
     const res = await fetch(`/api/intake/${token}/signature`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: signRole, ...d }),
+      body: JSON.stringify({ role: signRole, ...d, relationship }),
     });
     if (res.ok) setHasSignature(true);
     else setSubmitError((await res.json()).error || "The signature did not save. Please try again.");

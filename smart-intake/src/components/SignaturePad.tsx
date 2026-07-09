@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import SignaturePadLib from "signature_pad";
 
 interface Props {
-  onCapture: (data: { imageData: string; printedName: string; relationship: string; signedDate: string }) => void;
+  onCapture: (data: { imageData: string; printedName: string; relationship?: string; signedDate: string }) => void;
   defaultName?: string;
   roleLabel?: string;
   expectedRole?: "client" | "guardian" | "staff" | "clinician" | "witness" | "medicalDirector";
@@ -15,6 +15,15 @@ const RELATIONSHIPS = [
   { value: "guardian", label: "Legal Guardian" },
   { value: "legalRepresentative", label: "Legal Representative" },
 ];
+
+const STAFF_ROLE_LABELS: Record<NonNullable<Props["expectedRole"]>, string> = {
+  client: "Client",
+  guardian: "Parent / Legal Guardian",
+  staff: "QP / Qualified Professional",
+  clinician: "Clinician",
+  witness: "Witness",
+  medicalDirector: "Medical Director",
+};
 
 const PAD_HEIGHT = 220;
 
@@ -65,6 +74,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
   const defaultRelationship = expectedRole === "guardian" ? "guardian" : "client";
+  const isStaffSide = ["staff", "clinician", "witness", "medicalDirector"].includes(expectedRole);
   const [printedName, setPrintedName] = useState(defaultName);
   const [relationship, setRelationship] = useState(defaultRelationship);
   const [signedDate, setSignedDate] = useState(new Date().toLocaleDateString("en-US"));
@@ -106,7 +116,9 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
     const canvas = canvasRef.current;
     onCapture({
       imageData: canvas ? croppedSignatureDataUrl(canvas) : padRef.current!.toDataURL("image/png"),
-      printedName: printedName.trim(), relationship, signedDate,
+      printedName: printedName.trim(),
+      relationship: isStaffSide ? undefined : relationship,
+      signedDate,
     });
   }
 
@@ -120,12 +132,18 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
       <label className="label mt-4">Printed name of person signing</label>
       <input className="input" value={printedName} onChange={(e) => setPrintedName(e.target.value)} />
       <label className="label mt-3">I am signing as</label>
-      <div className="flex flex-wrap gap-2">
-        {RELATIONSHIPS.map((r) => (
-          <button key={r.value} type="button" onClick={() => setRelationship(r.value)}
-            className={`chip ${relationship === r.value ? "chip-on" : ""}`}>{r.label}</button>
-        ))}
-      </div>
+      {isStaffSide ? (
+        <div className="inline-flex rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white">
+          {STAFF_ROLE_LABELS[expectedRole]}
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {RELATIONSHIPS.map((r) => (
+            <button key={r.value} type="button" onClick={() => setRelationship(r.value)}
+              className={`chip ${relationship === r.value ? "chip-on" : ""}`}>{r.label}</button>
+          ))}
+        </div>
+      )}
       <label className="label mt-3">Date</label>
       <input className="input max-w-[200px]" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
       {error && <p className="mt-2 text-sm text-red-600">{error}</p>}

@@ -2,7 +2,14 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
-import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
+import {
+  copiesMailtoHref,
+  copiesShareMessage,
+  copiesSmsHref,
+  intakeMailtoHref,
+  intakeShareMessage,
+  intakeSmsHref,
+} from "@/lib/shareLinks";
 
 interface Detail {
   intake: {
@@ -45,6 +52,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
   const clientMessage = intakeShareMessage(d.clientLink);
+  const copiesMessage = copiesLink ? copiesShareMessage(copiesLink) : "";
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -53,6 +61,18 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       return `Queued: ${sent.join(", ")}${failed.length ? ` Not sent: ${failed.join("; ")}` : ""}`;
     }
     return failed.length ? `Not sent: ${failed.join("; ")}` : fallback;
+  }
+
+  function signatureRoleLabel(role: string): string {
+    const labels: Record<string, string> = {
+      client: "Client",
+      guardian: "Parent / Guardian",
+      staff: "QP / Qualified Professional",
+      clinician: "Clinician",
+      witness: "Witness",
+      medicalDirector: "Medical Director",
+    };
+    return labels[role] || role;
   }
 
   async function uploadCca(file: File) {
@@ -172,9 +192,23 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         <div className="mt-3 rounded-lg border border-brand/30 bg-white p-3 text-sm">
           <p className="font-semibold text-brand">Copies link</p>
           <p className="mt-1 break-all font-mono text-xs">{copiesLink}</p>
-          <button className="btn-ghost mt-2 px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesLink); setNote("Copies link copied"); }}>
-            Copy copies link
-          </button>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesLink); setNote("Copies link copied"); }}>
+              Copy copies link
+            </button>
+            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesMessage); setNote("Copies text message copied"); }}>
+              Copy text message
+            </button>
+            <a className="btn-primary px-3 py-1.5 text-xs" href={copiesSmsHref(i.client.phone, copiesLink)}>
+              Open SMS on this computer
+            </a>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink)}>
+              Open email
+            </a>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesLink} target="_blank">
+              Open copies page
+            </a>
+          </div>
         </div>
       )}
 
@@ -280,7 +314,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           {i.signatures.length === 0 && <p className="text-sm text-slate-400">None captured yet.</p>}
           <ul className="text-sm">
             {i.signatures.map((s) => (
-              <li key={s.role}><b>{s.role}</b> - {s.printedName} ({s.signedDate})</li>
+              <li key={s.role}><b>{signatureRoleLabel(s.role)}</b> - {s.printedName} ({s.signedDate})</li>
             ))}
           </ul>
           <p className="mt-2 text-xs text-slate-400">Staff/clinician signatures are added on the review screen.</p>
