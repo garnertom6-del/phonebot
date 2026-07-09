@@ -120,6 +120,7 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "official_admission_date", intakeDate);
   setDefault(a, "dis_admission_date", intakeDate);
   setDefault(a, "c_date_sent", intakeDate);
+  setDefault(a, "intervention_valid_until", addOneYear(intakeDate));
 
   setDefault(a, "has_medicaid", "Yes");
   setDefault(a, "provider_choice_plan", "Medicaid");

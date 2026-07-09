@@ -49,7 +49,7 @@ export function resolveValue(source: string, answers: Answers): { text?: string;
   let v = str(answers[source]);
   if (/^sub\d_freq$/.test(source) && FREQ_CODES[v]) v = `${FREQ_CODES[v]} (${v})`;
   if (/^sub\d_route$/.test(source) && ROUTE_CODES[v]) v = `${ROUTE_CODES[v]} (${v})`;
-  if (source === "dob" || /_date$/.test(source)) v = formatDate(v);
+  if (source === "dob" || /_date$/.test(source) || source === "intervention_valid_until") v = formatDate(v);
   return { text: v };
 }
 
