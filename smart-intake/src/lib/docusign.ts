@@ -112,6 +112,7 @@ export async function createDocuSignEnvelope(
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         emailSubject: "Moore Divine Care, Inc. - Client Intake Package for signature",
+        envelopeIdStamping: "false",
         status: "sent",
         documents: [{
           documentId: "1", name: `Client Intake Package - ${clientName}`,
