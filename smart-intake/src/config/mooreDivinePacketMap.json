@@ -10519,7 +10519,7 @@
    "lineHeight": 11.6,
    "required": false,
    "role": "client",
-   "consentKey": null,
+   "consentKey": "roi1_agreed",
    "notes": ""
   },
   {
@@ -10995,7 +10995,7 @@
    "lineHeight": 11.6,
    "required": false,
    "role": "client",
-   "consentKey": null,
+   "consentKey": "roi2_agreed",
    "notes": ""
   },
   {
@@ -11471,7 +11471,7 @@
    "lineHeight": 11.6,
    "required": false,
    "role": "client",
-   "consentKey": null,
+   "consentKey": "roi3_agreed",
    "notes": ""
   },
   {
@@ -12627,7 +12627,7 @@
    "lineHeight": 11.6,
    "required": false,
    "role": "client",
-   "consentKey": "consent_discharge",
+   "consentKey": null,
    "notes": ""
   },
   {
