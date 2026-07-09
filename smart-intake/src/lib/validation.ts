@@ -60,6 +60,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
   }
   for (const s of SECTIONS) {
     for (const q of s.questions) {
+      if (s.key === "welcome" || q.key === "intake_mode") continue;
       if (!q.required || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];
       if (v === undefined || v === "" || v === false || v === null || (Array.isArray(v) && !v.length)) {
