@@ -3,10 +3,12 @@ import { useEffect, useRef, useState } from "react";
 import SignaturePadLib from "signature_pad";
 
 interface Props {
-  onCapture: (data: { imageData: string; printedName: string; relationship?: string; signedDate: string }) => void;
+  onCapture: (data: { imageData: string; printedName: string; relationship?: string; signedDate: string; dobCheck?: string }) => void;
   defaultName?: string;
   roleLabel?: string;
   expectedRole?: "client" | "guardian" | "staff" | "clinician" | "witness" | "medicalDirector";
+  /** ask for the client's date of birth as an identity check (client links) */
+  askDob?: boolean;
 }
 
 const RELATIONSHIPS = [
@@ -70,7 +72,7 @@ function croppedSignatureDataUrl(canvas: HTMLCanvasElement): string {
   return out.toDataURL("image/png");
 }
 
-export default function SignaturePad({ onCapture, defaultName = "", roleLabel, expectedRole = "client" }: Props) {
+export default function SignaturePad({ onCapture, defaultName = "", roleLabel, expectedRole = "client", askDob = false }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
   const defaultRelationship = expectedRole === "guardian" ? "guardian" : "client";
@@ -78,6 +80,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
   const [printedName, setPrintedName] = useState(defaultName);
   const [relationship, setRelationship] = useState(defaultRelationship);
   const [signedDate, setSignedDate] = useState(new Date().toLocaleDateString("en-US"));
+  const [dobCheck, setDobCheck] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => { setPrintedName(defaultName); }, [defaultName]);
@@ -109,6 +112,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
   function accept() {
     setError("");
     if (!printedName.trim()) return setError("Please type your name.");
+    if (askDob && !dobCheck.trim()) return setError("Please type the client's birthday - it proves it's really you.");
     if (expectedRole === "guardian" && relationship === "client") {
       return setError("Please choose Parent, Legal Guardian, or Legal Representative.");
     }
@@ -119,6 +123,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
       printedName: printedName.trim(),
       relationship: isStaffSide ? undefined : relationship,
       signedDate,
+      dobCheck: askDob ? dobCheck.trim() : undefined,
     });
   }
 
@@ -143,6 +148,13 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
               className={`chip ${relationship === r.value ? "chip-on" : ""}`}>{r.label}</button>
           ))}
         </div>
+      )}
+      {askDob && (
+        <>
+          <label className="label mt-3">Client&apos;s date of birth (identity check)</label>
+          <input className="input max-w-[220px]" placeholder="MM/DD/YYYY" inputMode="numeric"
+            value={dobCheck} onChange={(e) => setDobCheck(e.target.value)} />
+        </>
       )}
       <label className="label mt-3">Date</label>
       <input className="input max-w-[200px]" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />

@@ -32,6 +32,7 @@ export const signatureSchema = z.object({
   printedName: z.string().min(1),
   relationship: z.enum(["client", "parent", "guardian", "legalRepresentative"]).optional(),
   signedDate: z.string().min(1),
+  dobCheck: z.string().optional(),
 });
 
 export function askIfSatisfied(cond: AskIf | undefined, answers: Answers): boolean {
