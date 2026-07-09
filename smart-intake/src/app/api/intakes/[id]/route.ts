@@ -62,8 +62,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       data: { tokenExpiresAt: new Date(Date.now() + days * 86400000) },
     });
   }
-  if (body.archive) {
-    await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
+  if (body.archive !== undefined) {
+    // real archiving: hide from the dashboard list without changing status
+    await prisma.intake.update({ where: { id: intake.id }, data: { archived: !!body.archive } });
   }
   return NextResponse.json({ ok: true });
 }

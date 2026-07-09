@@ -27,7 +27,8 @@ function extractableQuestions(): Question[] {
     }
   }
   for (const g of STAFF_FIELDS) {
-    if (g.group.startsWith("Clinical")) out.push(...g.fields); // SNAP, severity, diagnoses, evals
+    // clinical fields (SNAP, severity, diagnoses, evals) + the CCA-details group
+    if (g.group.startsWith("Clinical")) out.push(...g.fields);
   }
   return out;
 }
@@ -70,6 +71,26 @@ export interface CcaExtractionResult {
   fieldCount: number;
 }
 
+/** Match a model-produced value to the question's fixed options, tolerating
+ *  case differences and common phrasings, instead of silently dropping it. */
+function matchOption(text: string, options: string[]): string | undefined {
+  if (options.includes(text)) return text;
+  const lc = text.toLowerCase().trim();
+  const ci = options.find((o) => o.toLowerCase() === lc);
+  if (ci) return ci;
+  const ALIASES: Record<string, string> = {
+    "some college": "College", "college degree": "College",
+    "high school": "High School/GED", "ged": "High School/GED",
+    "elementary": "Grade/Elementary", "graduate school": "Graduate",
+    "not employed": "Unemployed", "united healthcare": "United Health Care",
+    "partners": "Partners Behavioral Health", "trillium": "Sandhills Center/Trillium",
+  };
+  const alias = ALIASES[lc];
+  if (alias && options.includes(alias)) return alias;
+  // last resort: an option contained in the value or vice versa ("Some college" ~ "College")
+  return options.find((o) => lc.includes(o.toLowerCase()) || o.toLowerCase().includes(lc));
+}
+
 function normalizeValue(q: Question, value: unknown): Answers[string] | undefined {
   if (value === null || value === undefined || value === "") return undefined;
   if (q.type === "chips") {
@@ -78,17 +99,38 @@ function normalizeValue(q: Question, value: unknown): Answers[string] | undefine
       : String(value).split(/[,;|]/);
     const clean = values.map((v) => String(v).trim()).filter(Boolean);
     if (!clean.length) return undefined;
-    return q.options ? clean.filter((v) => q.options!.includes(v)) : clean;
+    if (!q.options) return clean;
+    const matched = clean
+      .map((v) => matchOption(v, q.options!))
+      .filter((v): v is string => !!v);
+    return [...new Set(matched)];
   }
   if (Array.isArray(value)) {
     value = value.map((v) => String(v).trim()).filter(Boolean).join(", ");
   }
   const text = String(value).trim();
   if (!text) return undefined;
-  if ((q.type === "radio" || q.type === "yesno") && q.options && !q.options.includes(text)) {
-    return undefined;
+  if ((q.type === "radio" || q.type === "yesno") && q.options) {
+    return matchOption(text, q.options);
   }
   return text;
+}
+
+/** If the CCA filled a child answer, set the parent that reveals it in the
+ *  staff review screen (which hides children whose gate is unanswered). */
+function setGatingParents(extracted: Answers) {
+  const gates: [string, string, string][] = [
+    // [child prefix or key, parent key, parent value]
+    ["sub1_name", "sa_status", "Yes"],
+    ["diagnosis_list", "has_current_diagnosis", "Yes"],
+    ["therapist_name", "has_current_therapist", "Yes"],
+    ["mh_services_desc", "receiving_mh_services", "Yes"],
+    ["limitations_desc", "has_limitations", "Yes"],
+    ["court_case_desc", "pending_court_cases", "Yes"],
+  ];
+  for (const [child, parent, value] of gates) {
+    if (extracted[child] && !extracted[parent]) extracted[parent] = value;
+  }
 }
 
 export async function extractFromCca(
@@ -165,6 +207,13 @@ export async function extractFromCca(
     const normalized = normalizeValue(q, item.value);
     if (normalized === undefined || (Array.isArray(normalized) && normalized.length === 0)) continue;
     extracted[item.key] = normalized;
+  }
+  setGatingParents(extracted);
+  // the CCA's own assessment date beats "today" for the assessment blanks
+  if (extracted.cca_assessment_date) {
+    for (const k of ["assess_date", "initial_assessment_date"]) {
+      if (!extracted[k]) extracted[k] = extracted.cca_assessment_date;
+    }
   }
   return { extracted, fieldCount: Object.keys(extracted).length };
 }

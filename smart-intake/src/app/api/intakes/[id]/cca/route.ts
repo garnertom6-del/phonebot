@@ -50,6 +50,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const current = await loadAnswers(intake.id);
   const { merged, filled, skipped } = mergeCcaAnswers(current, extraction.extracted, overwrite);
   const withDefaults = applyOperationalDefaults({ ...current, ...merged });
+  // the CCA states when the assessment really happened - that date beats the
+  // "assume today" default even though the default was saved first
+  const ccaDate = extraction.extracted.cca_assessment_date;
+  if (typeof ccaDate === "string" && ccaDate.trim()) {
+    for (const k of ["assess_date", "initial_assessment_date"]) {
+      withDefaults[k] = ccaDate;
+      if (!filled.includes(k)) filled.push(k);
+    }
+  }
   if (filled.length) {
     await saveAnswers(intake.id, withDefaults);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
