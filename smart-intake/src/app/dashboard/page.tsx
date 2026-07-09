@@ -78,13 +78,13 @@ export default function Dashboard() {
                   <Link className="text-brand hover:underline" href={`/intakes/${r.id}`}>{r.client.fullName}</Link>
                 </td>
                 <td className="px-4 py-3">{r.client.dob}</td>
-                <td className="px-4 py-3">{r.client.midNumber || "—"}</td>
+                <td className="px-4 py-3">{r.client.midNumber || "-"}</td>
                 <td className="px-4 py-3 text-xs">{r.client.phone}<br />{r.client.email}</td>
-                <td className="px-4 py-3">{r.client.guardianName || "—"}</td>
+                <td className="px-4 py-3">{r.client.guardianName || "-"}</td>
                 <td className="px-4 py-3"><span className={`badge ${STATUS_COLORS[r.status]}`}>{r.status.replace("_", " ")}</span></td>
                 <td className="px-4 py-3">{r.percentComplete}%</td>
                 <td className="px-4 py-3 text-xs text-red-600">
-                  {r.missingRequired.length ? r.missingRequired.map((m) => m.label).join(", ") : <span className="text-emerald-600">None ✓</span>}
+                  {r.missingRequired.length ? r.missingRequired.map((m) => m.label).join(", ") : <span className="text-emerald-600">None</span>}
                 </td>
                 <td className="px-4 py-3">
                   <div className="flex flex-wrap gap-1">
@@ -102,7 +102,7 @@ export default function Dashboard() {
         </table>
       </div>
       <p className="mt-4 text-xs text-slate-400">
-        ⚠️ HIPAA note: production use requires BAA-covered hosting/vendors, access controls, encryption,
+        HIPAA note: production use requires BAA-covered hosting/vendors, access controls, encryption,
         backups, and a legal/compliance review. See COWORKER_HANDOFF.md.
       </p>
     </main>
