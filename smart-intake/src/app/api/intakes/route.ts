@@ -13,7 +13,12 @@ export async function GET() {
   const { deny } = await requireStaff();
   if (deny) return deny;
   const intakes = await prisma.intake.findMany({
-    include: { client: true, signatures: true, generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 } },
+    include: {
+      client: true, signatures: true,
+      uploadedDocuments: { where: { docType: "CCA" }, orderBy: { createdAt: "desc" }, take: 1 },
+      generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 },
+      auditLogs: { where: { event: "cca_imported" }, orderBy: { createdAt: "desc" }, take: 1 },
+    },
     orderBy: { updatedAt: "desc" },
   });
   const rows = await Promise.all(intakes.map(async (i) => {
@@ -26,6 +31,8 @@ export async function GET() {
       percentComplete: percentComplete(answers),
       missingRequired: missingRequired(answers, !!(sigs.client || sigs.guardian)),
       hasPdf: i.generatedPdfs.length > 0,
+      hasCca: i.uploadedDocuments.length > 0,
+      ccaDetail: i.auditLogs[0]?.detail || "",
     };
   }));
   return NextResponse.json({ intakes: rows });
