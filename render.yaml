@@ -15,6 +15,12 @@ services:
         generateValue: true
       - key: CLIENT_LINK_EXPIRY_DAYS
         value: "7"
+      # Optional NC Tracks lookup adapter. Populate these in Render only after
+      # Moore Divine Care has an approved portal/API/270-271 workflow.
+      - key: NC_TRACKS_LOOKUP_URL
+        sync: false
+      - key: NC_TRACKS_LOOKUP_SECRET
+        sync: false
     # For real client use (Starter plan) keep data across restarts:
     # disk:
     #   name: mdc-data
