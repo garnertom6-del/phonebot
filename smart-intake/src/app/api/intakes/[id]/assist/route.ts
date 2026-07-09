@@ -66,7 +66,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const current = await loadAnswers(intake.id);
   const next = { ...current };
 
-  for (const [key, value] of Object.entries({ ...parsedNotes, ...incoming })) {
+  for (const [key, value] of Object.entries(parsedNotes)) {
+    if (!FIELD_KEYS.has(key)) continue;
+    const text = clean(value);
+    if (text) next[key] = text;
+  }
+  for (const [key, value] of Object.entries(incoming)) {
     if (!FIELD_KEYS.has(key)) continue;
     const text = clean(value);
     if (text) next[key] = text;
@@ -91,4 +96,3 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
   return NextResponse.json({ ok: true });
 }
-
