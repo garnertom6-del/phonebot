@@ -3,7 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { sendCopiesLinkEmail, sendCopiesLinkSms } from "@/lib/notify";
+import { sendCopiesLinkEmail, sendCopiesLinkSms, type NotifyResult } from "@/lib/notify";
+
+function sentLabel(r: NotifyResult): string {
+  return `${r.channel} to ${r.to}`;
+}
+
+function failedLabel(r: NotifyResult): string {
+  return `${r.channel} to ${r.to}: ${r.detail}`;
+}
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
   const { user, deny } = await requireStaff();
@@ -11,20 +19,25 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
   const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const link = `${appBaseUrl()}/copies/${intake.token}`;
-  const results: string[] = [];
+  const attempts: NotifyResult[] = [];
   if (intake.client.email) {
-    await sendCopiesLinkEmail(intake.client.email, intake.client.fullName, link);
-    results.push(`email to ${intake.client.email}`);
+    attempts.push(await sendCopiesLinkEmail(intake.client.email, intake.client.fullName, link));
   }
   if (intake.client.phone) {
-    await sendCopiesLinkSms(intake.client.phone, link);
-    results.push(`sms to ${intake.client.phone}`);
+    attempts.push(await sendCopiesLinkSms(intake.client.phone, link));
   }
+  const sent = attempts.filter((r) => r.ok).map(sentLabel);
+  const failed = attempts.filter((r) => !r.ok).map(failedLabel);
   await audit("copies_link_sent", {
     intakeId: intake.id,
     userId: user!.id,
-    detail: results.join(", ") || "no contact info",
+    detail: [
+      sent.length ? `sent ${sent.join(", ")}` : "",
+      failed.length ? `failed ${failed.join(", ")}` : "",
+    ].filter(Boolean).join("; ") || "no contact info",
   });
-  return NextResponse.json({ ok: true, link, sent: results, demo: !process.env.TWILIO_ACCOUNT_SID });
+  return NextResponse.json(
+    { ok: sent.length > 0, link, sent, failed, demo: attempts.some((r) => r.demo) },
+    { status: sent.length || !attempts.length ? 200 : 502 },
+  );
 }
-
