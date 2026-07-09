@@ -48,12 +48,24 @@ export interface MissingField { key: string; label: string; section?: string }
 /** Required items still missing before a client can submit. */
 export function missingRequired(answers: Answers, hasClientSignature: boolean): MissingField[] {
   const missing: MissingField[] = [];
+  const seen = new Set<string>();
   for (const req of REQUIRED_FOR_SUBMIT) {
     if (!askIfSatisfied(req.when, answers)) continue;
     const v = answers[req.key];
     if (req.key === "client_phone_cell" && (answers.client_email || v)) continue;
     if (v === undefined || v === "" || v === false || v === null) {
       missing.push({ key: req.key, label: req.label });
+      seen.add(req.key);
+    }
+  }
+  for (const s of SECTIONS) {
+    for (const q of s.questions) {
+      if (!q.required || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
+      const v = answers[q.key];
+      if (v === undefined || v === "" || v === false || v === null || (Array.isArray(v) && !v.length)) {
+        missing.push({ key: q.key, label: q.label, section: s.title });
+        seen.add(q.key);
+      }
     }
   }
   if (!hasClientSignature) missing.push({ key: "signature", label: "Signature" });
