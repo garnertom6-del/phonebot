@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useState } from "react";
+import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -13,12 +13,13 @@ const FIELDS = [
 ] as const;
 
 export default function NewIntake() {
-  const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro" });
   const [expectCca, setExpectCca] = useState(true);
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ id: string; clientLink: string } | null>(null);
   const [copied, setCopied] = useState(false);
+  const [messageCopied, setMessageCopied] = useState(false);
+  const [sendStatus, setSendStatus] = useState("");
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -31,7 +32,22 @@ export default function NewIntake() {
     else setError(body.error || "Failed to create intake");
   }
 
+  async function sendWithApp() {
+    if (!result) return;
+    setSendStatus("Sending...");
+    const res = await fetch(`/api/intakes/${result.id}/remind`, { method: "POST" });
+    const body = await res.json().catch(() => ({}));
+    if (res.ok) {
+      setSendStatus(body.sent?.length ? `Sent: ${body.sent.join(", ")}` : "No phone or email saved for this client.");
+    } else {
+      setSendStatus(`Send failed: ${body.error || res.status}`);
+    }
+  }
+
   if (result) {
+    const phone = form.phone || form.guardianPhone || "";
+    const email = form.email || form.guardianEmail || "";
+    const message = intakeShareMessage(result.clientLink);
     return (
       <main className="mx-auto max-w-xl p-6">
         <div className="card">
@@ -41,15 +57,25 @@ export default function NewIntake() {
             link (expires in {process.env.NEXT_PUBLIC_LINK_DAYS || 7} days, no client info in the URL):
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
-          <div className="mt-4 flex gap-2">
+          <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <button className="btn-primary" onClick={async () => {
               await navigator.clipboard.writeText(result.clientLink); setCopied(true);
             }}>{copied ? "Copied" : "Copy client link"}</button>
-            <button className="btn-ghost" onClick={() => fetch(`/api/intakes/${result.id}/remind`, { method: "POST" })}>
-              Text (SMS) / email the link to the client
+            <a className="btn-primary text-center" href={intakeSmsHref(phone, result.clientLink)}>
+              Open SMS on this computer
+            </a>
+            <button className="btn-ghost" onClick={() => { void sendWithApp(); }}>
+              Send SMS/email now
             </button>
+            <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink)}>
+              Open email
+            </a>
+            <button className="btn-ghost" onClick={async () => {
+              await navigator.clipboard.writeText(message); setMessageCopied(true);
+            }}>{messageCopied ? "Message copied" : "Copy text message"}</button>
             <Link href={`/intakes/${result.id}`} className="btn-secondary">Open intake</Link>
           </div>
+          {sendStatus && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{sendStatus}</p>}
         </div>
       </main>
     );
