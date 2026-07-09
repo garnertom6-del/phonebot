@@ -24,6 +24,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [note, setNote] = useState("");
   const [ccaBusy, setCcaBusy] = useState(false);
   const [ccaResult, setCcaResult] = useState("");
+  const [ccaResultKind, setCcaResultKind] = useState<"success" | "error" | "info">("info");
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
   const [copiesLink, setCopiesLink] = useState("");
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
@@ -46,7 +47,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const clientMessage = intakeShareMessage(d.clientLink);
 
   async function uploadCca(file: File) {
+    setNote("");
     setCcaBusy(true); setCcaResult("Reading the CCA... this can take a minute or two.");
+    setCcaResultKind("info");
     const fd = new FormData();
     fd.set("file", file);
     fd.set("overwrite", String(ccaOverwrite));
@@ -54,11 +57,18 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const b = await r.json().catch(() => ({}));
     setCcaBusy(false);
     if (r.ok) {
-      setCcaResult(`Filled ${b.filled} answers from the CCA` +
-        (b.skipped ? ` (kept ${b.skipped} existing answers - check "replace" to overwrite)` : "") +
-        ". Review them, then Generate Completed Packet.");
+      const filled = Number(b.filled || 0);
+      const extracted = Number(b.extracted || 0);
+      const skipped = Number(b.skipped || 0);
+      setCcaResultKind("success");
+      setCcaResult(`CCA successfully uploaded. It answered ${filled} intake question${filled === 1 ? "" : "s"} automatically` +
+        (extracted && extracted !== filled ? ` (${extracted} found in the CCA` +
+          (skipped ? `, ${skipped} kept from existing answers` : "") + ")" : "") +
+        ". Review/edit, then Generate Completed Packet.");
+      setNote(`CCA uploaded and ${filled} answer${filled === 1 ? "" : "s"} filled automatically.`);
       load();
     } else {
+      setCcaResultKind("error");
       setCcaResult(b.error || "CCA import failed");
     }
   }
@@ -96,7 +106,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ fields, helperNotes: String(fd.get("helperNotes") || "") }),
     });
-    setNote(r.ok ? "NC Tracks / helper info saved and smart defaults applied" : "Helper info failed to save");
+    const b = await r.json().catch(() => ({}));
+    setNote(r.ok
+      ? `Helper info saved${b.applied ? ` (${b.applied} packet fields updated)` : ""}; smart defaults applied`
+      : `Helper info failed to save: ${b.error || r.status}`);
     load();
   }
 
@@ -185,7 +198,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <input type="checkbox" checked={ccaOverwrite} onChange={(e) => setCcaOverwrite(e.target.checked)} />
             Replace answers that already exist (otherwise existing answers are kept)
           </label>
-          {ccaResult && <p className="mt-2 text-sm font-semibold text-brand">{ccaResult}</p>}
+          {ccaResult && (
+            <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
+              ccaResultKind === "success" ? "bg-emerald-50 text-emerald-700" :
+              ccaResultKind === "error" ? "bg-red-50 text-red-700" : "bg-brand-light text-brand"
+            }`}>
+              {ccaResult}
+            </p>
+          )}
         </div>
         <div className="card md:col-span-2">
           <div className="flex flex-wrap items-start justify-between gap-3">
@@ -212,6 +232,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
             <HelperInput name="mid_number" label="MID #" value={d.answers.mid_number ?? ""} />
             <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
+            <HelperInput name="race" label="Race" value={d.answers.race ?? ""} />
+            <HelperInput name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} />
+            <HelperInput name="marital_status" label="Marital status" value={d.answers.marital_status ?? ""} />
+            <HelperInput name="employment_status" label="Employment status" value={d.answers.employment_status ?? ""} />
             <HelperInput name="pcp_name" label="Primary care doctor" value={d.answers.pcp_name ?? ""} />
             <HelperInput name="pcp_phone" label="PCP phone" value={d.answers.pcp_phone ?? ""} />
             <HelperInput name="pcp_address" label="PCP address / practice" value={d.answers.pcp_address ?? ""} />
@@ -221,11 +245,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <HelperInput name="height" label="Height" value={d.answers.height ?? ""} />
             <HelperInput name="weight" label="Weight" value={d.answers.weight ?? ""} />
             <HelperInput name="services_other" label="Other service note" value={d.answers.services_other ?? ""} />
+            <HelperInput name="transport_destination" label="Transport line" value={d.answers.transport_destination ?? ""} />
             <label className="md:col-span-3">
               <span className="label">Paste quick notes</span>
               <textarea name="helperNotes" className="input min-h-[110px]"
                 defaultValue={String(d.answers.staff_helper_notes ?? "")}
-                placeholder={"Examples:\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nHeight: 5'8\"\nWeight: 160\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101"} />
+                placeholder={"Examples:\nRace: Black or African American\nEthnicity: Non-Hispanic/Black\nMarital status: Single\nEmployment status: Unemployed\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nHeight: 5'8\"\nWeight: 160\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
             </label>
             <div className="md:col-span-3 flex flex-wrap gap-2">
               <button className="btn-primary" type="submit">Save helper info</button>
