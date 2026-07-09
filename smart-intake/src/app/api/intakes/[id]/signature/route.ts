@@ -10,6 +10,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (deny) return deny;
   const parsed = signatureSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid signature" }, { status: 400 });
+  if (!["staff", "clinician", "witness", "medicalDirector"].includes(parsed.data.role)) {
+    return NextResponse.json({ error: "Staff signature role required" }, { status: 400 });
+  }
   const intake = await prisma.intake.findUnique({ where: { id: params.id } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const d = parsed.data;
