@@ -3,7 +3,15 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { sendClientLinkEmail, sendClientLinkSms } from "@/lib/notify";
+import { sendClientLinkEmail, sendClientLinkSms, type NotifyResult } from "@/lib/notify";
+
+function sentLabel(r: NotifyResult): string {
+  return `${r.channel} to ${r.to}`;
+}
+
+function failedLabel(r: NotifyResult): string {
+  return `${r.channel} to ${r.to}: ${r.detail}`;
+}
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, deny } = await requireStaff();
@@ -12,16 +20,26 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const base = appBaseUrl();
   const link = `${base}/intake/${intake.token}`;
-  const results: string[] = [];
+  const attempts: NotifyResult[] = [];
   if (intake.client.email) {
-    await sendClientLinkEmail(intake.client.email, intake.client.fullName, link);
-    results.push(`email to ${intake.client.email}`);
+    attempts.push(await sendClientLinkEmail(intake.client.email, intake.client.fullName, link));
   }
   if (intake.client.phone) {
-    await sendClientLinkSms(intake.client.phone, link);
-    results.push(`sms to ${intake.client.phone}`);
+    attempts.push(await sendClientLinkSms(intake.client.phone, link));
   }
-  await prisma.intake.update({ where: { id: intake.id }, data: { linkSentAt: new Date() } });
-  await audit("link_reminder_sent", { intakeId: intake.id, userId: user!.id, detail: results.join(", ") || "no contact info" });
-  return NextResponse.json({ ok: true, sent: results, demo: !process.env.SENDGRID_API_KEY });
+  const sent = attempts.filter((r) => r.ok).map(sentLabel);
+  const failed = attempts.filter((r) => !r.ok).map(failedLabel);
+  if (sent.length) await prisma.intake.update({ where: { id: intake.id }, data: { linkSentAt: new Date() } });
+  await audit("link_reminder_sent", {
+    intakeId: intake.id,
+    userId: user!.id,
+    detail: [
+      sent.length ? `sent ${sent.join(", ")}` : "",
+      failed.length ? `failed ${failed.join(", ")}` : "",
+    ].filter(Boolean).join("; ") || "no contact info",
+  });
+  return NextResponse.json(
+    { ok: sent.length > 0, sent, failed, demo: attempts.some((r) => r.demo) },
+    { status: sent.length || !attempts.length ? 200 : 502 },
+  );
 }
