@@ -8774,7 +8774,7 @@
   {
    "page": 9,
    "fieldKey": "sig_clinician_p9_date",
-   "source": "sign_date",
+   "source": "clinician_sign_date",
    "type": "text",
    "x": 268.4,
    "y": 391.1,
@@ -14639,7 +14639,7 @@
   {
    "page": 42,
    "fieldKey": "otp_row1_staff_date",
-   "source": "otp_row1_staff_date",
+   "source": "staff_sign_date",
    "type": "text",
    "x": 71,
    "y": 478.2,
@@ -14707,7 +14707,7 @@
   {
    "page": 42,
    "fieldKey": "otp_row2_staff_date",
-   "source": "otp_row2_staff_date",
+   "source": "staff_sign_date",
    "type": "text",
    "x": 71,
    "y": 434.2,
@@ -14775,7 +14775,7 @@
   {
    "page": 42,
    "fieldKey": "otp_row3_staff_date",
-   "source": "otp_row3_staff_date",
+   "source": "staff_sign_date",
    "type": "text",
    "x": 71,
    "y": 390.2,

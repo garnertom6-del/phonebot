@@ -155,9 +155,21 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
   answers.sign_date ||=
     input.signatures.client?.signedDate || input.signatures.guardian?.signedDate ||
     formatDate(str(answers.intake_date)) || new Date().toLocaleDateString("en-US");
-  answers.staff_sign_date ||= input.signatures.staff?.signedDate || "";
-  answers.clinician_sign_date ||= input.signatures.clinician?.signedDate || "";
-  answers.witness_sign_date ||= input.signatures.witness?.signedDate || "";
+  answers.staff_sign_date ||=
+    input.signatures.staff?.signedDate ||
+    input.signatures.clinician?.signedDate ||
+    input.signatures.witness?.signedDate ||
+    "";
+  answers.clinician_sign_date ||=
+    input.signatures.clinician?.signedDate ||
+    input.signatures.staff?.signedDate ||
+    input.signatures.witness?.signedDate ||
+    "";
+  answers.witness_sign_date ||=
+    input.signatures.witness?.signedDate ||
+    input.signatures.staff?.signedDate ||
+    input.signatures.clinician?.signedDate ||
+    "";
   answers.medical_director_sign_date ||= input.signatures.medicalDirector?.signedDate || "";
   answers.intake_date ||= new Date().toLocaleDateString("en-US");
   answers.referral_date ||= answers.intake_date;

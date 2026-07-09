@@ -227,7 +227,16 @@ def sig_pair(pg, caption, occ, key, consent, role="client", source="signature",
     for w in p.words:
         if abs(w["top"] - bb["top"]) <= 4 and w["x0"] >= date_x_min and w["n"].startswith("date"):
             date_top = (line_ink - 12) if line_ink else (bb["top"] - 14)
-            emit(p, key + "_date", "sign_date", "text", w["x0"], date_top, 85, 11,
+            date_source = "sign_date"
+            if role == "staff":
+                date_source = "staff_sign_date"
+            elif role == "clinician":
+                date_source = "clinician_sign_date"
+            elif role == "witness":
+                date_source = "witness_sign_date"
+            elif role == "medicalDirector":
+                date_source = "medical_director_sign_date"
+            emit(p, key + "_date", date_source, "text", w["x0"], date_top, 85, 11,
                  role=role, consent=consent)
             return
     miss(pg, key + "_date", "date word not on caption line")
@@ -922,7 +931,7 @@ bb = p42.find("Client/Legally Responsible/Guardian Signature")
 if bb:
     for r in range(3):
         y = bb["bottom"] + 14 + r * 44
-        emit(p42, "otp_row%d_staff_date" % (r + 1), "otp_row%d_staff_date" % (r + 1), "text",
+        emit(p42, "otp_row%d_staff_date" % (r + 1), "staff_sign_date", "text",
              71, y, 60, 11, role="staff")
         emit(p42, "otp_row%d_staff_sig" % (r + 1), "staff_signature", "signature", 113, y - 6, 130, 24,
              role="staff", notes="row %d" % (r + 1))
