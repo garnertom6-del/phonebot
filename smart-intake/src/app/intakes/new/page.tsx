@@ -16,7 +16,7 @@ export default function NewIntake() {
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro" });
   const [expectCca, setExpectCca] = useState(true);
   const [error, setError] = useState("");
-  const [result, setResult] = useState<{ id: string; clientLink: string } | null>(null);
+  const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
@@ -60,7 +60,7 @@ export default function NewIntake() {
           <h1 className="text-xl font-bold text-emerald-600">Intake created</h1>
           <p className="mt-2 text-sm text-slate-600">
             Package: <b>Moore Divine Care Client Intake Package</b>. Send the client this secure
-            link (expires in {process.env.NEXT_PUBLIC_LINK_DAYS || 7} days, no client info in the URL):
+            link (works for {result.linkDays || 7} days, no client info in the URL):
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -105,9 +105,9 @@ export default function NewIntake() {
         <label className="mt-4 flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
           <input type="checkbox" className="mt-0.5 h-5 w-5" checked={expectCca}
             onChange={(e) => setExpectCca(e.target.checked)} />
-          <span><b>Short client intake</b> - only ask the client the essentials (about 35 quick
+          <span><b>Fast Intake</b> - only ask the client the essentials (about 35 quick
           taps + consents + signature). The clinician&apos;s CCA will fill in the rest when you
-          upload it with the <b>Add CCA</b> button. Uncheck for the full question set.</span>
+          upload it in the <b>Add CCA</b> section on the client&apos;s page. Uncheck for the full question set.</span>
         </label>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
         <button className="btn-primary mt-5 w-full">Create intake & generate secure link</button>

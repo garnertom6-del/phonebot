@@ -15,7 +15,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (deny) return deny;
   if (!ccaConfigured()) {
     return NextResponse.json(
-      { error: "AI document reading is not configured - add ANTHROPIC_API_KEY in your host's environment, then try again." },
+      { error: "Automatic document reading is not set up yet. Please ask your administrator to finish setup." },
       { status: 400 },
     );
   }

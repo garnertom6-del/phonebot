@@ -24,7 +24,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     await audit("nctracks_lookup_not_configured", { intakeId: intake.id, userId: user!.id });
     return NextResponse.json({
       error:
-        "NC Tracks automatic lookup is not connected yet. Add NC_TRACKS_LOOKUP_URL in Render after you have an approved portal/API workflow.",
+        "Automatic NC Tracks lookup is not connected yet. You can enter the details by hand, or ask your administrator to connect it.",
       setupNeeded: true,
     }, { status: 501 });
   }

@@ -22,7 +22,7 @@ const FREQ_OPTIONS: Record<string, string> = {
   "Not used past month": "Not in the last month",
   "1-3x past month": "A few times a month",
   "1-2x per week": "Once or twice a week",
-  "3-6x per week": "Most days",
+  "3-6x per week": "3 to 6 days a week",
   "Daily": "Every day",
 };
 
@@ -150,7 +150,7 @@ export const EASY: Record<string, EasyText> = {
   /* ---------- welcome ---------- */
   intake_mode: {
     q: "How would you like to do this?",
-    help: "Pick 'Fast' to answer just the must-have questions first.",
+    help: "Pick 'Fast' to answer just the must-answer questions first.",
     options: {
       "Fast Intake - required questions first": "Fast - just the must-answer questions first",
       "Full Intake - answer everything now": "Full - answer everything now",
@@ -171,7 +171,7 @@ export const EASY: Record<string, EasyText> = {
     options: { "Caucasian or White": "White" },
   },
   ethnicity: { q: "What is your background?", help: "Pick the one that fits you best." },
-  marital_status: { q: "Are you married?", help: "Pick the one that fits you." },
+  marital_status: { q: "Are you single, married, separated, or widowed?", help: "Pick the one that fits you." },
   veteran: { q: "Were you ever in the military?" },
   education: {
     q: "How far did you go in school?",
@@ -179,8 +179,8 @@ export const EASY: Record<string, EasyText> = {
       "Grade/Elementary": "Elementary school",
       "High School/GED": "High school or GED",
       "College": "Some college or a college degree",
-      "Graduate": "Finished college",
-      "Post Graduate": "More than college",
+      "Graduate": "A degree after college (like a master's)",
+      "Post Graduate": "Schooling after a master's (like a doctorate)",
     },
   },
   language: { q: "What language do you like to speak?" },
@@ -243,7 +243,7 @@ export const EASY: Record<string, EasyText> = {
   has_nchc: { q: "Do you have NC Health Choice?", help: "It's a health plan for kids in North Carolina. Pick 'No' if you're not sure." },
   nchc_policy: { q: "What is the number on that card?" },
   nchc_effective_date: { q: "When did that plan start?", help: "Skip it if you don't know." },
-  dss_ive_eligible: { q: "If Social Services (DSS) takes care of you, do they help pay for you?", help: "Leave this blank if DSS is not part of your life." },
+  dss_ive_eligible: { q: "If DSS (Social Services) is your guardian, your worker can answer this one.", help: "It's okay to skip this. Our staff can fill it in later." },
   income_sources: {
     q: "Where does your money come from?",
     help: "Pick all that fit.",
@@ -381,11 +381,20 @@ export const EASY: Record<string, EasyText> = {
   sa_status: {
     q: "Do you drink alcohol or use drugs?",
     help: "Be honest - we are here to help, not to judge. Nobody gets in trouble.",
-    options: { "Denies": "No, and I never have" },
+    options: { "No": "No, not right now", "Denies": "No, and I never have" },
   },
 
   /* ---------- provider_choice ---------- */
-  provider_choice_plan: { q: "Which health plan covers you?", help: "Look at your insurance card if you're not sure." },
+  provider_choice_plan: {
+    q: "Which health plan covers you?",
+    help: "Look at your insurance card if you're not sure. It's okay to skip this - our staff can help.",
+    options: {
+      "Partners Behavioral Health": "Partners",
+      "Sandhills Center/Trillium": "Trillium (Sandhills Center)",
+      "United Health Care": "United Healthcare",
+      "Blue Cross Blue Shield": "Blue Cross Blue Shield",
+    },
+  },
   consent_provider_choice: {
     q: "Do you pick Moore Divine Care as your helper?",
     consentSimple:
@@ -497,7 +506,7 @@ export const EASY: Record<string, EasyText> = {
     consentSimple:
       "We keep your information private. The law only lets us share it in special cases - " +
       "like a court order, or to keep someone safe in an emergency. " +
-      "If you ever think we shared it wrongly, call (336) 285-5204 and we will listen.",
+      "If you ever think we shared it wrongly, call 336-285-5204 and we will listen.",
   },
 
   /* ---------- welcome_letter ---------- */

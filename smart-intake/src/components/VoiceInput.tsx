@@ -91,7 +91,7 @@ export default function VoiceInput({ value, onChange, multiline, placeholder, in
       {recording && <p className="mt-1 text-sm text-red-600">Listening... tap Stop when you finish speaking.</p>}
       {preview !== null && !recording && (
         <div className="mt-2 rounded-lg border border-brand/40 bg-brand-light p-3">
-          <p className="mb-1 text-xs font-semibold text-brand">Transcript preview - edit if needed, then add it:</p>
+          <p className="mb-1 text-xs font-semibold text-brand">Here is what we heard. Fix it if needed, then tap &quot;Use this answer&quot;:</p>
           <textarea className="input mb-2 min-h-[60px]" value={preview} onChange={(e) => setPreview(e.target.value)} />
           <div className="flex gap-2">
             <button type="button" className="btn-primary px-3 py-1.5 text-sm" onClick={accept}>Use this answer</button>

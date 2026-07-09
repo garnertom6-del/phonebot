@@ -1,9 +1,9 @@
 export function intakeShareMessage(link: string): string {
-  return `Moore Divine Care: please complete your secure intake here: ${link}`;
+  return `Moore Divine Care: please answer your new-client questions here (secure link): ${link}`;
 }
 
 export function copiesShareMessage(link: string): string {
-  return `Moore Divine Care: here are your intake copies (Client Rights, Orientation, Consent for Treatment, Welcome Letter, and review acknowledgments): ${link}`;
+  return `Moore Divine Care: here are your copies from your visit (Your Rights, How Our Program Works, Consent for Treatment, and our Welcome Letter): ${link}`;
 }
 
 function smsRecipient(phone?: string | null): string {

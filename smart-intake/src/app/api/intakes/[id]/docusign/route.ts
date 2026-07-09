@@ -11,7 +11,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   if (deny) return deny;
   if (!docusignConfigured()) {
     return NextResponse.json(
-      { error: "DocuSign not configured - see README_DOCUSIGN.md. In-app signature capture is active instead." },
+      { error: "DocuSign is not set up. Clients can still sign in the app. Ask your administrator to connect DocuSign." },
       { status: 400 },
     );
   }

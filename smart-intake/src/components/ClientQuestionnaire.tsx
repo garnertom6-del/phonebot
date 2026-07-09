@@ -143,8 +143,8 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
         <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
         <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
         <p className="mt-2 text-slate-600">
-          Your intake has been submitted to Moore Divine Care, Inc. Our team will review your
-          answers and complete your Client Intake Package. Questions? Call 336-285-5204.
+          Moore Divine Care, Inc. got your answers. Our team will review them and finish
+          your paperwork. Questions? Call 336-285-5204.
         </p>
       </div>
     );
@@ -352,7 +352,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
         </div>
       )}
       <button className="btn-primary w-full" disabled={!hasSignature && signedRoles.length === 0} onClick={onSubmit}>
-        Submit my intake packet
+        Send my answers
       </button>
     </div>
   );
