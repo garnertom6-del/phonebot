@@ -46,6 +46,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const i = d.intake;
   const clientMessage = intakeShareMessage(d.clientLink);
 
+  function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
+    const sent = Array.isArray(body.sent) ? body.sent : [];
+    const failed = Array.isArray(body.failed) ? body.failed : [];
+    if (sent.length) {
+      return `Queued: ${sent.join(", ")}${failed.length ? ` Not sent: ${failed.join("; ")}` : ""}`;
+    }
+    return failed.length ? `Not sent: ${failed.join("; ")}` : fallback;
+  }
+
   async function uploadCca(file: File) {
     setNote("");
     setCcaBusy(true); setCcaResult("Reading the CCA... this can take a minute or two.");
@@ -77,7 +86,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     setNote(`${label}...`);
     const r = await fn();
     const b = await r.json().catch(() => ({}));
-    setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
+    if (label === "Reminder") {
+      setNote(r.ok ? deliveryStatus(b, "No phone or email saved for this client.") : deliveryStatus(b, `${label} failed: ${b.error || r.status}`));
+    } else {
+      setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
+    }
     load();
   }
 
@@ -87,9 +100,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const b = await r.json().catch(() => ({}));
     if (r.ok) {
       setCopiesLink(b.link || "");
-      setNote(b.sent?.length ? `Copies link sent: ${b.sent.join(", ")}` : "Copies link created. Copy it below.");
+      setNote(deliveryStatus(b, "Copies link created. Copy it below."));
     } else {
-      setNote(`Copies link failed: ${b.error || r.status}`);
+      setCopiesLink(b.link || "");
+      setNote(deliveryStatus(b, `Copies link failed: ${b.error || r.status}`));
     }
     load();
   }
