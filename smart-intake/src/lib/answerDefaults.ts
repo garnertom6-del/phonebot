@@ -1,6 +1,12 @@
 import type { Answers } from "./fillPdf";
 
-const MISSING_TEXT = "None reported by client";
+/**
+ * Operational defaults policy: a default may COPY a real answer somewhere
+ * else (same fact, different blank), but must never INVENT an answer nobody
+ * gave. Payer status, clinical severity, consent/acknowledgment boxes and
+ * "None reported" clinical negatives are deliberately NOT defaulted - those
+ * stay blank until a human answers them.
+ */
 
 function s(v: unknown): string {
   if (v == null) return "";
@@ -55,25 +61,26 @@ function splitDiagnosis(value: unknown): { code: string; description: string } {
   return { code: match[1].toUpperCase(), description: match[2].trim() };
 }
 
+/** Copy real, already-given diagnoses into the axis/discharge slots. */
 function applyDiagnosisDefaults(a: Answers) {
   const dx = diagnosisList(a);
   if (dx.length) {
     setDefault(a, "sa_primary_diagnosis", dx[0]);
     setDefault(a, "sa_secondary_diagnosis", dx[1]);
     setDefault(a, "c_axis1", dx[0]);
-    setDefault(a, "c_axis2", dx[1] || MISSING_TEXT);
+    setDefault(a, "c_axis2", dx[1]);
   }
-  setDefault(a, "c_axis3", s(a.medical_diagnoses) || MISSING_TEXT);
-  setDefault(a, "c_axis4", s(a.social_family_medical_history) || s(a.presenting_problem) || MISSING_TEXT);
-  setDefault(a, "c_axis5", MISSING_TEXT);
+  setDefault(a, "c_axis3", s(a.medical_diagnoses));
+  setDefault(a, "c_axis4", s(a.social_family_medical_history) || s(a.presenting_problem));
   for (let i = 1; i <= 5; i++) {
     const { code, description } = splitDiagnosis(a[`c_axis${i}`]);
     setDefault(a, `c_axis${i}_code`, code);
-    setDefault(a, `c_axis${i}_description`, description || (i >= 3 ? s(a[`c_axis${i}`]) : MISSING_TEXT));
+    setDefault(a, `c_axis${i}_description`, description);
+    setDefault(a, `dis_adm_axis${i}`, dx[i - 1] || "");
   }
-  for (let i = 1; i <= 5; i++) setDefault(a, `dis_adm_axis${i}`, dx[i - 1] || (i > 2 ? MISSING_TEXT : ""));
 }
 
+/** Pre-fill discharge blanks ONLY with facts the client already gave. */
 function applyDischargeDefaults(a: Answers) {
   setDefault(a, "dis_programs", s(a.services_requested) || s(a.referred_for));
   setDefault(a, "dis_summary", s(a.presenting_problem) || s(a.mh_history));
@@ -83,34 +90,18 @@ function applyDischargeDefaults(a: Answers) {
   setDefault(a, "dis_abilities", s(a.abilities));
   setDefault(a, "dis_preferences", s(a.preferences));
   setDefault(a, "dis_medications", [s(a.medications), s(a.otc_medications)].filter(Boolean).join("; "));
-  setDefault(a, "dis_residence_type", "Private Home");
   setDefault(a, "dis_residence_detail", s(a.living_arrangement) || s(a.lives_with_whom));
-  setDefault(a, "dis_reason", "Discharge summary prepared for future transition/discharge planning.");
-  setDefault(a, "dis_continuing_care", s(a.needs) || "Continue clinically recommended services.");
-  setDefault(a, "dis_comments", s(a.preferences) || s(a.presenting_problem));
-  setDefault(a, "dis_crisis_contact", "911 or Moore Divine Care crisis line");
-  setDefault(a, "dis_crisis_phone", "911 / 336-285-5204");
+  setDefault(a, "dis_continuing_care", s(a.needs));
+  setDefault(a, "dis_comments", s(a.preferences));
   setDefault(a, "dis_prepared_by", s(a.clinician_name) || s(a.staff_receiving_intake) || s(a.qp_referred_to));
 }
 
-function applyNoneReportedPdfFallbacks(a: Answers) {
-  [
-    "medical_diagnoses", "treatments", "hospitalizations", "medical_alerts",
-    "drug_allergies", "environmental_allergies", "allergies",
-    "mh_history", "current_diagnosis_known", "therapist_name",
-    "therapist_agency_phone", "mh_service_provider", "mh_services_desc",
-    "court_case_desc", "social_family_medical_history", "additional_evals",
-    "severity_explanation", "ace_events", "placement_considerations",
-  ].forEach((key) => setDefault(a, key, MISSING_TEXT));
-  setDefault(a, "ec1_name", "No personal emergency contact reported by client");
-  setDefault(a, "ec1_cell_phone", "911 / Moore Divine Care 336-285-5204");
-  setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
-}
-
 export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolean } = {}): Answers {
+  void opts; // kept for call-site compatibility; no PDF-only fabrications remain
   const a: Answers = { ...input };
   const intakeDate = s(a.intake_date) || new Date().toISOString().slice(0, 10);
 
+  // dates: the intake happened on one day - copy it to the date blanks
   setDefault(a, "intake_date", intakeDate);
   setDefault(a, "referral_date", intakeDate);
   setDefault(a, "screening_date", intakeDate);
@@ -120,33 +111,15 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "official_admission_date", intakeDate);
   setDefault(a, "dis_admission_date", intakeDate);
   setDefault(a, "c_date_sent", intakeDate);
+  // the question itself states this default ("max 1 year - defaults to 1 year from today")
   setDefault(a, "intervention_valid_until", addOneYear(intakeDate));
 
-  setDefault(a, "has_medicaid", "Yes");
-  setDefault(a, "provider_choice_plan", "Medicaid");
-  setDefault(a, "has_nchc", "No");
-  setDefault(a, "funding_other", "Medicaid");
-  setDefault(a, "program_can_meet_needs", "Yes");
-  setDefault(a, "ability_to_provide", "Yes");
-  setDefault(a, "severity_of_need", "Routine");
-  if (opts.forPdf) {
-    setDefault(a, "hipaa_understood", "Yes");
-    setDefault(a, "hipaa_copy", "Yes");
-    [
-      "consent_transport",
-      "consent_emergency_interventions",
-      "consent_treatment_plan_participation",
-      "consent_receipt_treatment_plan",
-      "roi1_agreed",
-      "roi2_agreed",
-      "roi3_agreed",
-    ].forEach((key) => setDefault(a, key, true));
-  }
-
+  // phones: same number, different blanks
   setDefault(a, "client_phone_home", s(a.client_phone_cell));
   setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
   setDefault(a, "ec2_home_phone", s(a.ec2_cell_phone));
 
+  // one staff member's name flows to the synonymous staff-name blanks
   const sharedStaffName =
     s(a.staff_receiving_intake) || s(a.qp_referred_to) || s(a.clinician_name) ||
     s(a.c_clinician) || s(a.dis_prepared_by);
@@ -156,27 +129,7 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "c_clinician", sharedStaffName);
   setDefault(a, "dis_prepared_by", sharedStaffName);
 
-  setDefault(a, "transport_destination", "Services / treatment plan activities");
-  setDefault(a, "transport_purposes", [
-    "Mental Health Services",
-    "Developmental Services",
-    "Substance Abuse Services",
-    "Activities associated with treatment plan",
-  ]);
-
-  for (const i of [1, 2, 3]) {
-    setDefault(a, `roi${i}_items`, ["Service Notes", "Medication history/ physician orders", "Service Plan"]);
-    setDefault(a, `roi${i}_purpose`, "Continuity of Care");
-    setDefault(a, `roi${i}_thru_date`, addOneYear(intakeDate));
-  }
-
-  setDefault(a, "c_reason", ["Coordination of care", "Annual Notification"]);
-  setDefault(a, "c_requested", ["Medical Diagnosis", "List of all medications", "Behavioral Health Assessment", "Individual Service Plan", "Clinical Impression"]);
-  setDefault(a, "c_clinician", s(a.clinician_name) || s(a.staff_receiving_intake) || s(a.qp_referred_to));
-  setDefault(a, "c_clinician_title", "QP / Clinician");
-
   applyDiagnosisDefaults(a);
   applyDischargeDefaults(a);
-  if (opts.forPdf) applyNoneReportedPdfFallbacks(a);
   return a;
 }

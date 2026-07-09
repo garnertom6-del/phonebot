@@ -1,10 +1,14 @@
-# Render Blueprint - deploys the Moore Divine Care Smart Intake app with
-# zero manual configuration. In Render: New + -> Blueprint -> pick this repo.
+# Render Blueprint - deploys the Moore Divine Care Smart Intake app.
+# In Render: New + -> Blueprint -> pick this repo.
+#
+# The Starter plan + disk below keep the database and uploaded documents
+# across restarts and deploys. On the free plan everything is erased on
+# every restart - never use free for real clients.
 services:
   - type: web
     name: mdc-smart-intake
     runtime: node
-    plan: free            # upgrade to "starter" + uncomment the disk below to keep data across restarts
+    plan: starter
     rootDir: smart-intake
     buildCommand: npm install && npm run build && mkdir -p storage && npx prisma db push && npm run seed
     startCommand: npm run start
@@ -13,6 +17,14 @@ services:
         value: file:/opt/render/project/src/smart-intake/storage/mdc.db
       - key: SESSION_SECRET
         generateValue: true
+      # Staff login password. Render will ask you to type one when this
+      # syncs - pick a strong password only you know. The demo password
+      # stops working once this is set (takes effect on the next deploy).
+      - key: ADMIN_PASSWORD
+        sync: false
+      # Keep demo clients (Angela Demo / Jayden Sample) out of the live site.
+      - key: SEED_DEMO_DATA
+        value: "false"
       - key: CLIENT_LINK_EXPIRY_DAYS
         value: "7"
       # Optional NC Tracks lookup adapter. Populate these in Render only after
@@ -21,8 +33,7 @@ services:
         sync: false
       - key: NC_TRACKS_LOOKUP_SECRET
         sync: false
-    # For real client use (Starter plan) keep data across restarts:
-    # disk:
-    #   name: mdc-data
-    #   mountPath: /opt/render/project/src/smart-intake/storage
-    #   sizeGB: 1
+    disk:
+      name: mdc-data
+      mountPath: /opt/render/project/src/smart-intake/storage
+      sizeGB: 1

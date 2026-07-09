@@ -207,6 +207,12 @@ async function main() {
     update: {},
   });
 
+  // Demo clients are for local development only. Set SEED_DEMO_DATA=false
+  // (as render.yaml does) to keep them out of a real deployment.
+  if (process.env.SEED_DEMO_DATA === "false") {
+    console.log("SEED_DEMO_DATA=false - admin + template seeded, demo clients skipped.");
+    return;
+  }
   const existing = await prisma.client.findFirst({ where: { fullName: "Angela Demo" } });
   if (existing) {
     console.log("Sample clients already seeded - skipping.");
@@ -229,7 +235,9 @@ async function main() {
     answers: JAYDEN_ANSWERS,
     signature: { role: "guardian", file: "sig-erica.png", printedName: "Erica Sample", relationship: "guardian" },
   });
-  console.log("Seeded staff login admin@mooredivinecare.local / IntakeDemo123!");
+  console.log(process.env.ADMIN_PASSWORD
+    ? "Seeded staff login admin@mooredivinecare.local (password from ADMIN_PASSWORD)"
+    : "Seeded staff login admin@mooredivinecare.local / IntakeDemo123!");
   console.log("Seeded sample intakes:", a.id, j.id);
 }
 

@@ -530,6 +530,14 @@ export const REQUIRED_FOR_SUBMIT: { key: string; label: string; when?: AskIf }[]
 export const ALL_CONSENT_KEYS = SECTIONS.flatMap((s) =>
   s.questions.filter((q) => q.type === "consent").map((q) => q.key));
 
+/** Keys a CLIENT may write through their intake link. Staff-only fields
+ *  (clinical, screening, discharge, header/record) are not in SECTIONS and
+ *  therefore can never be changed from a client token. */
+export const CLIENT_ANSWER_KEYS: ReadonlySet<string> = new Set(
+  SECTIONS.flatMap((s) =>
+    s.questions.filter((q) => q.type !== "info" && q.type !== "heading").map((q) => q.key)),
+);
+
 export function questionByKey(key: string): Question | undefined {
   for (const s of SECTIONS) for (const q of s.questions) if (q.key === key) return q;
   for (const g of STAFF_FIELDS) for (const q of g.fields) if (q.key === key) return q;

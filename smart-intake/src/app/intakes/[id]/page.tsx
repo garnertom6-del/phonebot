@@ -331,7 +331,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         <div className="card">
           <h3 className="mb-2 font-bold">Uploaded documents</h3>
           {i.uploadedDocuments.length === 0 && <p className="text-sm text-slate-400">None uploaded.</p>}
-          <ul className="text-sm">{i.uploadedDocuments.map((u) => <li key={u.id}>{u.docType}: {u.fileName}</li>)}</ul>
+          <ul className="space-y-1 text-sm">{i.uploadedDocuments.map((u) => (
+            <li key={u.id} className="flex items-center justify-between gap-2">
+              <span>{u.docType.replace(/_/g, " ")}: {u.fileName}</span>
+              <a className="btn-ghost px-2 py-0.5 text-xs" href={`/api/intakes/${i.id}/documents/${u.id}`}>Open</a>
+            </li>
+          ))}</ul>
         </div>
         <div className="card md:col-span-2">
           <h3 className="mb-2 font-bold">Audit log</h3>
