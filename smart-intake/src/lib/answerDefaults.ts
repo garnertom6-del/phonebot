@@ -48,16 +48,29 @@ function diagnosisList(a: Answers): string[] {
     .slice(0, 5);
 }
 
+function splitDiagnosis(value: unknown): { code: string; description: string } {
+  const text = s(value);
+  const match = /^([A-Z]\d{2}(?:\.\d+)?)\s*[-:)]?\s*(.*)$/i.exec(text);
+  if (!match) return { code: "", description: text };
+  return { code: match[1].toUpperCase(), description: match[2].trim() };
+}
+
 function applyDiagnosisDefaults(a: Answers) {
   const dx = diagnosisList(a);
-  if (!dx.length) return;
-  setDefault(a, "sa_primary_diagnosis", dx[0]);
-  setDefault(a, "sa_secondary_diagnosis", dx[1]);
-  setDefault(a, "c_axis1", dx[0]);
-  setDefault(a, "c_axis2", dx[1] || MISSING_TEXT);
+  if (dx.length) {
+    setDefault(a, "sa_primary_diagnosis", dx[0]);
+    setDefault(a, "sa_secondary_diagnosis", dx[1]);
+    setDefault(a, "c_axis1", dx[0]);
+    setDefault(a, "c_axis2", dx[1] || MISSING_TEXT);
+  }
   setDefault(a, "c_axis3", s(a.medical_diagnoses) || MISSING_TEXT);
   setDefault(a, "c_axis4", s(a.social_family_medical_history) || s(a.presenting_problem) || MISSING_TEXT);
   setDefault(a, "c_axis5", MISSING_TEXT);
+  for (let i = 1; i <= 5; i++) {
+    const { code, description } = splitDiagnosis(a[`c_axis${i}`]);
+    setDefault(a, `c_axis${i}_code`, code);
+    setDefault(a, `c_axis${i}_description`, description || (i >= 3 ? s(a[`c_axis${i}`]) : MISSING_TEXT));
+  }
   for (let i = 1; i <= 5; i++) setDefault(a, `dis_adm_axis${i}`, dx[i - 1] || (i > 2 ? MISSING_TEXT : ""));
 }
 
@@ -118,6 +131,15 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   if (opts.forPdf) {
     setDefault(a, "hipaa_understood", "Yes");
     setDefault(a, "hipaa_copy", "Yes");
+    [
+      "consent_transport",
+      "consent_emergency_interventions",
+      "consent_treatment_plan_participation",
+      "consent_receipt_treatment_plan",
+      "roi1_agreed",
+      "roi2_agreed",
+      "roi3_agreed",
+    ].forEach((key) => setDefault(a, key, true));
   }
 
   setDefault(a, "client_phone_home", s(a.client_phone_cell));

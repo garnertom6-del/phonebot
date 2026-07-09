@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import type { Answers } from "./fillPdf";
 import { ALL_CONSENT_KEYS } from "@/config/mooreDivineQuestions";
 import type { SignatureRecord } from "./signaturePlacement";
+import { applyOperationalDefaults } from "./answerDefaults";
 
 export async function loadAnswers(intakeId: string): Promise<Answers> {
   const rows = await prisma.intakeAnswer.findMany({ where: { intakeId } });
@@ -37,7 +38,11 @@ export async function loadSignatures(intakeId: string): Promise<Record<string, S
 
 export function consentsFromAnswers(answers: Answers): Record<string, boolean> {
   const consents: Record<string, boolean> = {};
-  for (const key of ALL_CONSENT_KEYS) consents[key] = answers[key] === true || answers[key] === "Yes";
+  const withDefaults = applyOperationalDefaults(answers, { forPdf: true });
+  for (const key of ALL_CONSENT_KEYS) consents[key] = withDefaults[key] === true || withDefaults[key] === "Yes";
+  for (const key of ["roi1_agreed", "roi2_agreed", "roi3_agreed"]) {
+    consents[key] = withDefaults[key] === true || withDefaults[key] === "Yes";
+  }
   // discharge-time consent is a staff workflow, not part of the client wizard
   consents.consent_discharge = answers.consent_discharge === true;
   return consents;
