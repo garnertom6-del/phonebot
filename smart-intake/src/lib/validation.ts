@@ -76,8 +76,16 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
 /** Every unanswered (visible) question, grouped for the staff checklist. */
 export function missingOptional(answers: Answers): MissingField[] {
   const out: MissingField[] = [];
+  const staffReviewKeys = new Set([
+    "record_number", "mid_number", "race", "ethnicity", "marital_status", "employment_status",
+    "pcp_name", "pcp_phone", "pcp_address", "preferred_emergency_facility",
+    "height", "weight", "ec1_name", "ec1_cell_phone", "staff_receiving_intake",
+    "qp_referred_to", "clinician_name", "program_can_meet_needs",
+    "initial_screening_date", "admission_date", "official_admission_date",
+  ]);
   for (const s of SECTIONS) {
     for (const q of s.questions) {
+      if (!q.essential && !q.required && !staffReviewKeys.has(q.key)) continue;
       if (q.type === "info" || q.type === "heading") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];
