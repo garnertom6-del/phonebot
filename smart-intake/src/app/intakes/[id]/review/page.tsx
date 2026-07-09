@@ -21,7 +21,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   const load = useCallback(() => {
     fetch(`/api/intakes/${params.id}`).then(async (r) => {
-      if (!r.ok) return;
+      if (r.status === 401) {
+        window.location.href = "/login";
+        return;
+      }
+      if (!r.ok) {
+        setNote("Could not load this intake. Please refresh or sign in again.");
+        setLoaded(true);
+        return;
+      }
       const d = await r.json();
       setAnswers(d.answers); setClientName(d.intake.client.fullName); setLoaded(true);
     });
@@ -36,7 +44,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ answers, status: "NEEDS_REVIEW" }),
     });
-    setNote(r.ok ? "Saved ✓ (marked Needs Review until packet is generated)" : "Save failed");
+    setNote(r.ok ? "Saved (marked Needs Review until packet is generated)" : "Save failed");
   }
 
   async function captureStaffSig(role: string, d: { imageData: string; printedName: string; relationship: string; signedDate: string }) {
@@ -44,7 +52,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role, ...d }),
     });
-    setNote(r.ok ? `${role} signature captured ✓` : "Signature failed");
+    setNote(r.ok ? `${role} signature captured` : "Signature failed");
     setSignRole(null);
   }
 
@@ -52,7 +60,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-4xl p-6 pb-24">
-      <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">← Back to intake</Link>
+      <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
       <h1 className="mt-1 text-2xl font-bold">Review & edit - {clientName}</h1>
       <p className="text-sm text-slate-500">Client answers first, then staff-only sections. Everything here fills the packet PDF.</p>
 
@@ -85,7 +93,11 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </div>
         {signRole && (
           <div className="mt-3">
-            <SignaturePad roleLabel={`${signRole} signature`} onCapture={(d) => captureStaffSig(signRole, d)} />
+            <SignaturePad
+              roleLabel={`${signRole} signature`}
+              expectedRole={signRole as "staff" | "clinician" | "witness" | "medicalDirector"}
+              onCapture={(d) => captureStaffSig(signRole, d)}
+            />
           </div>
         )}
       </div>
