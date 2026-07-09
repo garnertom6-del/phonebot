@@ -323,6 +323,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
         <SignaturePad roleLabel={isMinor ? "Parent / Legal Guardian signature" : "Client signature"}
           expectedRole={isMinor ? "guardian" : "client"}
           defaultName={String((isMinor ? answers.guardian_name : answers.client_full_name) ?? "")}
+          askDob
           onCapture={async (d) => {
             const relationship = d.relationship || "client";
             const role = isMinor || ["parent", "guardian", "legalRepresentative"].includes(relationship)
@@ -340,7 +341,7 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
           <summary className="cursor-pointer text-sm font-semibold">Client also signing? (optional)</summary>
           <div className="mt-3">
             <SignaturePad roleLabel="Client signature" defaultName={String(answers.client_full_name ?? "")}
-              expectedRole="client"
+              expectedRole="client" askDob
               onCapture={async (d) => { await onCapture("client", { ...d, relationship: d.relationship || "client" }); setSignedRoles((r) => [...r, "client"]); }} />
           </div>
         </details>

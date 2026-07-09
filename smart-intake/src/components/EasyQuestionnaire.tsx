@@ -206,7 +206,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const signDefaultName = String(
     (isGuardian ? answers.guardian_name : answers.client_full_name) ?? clientName ?? "");
 
-  async function captureSignature(d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
+  async function captureSignature(d: { imageData: string; printedName: string; relationship?: string; signedDate: string; dobCheck?: string }) {
     setSubmitError("");
     const relationship = d.relationship || (signRole === "guardian" ? "guardian" : "client");
     const res = await fetch(`/api/intake/${token}/signature`, {
@@ -313,6 +313,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
               roleLabel={isGuardian ? "Parent or guardian signs here" : "Sign here"}
               expectedRole={signRole}
               defaultName={signDefaultName}
+              askDob
               onCapture={(d) => { void captureSignature(d); }} />
           )}
         </div>

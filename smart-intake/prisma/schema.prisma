@@ -103,6 +103,9 @@ model Signature {
   printedName  String
   relationship String? // client | parent | guardian | legalRepresentative
   signedDate   String
+  dobVerified  Boolean  @default(false) // signer confirmed the client's DOB
+  ip           String?
+  userAgent    String?
   createdAt    DateTime @default(now())
 
   @@unique([intakeId, role])
@@ -135,6 +138,7 @@ model GeneratedPdf {
   intakeId  String
   intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
   filePath  String
+  sha256    String?  // fingerprint of the packet pages (certificate page excluded)
   createdAt DateTime @default(now())
 }
 
