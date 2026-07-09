@@ -16,20 +16,38 @@ export default function NewIntake() {
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro" });
   const [expectCca, setExpectCca] = useState(true);
   const [error, setError] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number } | null>(null);
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
 
+  async function readResponse(res: Response) {
+    const text = await res.text();
+    if (!text) return {};
+    try {
+      return JSON.parse(text);
+    } catch {
+      return { error: text };
+    }
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     setError("");
-    const res = await fetch("/api/intakes", {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, expectCca }),
-    });
-    const body = await res.json();
-    if (res.ok) setResult(body);
-    else setError(body.error || "Failed to create intake");
+    setIsCreating(true);
+    try {
+      const res = await fetch("/api/intakes", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, expectCca }),
+      });
+      const body = await readResponse(res);
+      if (res.ok) setResult(body as { id: string; clientLink: string; linkDays?: number });
+      else setError((body as { error?: string }).error || "Failed to create intake");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't create the intake right now.");
+    } finally {
+      setIsCreating(false);
+    }
   }
 
   async function sendWithApp() {
@@ -110,7 +128,9 @@ export default function NewIntake() {
           upload it in the <b>Add CCA</b> section on the client&apos;s page. Uncheck for the full question set.</span>
         </label>
         {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-        <button className="btn-primary mt-5 w-full">Create intake & generate secure link</button>
+        <button className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-70" disabled={isCreating}>
+          {isCreating ? "Creating secure link..." : "Create intake & generate secure link"}
+        </button>
       </form>
     </main>
   );

@@ -21,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const sigs = await loadSignatures(intake.id);
-  const base = appBaseUrl();
+  const base = appBaseUrl(_req);
   return NextResponse.json({
     intake: {
       ...intake,

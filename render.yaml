@@ -10,7 +10,9 @@ services:
     runtime: node
     plan: starter
     rootDir: smart-intake
-    buildCommand: npm install && npm run build && mkdir -p storage && npx prisma db push && npm run seed
+    # The persistent disk is mounted when the web service starts, so schema
+    # updates and seeding run from package.json prestart on the live disk.
+    buildCommand: npm install && npm run build
     startCommand: npm run start
     envVars:
       - key: DATABASE_URL

@@ -47,7 +47,13 @@ export default function Dashboard() {
   const load = useCallback((activeTab: string = "all") => {
     fetch(`/api/intakes${activeTab === "archived" ? "?archived=1" : ""}`).then(async (r) => {
       if (r.status === 401) return router.push("/login");
-      setRows((await r.json()).intakes);
+      const text = await r.text();
+      const body = text ? JSON.parse(text) : {};
+      if (!r.ok) throw new Error(body.error || `Dashboard load failed (${r.status})`);
+      setRows(body.intakes ?? []);
+    }).catch((err) => {
+      setRows([]);
+      setNote(err instanceof Error ? err.message : "Couldn't load the intake list right now.");
     });
   }, [router]);
   useEffect(() => { load(tab); }, [load, tab]);

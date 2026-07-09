@@ -14,7 +14,7 @@ function failedLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}: ${r.detail}`;
 }
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, deny } = await requireStaff();
   if (deny) return deny;
   let intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
@@ -25,7 +25,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       where: { id: intake.id }, data: { tokenExpiresAt: tokenExpiry() }, include: { client: true },
     });
   }
-  const base = appBaseUrl();
+  const base = appBaseUrl(req);
   const link = `${base}/intake/${intake.token}`;
   const attempts: NotifyResult[] = [];
   if (intake.client.email) {

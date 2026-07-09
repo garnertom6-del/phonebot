@@ -13,12 +13,12 @@ function failedLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}: ${r.detail}`;
 }
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, { params }: { params: { id: string } }) {
   const { user, deny } = await requireStaff();
   if (deny) return deny;
   const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const link = `${appBaseUrl()}/copies/${intake.token}`;
+  const link = `${appBaseUrl(req)}/copies/${intake.token}`;
   const attempts: NotifyResult[] = [];
   if (intake.client.email) {
     attempts.push(await sendCopiesLinkEmail(intake.client.email, intake.client.fullName, link));
