@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
+import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 
 interface Detail {
   intake: {
@@ -42,6 +43,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
+  const clientMessage = intakeShareMessage(d.clientLink);
 
   async function uploadCca(file: File) {
     setCcaBusy(true); setCcaResult("Reading the CCA... this can take a minute or two.");
@@ -154,8 +156,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <h3 className="mb-2 font-bold">Secure client link</h3>
           <div className="break-all rounded bg-slate-100 p-2 font-mono text-xs">{d.clientLink}</div>
           <p className="mt-1 text-xs text-slate-400">Expires {new Date(i.tokenExpiresAt).toLocaleString()}</p>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Link copied"); }}>Copy</button>
+            <a className="btn-primary px-3 py-1.5 text-sm" href={intakeSmsHref(i.client.phone, d.clientLink)}>
+              Open SMS on this computer
+            </a>
+            <a className="btn-ghost px-3 py-1.5 text-sm" href={intakeMailtoHref(i.client.email, d.clientLink)}>
+              Open email
+            </a>
+            <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Text message copied"); }}>Copy text message</button>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Reminder", () => fetch(`/api/intakes/${i.id}/remind`, { method: "POST" }))}>Send reminder</button>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Extend link", () => fetch(`/api/intakes/${i.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ extendToken: true }) }))}>Extend</button>
           </div>
