@@ -20,11 +20,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const rel = `generated/${intake.id}/${Date.now()}-intake-packet.pdf`;
   saveFile(rel, Buffer.from(result.pdfBytes));
   await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel } });
-  const done = signatures.client || signatures.guardian;
-  await prisma.intake.update({
-    where: { id: intake.id },
-    data: { status: done ? "COMPLETED" : intake.status },
-  });
+  // generating the packet reflects signed-ness, not completion - COMPLETED
+  // is reserved for the end of the workflow (staff's Mark completed / DocuSign)
+  const signed = signatures.client || signatures.guardian;
+  if (signed && intake.status !== "COMPLETED") {
+    await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
+  }
   await audit("pdf_generated", {
     intakeId: intake.id, userId: user!.id, detail: `${result.filled} fields filled`,
   });

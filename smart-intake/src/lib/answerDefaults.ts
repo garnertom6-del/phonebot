@@ -85,6 +85,17 @@ function applyDischargeDefaults(a: Answers) {
   setDefault(a, "dis_programs", s(a.services_requested) || s(a.referred_for));
   setDefault(a, "dis_summary", s(a.presenting_problem) || s(a.mh_history));
   setDefault(a, "dis_pcp_plan", s(a.needs) || s(a.treatments));
+  // the crisis notes staff enter on the PCP/Crisis tab must reach the packet -
+  // fold them into the printed plan description until a dedicated crisis-plan
+  // document exists
+  const crisis = [
+    s(a.crisis_warning_signs) && `Warning signs: ${s(a.crisis_warning_signs)}`,
+    s(a.crisis_steps) && `Coping steps: ${s(a.crisis_steps)}`,
+    s(a.crisis_supports) && `Support people: ${s(a.crisis_supports)}`,
+  ].filter(Boolean).join(" | ");
+  if (crisis && !s(a.dis_pcp_plan).includes("Warning signs:")) {
+    a.dis_pcp_plan = [s(a.dis_pcp_plan), crisis].filter(Boolean).join(" | ");
+  }
   setDefault(a, "dis_strengths", s(a.strengths));
   setDefault(a, "dis_needs", s(a.needs));
   setDefault(a, "dis_abilities", s(a.abilities));

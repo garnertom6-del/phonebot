@@ -4,6 +4,7 @@ import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { sendClientLinkEmail, sendClientLinkSms, type NotifyResult } from "@/lib/notify";
+import { tokenExpiry } from "@/lib/tokens";
 
 function sentLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}`;
@@ -16,8 +17,14 @@ function failedLabel(r: NotifyResult): string {
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, deny } = await requireStaff();
   if (deny) return deny;
-  const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
+  let intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  // never remind with a dead link - renew the expiry first if needed
+  if (intake.tokenExpiresAt < new Date()) {
+    intake = await prisma.intake.update({
+      where: { id: intake.id }, data: { tokenExpiresAt: tokenExpiry() }, include: { client: true },
+    });
+  }
   const base = appBaseUrl();
   const link = `${base}/intake/${intake.token}`;
   const attempts: NotifyResult[] = [];

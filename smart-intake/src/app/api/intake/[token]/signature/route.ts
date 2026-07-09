@@ -23,5 +23,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     intakeId: intake.id, detail: `${d.role} / ${d.relationship || "client"}`,
     ip: req.headers.get("x-forwarded-for") ?? undefined,
   });
+  // a client/guardian signature moves the intake to SIGNED once submitted
+  if (["SUBMITTED", "NEEDS_REVIEW"].includes(intake.status)) {
+    await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
+  }
   return NextResponse.json({ ok: true });
 }
