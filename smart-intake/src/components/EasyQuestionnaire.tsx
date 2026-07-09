@@ -62,6 +62,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const [justPicked, setJustPicked] = useState<string | null>(null);
   const [nudge, setNudge] = useState("");
   const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
@@ -89,10 +90,10 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
 
   /* ------------------------------ saving ------------------------------ */
 
-  const saveNow = useCallback(async (event?: "started" | "completed") => {
+  const saveNow = useCallback(async (event?: "started" | "completed"): Promise<boolean> => {
     setSaving(true);
     try {
-      await fetch(`/api/intake/${token}`, {
+      const res = await fetch(`/api/intake/${token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -101,7 +102,13 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
           event,
         }),
       });
-    } catch { /* network hiccup - answers stay in memory, next save retries */ }
+      if (!res.ok) throw new Error("Save failed");
+      setSaveError("");
+      return true;
+    } catch {
+      setSaveError("Not saved. Check connection.");
+      return false;
+    }
     finally { setSaving(false); }
   }, [token]);
 
@@ -113,6 +120,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const set = useCallback((key: string, value: Answers[string]) => {
     setAnswers((a) => ({ ...a, [key]: value }));
     setNudge("");
+    setSaveError("");
     queueSave();
   }, [queueSave]);
 
@@ -209,7 +217,11 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
     setMissing([]);
     try {
       if (saveTimer.current) clearTimeout(saveTimer.current);
-      await saveNow();
+      const saved = await saveNow();
+      if (!saved) {
+        setSubmitError("We could not save your latest answers. Check your connection and try again.");
+        return;
+      }
       const res = await fetch(`/api/intake/${token}`, { method: "POST" });
       const body = await res.json();
       if (res.ok) { setPhase("done"); }
@@ -238,7 +250,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   if (phase === "done") {
     return (
       <div className="card mx-auto mt-10 max-w-md text-center">
-        <p className="text-6xl">🎉</p>
+        <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
         <h2 className="mt-4 text-3xl font-bold text-brand">You did it!</h2>
         <p className="mt-4 text-xl text-slate-600">
           Moore Divine Care got your answers. We will call you soon.
@@ -251,13 +263,12 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   if (phase === "welcome") {
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center text-center">
-        <p className="text-6xl">👋</p>
         <h2 className="mt-6 text-3xl font-bold text-brand">Hi {firstName}!</h2>
         <p className="mt-5 text-2xl leading-relaxed text-slate-700">
           We&apos;re going to ask you some easy questions.
         </p>
         <p className="mt-3 text-xl leading-relaxed text-slate-500">
-          You can talk 🎤 or tap to answer. Take your time.
+          You can speak or tap to answer. Your answers save as you go.
         </p>
         <button type="button" className="btn-primary mt-10 min-h-[72px] w-full text-2xl"
           onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
@@ -271,8 +282,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
     return (
       <button type="button" onClick={() => setPhase("question")}
         className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col items-center justify-center text-center">
-        <span className="text-5xl">💙</span>
-        <span className="mt-6 text-2xl font-bold leading-relaxed text-brand">{breakText}</span>
+        <span className="text-2xl font-bold leading-relaxed text-brand">{breakText}</span>
         <span className="mt-6 text-base text-slate-400">Tap anywhere to keep going</span>
       </button>
     );
@@ -282,18 +292,19 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
     return (
       <div className="mx-auto max-w-md pb-28">
         <ProgressBar percent={100} label="Last step!" />
-        <h2 className="mt-6 text-3xl font-bold leading-snug text-brand">One last thing ✍️</h2>
+        <h2 className="mt-6 text-3xl font-bold leading-snug text-brand">One last thing</h2>
         <p className="mt-3 text-xl leading-relaxed text-slate-600">
           Sign your name with your finger in the box.
         </p>
         <div className="mt-4">
           {hasSignature ? (
             <p className="rounded-xl bg-emerald-50 p-4 text-lg font-semibold text-emerald-700">
-              ✓ Got your signature. Thank you!
+              Signature saved. Thank you!
             </p>
           ) : (
             <SignaturePad
               roleLabel={isGuardian ? "Parent or guardian signs here" : "Sign here"}
+              expectedRole={signRole}
               defaultName={signDefaultName}
               onCapture={(d) => { void captureSignature(d); }} />
           )}
@@ -321,18 +332,21 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
 
         <button type="button" className="btn-primary mt-6 min-h-[72px] w-full text-2xl"
           disabled={!hasSignature || submitting} onClick={() => { void submit(); }}>
-          {submitting ? "Sending..." : "Send my answers ✅"}
+          {submitting ? "Sending..." : "Send my answers"}
         </button>
         {!hasSignature && (
           <p className="mt-2 text-center text-base text-slate-400">Sign in the box first, then you can send.</p>
         )}
 
-        <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3">
+        <div
+          className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
           <div className="mx-auto flex max-w-md items-center gap-3">
             <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
-              ⬅ Back
+              Back
             </button>
-            <span className="text-xs text-slate-400">{saving ? "Saving..." : "Saved"}</span>
+            <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
           </div>
         </div>
       </div>
@@ -346,7 +360,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
 
   return (
     <div className="mx-auto max-w-md pb-32">
-      <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} • ${percent}% done`} />
+      <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} - ${percent}% done`} />
 
       <div className="mt-8">
         <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q)}</h2>
@@ -362,12 +376,15 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
         <p className="mt-4 rounded-xl bg-amber-50 p-4 text-lg font-semibold text-amber-700">{nudge}</p>
       )}
 
-      <div className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3">
+      <div
+        className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
         <div className="mx-auto flex max-w-md items-center gap-3">
           <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
-            ⬅ Back
+            Back
           </button>
-          <span className="w-16 text-center text-xs text-slate-400">{saving ? "Saving..." : "Saved"}</span>
+          <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
           {!q.required && (
             <button type="button" className="btn-ghost px-4 py-2 text-sm text-slate-500" onClick={goNext}>
               Skip
@@ -377,6 +394,22 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
       </div>
     </div>
   );
+}
+
+function SaveIndicator({ saving, saveError, onRetry }: {
+  saving: boolean;
+  saveError: string;
+  onRetry: () => void;
+}) {
+  if (saving) return <span className="min-w-[76px] text-center text-xs text-slate-400">Saving...</span>;
+  if (saveError) {
+    return (
+      <button type="button" className="btn-ghost min-h-[44px] min-w-[92px] px-3 text-xs text-red-700" onClick={onRetry}>
+        Retry save
+      </button>
+    );
+  }
+  return <span className="min-w-[76px] text-center text-xs text-slate-400">Saved</span>;
 }
 
 /* ------------------------------------------------------------------ */
@@ -399,7 +432,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
       <div className="space-y-4">
         <div className="rounded-2xl border border-brand/20 bg-brand-light p-5">
           <p className="text-xl leading-relaxed text-slate-800">{simple}</p>
-          {value === true && <p className="mt-3 text-lg font-bold text-emerald-600">✓ You said yes to this.</p>}
+          {value === true && <p className="mt-3 text-lg font-bold text-emerald-600">You said yes to this.</p>}
         </div>
         <details className="rounded-xl border border-slate-200 p-4">
           <summary className="cursor-pointer text-base font-semibold text-brand">Read the whole form</summary>
@@ -408,12 +441,18 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
         <button type="button"
           className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
           onClick={() => pickAndAdvance(q.key, true, "yes")}>
-          ✅ Yes, I agree
+          Yes, I understand and agree
         </button>
-        <button type="button" className="btn-ghost min-h-[56px] w-full text-lg text-slate-600"
-          onClick={() => pickAndAdvance(q.key, value ?? "", "skip")}>
-          I have a question - skip for now
-        </button>
+        {q.required ? (
+          <p className="rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">
+            Need help before you agree? Call Moore Divine Care at 336-285-5204.
+          </p>
+        ) : (
+          <button type="button" className="btn-ghost min-h-[56px] w-full text-lg text-slate-600"
+            onClick={() => pickAndAdvance(q.key, "", "skip")}>
+            Skip this one for now
+          </button>
+        )}
       </div>
     );
   }
@@ -439,6 +478,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
           const on = value === opt || justPicked === opt;
           return (
             <button key={opt} type="button"
+              aria-pressed={on}
               onClick={() => pickAndAdvance(q.key, opt, opt)}
               className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
                 ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}
@@ -461,15 +501,16 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
           const on = arr.includes(opt);
           return (
             <button key={opt} type="button"
+              aria-pressed={on}
               onClick={() => set(q.key, on ? arr.filter((x) => x !== opt) : [...arr, opt])}
               className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
                 ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}`}>
-              {on ? "✓ " : ""}{easyOpt(q, opt)}
+              {on ? "Selected: " : ""}{easyOpt(q, opt)}
             </button>
           );
         })}
         <button type="button" className="btn-primary mt-2 min-h-[64px] w-full text-xl" onClick={onNext}>
-          Done - Next ➡
+          Done - Next
         </button>
       </div>
     );
@@ -482,7 +523,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
         <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
           onChange={(e) => set(q.key, e.target.value)} />
         <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={onNext}>
-          Next ➡
+          Next
         </button>
       </div>
     );
@@ -505,7 +546,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
           onChange={(e) => set(q.key, e.target.value)} />
       )}
       <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={onNext}>
-        Next ➡
+        Next
       </button>
     </div>
   );
