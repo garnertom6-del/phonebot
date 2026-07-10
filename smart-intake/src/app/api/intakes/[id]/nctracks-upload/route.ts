@@ -5,7 +5,7 @@ import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { saveFile } from "@/lib/storage";
-import { applyNcTracksResult } from "@/lib/ncTracksLookup";
+import { applyNcTracksResult, describeNcTracksFields } from "@/lib/ncTracksLookup";
 import { extractFromNcTracksDocument, ncTracksDocumentConfigured } from "@/lib/ncTracksExtract";
 
 export const maxDuration = 180;
@@ -38,7 +38,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const buffer = Buffer.from(await file.arrayBuffer());
   let extraction;
   try {
-    extraction = await extractFromNcTracksDocument(buffer, mime);
+    extraction = await extractFromNcTracksDocument(buffer, mime, {
+      fullName: intake.client.fullName,
+      dob: intake.client.dob,
+      midNumber: intake.client.midNumber,
+    });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "NC Tracks document reading failed" }, { status: 502 });
   }
@@ -54,6 +58,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const current = await loadAnswers(intake.id);
   const { next, filled } = applyNcTracksResult(current, extraction.extracted);
   const withDefaults = applyOperationalDefaults(next);
+  const details = describeNcTracksFields(withDefaults, filled);
   if (filled.length) {
     await saveAnswers(intake.id, withDefaults);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
@@ -76,5 +81,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     filled,
     count: filled.length,
     extracted: extraction.fieldCount,
+    details,
   });
 }

@@ -25,6 +25,19 @@ export interface NcTracksLookupResult {
   nchc_policy?: string;
 }
 
+export const NC_TRACKS_FIELD_LABELS: Record<keyof NcTracksLookupResult, string> = {
+  mid_number: "MID #",
+  pcp_name: "Primary care doctor",
+  pcp_phone: "PCP phone",
+  pcp_address: "PCP address / practice",
+  preferred_emergency_facility: "Local hospital / ER",
+  mco: "Medicaid plan (MCO)",
+  medicaid_effective_date: "Medicaid effective date",
+  has_medicaid: "Medicaid",
+  has_nchc: "NC Health Choice",
+  nchc_policy: "NC Health Choice policy",
+};
+
 const ALLOWED_KEYS = new Set<keyof NcTracksLookupResult>([
   "mid_number",
   "pcp_name",
@@ -58,6 +71,20 @@ export function applyNcTracksResult(answers: Answers, result: NcTracksLookupResu
   }
   if (next.pcp_name && !next.c_practice) next.c_practice = next.pcp_name;
   return { next, filled };
+}
+
+export function describeNcTracksFields(
+  answers: Record<string, unknown>,
+  keys: string[],
+): Array<{ key: string; label: string; value: string }> {
+  return keys
+    .filter((key): key is keyof NcTracksLookupResult => key in NC_TRACKS_FIELD_LABELS)
+    .map((key) => ({
+      key,
+      label: NC_TRACKS_FIELD_LABELS[key],
+      value: clean(answers[key]),
+    }))
+    .filter((item) => item.value);
 }
 
 export async function lookupNcTracks(payload: NcTracksLookupPayload): Promise<NcTracksLookupResult> {

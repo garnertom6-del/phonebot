@@ -49,7 +49,9 @@ function normalizeResult(input: Record<string, unknown>): NcTracksLookupResult {
 }
 
 export async function extractFromNcTracksDocument(
-  fileBuffer: Buffer, mimeType: string,
+  fileBuffer: Buffer,
+  mimeType: string,
+  context?: { fullName?: string | null; dob?: string | null; midNumber?: string | null },
 ): Promise<{ extracted: NcTracksLookupResult; fieldCount: number }> {
   if (!ncTracksDocumentConfigured()) {
     throw new Error("Automatic NC Tracks document reading is not set up yet.");
@@ -78,9 +80,12 @@ export async function extractFromNcTracksDocument(
     system:
       "You read NC Tracks cards, screenshots, member summaries, or portal printouts and pull only staff-helper facts " +
       "that belong in a behavioral-health intake packet. Return only values actually shown in the document. Never guess. " +
+      "Treat Recipient ID, Medicaid ID, or Member ID as the MID when shown. Treat Primary Care Provider, PCP, Carolina ACCESS, " +
+      "or AMH provider as the PCP when shown. Treat Managing Entity, PHP, Tailored Plan, or Health Plan as the MCO when shown. " +
       "Keep PCP address and practice name together if they appear together. Normalize yes/no fields to Yes or No. " +
       "Use the emergency-facility field only if the document explicitly names a hospital or emergency facility. " +
-      "If Medicaid or NC Health Choice is not mentioned, omit it. Dates may stay as shown on the document.",
+      "If Medicaid or NC Health Choice is not mentioned, omit it. Dates may stay as shown on the document. " +
+      "If client context is provided, prefer values that match that client and ignore other household members or unrelated rows.",
     messages: [{
       role: "user",
       content: [
@@ -88,6 +93,8 @@ export async function extractFromNcTracksDocument(
         {
           type: "text",
           text:
+            `Client context: name=${context?.fullName || "unknown"}, dob=${context?.dob || "unknown"}, ` +
+            `mid=${context?.midNumber || "unknown"}.\n` +
             "Extract any of these fields that are present and return JSON only: " +
             "mid_number, pcp_name, pcp_phone, pcp_address, preferred_emergency_facility, " +
             "mco, medicaid_effective_date, has_medicaid, has_nchc, nchc_policy.",

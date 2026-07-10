@@ -43,6 +43,17 @@ export default function NewIntake() {
     }
   }
 
+  function ncTracksSuccessText(body: { count?: number; details?: Array<{ label?: string }> }): string {
+    const count = Number(body.count || 0);
+    const labels = Array.isArray(body.details)
+      ? body.details.map((item) => item?.label).filter((label): label is string => !!label)
+      : [];
+    if (!count) {
+      return "NC Tracks screenshot uploaded, but no matching helper fields were found. Best results come from a clear screenshot that shows Recipient ID, PCP, and plan details.";
+    }
+    return `NC Tracks screenshot scanned. Filled ${count} field${count === 1 ? "" : "s"}${labels.length ? `: ${labels.join(", ")}.` : "."}`;
+  }
+
   async function applyStarterInfo(intakeId: string) {
     const notes = helperNotes.trim();
     const messages: string[] = [];
@@ -66,11 +77,9 @@ export default function NewIntake() {
       const fd = new FormData();
       fd.set("file", ncTracksFile);
       const res = await fetch(`/api/intakes/${intakeId}/nctracks-upload`, { method: "POST", body: fd });
-      const body = await readResponse(res) as { count?: number; error?: string };
+      const body = await readResponse(res) as { count?: number; error?: string; details?: Array<{ label?: string }> };
       if (res.ok) {
-        messages.push(body.count
-          ? `NC Tracks card filled ${body.count} field${body.count === 1 ? "" : "s"}.`
-          : "NC Tracks card uploaded, but no matching fields were found.");
+        messages.push(ncTracksSuccessText(body));
       } else {
         messages.push(body.error || "NC Tracks card could not be read.");
         hadError = true;
@@ -223,7 +232,7 @@ export default function NewIntake() {
           {ncTracksTab === "upload" && (
             <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-white p-4">
               <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
-                {ncTracksFile ? "Replace NC Tracks file" : "Choose NC Tracks card / PDF"}
+                {ncTracksFile ? "Replace NC Tracks file" : "Choose NC Tracks screenshot / card / PDF"}
                 <input
                   type="file"
                   className="hidden"

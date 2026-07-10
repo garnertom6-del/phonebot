@@ -27,6 +27,15 @@ interface Detail {
   missingOptional: { key: string; label: string; section?: string }[];
 }
 
+const HELPER_FORM_KEYS = [
+  "record_number", "mid_number", "preferred_emergency_facility",
+  "race", "ethnicity", "marital_status", "employment_status",
+  "pcp_name", "pcp_phone", "pcp_address",
+  "ec1_name", "ec1_cell_phone", "staff_receiving_intake",
+  "height", "weight", "services_other", "transport_destination",
+  "staff_helper_notes",
+] as const;
+
 export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Detail | null>(null);
   const [note, setNote] = useState("");
@@ -56,6 +65,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const i = d.intake;
   const clientMessage = intakeShareMessage(d.clientLink);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink) : "";
+  const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -76,6 +86,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       medicalDirector: "Medical Director",
     };
     return labels[role] || role;
+  }
+
+  function ncTracksSuccessText(body: { count?: number; details?: Array<{ label?: string }> }): string {
+    const count = Number(body.count || 0);
+    const labels = Array.isArray(body.details)
+      ? body.details.map((item) => item?.label).filter((label): label is string => !!label)
+      : [];
+    if (!count) {
+      return "NC Tracks screenshot uploaded, but no matching helper fields were found. Best results come from a clear screenshot that shows Recipient ID, PCP, and plan details.";
+    }
+    return `NC Tracks screenshot scanned. Filled ${count} field${count === 1 ? "" : "s"}${labels.length ? `: ${labels.join(", ")}.` : "."}`;
   }
 
   async function uploadCca(file: File) {
@@ -171,16 +192,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   async function uploadNcTracks(file: File) {
     setNcTracksUploadBusy(true);
-    setNcTracksResult("Reading the NC Tracks card...");
+    setNcTracksResult("Reading the NC Tracks screenshot...");
     const fd = new FormData();
     fd.set("file", file);
     const r = await fetch(`/api/intakes/${i.id}/nctracks-upload`, { method: "POST", body: fd });
-    const b = await r.json().catch(() => ({}));
+    const b = await r.json().catch(() => ({})) as { count?: number; details?: Array<{ label?: string }>; error?: string };
     setNcTracksUploadBusy(false);
     if (r.ok) {
-      setNcTracksResult(b.count
-        ? `NC Tracks upload filled ${b.count} field(s).`
-        : "NC Tracks upload finished, but no matching fields were returned.");
+      setNcTracksResult(ncTracksSuccessText(b));
       load();
     } else {
       setNcTracksResult(b.error || "NC Tracks upload failed.");
@@ -309,10 +328,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <div className="flex flex-wrap gap-2">
               <button className="btn-primary px-3 py-1.5 text-sm" type="button" disabled={ncTracksBusy}
                 onClick={() => { void lookupNcTracks(); }}>
-                {ncTracksBusy ? "Looking up..." : "Auto lookup NC Tracks"}
+                {ncTracksBusy ? "Looking up..." : "Auto lookup from MID/client info"}
               </button>
               <label className={`btn-secondary cursor-pointer px-3 py-1.5 text-sm ${ncTracksUploadBusy ? "pointer-events-none opacity-60" : ""}`}>
-                {ncTracksUploadBusy ? "Reading upload..." : "Upload NC Tracks card / PDF"}
+                {ncTracksUploadBusy ? "Reading upload..." : "Upload NC Tracks screenshot / card / PDF"}
                 <input
                   type="file"
                   className="hidden"
@@ -327,7 +346,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </div>
           </div>
           {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
-          <form className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3" onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}>
+          <form
+            key={helperFormKey}
+            className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3"
+            onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
+          >
             <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
             <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
             <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
