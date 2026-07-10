@@ -1,12 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
-import { newIntakeToken, tokenExpiry, tokenExpiryDays } from "@/lib/tokens";
-import { audit } from "@/lib/auditLog";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { createStaffIntake } from "@/lib/staffIntakes";
 
 export async function GET(req: NextRequest) {
   try {
@@ -65,37 +63,7 @@ export async function POST(req: NextRequest) {
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
     }
-    const d = parsed.data;
-    const client = await prisma.client.create({
-      data: {
-        fullName: d.fullName, dob: d.dob, midNumber: d.midNumber, recordNumber: d.recordNumber,
-        email: d.email || null, phone: d.phone || null, guardianName: d.guardianName || null,
-        guardianEmail: d.guardianEmail || null, guardianPhone: d.guardianPhone || null,
-      },
-    });
-    const body = parsed.data as typeof parsed.data & { expectCca?: boolean };
-    const intake = await prisma.intake.create({
-      data: {
-        clientId: client.id, token: newIntakeToken(), tokenExpiresAt: tokenExpiry(),
-        expectCca: body.expectCca !== false,
-        intakeDate: d.intakeDate || new Date().toLocaleDateString("en-US"),
-        location: d.location || "Greensboro",
-      },
-    });
-    // Prefill answers from the staff-entered basics so the client doesn't retype them.
-    const prefill: Record<string, unknown> = applyOperationalDefaults({
-      client_full_name: d.fullName, dob: d.dob, mid_number: d.midNumber,
-      record_number: d.recordNumber, intake_date: intake.intakeDate, location: intake.location,
-      client_email: d.email, client_phone_cell: d.phone,
-      guardian_name: d.guardianName, guardian_email: d.guardianEmail, guardian_phone: d.guardianPhone,
-      is_minor_or_incompetent: d.guardianName ? "Yes" : undefined,
-    });
-    const entries = Object.entries(prefill).filter(([, v]) => v !== undefined && v !== "");
-    await prisma.$transaction(entries.map(([key, v]) =>
-      prisma.intakeAnswer.create({ data: { intakeId: intake.id, key, value: JSON.stringify(v) } })));
-    await audit("intake_created", { intakeId: intake.id, userId: user!.id, detail: d.fullName });
-    const base = appBaseUrl(req);
-    return NextResponse.json({ id: intake.id, clientLink: `${base}/intake/${intake.token}`, linkDays: tokenExpiryDays() });
+    return NextResponse.json(await createStaffIntake(parsed.data, user!.id, req));
   } catch (error) {
     console.error("POST /api/intakes failed", error);
     return NextResponse.json({ error: "Couldn't create the intake link right now." }, { status: 500 });

@@ -99,6 +99,7 @@ export default function Dashboard() {
         <div className="flex gap-2">
           <a href="/api/admin/backup" className="btn-ghost" title="Download a full copy of all client data - keep it somewhere safe">Download backup</a>
           <Link href="/admin/pdf-mapping" className="btn-ghost">PDF mapping</Link>
+          <Link href="/intakes/new-many" className="btn-secondary">+ Create Many</Link>
           <Link href="/intakes/new" className="btn-primary">+ Create New Intake</Link>
           <button className="btn-secondary" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); router.push("/login"); }}>Sign out</button>
         </div>

@@ -22,6 +22,15 @@ export const newIntakeSchema = z.object({
   expectCca: z.boolean().optional(),
 });
 
+export const batchIntakesSchema = z.object({
+  expectCca: z.boolean().optional(),
+  generateDraftPackets: z.boolean().optional(),
+  generatePackets: z.boolean().optional(),
+  intakes: z.array(newIntakeSchema)
+    .min(1, "Add at least one intake")
+    .max(25, "Create 25 intakes or fewer at a time"),
+});
+
 export const answersSchema = z.record(
   z.union([z.string(), z.boolean(), z.number(), z.array(z.string())]),
 );
