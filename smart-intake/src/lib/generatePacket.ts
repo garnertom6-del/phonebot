@@ -5,6 +5,7 @@ import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } fr
 import { saveFile } from "@/lib/storage";
 import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
+import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 
 export async function generatePacketForIntake(intakeId: string, userId: string, providerId?: string) {
   const intake = await prisma.intake.findFirst({
@@ -52,6 +53,17 @@ export async function generatePacketForIntake(intakeId: string, userId: string, 
     userId,
     detail: `${result.filled} fields filled`,
   });
+  if (signed && intake.providerId) {
+    try {
+      await autoSendCompletedCopiesIfEnabled({
+        intakeId: intake.id,
+        providerId: intake.providerId,
+        userId,
+      });
+    } catch (e) {
+      console.error("auto-send completed copies failed", e);
+    }
+  }
 
   return { filled: result.filled, skipped: result.skipped.length };
 }
