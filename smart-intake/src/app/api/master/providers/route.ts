@@ -50,6 +50,22 @@ export async function GET() {
         include: { user: { select: { id: true, email: true, name: true, role: true } } },
         orderBy: { createdAt: "asc" },
       },
+      pdfTemplates: {
+        where: { isActive: true },
+        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
+        take: 1,
+        select: {
+          id: true,
+          name: true,
+          originalFileName: true,
+          pageCount: true,
+          pageWidth: true,
+          pageHeight: true,
+          isActive: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
     },
     orderBy: [{ status: "asc" }, { name: "asc" }],
   });

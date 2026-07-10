@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { createDocuSignEnvelope, docusignConfigured } from "@/lib/docusign";
-import { fillPacket, mergedMap } from "@/lib/fillPdf";
-import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } from "@/lib/intakeData";
+import { fillPacket } from "@/lib/fillPdf";
+import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
+import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, provider, deny } = await requireStaff();
@@ -26,15 +27,17 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const signatures = await loadSignatures(intake.id);
   delete signatures.client;
   delete signatures.guardian;
-  const overrides = await mappingOverrides();
+  const packetTemplate = await packetTemplateForProvider(provider!.id);
   const result = await fillPacket({
     answers, signatures,
-    consents, overrides,
+    consents,
+    templateBytes: packetTemplate.bytes,
+    fields: packetTemplate.fields,
   });
   try {
     const { envelopeId } = await createDocuSignEnvelope(
       Buffer.from(result.pdfBytes), intake.client.email, intake.client.fullName,
-      answers, consents, mergedMap(overrides),
+      answers, consents, packetTemplate.fields, provider!.name, packetTemplate.pageHeight,
     );
     await prisma.intake.update({ where: { id: intake.id }, data: { docusignEnvelopeId: envelopeId } });
     await audit("docusign_sent", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: envelopeId });

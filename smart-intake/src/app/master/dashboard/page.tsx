@@ -14,6 +14,17 @@ type ProviderRow = {
   phone?: string | null;
   createdAt: string;
   _count: { clients: number; intakes: number; memberships: number };
+  pdfTemplates: Array<{
+    id: string;
+    name: string;
+    originalFileName?: string | null;
+    pageCount: number;
+    pageWidth?: number | null;
+    pageHeight?: number | null;
+    isActive: boolean;
+    createdAt: string;
+    updatedAt: string;
+  }>;
   memberships: Array<{
     id: string;
     role: string;
@@ -41,6 +52,10 @@ export default function MasterDashboard() {
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [selectedProviderId, setSelectedProviderId] = useState("");
+  const [packetFile, setPacketFile] = useState<File | null>(null);
+  const [packetBusy, setPacketBusy] = useState(false);
+  const [fileInputKey, setFileInputKey] = useState(0);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -107,6 +122,44 @@ export default function MasterDashboard() {
     await load();
   }
 
+  async function uploadPacket(e: React.FormEvent) {
+    e.preventDefault();
+    const provider = providers.find((item) => item.id === selectedProviderId);
+    if (!provider) {
+      setError("Select a provider first.");
+      return;
+    }
+    if (!packetFile) {
+      setError("Choose a PDF packet to upload.");
+      return;
+    }
+
+    setPacketBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const formData = new FormData();
+      formData.append("file", packetFile);
+      const res = await fetch(`/api/master/providers/${provider.id}/packet-template`, {
+        method: "POST",
+        body: formData,
+      });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(body.error || "Packet could not be uploaded.");
+      setPacketFile(null);
+      setFileInputKey((current) => current + 1);
+      setNote(`${provider.name} packet is active: ${body.template?.originalFileName || "uploaded PDF"}.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Packet could not be uploaded.");
+    } finally {
+      setPacketBusy(false);
+    }
+  }
+
+  const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null;
+  const selectedTemplate = selectedProvider?.pdfTemplates?.[0] || null;
+
   return (
     <main className="mx-auto max-w-7xl p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
@@ -165,23 +218,76 @@ export default function MasterDashboard() {
         </form>
       </section>
 
+      <section className="mb-6 rounded-lg border border-slate-200 bg-white p-5 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold">Provider Packet Setup</h2>
+            <p className="text-sm text-slate-500">Upload the provider's intake packet PDF used for PDF preview, download, and DocuSign.</p>
+          </div>
+          {selectedProvider && (
+            <span className="badge bg-slate-100 text-slate-700">{selectedProvider.name}</span>
+          )}
+        </div>
+        <form onSubmit={uploadPacket} className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+          <label>
+            <span className="label">Provider</span>
+            <select className="input" value={selectedProviderId} onChange={(e) => setSelectedProviderId(e.target.value)}>
+              <option value="">Select provider</option>
+              {providers.map((provider) => (
+                <option key={provider.id} value={provider.id}>{provider.name}</option>
+              ))}
+            </select>
+          </label>
+          <label className="lg:col-span-2">
+            <span className="label">Intake packet PDF</span>
+            <input
+              key={fileInputKey}
+              className="input"
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(e) => setPacketFile(e.target.files?.[0] || null)}
+            />
+          </label>
+          <div className="flex items-end">
+            <button className="btn-primary w-full" disabled={packetBusy || !selectedProviderId}>
+              {packetBusy ? "Uploading..." : "Upload packet"}
+            </button>
+          </div>
+        </form>
+        <div className="mt-4 rounded-md bg-slate-50 p-3 text-sm text-slate-600">
+          {selectedProvider ? (
+            selectedTemplate ? (
+              <span>
+                Active packet: <strong>{selectedTemplate.originalFileName || selectedTemplate.name}</strong>
+                {" "}({selectedTemplate.pageCount} pages, updated {new Date(selectedTemplate.updatedAt).toLocaleDateString()}).
+              </span>
+            ) : (
+              <span>Active packet: default Moore Divine Care packet.</span>
+            )
+          ) : (
+            <span>Select a provider to view packet status.</span>
+          )}
+        </div>
+      </section>
+
       <section className="overflow-x-auto rounded-lg border border-slate-200 bg-white shadow-sm">
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
-              {["Provider", "Status", "Provider admin", "Clients", "Intakes", "Users", "Actions"].map((h) => (
+              {["Provider", "Status", "Provider admin", "Packet", "Clients", "Intakes", "Users", "Actions"].map((h) => (
                 <th key={h} className="px-4 py-3">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={7} className="p-6 text-center text-slate-400">Loading...</td></tr>}
-            {!loading && providers.length === 0 && <tr><td colSpan={7} className="p-6 text-center text-slate-400">No providers yet.</td></tr>}
+            {loading && <tr><td colSpan={8} className="p-6 text-center text-slate-400">Loading...</td></tr>}
+            {!loading && providers.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-400">No providers yet.</td></tr>}
             {providers.map((provider) => {
               const admins = provider.memberships
                 .filter((membership) => membership.active && membership.role === "PROVIDER_ADMIN")
                 .map((membership) => membership.user.email);
               const active = provider.status === "ACTIVE";
+              const packet = provider.pdfTemplates?.[0] || null;
               return (
                 <tr key={provider.id} className="border-t border-slate-100">
                   <td className="px-4 py-3">
@@ -197,16 +303,34 @@ export default function MasterDashboard() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-xs">{admins.length ? admins.join(", ") : "-"}</td>
+                  <td className="px-4 py-3 text-xs">
+                    {packet ? (
+                      <div>
+                        <div className="font-semibold text-slate-700">{packet.originalFileName || "Provider packet"}</div>
+                        <div className="text-slate-500">{packet.pageCount} pages</div>
+                      </div>
+                    ) : (
+                      <span className="text-slate-500">Default</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">{provider._count.clients}</td>
                   <td className="px-4 py-3">{provider._count.intakes}</td>
                   <td className="px-4 py-3">{provider._count.memberships}</td>
                   <td className="px-4 py-3">
-                    <button
-                      className={active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
-                      onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}
-                    >
-                      {active ? "Deactivate" : "Activate"}
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        className="btn-ghost px-3 py-1.5 text-xs"
+                        onClick={() => setSelectedProviderId(provider.id)}
+                      >
+                        Packet setup
+                      </button>
+                      <button
+                        className={active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
+                        onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}
+                      >
+                        {active ? "Deactivate" : "Activate"}
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );

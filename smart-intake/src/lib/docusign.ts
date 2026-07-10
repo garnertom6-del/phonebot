@@ -67,19 +67,20 @@ function appliesToClientSigner(f: FieldMapping, answers: Answers, consents: Reco
   return true;
 }
 
-function toDocuSignTab(f: FieldMapping, kind: "sign" | "date"): DocuSignTab {
+function toDocuSignTab(f: FieldMapping, kind: "sign" | "date", pageHeight: number): DocuSignTab {
   return {
     documentId: "1",
     pageNumber: String(f.page),
     recipientId: "1",
     tabLabel: `${kind}_${f.fieldKey}`,
     xPosition: String(Math.round(f.x)),
-    yPosition: String(Math.round(PACKET_MAP.pageHeight - f.y - f.height)),
+    yPosition: String(Math.round(pageHeight - f.y - f.height)),
   };
 }
 
 export function clientDocuSignTabs(
   answers: Answers, consents: Record<string, boolean>, fields: FieldMapping[] = PACKET_MAP.fields,
+  pageHeight = PACKET_MAP.pageHeight,
 ): { signHereTabs: DocuSignTab[]; dateSignedTabs: DocuSignTab[] } {
   const signatureFields = fields
     .filter((f) => f.type === "signature" || f.type === "signature_small")
@@ -90,8 +91,8 @@ export function clientDocuSignTabs(
     .filter((f) => appliesToClientSigner(f, answers, consents));
 
   return {
-    signHereTabs: signatureFields.map((f) => toDocuSignTab(f, "sign")),
-    dateSignedTabs: dateFields.map((f) => toDocuSignTab(f, "date")),
+    signHereTabs: signatureFields.map((f) => toDocuSignTab(f, "sign", pageHeight)),
+    dateSignedTabs: dateFields.map((f) => toDocuSignTab(f, "date", pageHeight)),
   };
 }
 
@@ -99,9 +100,11 @@ export async function createDocuSignEnvelope(
   completedPdf: Buffer, clientEmail: string, clientName: string,
   answers: Answers = {}, consents: Record<string, boolean> = {},
   fields: FieldMapping[] = PACKET_MAP.fields,
+  providerName = "Moore Divine Care, Inc.",
+  pageHeight = PACKET_MAP.pageHeight,
 ): Promise<{ envelopeId: string }> {
   if (!docusignConfigured()) throw new Error("DocuSign not configured");
-  const tabs = clientDocuSignTabs(answers, consents, fields);
+  const tabs = clientDocuSignTabs(answers, consents, fields, pageHeight);
   if (tabs.signHereTabs.length === 0) throw new Error("No client DocuSign signature tabs found");
   const token = await getAccessToken();
   const base = process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
@@ -111,7 +114,7 @@ export async function createDocuSignEnvelope(
       method: "POST",
       headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        emailSubject: "Moore Divine Care, Inc. - Client Intake Package for signature",
+        emailSubject: `${providerName} - Client Intake Package for signature`,
         envelopeIdStamping: "false",
         status: "sent",
         documents: [{

@@ -1,11 +1,12 @@
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { fillPacket } from "@/lib/fillPdf";
-import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } from "@/lib/intakeData";
+import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { saveFile } from "@/lib/storage";
 import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
 
 export async function generatePacketForIntake(intakeId: string, userId: string, providerId?: string) {
   const intake = await prisma.intake.findFirst({
@@ -17,11 +18,13 @@ export async function generatePacketForIntake(intakeId: string, userId: string, 
   const answers = await loadAnswers(intake.id);
   const signatures = await loadSignatures(intake.id);
   const consents = consentsFromAnswers(answers);
+  const packetTemplate = await packetTemplateForProvider(intake.providerId);
   const result = await fillPacket({
     answers,
     signatures,
     consents,
-    overrides: await mappingOverrides(),
+    templateBytes: packetTemplate.bytes,
+    fields: packetTemplate.fields,
   });
   const consentLabels = Object.entries(consents)
     .filter(([, agreed]) => agreed)
@@ -51,7 +54,7 @@ export async function generatePacketForIntake(intakeId: string, userId: string, 
     providerId: intake.providerId || undefined,
     intakeId: intake.id,
     userId,
-    detail: `${result.filled} fields filled`,
+    detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`,
   });
   if (signed && intake.providerId) {
     try {

@@ -33,10 +33,11 @@ model Provider {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  memberships UserMembership[]
-  clients     Client[]
-  intakes     Intake[]
-  auditLogs   AuditLog[]
+  memberships  UserMembership[]
+  clients      Client[]
+  intakes      Intake[]
+  auditLogs    AuditLog[]
+  pdfTemplates PdfTemplate[]
 }
 
 model UserMembership {
@@ -153,12 +154,21 @@ model Signature {
 }
 
 model PdfTemplate {
-  id            String            @id @default(uuid())
-  name          String            @unique
-  filePath      String
-  pageCount     Int
-  createdAt     DateTime          @default(now())
-  fieldMappings PdfFieldMapping[]
+  id               String            @id @default(uuid())
+  name             String            @unique
+  filePath         String
+  pageCount        Int
+  pageWidth        Float?
+  pageHeight       Float?
+  providerId       String?
+  provider         Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  originalFileName String?
+  isActive         Boolean           @default(true)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @default(now()) @updatedAt
+  fieldMappings    PdfFieldMapping[]
+
+  @@index([providerId, isActive])
 }
 
 // Admin mapping-screen overrides; merged over src/config/mooreDivinePacketMap.json

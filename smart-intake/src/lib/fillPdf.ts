@@ -109,6 +109,8 @@ export interface FillInput {
   signatures: Record<string, SignatureRecord>;
   consents: Record<string, boolean>;
   overrides?: FieldMapping[];       // admin mapping-screen overrides
+  fields?: FieldMapping[];          // fully resolved field map
+  templateBytes?: Buffer | Uint8Array;
   includeStaffFields?: boolean;     // default true; staff answers fill staff slots
 }
 
@@ -145,7 +147,7 @@ export function mergedMap(overrides?: FieldMapping[]): FieldMapping[] {
 }
 
 export async function fillPacket(input: FillInput): Promise<FillResult> {
-  const doc = await PDFDocument.load(loadTemplateBytes());
+  const doc = await PDFDocument.load(input.templateBytes ?? loadTemplateBytes());
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
   const pages = doc.getPages();
@@ -188,7 +190,7 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
 
   let filled = 0;
   const skipped: string[] = [];
-  for (const f of mergedMap(input.overrides)) {
+  for (const f of input.fields ?? mergedMap(input.overrides)) {
     const page = pages[f.page - 1];
     if (!page) continue;
     const staffRoles = ["staff", "clinician", "medicalDirector", "witness"];

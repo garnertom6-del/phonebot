@@ -227,9 +227,21 @@ async function main() {
     where: { name: "Moore Divine Care Client Intake Package" },
     create: {
       name: "Moore Divine Care Client Intake Package",
-      filePath: "public/templates/MooreDivineCare_Intake_Packet-1.pdf", pageCount: 43,
+      filePath: "public/templates/MooreDivineCare_Intake_Packet-1.pdf",
+      pageCount: 43,
+      pageWidth: 612,
+      pageHeight: 792,
+      originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+      isActive: true,
     },
-    update: {},
+    update: {
+      filePath: "public/templates/MooreDivineCare_Intake_Packet-1.pdf",
+      pageCount: 43,
+      pageWidth: 612,
+      pageHeight: 792,
+      originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+      isActive: true,
+    },
   });
   await prisma.client.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
   await prisma.intake.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });

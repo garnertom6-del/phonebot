@@ -3,8 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { fillPacket } from "@/lib/fillPdf";
-import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } from "@/lib/intakeData";
+import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { readFile, fileExists } from "@/lib/storage";
+import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+
+function fileSafe(value: string) {
+  return value.replace(/\W+/g, "-").replace(/^-+|-+$/g, "") || "Intake";
+}
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, provider, deny } = await requireStaff();
@@ -21,16 +26,18 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     bytes = readFile(latest.filePath);
   } else {
     const answers = await loadAnswers(intake.id);
+    const packetTemplate = await packetTemplateForProvider(provider!.id);
     const result = await fillPacket({
       answers,
       signatures: await loadSignatures(intake.id),
       consents: consentsFromAnswers(answers),
-      overrides: await mappingOverrides(),
+      templateBytes: packetTemplate.bytes,
+      fields: packetTemplate.fields,
     });
     bytes = Buffer.from(result.pdfBytes);
   }
   await audit("pdf_downloaded", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
-  const name = `MooreDivineCare-Intake-${intake.client.fullName.replace(/\W+/g, "-")}.pdf`;
+  const name = `${fileSafe(provider!.name)}-Intake-${fileSafe(intake.client.fullName)}.pdf`;
   return new NextResponse(bytes as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/pdf",
