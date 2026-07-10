@@ -2,6 +2,7 @@
 import os
 from flask import Flask, request
 from twilio.twiml.voice_response import VoiceResponse, Gather
+from twilio.twiml.messaging_response import MessagingResponse
 import anthropic
 
 from intake import intake_bp
@@ -86,6 +87,38 @@ def respond():
     gather.say(reply)
     response.append(gather)
     response.redirect("/voice")
+    return str(response)
+
+# Incoming text messages. Twilio POSTs here when a customer texts your number.
+# Point your Twilio number's "A MESSAGE COMES IN" webhook at https://<your-app>/sms
+@app.route("/sms", methods=["POST"])
+def sms():
+    from_number = request.form.get("From", "")
+    body = request.form.get("Body", "").strip()
+    response = MessagingResponse()
+
+    if not body:
+        response.message("Hi! Text me your account name or number to reactivate, "
+                         "or tell me what you need help with.")
+        return str(response)
+
+    # Keep a separate thread per phone number so replies have context.
+    key = "sms:%s" % from_number
+    history = conversations.get(key, [])
+    history.append({"role": "user", "content": body})
+
+    ai = client.messages.create(
+        model="claude-sonnet-4-6",
+        max_tokens=300,
+        system=SYSTEM_PROMPT,
+        messages=history,
+    )
+    reply = ai.content[0].text
+
+    history.append({"role": "assistant", "content": reply})
+    conversations[key] = history
+
+    response.message(reply)
     return str(response)
 
 # Simple health check - open the site in a browser to confirm it's alive.
