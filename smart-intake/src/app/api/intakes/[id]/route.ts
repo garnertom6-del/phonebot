@@ -6,6 +6,7 @@ import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -54,6 +55,18 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const allowed = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];
     if (!allowed.includes(body.status)) return NextResponse.json({ error: "Bad status" }, { status: 400 });
     await prisma.intake.update({ where: { id: intake.id }, data: { status: body.status } });
+    if (body.status === "COMPLETED") {
+      try {
+        await autoSendCompletedCopiesIfEnabled({
+          intakeId: intake.id,
+          providerId: provider!.id,
+          userId: user!.id,
+          req,
+        });
+      } catch (e) {
+        console.error("auto-send completed copies failed", e);
+      }
+    }
   }
   if (body.extendToken) {
     const days = parseInt(process.env.CLIENT_LINK_EXPIRY_DAYS || "7", 10);
