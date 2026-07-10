@@ -1,0 +1,17 @@
+# Render blueprint - deploys the Medicaid eligibility app with one click.
+# In Render: New -> Blueprint -> pick this repo -> Apply.
+#
+# Note: on the free plan the SQLite database resets whenever the service
+# redeploys or sleeps. Fine for testing with fake clients; before real use,
+# add a Render Postgres database and set DATABASE_URL (see ELIGIBILITY.md).
+services:
+  - type: web
+    name: mh-eligibility
+    runtime: python
+    plan: free
+    branch: claude/mental-health-automation-w83po9
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn mh_app:app
+    envVars:
+      - key: CRON_TOKEN
+        generateValue: true # protects the monthly re-check endpoint
