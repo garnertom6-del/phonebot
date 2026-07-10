@@ -28,6 +28,13 @@
     .card { background: #fff; border-radius: 8px; padding: 18px 20px; margin-bottom: 18px; }
     .muted { color: #6c7a89; font-size: 13px; }
     pre { background: #eef2f6; padding: 12px; border-radius: 6px; overflow-x: auto; font-size: 12px; }
+    /* Phone-friendly: tables scroll sideways instead of squeezing, bigger tap targets. */
+    @media (max-width: 640px) {
+      main { margin: 12px auto; }
+      table { display: block; overflow-x: auto; white-space: nowrap; }
+      .btn { padding: 12px 16px; margin: 4px 0; }
+      input[type=text], input[type=date] { max-width: 100%; font-size: 16px; }
+    }
   </style>
 </head>
 <body>
