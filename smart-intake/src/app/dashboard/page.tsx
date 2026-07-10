@@ -6,6 +6,7 @@ import { useCallback, useEffect, useState } from "react";
 interface Row {
   id: string; status: string; percentComplete: number; hasPdf: boolean;
   hasCca: boolean; ccaDetail?: string;
+  copiesSentAt?: string | null; autoSendCopies?: boolean;
   client: { fullName: string; dob: string; midNumber?: string; phone?: string; email?: string; guardianName?: string };
   missingRequired: { key: string; label: string }[];
   linkSentAt?: string; lastActivityAt?: string; submittedAt?: string; token: string;
@@ -34,6 +35,7 @@ const TABS = [
   { key: "waiting", label: "Waiting on client", statuses: ["NOT_STARTED", "IN_PROGRESS"] },
   { key: "signed", label: "Signed", statuses: ["SIGNED"] },
   { key: "done", label: "Done", statuses: ["COMPLETED"] },
+  { key: "copies", label: "Completed copies", statuses: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"] },
   { key: "all", label: "All", statuses: [] as string[] },
   { key: "archived", label: "Archived", statuses: [] as string[] },
 ];
@@ -72,6 +74,12 @@ export default function Dashboard() {
     setNote(`Link copied for ${row.client.fullName}`);
     setTimeout(() => setNote(""), 2500);
   }
+  async function copyCompletedLink(row: Row) {
+    const link = `${window.location.origin}/copies/${row.token}`;
+    await navigator.clipboard.writeText(link);
+    setNote(`Completed copy link copied for ${row.client.fullName}`);
+    setTimeout(() => setNote(""), 2500);
+  }
   async function remind(row: Row) {
     const r = await fetch(`/api/intakes/${row.id}/remind`, { method: "POST" });
     const b = await r.json().catch(() => ({}));
@@ -81,6 +89,34 @@ export default function Dashboard() {
       setNote(`${sent}${failed}`);
     } else {
       setNote(`Not sent: ${b.failed?.join("; ") || b.error || r.status}`);
+    }
+    setTimeout(() => setNote(""), 6000);
+  }
+  async function sendCopies(row: Row) {
+    const r = await fetch(`/api/intakes/${row.id}/copies`, { method: "POST" });
+    const b = await r.json().catch(() => ({}));
+    if (r.ok) {
+      const sent = b.sent?.length ? `Queued: ${b.sent.join(", ")}` : "No phone or email saved for this client.";
+      const failed = b.failed?.length ? ` Not sent: ${b.failed.join("; ")}` : "";
+      setNote(`${sent}${failed}`);
+      load(tab);
+    } else {
+      setNote(`Completed copies not sent: ${b.failed?.join("; ") || b.error || r.status}`);
+    }
+    setTimeout(() => setNote(""), 6000);
+  }
+  async function setAutoCopies(row: Row, autoSend: boolean) {
+    const r = await fetch(`/api/intakes/${row.id}/copies/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoSend }),
+    });
+    const b = await r.json().catch(() => ({}));
+    if (r.ok) {
+      setNote(`Auto-send completed copies ${autoSend ? "on" : "off"} for ${row.client.fullName}`);
+      load(tab);
+    } else {
+      setNote(`Auto-send update failed: ${b.error || r.status}`);
     }
     setTimeout(() => setNote(""), 6000);
   }
@@ -122,14 +158,14 @@ export default function Dashboard() {
         <table className="w-full text-left text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-500">
             <tr>
-              {["Client", "DOB", "MID#", "Contact", "Guardian", "Status", "CCA / Packet", "Missing required", "Actions"].map((h) => (
+              {["Client", "DOB", "MID#", "Contact", "Guardian", "Status", "CCA / Packet", "Copies", "Missing required", "Actions"].map((h) => (
                 <th key={h} className="px-4 py-3">{h}</th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {visible === null && <tr><td colSpan={9} className="p-6 text-center text-slate-400">Loading...</td></tr>}
-            {visible?.length === 0 && <tr><td colSpan={9} className="p-6 text-center text-slate-400">
+            {visible === null && <tr><td colSpan={10} className="p-6 text-center text-slate-400">Loading...</td></tr>}
+            {visible?.length === 0 && <tr><td colSpan={10} className="p-6 text-center text-slate-400">
               {tab === "all" ? "No intakes yet - create one!" : "Nothing here right now."}</td></tr>}
             {visible?.map((r) => (
               <tr key={r.id} className="border-t border-slate-100 hover:bg-slate-50">
@@ -153,6 +189,16 @@ export default function Dashboard() {
                     {r.ccaDetail && <span className="text-emerald-700">{r.ccaDetail}</span>}
                   </div>
                 </td>
+                <td className="px-4 py-3 text-xs">
+                  <div className="flex flex-col gap-1">
+                    <span className={`badge ${r.copiesSentAt ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"}`}>
+                      {r.copiesSentAt ? `Sent ${new Date(r.copiesSentAt).toLocaleDateString()}` : "Not sent"}
+                    </span>
+                    <span className={`badge ${r.autoSendCopies ? "bg-brand text-white" : "bg-slate-100 text-slate-600"}`}>
+                      Auto-send {r.autoSendCopies ? "on" : "off"}
+                    </span>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-xs text-red-600">
                   {r.missingRequired.length ? r.missingRequired.map((m) => m.label).join(", ") : <span className="text-emerald-600">None</span>}
                 </td>
@@ -163,6 +209,11 @@ export default function Dashboard() {
                     <Link href={`/intakes/${r.id}/pdf-preview`} className="btn-ghost px-2 py-1 text-xs">PDF</Link>
                     <button className="btn-ghost px-2 py-1 text-xs" onClick={() => copyLink(r)}>Copy link</button>
                     <button className="btn-ghost px-2 py-1 text-xs" onClick={() => remind(r)}>Remind</button>
+                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => sendCopies(r)}>Send copies</button>
+                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => copyCompletedLink(r)}>Copy copies link</button>
+                    <button className="btn-ghost px-2 py-1 text-xs" onClick={() => setAutoCopies(r, !r.autoSendCopies)}>
+                      {r.autoSendCopies ? "Auto off" : "Auto on"}
+                    </button>
                     {r.status !== "COMPLETED" && (
                       <button className="btn-ghost px-2 py-1 text-xs" onClick={() => markCompleted(r)}>Mark completed</button>
                     )}
