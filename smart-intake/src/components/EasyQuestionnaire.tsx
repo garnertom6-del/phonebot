@@ -50,6 +50,11 @@ function isAnswered(v: Answers[string] | undefined): boolean {
   return v !== undefined && v !== "" && v !== false && !(Array.isArray(v) && !v.length);
 }
 
+// answers that control whether OTHER questions appear - the visible-question
+// list only needs recomputing when one of these changes, not on every keystroke
+const GATE_KEYS: string[] = [...new Set(
+  SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)))];
+
 export default function EasyQuestionnaire({ token, clientName, initialAnswers, initialStatus, signed, quick = false }: {
   token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
   signed: { client?: boolean; guardian?: boolean }; quick?: boolean;
@@ -68,7 +73,9 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
   const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
 
-  const flat = useMemo(() => flattenVisible(answers, quick), [answers, quick]);
+  const gateFingerprint = JSON.stringify(GATE_KEYS.map((k) => answers[k]));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const flat = useMemo(() => flattenVisible(answers, quick), [gateFingerprint, quick]);
 
   // Refs so timers (auto-advance) always see the latest state.
   const answersRef = useRef(answers); answersRef.current = answers;
@@ -77,6 +84,8 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const breakCount = useRef(0);
+  // what the server already has - autosaves send only the diff, not all 200+ answers
+  const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
 
   useEffect(() => () => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
@@ -92,12 +101,19 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
 
   const saveNow = useCallback(async (event?: "started" | "completed"): Promise<boolean> => {
     setSaving(true);
+    // send only answers that changed since the last successful save
+    const snapshot = answersRef.current;
+    const changed: Answers = {};
+    for (const [k, v] of Object.entries(snapshot)) {
+      if (JSON.stringify(v) !== JSON.stringify(savedRef.current[k])) changed[k] = v;
+    }
+    if (!Object.keys(changed).length && !event) { setSaving(false); return true; }
     try {
       const res = await fetch(`/api/intake/${token}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          answers: answersRef.current,
+          answers: changed,
           section: flatRef.current[idxRef.current]?.sectionKey,
           event,
         }),
@@ -109,6 +125,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
         return false;
       }
       if (!res.ok) throw new Error("Save failed");
+      savedRef.current = { ...savedRef.current, ...changed };
       setSaveError("");
       return true;
     } catch {

@@ -39,6 +39,8 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   const [uploadStatus, setUploadStatus] = useState<Record<string, string>>({});
   const answersRef = useRef(answers);
   answersRef.current = answers;
+  // what the server already has - saves send only the diff
+  const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
 
   const fastMode = answers.intake_mode === "Fast Intake - required questions first";
   const steps: Section[] = useMemo(() => {
@@ -55,12 +57,19 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
 
   const save = useCallback(async (sectionKey?: string, event?: string): Promise<boolean> => {
     setSaving(true);
+    const snapshot = answersRef.current;
+    const changed: Answers = {};
+    for (const [k, v] of Object.entries(snapshot)) {
+      if (JSON.stringify(v) !== JSON.stringify(savedRef.current[k])) changed[k] = v;
+    }
+    if (!Object.keys(changed).length && !event) { setSaving(false); return true; }
     try {
       const res = await fetch(`/api/intake/${token}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answersRef.current, section: sectionKey, event }),
+        body: JSON.stringify({ answers: changed, section: sectionKey, event }),
       });
       if (!res.ok) throw new Error("Save failed");
+      savedRef.current = { ...savedRef.current, ...changed };
       setSaveError("");
       return true;
     } catch {

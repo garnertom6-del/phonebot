@@ -118,12 +118,16 @@ export interface FillResult {
   skipped: string[]; // fieldKeys left blank (no value / consent not given)
 }
 
+let templateCache: Buffer | null = null;
+
 export function loadTemplateBytes(): Buffer {
+  // the 43-page template never changes at runtime - read it from disk once
+  if (templateCache) return templateCache;
   const candidates = [
     path.join(process.cwd(), "public", "templates", TEMPLATE_FILE),
     path.join(process.cwd(), TEMPLATE_FILE),
   ];
-  for (const p of candidates) if (fs.existsSync(p)) return fs.readFileSync(p);
+  for (const p of candidates) if (fs.existsSync(p)) { templateCache = fs.readFileSync(p); return templateCache; }
   throw new Error(
     `Template PDF not found. Place ${TEMPLATE_FILE} in the project root ` +
     `(and public/templates/). Searched: ${candidates.join(", ")}`,

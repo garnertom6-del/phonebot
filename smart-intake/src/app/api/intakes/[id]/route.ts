@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, loadSignatures, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
@@ -13,24 +13,24 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const intake = await prisma.intake.findUnique({
     where: { id: params.id },
     include: {
-      client: true, signatures: true, uploadedDocuments: true,
-      generatedPdfs: { orderBy: { createdAt: "desc" } },
-      auditLogs: { orderBy: { createdAt: "desc" }, take: 50 },
+      client: true,
+      // never ship signature image blobs or server file paths to the browser
+      signatures: { select: { role: true, printedName: true, signedDate: true } },
+      uploadedDocuments: { select: { id: true, docType: true, fileName: true, createdAt: true } },
+      generatedPdfs: { orderBy: { createdAt: "desc" }, select: { id: true, createdAt: true, sha256: true } },
+      auditLogs: { orderBy: { createdAt: "desc" }, take: 50, select: { id: true, event: true, detail: true, createdAt: true } },
     },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
-  const sigs = await loadSignatures(intake.id);
+  const signed = intake.signatures.some((s) => s.role === "client" || s.role === "guardian");
   const base = appBaseUrl(_req);
   return NextResponse.json({
-    intake: {
-      ...intake,
-      signatures: intake.signatures.map((s) => ({ role: s.role, printedName: s.printedName, signedDate: s.signedDate })),
-    },
+    intake,
     answers,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),
-    missingRequired: missingRequired(answers, !!(sigs.client || sigs.guardian)),
+    missingRequired: missingRequired(answers, signed),
     missingOptional: missingOptional(answers),
   });
 }
