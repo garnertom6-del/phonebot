@@ -12,17 +12,52 @@ datasource db {
 }
 
 model User {
-  id           String     @id @default(uuid())
-  email        String     @unique
+  id           String           @id @default(uuid())
+  email        String           @unique
   passwordHash String
   name         String
-  role         String     @default("staff") // staff | admin | reviewer
-  createdAt    DateTime   @default(now())
+  role         String           @default("staff") // master | admin | staff | reviewer
+  createdAt    DateTime         @default(now())
   auditLogs    AuditLog[]
+  memberships  UserMembership[]
+}
+
+model Provider {
+  id          String   @id @default(uuid())
+  name        String
+  slug        String   @unique
+  status      String   @default("ACTIVE") // ACTIVE | INACTIVE
+  contactName String?
+  email       String?
+  phone       String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  memberships UserMembership[]
+  clients     Client[]
+  intakes     Intake[]
+  auditLogs   AuditLog[]
+}
+
+model UserMembership {
+  id         String   @id @default(uuid())
+  userId     String
+  providerId String
+  role       String   @default("STAFF") // PROVIDER_ADMIN | STAFF | REVIEWER
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, providerId])
+  @@index([providerId])
 }
 
 model Client {
-  id            String   @id @default(uuid())
+  id            String    @id @default(uuid())
+  providerId    String?
+  provider      Provider? @relation(fields: [providerId], references: [id])
   fullName      String
   dob           String
   midNumber     String?
@@ -32,12 +67,16 @@ model Client {
   guardianName  String?
   guardianEmail String?
   guardianPhone String?
-  createdAt     DateTime @default(now())
+  createdAt     DateTime  @default(now())
   intakes       Intake[]
+
+  @@index([providerId])
 }
 
 model Intake {
   id                 String    @id @default(uuid())
+  providerId         String?
+  provider           Provider? @relation(fields: [providerId], references: [id])
   clientId           String
   client             Client    @relation(fields: [clientId], references: [id])
   packageName        String    @default("Moore Divine Care Client Intake Package")
@@ -68,6 +107,8 @@ model Intake {
   medications       Medication[]
   substanceUseRows  SubstanceUseRow[]
   treatmentPlanRows TreatmentPlanSignatureRow[]
+
+  @@index([providerId])
 }
 
 model IntakeAnswer {
@@ -145,17 +186,20 @@ model GeneratedPdf {
 }
 
 model AuditLog {
-  id        String   @id @default(uuid())
-  intakeId  String?
-  intake    Intake?  @relation(fields: [intakeId], references: [id], onDelete: SetNull)
-  userId    String?
-  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
-  event     String // intake_created | link_opened | section_started | section_completed | signature_captured | packet_submitted | staff_reviewed | pdf_generated | pdf_downloaded | ...
-  detail    String?
-  ip        String?
-  createdAt DateTime @default(now())
+  id         String    @id @default(uuid())
+  providerId String?
+  provider   Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  intakeId   String?
+  intake     Intake?   @relation(fields: [intakeId], references: [id], onDelete: SetNull)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  event      String // intake_created | link_opened | section_started | section_completed | signature_captured | packet_submitted | staff_reviewed | pdf_generated | pdf_downloaded | ...
+  detail     String?
+  ip         String?
+  createdAt  DateTime  @default(now())
 
   @@index([intakeId])
+  @@index([providerId])
 }
 
 model UploadedDocument {

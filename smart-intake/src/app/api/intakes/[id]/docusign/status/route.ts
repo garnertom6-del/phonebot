@@ -15,12 +15,12 @@ const FRIENDLY: Record<string, string> = {
 
 /** Check the DocuSign envelope; when completed, pull the signed PDF into the record. */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
   if (!docusignConfigured()) {
     return NextResponse.json({ error: "DocuSign is not set up." }, { status: 400 });
   }
-  const intake = await prisma.intake.findUnique({ where: { id: params.id } });
+  const intake = await prisma.intake.findFirst({ where: { id: params.id, providerId: provider!.id } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!intake.docusignEnvelopeId) {
     return NextResponse.json({ error: "Nothing has been sent to DocuSign for this client yet." }, { status: 400 });
@@ -33,7 +33,12 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       saveFile(rel, signedPdf);
       await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel } });
       await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
-      await audit("docusign_completed", { intakeId: intake.id, userId: user!.id, detail: intake.docusignEnvelopeId });
+      await audit("docusign_completed", {
+        providerId: provider!.id,
+        intakeId: intake.id,
+        userId: user!.id,
+        detail: intake.docusignEnvelopeId,
+      });
     }
     return NextResponse.json({ ok: true, status, message: FRIENDLY[status] || `DocuSign status: ${status}` });
   } catch (e) {

@@ -7,8 +7,11 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { CLIENT_ANSWER_KEYS } from "@/config/mooreDivineQuestions";
 
 async function findByToken(token: string) {
-  const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true } });
+  const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true, provider: true } });
   if (!intake) return { error: "This link is not valid.", intake: null };
+  if (intake.provider && intake.provider.status !== "ACTIVE") {
+    return { error: "This link is not valid. Please contact the provider for a new intake link.", intake: null };
+  }
   if (intake.tokenExpiresAt < new Date()) {
     return { error: "This link has expired. Please ask Moore Divine Care for a new one (336-285-5204).", intake: null };
   }
@@ -24,6 +27,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     await prisma.intake.update({ where: { id: intake.id }, data: { status: "IN_PROGRESS" } });
   }
   await audit("link_opened", {
+    providerId: intake.providerId || undefined,
     intakeId: intake.id, ip: req.headers.get("x-forwarded-for") ?? undefined,
   });
   const sections = await prisma.intakeSection.findMany({ where: { intakeId: intake.id } });
@@ -67,7 +71,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
         : { status: "IN_PROGRESS" },
     });
     await audit(body.event === "completed" ? "section_completed" : "section_started",
-      { intakeId: intake.id, detail: body.section });
+      { providerId: intake.providerId || undefined, intakeId: intake.id, detail: body.section });
   }
   return NextResponse.json({ ok: true });
 }
@@ -89,6 +93,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     data: { status: sigs.client || sigs.guardian ? "SIGNED" : "SUBMITTED", submittedAt: new Date() },
   });
   await audit("packet_submitted", {
+    providerId: intake.providerId || undefined,
     intakeId: intake.id, ip: req.headers.get("x-forwarded-for") ?? undefined,
   });
   return NextResponse.json({ ok: true });

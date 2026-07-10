@@ -14,6 +14,11 @@ import { syncStructuredRows } from "../src/lib/intakeData";
 
 const prisma = new PrismaClient();
 
+const DEFAULT_PROVIDER = {
+  name: "Moore Divine Care, Inc.",
+  slug: "moore-divine-care",
+};
+
 function sigDataUrl(file: string): string {
   const p = path.join(__dirname, "assets", file);
   return "data:image/png;base64," + fs.readFileSync(p).toString("base64");
@@ -150,14 +155,16 @@ const JAYDEN_ANSWERS: Record<string, unknown> = {
 };
 
 async function seedIntake(opts: {
+  providerId: string;
   client: { fullName: string; dob: string; midNumber: string; recordNumber: string;
     email: string; phone: string; guardianName?: string; guardianEmail?: string; guardianPhone?: string };
   answers: Record<string, unknown>;
   signature: { role: "client" | "guardian"; file: string; printedName: string; relationship: string };
 }) {
-  const client = await prisma.client.create({ data: opts.client });
+  const client = await prisma.client.create({ data: { ...opts.client, providerId: opts.providerId } });
   const intake = await prisma.intake.create({
     data: {
+      providerId: opts.providerId,
       clientId: client.id, token: newIntakeToken(), tokenExpiresAt: tokenExpiry(),
       status: "SIGNED", intakeDate: TODAY, location: "Greensboro",
       linkSentAt: new Date(), lastActivityAt: new Date(), submittedAt: new Date(),
@@ -175,28 +182,46 @@ async function seedIntake(opts: {
   await syncStructuredRows(intake.id, opts.answers);
   await prisma.auditLog.createMany({
     data: [
-      { intakeId: intake.id, event: "intake_created", detail: "seed" },
-      { intakeId: intake.id, event: "link_opened", detail: "seed" },
-      { intakeId: intake.id, event: "signature_captured", detail: opts.signature.role },
-      { intakeId: intake.id, event: "packet_submitted", detail: "seed" },
+      { providerId: opts.providerId, intakeId: intake.id, event: "intake_created", detail: "seed" },
+      { providerId: opts.providerId, intakeId: intake.id, event: "link_opened", detail: "seed" },
+      { providerId: opts.providerId, intakeId: intake.id, event: "signature_captured", detail: opts.signature.role },
+      { providerId: opts.providerId, intakeId: intake.id, event: "packet_submitted", detail: "seed" },
     ],
   });
   return intake;
 }
 
 async function main() {
-  await prisma.user.upsert({
+  const provider = await prisma.provider.upsert({
+    where: { slug: DEFAULT_PROVIDER.slug },
+    create: {
+      ...DEFAULT_PROVIDER,
+      status: "ACTIVE",
+      email: "admin@mooredivinecare.local",
+    },
+    update: {
+      name: DEFAULT_PROVIDER.name,
+      status: "ACTIVE",
+      email: "admin@mooredivinecare.local",
+    },
+  });
+  const admin = await prisma.user.upsert({
     where: { email: "admin@mooredivinecare.local" },
     create: {
       email: "admin@mooredivinecare.local",
       passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD || "IntakeDemo123!", 10),
-      name: "MDC Admin", role: "admin",
+      name: "MDC Admin", role: "master",
     },
     // Setting ADMIN_PASSWORD in the host's environment updates the admin
     // password on the next deploy - no shell access or UI needed.
     update: process.env.ADMIN_PASSWORD
-      ? { passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10) }
-      : {},
+      ? { passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10), name: "MDC Admin", role: "master" }
+      : { name: "MDC Admin", role: "master" },
+  });
+  await prisma.userMembership.upsert({
+    where: { userId_providerId: { userId: admin.id, providerId: provider.id } },
+    create: { userId: admin.id, providerId: provider.id, role: "PROVIDER_ADMIN", active: true },
+    update: { role: "PROVIDER_ADMIN", active: true },
   });
   await prisma.pdfTemplate.upsert({
     where: { name: "Moore Divine Care Client Intake Package" },
@@ -206,6 +231,9 @@ async function main() {
     },
     update: {},
   });
+  await prisma.client.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
+  await prisma.intake.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
+  await prisma.auditLog.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
 
   // Demo clients are for local development only. Set SEED_DEMO_DATA=false
   // (as render.yaml does) to keep them out of a real deployment.
@@ -213,12 +241,13 @@ async function main() {
     console.log("SEED_DEMO_DATA=false - admin + template seeded, demo clients skipped.");
     return;
   }
-  const existing = await prisma.client.findFirst({ where: { fullName: "Angela Demo" } });
+  const existing = await prisma.client.findFirst({ where: { fullName: "Angela Demo", providerId: provider.id } });
   if (existing) {
     console.log("Sample clients already seeded - skipping.");
     return;
   }
   const a = await seedIntake({
+    providerId: provider.id,
     client: {
       fullName: "Angela Demo", dob: "04/12/1987", midNumber: "987654321A", recordNumber: "MDC-1001",
       email: "angela.demo@example.com", phone: "336-555-0141",
@@ -227,6 +256,7 @@ async function main() {
     signature: { role: "client", file: "sig-angela.png", printedName: "Angela Demo", relationship: "client" },
   });
   const j = await seedIntake({
+    providerId: provider.id,
     client: {
       fullName: "Jayden Sample", dob: "09/22/2011", midNumber: "123456789B", recordNumber: "MDC-1002",
       email: "erica.sample@example.com", phone: "336-555-0125",

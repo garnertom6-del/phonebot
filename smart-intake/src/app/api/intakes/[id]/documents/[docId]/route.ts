@@ -15,10 +15,12 @@ const SAFE_MIME = new Set([
 export async function GET(
   _req: Request, { params }: { params: { id: string; docId: string } },
 ) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
-  const doc = await prisma.uploadedDocument.findUnique({ where: { id: params.docId } });
-  if (!doc || doc.intakeId !== params.id) {
+  const doc = await prisma.uploadedDocument.findFirst({
+    where: { id: params.docId, intakeId: params.id, intake: { providerId: provider!.id } },
+  });
+  if (!doc) {
     return NextResponse.json({ error: "Document not found." }, { status: 404 });
   }
   if (!fileExists(doc.filePath)) {
@@ -28,7 +30,12 @@ export async function GET(
     );
   }
   const data = readFile(doc.filePath);
-  await audit("document_downloaded", { intakeId: doc.intakeId, userId: user!.id, detail: `${doc.docType}: ${doc.fileName}` });
+  await audit("document_downloaded", {
+    providerId: provider!.id,
+    intakeId: doc.intakeId,
+    userId: user!.id,
+    detail: `${doc.docType}: ${doc.fileName}`,
+  });
   const mime = SAFE_MIME.has(doc.mimeType) ? doc.mimeType : "application/octet-stream";
   const safeName = doc.fileName.replace(/[^\w.\- ]+/g, "_");
   return new NextResponse(new Uint8Array(data), {

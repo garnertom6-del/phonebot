@@ -18,12 +18,14 @@ export interface StaffIntakeResult {
 export async function createStaffIntake(
   data: StaffIntakeInput,
   userId: string,
+  providerId: string,
   req?: Request | { headers?: Headers; nextUrl?: URL; url?: string },
 ): Promise<StaffIntakeResult> {
   const base = appBaseUrl(req);
   const intake = await prisma.$transaction(async (tx) => {
     const client = await tx.client.create({
       data: {
+        providerId,
         fullName: data.fullName,
         dob: data.dob,
         midNumber: data.midNumber,
@@ -38,6 +40,7 @@ export async function createStaffIntake(
 
     const intake = await tx.intake.create({
       data: {
+        providerId,
         clientId: client.id,
         token: newIntakeToken(),
         tokenExpiresAt: tokenExpiry(),
@@ -67,7 +70,7 @@ export async function createStaffIntake(
     return intake;
   });
 
-  await audit("intake_created", { intakeId: intake.id, userId, detail: data.fullName });
+  await audit("intake_created", { providerId, intakeId: intake.id, userId, detail: data.fullName });
   return {
     id: intake.id,
     clientName: data.fullName,

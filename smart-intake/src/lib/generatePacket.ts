@@ -6,9 +6,9 @@ import { saveFile } from "@/lib/storage";
 import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 
-export async function generatePacketForIntake(intakeId: string, userId: string) {
-  const intake = await prisma.intake.findUnique({
-    where: { id: intakeId },
+export async function generatePacketForIntake(intakeId: string, userId: string, providerId?: string) {
+  const intake = await prisma.intake.findFirst({
+    where: { id: intakeId, ...(providerId ? { providerId } : {}) },
     include: { client: true, signatures: true },
   });
   if (!intake) return null;
@@ -47,6 +47,7 @@ export async function generatePacketForIntake(intakeId: string, userId: string) 
     await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
   }
   await audit("pdf_generated", {
+    providerId: intake.providerId || undefined,
     intakeId: intake.id,
     userId,
     detail: `${result.filled} fields filled`,

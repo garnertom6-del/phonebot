@@ -15,9 +15,12 @@ function failedLabel(r: NotifyResult): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
-  let intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
+  let intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: true },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   // never remind with a dead link - renew the expiry first if needed
   if (intake.tokenExpiresAt < new Date()) {
@@ -38,6 +41,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const failed = attempts.filter((r) => !r.ok).map(failedLabel);
   if (sent.length) await prisma.intake.update({ where: { id: intake.id }, data: { linkSentAt: new Date() } });
   await audit("link_reminder_sent", {
+    providerId: provider!.id,
     intakeId: intake.id,
     userId: user!.id,
     detail: [

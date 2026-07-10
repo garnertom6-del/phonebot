@@ -10,7 +10,7 @@ export type AuditEvent =
 
 export async function audit(
   event: AuditEvent,
-  opts: { intakeId?: string; userId?: string; detail?: string; ip?: string } = {},
+  opts: { providerId?: string; intakeId?: string; userId?: string; detail?: string; ip?: string } = {},
 ) {
   try {
     await prisma.auditLog.create({ data: { event, ...opts } });

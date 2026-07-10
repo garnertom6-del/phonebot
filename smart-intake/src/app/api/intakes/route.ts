@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { isMasterUser, requireStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -8,13 +8,13 @@ import { createStaffIntake } from "@/lib/staffIntakes";
 
 export async function GET(req: NextRequest) {
   try {
-    const { deny } = await requireStaff();
+    const { user, provider, deny } = await requireStaff();
     if (deny) return deny;
     const showArchived = new URL(req.url).searchParams.get("archived") === "1";
     // Lean list query: no signature image blobs, no per-row follow-up queries.
     // Everything the dashboard needs comes back in four batched queries total.
     const intakes = await prisma.intake.findMany({
-      where: { archived: showArchived },
+      where: { archived: showArchived, providerId: provider!.id },
       include: {
         client: true,
         signatures: { select: { role: true } },
@@ -48,7 +48,11 @@ export async function GET(req: NextRequest) {
         ccaDetail: i.auditLogs[0]?.detail || "",
       };
     });
-    return NextResponse.json({ intakes: rows });
+    return NextResponse.json({
+      intakes: rows,
+      provider: { id: provider!.id, name: provider!.name, slug: provider!.slug },
+      isMaster: isMasterUser(user!),
+    });
   } catch (error) {
     console.error("GET /api/intakes failed", error);
     return NextResponse.json({ error: "Couldn't load the intake list right now." }, { status: 500 });
@@ -57,13 +61,13 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, deny } = await requireStaff();
+    const { user, provider, deny } = await requireStaff();
     if (deny) return deny;
     const parsed = newIntakeSchema.safeParse(await req.json());
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
     }
-    return NextResponse.json(await createStaffIntake(parsed.data, user!.id, req));
+    return NextResponse.json(await createStaffIntake(parsed.data, user!.id, provider!.id, req));
   } catch (error) {
     console.error("POST /api/intakes failed", error);
     return NextResponse.json({ error: "Couldn't create the intake link right now." }, { status: 500 });

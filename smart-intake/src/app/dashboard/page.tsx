@@ -43,6 +43,8 @@ export default function Dashboard() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [tab, setTab] = useState("all");
+  const [providerName, setProviderName] = useState("Moore Divine Care");
+  const [isMaster, setIsMaster] = useState(false);
 
   const load = useCallback((activeTab: string = "all") => {
     fetch(`/api/intakes${activeTab === "archived" ? "?archived=1" : ""}`).then(async (r) => {
@@ -51,6 +53,8 @@ export default function Dashboard() {
       const body = text ? JSON.parse(text) : {};
       if (!r.ok) throw new Error(body.error || `Dashboard load failed (${r.status})`);
       setRows(body.intakes ?? []);
+      setProviderName(body.provider?.name || "Provider");
+      setIsMaster(!!body.isMaster);
     }).catch((err) => {
       setRows([]);
       setNote(err instanceof Error ? err.message : "Couldn't load the intake list right now.");
@@ -93,12 +97,13 @@ export default function Dashboard() {
     <main className="mx-auto max-w-7xl p-6">
       <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold text-brand">Moore Divine Care - Intake Dashboard</h1>
+          <h1 className="text-2xl font-bold text-brand">{providerName} - Intake Dashboard</h1>
           <p className="text-sm text-slate-500">Client Intake Package automation</p>
         </div>
         <div className="flex gap-2">
-          <a href="/api/admin/backup" className="btn-ghost" title="Download a full copy of all client data - keep it somewhere safe">Download backup</a>
-          <Link href="/admin/pdf-mapping" className="btn-ghost">PDF mapping</Link>
+          {isMaster && <Link href="/master/dashboard" className="btn-ghost">Master dashboard</Link>}
+          {isMaster && <a href="/api/admin/backup" className="btn-ghost" title="Download a full copy of all client data - keep it somewhere safe">Download backup</a>}
+          {isMaster && <Link href="/admin/pdf-mapping" className="btn-ghost">PDF mapping</Link>}
           <Link href="/intakes/new-many" className="btn-secondary">+ Create Many</Link>
           <Link href="/intakes/new" className="btn-primary">+ Create New Intake</Link>
           <button className="btn-secondary" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); router.push("/login"); }}>Sign out</button>

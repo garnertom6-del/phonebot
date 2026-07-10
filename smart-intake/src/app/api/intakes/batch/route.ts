@@ -6,7 +6,7 @@ import { generatePacketForIntake } from "@/lib/generatePacket";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
 
   const parsed = batchIntakesSchema.safeParse(await req.json());
@@ -35,7 +35,7 @@ export async function POST(req: NextRequest) {
     seenRecords.set(key, item.row);
   }
   const existingClient = await prisma.client.findFirst({
-    where: { recordNumber: { in: recordRows.map((item) => item.value) } },
+    where: { providerId: provider!.id, recordNumber: { in: recordRows.map((item) => item.value) } },
     select: { fullName: true, recordNumber: true },
   });
   if (existingClient) {
@@ -55,12 +55,12 @@ export async function POST(req: NextRequest) {
       const item = await createStaffIntake({
         ...intake,
         expectCca: intake.expectCca ?? commonExpectCca,
-      }, user!.id, req);
+      }, user!.id, provider!.id, req);
       let packet: Awaited<ReturnType<typeof generatePacketForIntake>> | undefined;
       let packetError: string | undefined;
       if (shouldGenerateDraftPackets) {
         try {
-          packet = await generatePacketForIntake(item.id, user!.id);
+          packet = await generatePacketForIntake(item.id, user!.id, provider!.id);
         } catch (error) {
           packetError = error instanceof Error ? error.message : "Packet generation failed";
         }

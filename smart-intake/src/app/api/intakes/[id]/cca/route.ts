@@ -11,7 +11,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
   if (!ccaConfigured()) {
     return NextResponse.json(
@@ -19,7 +19,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { status: 400 },
     );
   }
-  const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: true },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const form = await req.formData();
@@ -74,6 +77,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   await prisma.intake.update({ where: { id: intake.id }, data: { status: "NEEDS_REVIEW" } });
   await audit("cca_imported", {
+    providerId: provider!.id,
     intakeId: intake.id, userId: user!.id,
     detail: `${filled.length} fields filled from CCA (${skipped.length} kept existing answers)`,
   });

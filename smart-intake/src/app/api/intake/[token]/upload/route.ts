@@ -13,8 +13,8 @@ const ALLOWED_MIME = new Set([
 const ALLOWED_EXT = /\.(pdf|jpe?g|png|gif|webp|heic|heif)$/i;
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
-  const intake = await prisma.intake.findUnique({ where: { token: params.token } });
-  if (!intake || intake.tokenExpiresAt < new Date()) {
+  const intake = await prisma.intake.findUnique({ where: { token: params.token }, include: { provider: true } });
+  if (!intake || intake.tokenExpiresAt < new Date() || (intake.provider && intake.provider.status !== "ACTIVE")) {
     return NextResponse.json({ error: "Link not valid" }, { status: 404 });
   }
   const form = await req.formData();
@@ -32,6 +32,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   await prisma.uploadedDocument.create({
     data: { intakeId: intake.id, docType, fileName: file.name, filePath: rel, mimeType: file.type || "application/octet-stream" },
   });
-  await audit("document_uploaded", { intakeId: intake.id, detail: `${docType}: ${file.name}` });
+  await audit("document_uploaded", {
+    providerId: intake.providerId || undefined,
+    intakeId: intake.id,
+    detail: `${docType}: ${file.name}`,
+  });
   return NextResponse.json({ ok: true });
 }

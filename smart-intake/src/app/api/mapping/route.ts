@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP } from "@/config/mooreDivinePacketMap";
 import { mappingOverrides } from "@/lib/intakeData";
 import { mergedMap } from "@/lib/fillPdf";
@@ -8,7 +8,7 @@ import { mergedMap } from "@/lib/fillPdf";
 const TEMPLATE_NAME = "Moore Divine Care Client Intake Package";
 
 export async function GET() {
-  const { deny } = await requireStaff();
+  const { deny } = await requireMaster();
   if (deny) return deny;
   const overrides = await mappingOverrides();
   return NextResponse.json({
@@ -18,7 +18,7 @@ export async function GET() {
 }
 
 export async function PUT(req: NextRequest) {
-  const { deny } = await requireStaff();
+  const { deny } = await requireMaster();
   if (deny) return deny;
   const body = await req.json();
   if (!Array.isArray(body.fields)) return NextResponse.json({ error: "fields[] required" }, { status: 400 });

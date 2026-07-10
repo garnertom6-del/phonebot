@@ -14,9 +14,12 @@ function failedLabel(r: NotifyResult): string {
 }
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
-  const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: true },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const link = `${appBaseUrl(req)}/copies/${intake.token}`;
   const attempts: NotifyResult[] = [];
@@ -29,6 +32,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
   const sent = attempts.filter((r) => r.ok).map(sentLabel);
   const failed = attempts.filter((r) => !r.ok).map(failedLabel);
   await audit("copies_link_sent", {
+    providerId: provider!.id,
     intakeId: intake.id,
     userId: user!.id,
     detail: [

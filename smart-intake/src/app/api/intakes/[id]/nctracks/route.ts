@@ -15,13 +15,16 @@ function s(v: unknown): string {
 }
 
 export async function POST(_req: Request, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
-  const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: true },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   if (!ncTracksConfigured()) {
-    await audit("nctracks_lookup_not_configured", { intakeId: intake.id, userId: user!.id });
+    await audit("nctracks_lookup_not_configured", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
     return NextResponse.json({
       error:
         "Automatic NC Tracks lookup is not connected yet. You can enter the details by hand, or ask your administrator to connect it.",
@@ -55,6 +58,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
       },
     });
     await audit("nctracks_lookup_completed", {
+      providerId: provider!.id,
       intakeId: intake.id,
       userId: user!.id,
       detail: filled.length ? `Filled ${filled.join(", ")}` : "No matching fields returned",
@@ -62,7 +66,7 @@ export async function POST(_req: Request, { params }: { params: { id: string } }
     return NextResponse.json({ ok: true, filled, count: filled.length });
   } catch (e) {
     const error = e instanceof Error ? e.message : "NC Tracks lookup failed";
-    await audit("nctracks_lookup_failed", { intakeId: intake.id, userId: user!.id, detail: error });
+    await audit("nctracks_lookup_failed", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: error });
     return NextResponse.json({ error }, { status: 502 });
   }
 }

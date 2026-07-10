@@ -15,7 +15,7 @@ function s(v: unknown): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
   if (!ncTracksDocumentConfigured()) {
     return NextResponse.json(
@@ -23,7 +23,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       { status: 400 },
     );
   }
-  const intake = await prisma.intake.findUnique({ where: { id: params.id }, include: { client: true } });
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: true },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const form = await req.formData();
@@ -53,7 +56,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await prisma.uploadedDocument.create({
     data: { intakeId: intake.id, docType: "NC_TRACKS", fileName: `NC Tracks: ${file.name}`, filePath: rel, mimeType: mime },
   });
-  await audit("document_uploaded", { intakeId: intake.id, userId: user!.id, detail: `NC Tracks: ${file.name}` });
+  await audit("document_uploaded", {
+    providerId: provider!.id,
+    intakeId: intake.id,
+    userId: user!.id,
+    detail: `NC Tracks: ${file.name}`,
+  });
 
   const current = await loadAnswers(intake.id);
   const { next, filled } = applyNcTracksResult(current, extraction.extracted);
@@ -72,6 +80,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     });
   }
   await audit("nctracks_lookup_completed", {
+    providerId: provider!.id,
     intakeId: intake.id,
     userId: user!.id,
     detail: filled.length ? `NC Tracks upload filled ${filled.join(", ")}` : "NC Tracks upload had no matching fields",

@@ -7,10 +7,10 @@ import { consentsFromAnswers, loadAnswers, loadSignatures, mappingOverrides } fr
 import { readFile, fileExists } from "@/lib/storage";
 
 export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
-  const intake = await prisma.intake.findUnique({
-    where: { id: params.id },
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
     include: { client: true, generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -29,7 +29,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     });
     bytes = Buffer.from(result.pdfBytes);
   }
-  await audit("pdf_downloaded", { intakeId: intake.id, userId: user!.id });
+  await audit("pdf_downloaded", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
   const name = `MooreDivineCare-Intake-${intake.client.fullName.replace(/\W+/g, "-")}.pdf`;
   return new NextResponse(bytes as unknown as BodyInit, {
     headers: {

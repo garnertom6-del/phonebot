@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 
 export const dynamic = "force-dynamic";
@@ -12,12 +12,15 @@ export const dynamic = "force-dynamic";
  * template lives in the app itself). Staff-gated; each download is audited.
  */
 export async function GET() {
-  const { user, deny } = await requireStaff();
+  const { user, deny } = await requireMaster();
   if (deny) return deny;
 
-  const [clients, intakes, answers, signatures, releaseConsents, referrals,
+  const [providers, users, memberships, clients, intakes, answers, signatures, releaseConsents, referrals,
     emergencyContacts, medications, substanceUseRows, uploadedDocuments,
     generatedPdfs, auditLogs] = await Promise.all([
+    prisma.provider.findMany(),
+    prisma.user.findMany({ select: { id: true, email: true, name: true, role: true, createdAt: true } }),
+    prisma.userMembership.findMany(),
     prisma.client.findMany(),
     prisma.intake.findMany(),
     prisma.intakeAnswer.findMany(),
@@ -38,6 +41,7 @@ export async function GET() {
     app: "Moore Divine Care Smart Intake",
     exportedAt: new Date().toISOString(),
     note: "Keep this file somewhere safe and private - it contains client health information.",
+    providers, users, memberships,
     clients, intakes, answers, signatures, releaseConsents, referrals,
     emergencyContacts, medications, substanceUseRows,
     uploadedDocuments, generatedPdfs, auditLogs,

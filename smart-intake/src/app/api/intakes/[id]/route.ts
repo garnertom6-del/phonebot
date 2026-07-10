@@ -8,10 +8,10 @@ import { answersSchema, missingRequired, missingOptional, percentComplete } from
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { deny } = await requireStaff();
+  const { provider, deny } = await requireStaff();
   if (deny) return deny;
-  const intake = await prisma.intake.findUnique({
-    where: { id: params.id },
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
     include: {
       client: true,
       // never ship signature image blobs or server file paths to the browser
@@ -36,10 +36,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
   const body = await req.json();
-  const intake = await prisma.intake.findUnique({ where: { id: params.id } });
+  const intake = await prisma.intake.findFirst({ where: { id: params.id, providerId: provider!.id } });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (body.answers) {
     const parsed = answersSchema.safeParse(body.answers);
@@ -47,8 +47,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const answers = applyOperationalDefaults(parsed.data);
     await saveAnswers(intake.id, answers);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
-    await audit("answers_updated", { intakeId: intake.id, userId: user!.id, detail: "staff edit" });
-    await audit("staff_reviewed", { intakeId: intake.id, userId: user!.id });
+    await audit("answers_updated", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: "staff edit" });
+    await audit("staff_reviewed", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
   }
   if (body.status) {
     const allowed = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];

@@ -16,8 +16,11 @@ function dobMatches(entered: string, onFile: string): boolean {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
-  const intake = await prisma.intake.findUnique({ where: { token: params.token }, include: { client: true } });
-  if (!intake || intake.tokenExpiresAt < new Date()) {
+  const intake = await prisma.intake.findUnique({
+    where: { token: params.token },
+    include: { client: true, provider: true },
+  });
+  if (!intake || intake.tokenExpiresAt < new Date() || (intake.provider && intake.provider.status !== "ACTIVE")) {
     return NextResponse.json({ error: "Link not valid" }, { status: 404 });
   }
   const parsed = signatureSchema.safeParse(await req.json());
@@ -42,6 +45,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     update: { imageData: d.imageData, printedName: d.printedName, signedDate: d.signedDate, relationship: d.relationship, dobVerified, ip, userAgent },
   });
   await audit("signature_captured", {
+    providerId: intake.providerId || undefined,
     intakeId: intake.id, detail: `${d.role} / ${d.relationship || "client"}`,
     ip: req.headers.get("x-forwarded-for") ?? undefined,
   });

@@ -43,9 +43,9 @@ const COPY_SECTIONS = [
 export default async function CopiesPage({ params }: { params: { token: string } }) {
   const intake = await prisma.intake.findUnique({
     where: { token: params.token },
-    include: { client: true },
+    include: { client: true, provider: true },
   });
-  if (!intake) notFound();
+  if (!intake || (intake.provider && intake.provider.status !== "ACTIVE")) notFound();
 
   return (
     <main className="mx-auto max-w-3xl p-6">
