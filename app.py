@@ -89,6 +89,18 @@ def respond():
     response.redirect("/voice")
     return str(response)
 
+# Extra instructions when the customer is texting instead of calling.
+SMS_PROMPT = (
+    SYSTEM_PROMPT
+    + "\n\nThis conversation is over TEXT MESSAGE, not a phone call. "
+    "Keep replies short like a real text - a couple of sentences max. "
+    "It's fine to include the payment handles exactly as written so they can copy them."
+)
+
+# Only send the most recent messages to the AI so long-running text threads
+# stay fast and cheap.
+SMS_HISTORY_LIMIT = 20
+
 # Incoming text messages. Twilio POSTs here when a customer texts your number.
 # Point your Twilio number's "A MESSAGE COMES IN" webhook at https://<your-app>/sms
 @app.route("/sms", methods=["POST"])
@@ -106,14 +118,20 @@ def sms():
     key = "sms:%s" % from_number
     history = conversations.get(key, [])
     history.append({"role": "user", "content": body})
+    history = history[-SMS_HISTORY_LIMIT:]
 
-    ai = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=300,
-        system=SYSTEM_PROMPT,
-        messages=history,
-    )
-    reply = ai.content[0].text
+    try:
+        ai = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=300,
+            system=SMS_PROMPT,
+            messages=history,
+        )
+        reply = ai.content[0].text
+    except Exception:
+        # Never leave a customer hanging if the AI has a hiccup.
+        response.message("Sorry, I'm having a moment - please text that again in a minute!")
+        return str(response)
 
     history.append({"role": "assistant", "content": reply})
     conversations[key] = history
