@@ -1,0 +1,29 @@
+{% extends "base.html" %}
+{% block title %}Clients{% endblock %}
+{% block content %}
+  <p style="display:flex; justify-content:space-between; align-items:center;">
+    <strong>Clients ({{ clients|length }})</strong>
+    <a class="btn" href="{{ url_for('mh.new_client') }}">+ Add client</a>
+  </p>
+  <table>
+    <tr><th>Name</th><th>Medicaid ID</th><th>Eligibility</th><th>Plan</th><th>Last checked</th></tr>
+    {% for c in clients %}
+      {% set check = c.latest_check %}
+      <tr>
+        <td>
+          <a href="{{ url_for('mh.client_detail', client_id=c.id) }}">{{ c.last_name }}, {{ c.first_name }}</a>
+          {% if not c.active %}<span class="muted">(inactive client)</span>{% endif %}
+        </td>
+        <td>{{ c.medicaid_id }}</td>
+        <td>
+          {% if check %}<span class="badge {{ check.status }}">{{ check.status }}</span>
+          {% else %}<span class="badge none">never checked</span>{% endif %}
+        </td>
+        <td>{{ check.plan_name if check and check.plan_name else "—" }}</td>
+        <td class="muted">{{ check.checked_at.strftime("%Y-%m-%d") if check else "—" }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="5" class="muted">No clients yet. Add one to run the first eligibility check.</td></tr>
+    {% endfor %}
+  </table>
+{% endblock %}

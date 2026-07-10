@@ -1,4 +1,7 @@
- flask
+flask
 anthropic
-  twilio
- gunicorn
+twilio
+gunicorn
+flask-sqlalchemy
+requests
+pytest

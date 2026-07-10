@@ -1,0 +1,8 @@
+# Local databases may contain client info (PHI) - never commit them.
+*.db
+*.sqlite3
+instance/
+
+__pycache__/
+*.pyc
+.pytest_cache/

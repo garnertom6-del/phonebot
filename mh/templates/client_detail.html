@@ -1,0 +1,43 @@
+{% extends "base.html" %}
+{% block title %}{{ client.first_name }} {{ client.last_name }}{% endblock %}
+{% block content %}
+  <div class="card">
+    <h2>{{ client.first_name }} {{ client.last_name }}
+      {% if not client.active %}<span class="muted">(inactive client)</span>{% endif %}
+    </h2>
+    <p>
+      DOB: {{ client.dob }} · Medicaid ID: {{ client.medicaid_id }}
+      {% if client.phone %} · Phone: {{ client.phone }}{% endif %}
+    </p>
+    <form class="inline" method="post" action="{{ url_for('mh.check_now', client_id=client.id) }}">
+      <button class="btn" type="submit">Check eligibility now</button>
+    </form>
+    <form class="inline" method="post" action="{{ url_for('mh.toggle_active', client_id=client.id) }}">
+      <button class="btn secondary" type="submit">
+        {{ "Mark inactive (stop monthly checks)" if client.active else "Mark active" }}
+      </button>
+    </form>
+  </div>
+
+  <h3>Check history</h3>
+  <table>
+    <tr><th>Date</th><th>Status</th><th>Plan</th><th>Type</th><th>Details</th><th>Source</th></tr>
+    {% for check in client.checks %}
+      <tr>
+        <td class="muted">{{ check.checked_at.strftime("%Y-%m-%d %H:%M") }}</td>
+        <td><span class="badge {{ check.status }}">{{ check.status }}</span></td>
+        <td>{{ check.plan_name or "—" }}</td>
+        <td>{{ check.plan_type or "—" }}</td>
+        <td>{{ check.message or "—" }}</td>
+        <td class="muted">{{ check.source }}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="6" class="muted">No checks yet.</td></tr>
+    {% endfor %}
+  </table>
+
+  {% if client.latest_check and client.latest_check.status == "review" and client.latest_check.raw_response %}
+    <h3>Raw payer response (needs review)</h3>
+    <pre>{{ client.latest_check.raw_response }}</pre>
+  {% endif %}
+{% endblock %}
