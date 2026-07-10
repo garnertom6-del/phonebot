@@ -5,7 +5,6 @@ import { requireStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
 import { newIntakeToken, tokenExpiry, tokenExpiryDays } from "@/lib/tokens";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 
@@ -14,30 +13,43 @@ export async function GET(req: NextRequest) {
     const { deny } = await requireStaff();
     if (deny) return deny;
     const showArchived = new URL(req.url).searchParams.get("archived") === "1";
+    // Lean list query: no signature image blobs, no per-row follow-up queries.
+    // Everything the dashboard needs comes back in four batched queries total.
     const intakes = await prisma.intake.findMany({
       where: { archived: showArchived },
       include: {
-        client: true, signatures: true,
-        uploadedDocuments: { where: { docType: "CCA" }, orderBy: { createdAt: "desc" }, take: 1 },
-        generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 },
-        auditLogs: { where: { event: "cca_imported" }, orderBy: { createdAt: "desc" }, take: 1 },
+        client: true,
+        signatures: { select: { role: true } },
+        uploadedDocuments: { where: { docType: "CCA" }, select: { id: true }, take: 1 },
+        generatedPdfs: { select: { id: true }, take: 1 },
+        auditLogs: { where: { event: "cca_imported" }, orderBy: { createdAt: "desc" }, select: { detail: true }, take: 1 },
       },
       orderBy: { updatedAt: "desc" },
     });
-    const rows = await Promise.all(intakes.map(async (i) => {
-      const answers = applyOperationalDefaults(await loadAnswers(i.id));
-      const sigs = await loadSignatures(i.id);
+    const ids = intakes.map((i) => i.id);
+    const answerRows = await prisma.intakeAnswer.findMany({
+      where: { intakeId: { in: ids } }, select: { intakeId: true, key: true, value: true },
+    });
+    const answersByIntake = new Map<string, Record<string, unknown>>();
+    for (const r of answerRows) {
+      let bucket = answersByIntake.get(r.intakeId);
+      if (!bucket) { bucket = {}; answersByIntake.set(r.intakeId, bucket); }
+      try { bucket[r.key] = JSON.parse(r.value); } catch { bucket[r.key] = r.value; }
+    }
+    const rows = intakes.map((i) => {
+      const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
+      const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
       return {
         id: i.id, status: i.status, archived: i.archived, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
         client: i.client, linkSentAt: i.linkSentAt, lastActivityAt: i.lastActivityAt,
         submittedAt: i.submittedAt, createdAt: i.createdAt,
         percentComplete: percentComplete(answers),
-        missingRequired: missingRequired(answers, !!(sigs.client || sigs.guardian)),
+        missingRequired: missingRequired(answers, signed),
         hasPdf: i.generatedPdfs.length > 0,
         hasCca: i.uploadedDocuments.length > 0,
         ccaDetail: i.auditLogs[0]?.detail || "",
       };
-    }));
+    });
     return NextResponse.json({ intakes: rows });
   } catch (error) {
     console.error("GET /api/intakes failed", error);

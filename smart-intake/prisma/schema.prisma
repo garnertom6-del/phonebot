@@ -37,45 +37,45 @@ model Client {
 }
 
 model Intake {
-  id             String    @id @default(uuid())
-  clientId       String
-  client         Client    @relation(fields: [clientId], references: [id])
-  packageName    String    @default("Moore Divine Care Client Intake Package")
-  status         String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | SUBMITTED | NEEDS_REVIEW | SIGNED | COMPLETED
-  mode           String    @default("full") // fast | full
-  expectCca      Boolean   @default(true) // short client intake; clinician CCA fills the rest
-  archived       Boolean   @default(false) // hidden from the dashboard list
+  id                 String    @id @default(uuid())
+  clientId           String
+  client             Client    @relation(fields: [clientId], references: [id])
+  packageName        String    @default("Moore Divine Care Client Intake Package")
+  status             String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | SUBMITTED | NEEDS_REVIEW | SIGNED | COMPLETED
+  mode               String    @default("full") // fast | full
+  expectCca          Boolean   @default(true) // short client intake; clinician CCA fills the rest
+  archived           Boolean   @default(false) // hidden from the dashboard list
   docusignEnvelopeId String? // set when a DocuSign envelope is sent
-  token          String    @unique
-  tokenExpiresAt DateTime
-  intakeDate     String?
-  location       String?
-  linkSentAt     DateTime?
-  lastActivityAt DateTime?
-  submittedAt    DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  token              String    @unique
+  tokenExpiresAt     DateTime
+  intakeDate         String?
+  location           String?
+  linkSentAt         DateTime?
+  lastActivityAt     DateTime?
+  submittedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
 
-  answers            IntakeAnswer[]
-  sections           IntakeSection[]
-  signatures         Signature[]
-  generatedPdfs      GeneratedPdf[]
-  auditLogs          AuditLog[]
-  uploadedDocuments  UploadedDocument[]
-  releaseConsents    ReleaseConsent[]
-  referrals          Referral[]
-  emergencyContacts  EmergencyContact[]
-  medications        Medication[]
-  substanceUseRows   SubstanceUseRow[]
-  treatmentPlanRows  TreatmentPlanSignatureRow[]
+  answers           IntakeAnswer[]
+  sections          IntakeSection[]
+  signatures        Signature[]
+  generatedPdfs     GeneratedPdf[]
+  auditLogs         AuditLog[]
+  uploadedDocuments UploadedDocument[]
+  releaseConsents   ReleaseConsent[]
+  referrals         Referral[]
+  emergencyContacts EmergencyContact[]
+  medications       Medication[]
+  substanceUseRows  SubstanceUseRow[]
+  treatmentPlanRows TreatmentPlanSignatureRow[]
 }
 
 model IntakeAnswer {
-  id       String @id @default(uuid())
-  intakeId String
-  intake   Intake @relation(fields: [intakeId], references: [id], onDelete: Cascade)
-  key      String
-  value    String // JSON-encoded value (string | string[] | boolean | number)
+  id        String   @id @default(uuid())
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  key       String
+  value     String // JSON-encoded value (string | string[] | boolean | number)
   updatedAt DateTime @updatedAt
 
   @@unique([intakeId, key])
@@ -83,12 +83,12 @@ model IntakeAnswer {
 }
 
 model IntakeSection {
-  id        String    @id @default(uuid())
-  intakeId  String
-  intake    Intake    @relation(fields: [intakeId], references: [id], onDelete: Cascade)
-  sectionKey String
-  status    String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | COMPLETED
-  startedAt DateTime?
+  id          String    @id @default(uuid())
+  intakeId    String
+  intake      Intake    @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  sectionKey  String
+  status      String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | COMPLETED
+  startedAt   DateTime?
   completedAt DateTime?
 
   @@unique([intakeId, sectionKey])
@@ -112,11 +112,11 @@ model Signature {
 }
 
 model PdfTemplate {
-  id        String   @id @default(uuid())
-  name      String   @unique
-  filePath  String
-  pageCount Int
-  createdAt DateTime @default(now())
+  id            String            @id @default(uuid())
+  name          String            @unique
+  filePath      String
+  pageCount     Int
+  createdAt     DateTime          @default(now())
   fieldMappings PdfFieldMapping[]
 }
 
@@ -138,8 +138,10 @@ model GeneratedPdf {
   intakeId  String
   intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
   filePath  String
-  sha256    String?  // fingerprint of the packet pages (certificate page excluded)
+  sha256    String? // fingerprint of the packet pages (certificate page excluded)
   createdAt DateTime @default(now())
+
+  @@index([intakeId])
 }
 
 model AuditLog {
@@ -165,6 +167,8 @@ model UploadedDocument {
   filePath  String
   mimeType  String
   createdAt DateTime @default(now())
+
+  @@index([intakeId])
 }
 
 model ReleaseConsent {
@@ -177,15 +181,19 @@ model ReleaseConsent {
   purpose   String?
   thruDate  String?
   agreed    Boolean @default(false)
+
+  @@index([intakeId])
 }
 
 model Referral {
-  id       String @id @default(uuid())
+  id       String  @id @default(uuid())
   intakeId String
-  intake   Intake @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  intake   Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
   slot     Int
   name     String
   phone    String?
+
+  @@index([intakeId])
 }
 
 model EmergencyContact {
@@ -200,6 +208,8 @@ model EmergencyContact {
   homePhone String?
   workPhone String?
   cellPhone String?
+
+  @@index([intakeId])
 }
 
 model Medication {
@@ -209,6 +219,8 @@ model Medication {
   name     String
   dosage   String?
   kind     String  @default("prescription") // prescription | otc
+
+  @@index([intakeId])
 }
 
 model SubstanceUseRow {
@@ -222,6 +234,8 @@ model SubstanceUseRow {
   route     String?
   amount    String?
   lastUsed  String?
+
+  @@index([intakeId])
 }
 
 model TreatmentPlanSignatureRow {
@@ -231,4 +245,6 @@ model TreatmentPlanSignatureRow {
   slot       Int
   staffDate  String?
   clientDate String?
+
+  @@index([intakeId])
 }
