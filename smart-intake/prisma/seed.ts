@@ -19,6 +19,8 @@ const DEFAULT_PROVIDER = {
   slug: "moore-divine-care",
 };
 
+const syncAdminPasswordOnSeed = process.env.SYNC_ADMIN_PASSWORD === "true";
+
 function sigDataUrl(file: string): string {
   const p = path.join(__dirname, "assets", file);
   return "data:image/png;base64," + fs.readFileSync(p).toString("base64");
@@ -212,9 +214,10 @@ async function main() {
       passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD || "IntakeDemo123!", 10),
       name: "MDC Admin", role: "master",
     },
-    // Setting ADMIN_PASSWORD in the host's environment updates the admin
-    // password on the next deploy - no shell access or UI needed.
-    update: process.env.ADMIN_PASSWORD
+    // ADMIN_PASSWORD seeds the first master account. Existing passwords are
+    // only overwritten when explicitly requested, so deploys do not undo an
+    // in-app or one-time admin reset.
+    update: process.env.ADMIN_PASSWORD && syncAdminPasswordOnSeed
       ? { passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10), name: "MDC Admin", role: "master" }
       : { name: "MDC Admin", role: "master" },
   });
