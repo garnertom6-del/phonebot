@@ -5,6 +5,7 @@ import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
+import { autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
 
 export async function GET(req: NextRequest) {
   try {
@@ -20,7 +21,12 @@ export async function GET(req: NextRequest) {
         signatures: { select: { role: true } },
         uploadedDocuments: { where: { docType: "CCA" }, select: { id: true }, take: 1 },
         generatedPdfs: { select: { id: true }, take: 1 },
-        auditLogs: { where: { event: "cca_imported" }, orderBy: { createdAt: "desc" }, select: { detail: true }, take: 1 },
+        auditLogs: {
+          where: { event: { in: ["cca_imported", "copies_link_sent"] } },
+          orderBy: { createdAt: "desc" },
+          select: { event: true, detail: true, createdAt: true },
+          take: 10,
+        },
       },
       orderBy: { updatedAt: "desc" },
     });
@@ -37,6 +43,8 @@ export async function GET(req: NextRequest) {
     const rows = intakes.map((i) => {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
       const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
+      const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
+      const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
       return {
         id: i.id, status: i.status, archived: i.archived, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
         client: i.client, linkSentAt: i.linkSentAt, lastActivityAt: i.lastActivityAt,
@@ -45,7 +53,9 @@ export async function GET(req: NextRequest) {
         missingRequired: missingRequired(answers, signed),
         hasPdf: i.generatedPdfs.length > 0,
         hasCca: i.uploadedDocuments.length > 0,
-        ccaDetail: i.auditLogs[0]?.detail || "",
+        ccaDetail: ccaLog?.detail || "",
+        copiesSentAt: copiesLog?.createdAt || null,
+        autoSendCopies: autoSendCompletedCopiesEnabled(answers),
       };
     });
     return NextResponse.json({
