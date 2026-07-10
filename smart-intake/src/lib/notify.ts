@@ -137,11 +137,13 @@ export async function sendClientLinkSms(to: string, link: string): Promise<Notif
 
 export async function sendCopiesLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const subject = "Moore Divine Care, Inc. - Your copies";
+  const subject = "Moore Divine Care, Inc. - Your completed intake copies";
   const body =
-    `Hello ${clientName},\n\nHere are your copies of the papers from your visit: ` +
-    `Your Rights, How Our Program Works, Consent for Treatment, and our Welcome Letter. ` +
-    `Tap the link to see them:\n\n${link}\n\nQuestions? Call 336-285-5204.`;
+    `Hello ${clientName},\n\nYour completed Moore Divine Care intake copies are ready. ` +
+    `This includes the full wording for your client orientation, consent for treatment, ` +
+    `rights and responsibilities, privacy/confidentiality notices, emergency care consents, ` +
+    `and the other sections you reviewed and completed.\n\n` +
+    `View or save your completed copies here:\n\n${link}\n\nQuestions? Call 336-285-5204.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
@@ -169,7 +171,7 @@ export async function sendCopiesLinkSms(to: string, link: string): Promise<Notif
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `Moore Divine Care: your copies from your visit are here: ${link}`;
+  const body = `Moore Divine Care: your completed intake copies are ready. View or save them here: ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
