@@ -101,7 +101,7 @@ export async function packetTemplateForProvider(providerId?: string | null): Pro
     pageHeight: template?.pageHeight ?? PACKET_MAP.pageHeight,
     providerSpecific: !!providerTemplate,
     bytes: template ? loadTemplateFile(template.filePath) : loadTemplateBytes(),
-    fields: mergedMap(overrides),
+    fields: providerTemplate ? overrides : mergedMap(overrides),
     overrides,
   };
 }

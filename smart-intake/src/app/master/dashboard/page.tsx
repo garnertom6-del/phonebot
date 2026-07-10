@@ -324,6 +324,14 @@ export default function MasterDashboard() {
                       >
                         Packet setup
                       </button>
+                      {packet && (
+                        <Link
+                          className="btn-ghost px-3 py-1.5 text-xs"
+                          href={`/admin/pdf-mapping?providerId=${provider.id}`}
+                        >
+                          Map packet
+                        </Link>
+                      )}
                       <button
                         className={active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
                         onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}

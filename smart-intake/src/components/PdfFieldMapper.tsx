@@ -1,22 +1,43 @@
 "use client";
 /**
- * Admin PDF field mapper: renders each real packet page with pdfjs, overlays
- * the coordinate map, and lets staff click to add a field, drag to move,
- * resize, edit properties, test-fill, save overrides, and export JSON.
+ * Admin PDF field mapper: renders packet pages with pdfjs, overlays the saved
+ * coordinate map, and lets staff add, move, resize, delete, and save fields.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { SECTIONS } from "@/config/mooreDivineQuestions";
 
 interface Field {
   page: number; fieldKey: string; source: string; type: string;
   x: number; y: number; width: number; height: number;
   fontSize: number; lines: number; lineHeight: number;
   required: boolean; role: string; consentKey: string | null; notes: string;
+  flowLines?: number; startLine?: number; deleted?: boolean;
 }
 
-const TYPES = ["text", "checkbox", "signature", "initials", "survey_rating"];
+const TYPES = ["text", "checkbox", "signature", "signature_small", "initials", "survey_rating"];
 const ROLES = ["client", "guardian", "staff", "clinician", "medicalDirector", "witness", "auto"];
+const SOURCE_OPTIONS = Array.from(new Set([
+  ...SECTIONS.flatMap((section) => section.questions.map((q) => q.key)),
+  "signature",
+  "guardian_signature",
+  "staff_signature",
+  "clinician_signature",
+  "medical_director_signature",
+  "sign_date",
+  "staff_sign_date",
+  "clinician_sign_date",
+  "medical_director_sign_date",
+])).sort();
 
-export default function PdfFieldMapper() {
+function queryString(providerId?: string, templateId?: string) {
+  const params = new URLSearchParams();
+  if (providerId) params.set("providerId", providerId);
+  if (templateId) params.set("templateId", templateId);
+  const query = params.toString();
+  return query ? `?${query}` : "";
+}
+
+export default function PdfFieldMapper({ providerId, templateId }: { providerId?: string; templateId?: string }) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [pageNum, setPageNum] = useState(1);
   const [pageCount, setPageCount] = useState(43);
@@ -24,25 +45,42 @@ export default function PdfFieldMapper() {
   const [scale, setScale] = useState(1.2);
   const [fields, setFields] = useState<Field[]>([]);
   const [dirty, setDirty] = useState<Set<string>>(new Set());
+  const [deletedFields, setDeletedFields] = useState<Field[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [testFill, setTestFill] = useState(false);
+  const [templateName, setTemplateName] = useState("Moore Divine Care Client Intake Package");
+  const [providerSpecific, setProviderSpecific] = useState(false);
   const pdfRef = useRef<unknown>(null);
   const dragRef = useRef<{ key: string; startX: number; startY: number; ox: number; oy: number; resize: boolean } | null>(null);
+  const qs = queryString(providerId, templateId);
 
   useEffect(() => {
-    fetch("/api/mapping").then(async (r) => {
+    setNote("");
+    setSelected(null);
+    setDirty(new Set());
+    setDeletedFields([]);
+    fetch(`/api/mapping${qs}`).then(async (r) => {
       const d = await r.json();
-      setFields(d.fields); setPageCount(d.pageCount);
+      if (!r.ok) throw new Error(d.error || "Mapping could not be loaded");
+      setFields(d.fields || []);
+      setPageCount(d.pageCount);
       setPageSize({ w: d.pageWidth, h: d.pageHeight });
+      setTemplateName(d.originalFileName || d.templateName || "Packet template");
+      setProviderSpecific(!!d.providerSpecific);
+    }).catch((err) => {
+      setFields([]);
+      setNote(err instanceof Error ? err.message : "Mapping could not be loaded");
     });
-  }, []);
+  }, [qs]);
+
+  useEffect(() => { pdfRef.current = null; }, [qs]);
 
   const renderPage = useCallback(async () => {
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     if (!pdfRef.current) {
-      pdfRef.current = await pdfjs.getDocument("/api/template").promise;
+      pdfRef.current = await pdfjs.getDocument(`/api/template${qs}`).promise;
     }
     const doc = pdfRef.current as { getPage: (n: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number }; render: (o: object) => { promise: Promise<void> } }> };
     const page = await doc.getPage(pageNum);
@@ -50,7 +88,7 @@ export default function PdfFieldMapper() {
     const canvas = canvasRef.current!;
     canvas.width = viewport.width; canvas.height = viewport.height;
     await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
-  }, [pageNum, scale]);
+  }, [pageNum, scale, qs]);
 
   useEffect(() => { void renderPage(); }, [renderPage]);
 
@@ -80,6 +118,19 @@ export default function PdfFieldMapper() {
     setSelected(key);
   }
 
+  function deleteSelected() {
+    const field = fields.find((f) => f.fieldKey === selected);
+    if (!field) return;
+    setFields((fs) => fs.filter((f) => f.fieldKey !== field.fieldKey));
+    setDeletedFields((current) => [...current.filter((f) => f.fieldKey !== field.fieldKey), { ...field, deleted: true }]);
+    setDirty((current) => {
+      const next = new Set(current);
+      next.delete(field.fieldKey);
+      return next;
+    });
+    setSelected(null);
+  }
+
   function onPointerDown(e: React.PointerEvent, f: Field, resize: boolean) {
     e.stopPropagation();
     setSelected(f.fieldKey);
@@ -98,19 +149,46 @@ export default function PdfFieldMapper() {
 
   async function saveOverrides() {
     const changed = fields.filter((f) => dirty.has(f.fieldKey));
-    const r = await fetch("/api/mapping", {
+    const payload = [...changed, ...deletedFields];
+    const r = await fetch(`/api/mapping${qs}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields: changed }),
+      body: JSON.stringify({ fields: payload }),
     });
-    setNote(r.ok ? `Saved ${changed.length} override(s)` : "Save failed");
-    if (r.ok) setDirty(new Set());
+    setNote(r.ok ? `Saved ${payload.length} mapping change(s)` : "Save failed");
+    if (r.ok) { setDirty(new Set()); setDeletedFields([]); }
+  }
+
+  async function loadMooreDraft() {
+    const r = await fetch("/api/mapping");
+    const d = await r.json();
+    if (!r.ok) {
+      setNote(d.error || "Could not load default map");
+      return;
+    }
+    const draft = (d.fields || []).filter((f: Field) => f.page <= pageCount);
+    setFields(draft);
+    setDirty(new Set(draft.map((f: Field) => f.fieldKey)));
+    setDeletedFields([]);
+    setSelected(null);
+    setNote(`Loaded ${draft.length} Moore fields as a draft. Review and save before using.`);
+  }
+
+  function clearMap() {
+    setDeletedFields((current) => [
+      ...current,
+      ...fields.map((field) => ({ ...field, deleted: true })),
+    ]);
+    setFields([]);
+    setDirty(new Set());
+    setSelected(null);
+    setNote("Map cleared locally. Save mapping to apply.");
   }
 
   function exportJson() {
     const blob = new Blob([JSON.stringify({ pageCount, pageWidth: pageSize.w, pageHeight: pageSize.h, fields }, null, 1)], { type: "application/json" });
     const a = document.createElement("a");
     a.href = URL.createObjectURL(blob);
-    a.download = "mooreDivinePacketMap.json";
+    a.download = `${templateName.replace(/\W+/g, "-")}-mapping.json`;
     a.click();
   }
 
@@ -120,6 +198,9 @@ export default function PdfFieldMapper() {
   return (
     <div className="flex gap-4">
       <div className="flex-1">
+        <div className="mb-2 rounded-md bg-slate-50 p-3 text-sm text-slate-600">
+          Mapping: <strong>{templateName}</strong>{providerSpecific ? " (provider packet)" : " (default packet)"}
+        </div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>Prev</button>
           <span className="text-sm font-semibold">Page {pageNum} / {pageCount}</span>
@@ -128,11 +209,13 @@ export default function PdfFieldMapper() {
             {Array.from({ length: pageCount }, (_, i) => <option key={i + 1} value={i + 1}>Page {i + 1}</option>)}
           </select>
           <button className="btn-ghost px-3 py-1" onClick={() => setScale((s) => s + 0.2)}>Zoom +</button>
-          <button className="btn-ghost px-3 py-1" onClick={() => setScale((s) => Math.max(0.6, s - 0.2))}>Zoom −</button>
+          <button className="btn-ghost px-3 py-1" onClick={() => setScale((s) => Math.max(0.6, s - 0.2))}>Zoom -</button>
           <label className="ml-2 flex items-center gap-1 text-sm">
             <input type="checkbox" checked={testFill} onChange={(e) => setTestFill(e.target.checked)} /> Test-fill labels
           </label>
-          <button className="btn-primary px-3 py-1" onClick={saveOverrides}>Save mapping ({dirty.size})</button>
+          <button className="btn-primary px-3 py-1" onClick={saveOverrides}>Save mapping ({dirty.size + deletedFields.length})</button>
+          {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
+          <button className="btn-ghost px-3 py-1" onClick={clearMap}>Clear map</button>
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
           <span className="text-sm text-emerald-600">{note}</span>
         </div>
@@ -146,7 +229,7 @@ export default function PdfFieldMapper() {
             return (
               <div key={f.fieldKey} data-fieldkey={f.fieldKey}
                 onPointerDown={(e) => onPointerDown(e, f, false)}
-                className={`absolute cursor-move border text-[9px] leading-tight ${isSel ? "z-10 border-red-500 bg-red-200/50" : f.type === "signature" ? "border-purple-500 bg-purple-200/40" : f.type === "checkbox" ? "border-amber-500 bg-amber-200/40" : "border-sky-500 bg-sky-200/40"}`}
+                className={`absolute cursor-move border text-[9px] leading-tight ${isSel ? "z-10 border-red-500 bg-red-200/50" : f.type === "signature" || f.type === "signature_small" ? "border-purple-500 bg-purple-200/40" : f.type === "checkbox" ? "border-amber-500 bg-amber-200/40" : "border-sky-500 bg-sky-200/40"}`}
                 style={{ left: s.left, top: s.top, width: s.width, height: Math.max(s.height, 10) }}
                 title={`${f.fieldKey} from ${f.source}`}>
                 {testFill && <span className="pointer-events-none block truncate px-0.5 text-sky-900">{f.source || f.fieldKey}</span>}
@@ -167,7 +250,10 @@ export default function PdfFieldMapper() {
             <div className="space-y-2 text-sm">
               <div><label className="label">Field key</label><input className="input" value={sel.fieldKey} disabled /></div>
               <div><label className="label">Question key (source)</label>
-                <input className="input" value={sel.source} onChange={(e) => update(sel.fieldKey, { source: e.target.value })} />
+                <input className="input" list="mapping-source-options" value={sel.source} onChange={(e) => update(sel.fieldKey, { source: e.target.value })} />
+                <datalist id="mapping-source-options">
+                  {SOURCE_OPTIONS.map((source) => <option key={source} value={source} />)}
+                </datalist>
                 <p className="text-xs text-slate-400">Plain key = text. key=Value = checkbox match. key~Value = multi-select match.</p>
               </div>
               <div className="grid grid-cols-2 gap-2">
@@ -190,6 +276,7 @@ export default function PdfFieldMapper() {
                 <input className="input" value={sel.consentKey || ""} onChange={(e) => update(sel.fieldKey, { consentKey: e.target.value || null })} /></div>
               <label className="flex items-center gap-2"><input type="checkbox" checked={sel.required} onChange={(e) => update(sel.fieldKey, { required: e.target.checked })} /> Required</label>
               <div><label className="label">Notes</label><input className="input" value={sel.notes} onChange={(e) => update(sel.fieldKey, { notes: e.target.value })} /></div>
+              <button className="btn-ghost w-full border-red-200 text-red-700" onClick={deleteSelected}>Delete selected field</button>
             </div>
           )}
         </div>

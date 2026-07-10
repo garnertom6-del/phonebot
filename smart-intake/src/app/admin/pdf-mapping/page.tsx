@@ -4,16 +4,31 @@ import dynamic from "next/dynamic";
 
 const PdfFieldMapper = dynamic(() => import("@/components/PdfFieldMapper"), { ssr: false });
 
-export default function PdfMappingPage() {
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
+export default function PdfMappingPage({
+  searchParams,
+}: {
+  searchParams?: { providerId?: string | string[]; templateId?: string | string[] };
+}) {
+  const providerId = firstParam(searchParams?.providerId);
+  const templateId = firstParam(searchParams?.templateId);
+  const providerMode = !!providerId || !!templateId;
+
   return (
     <main className="mx-auto max-w-[1400px] p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
-      <h1 className="mb-1 mt-1 text-2xl font-bold">PDF Field Mapping - Moore Divine Care Client Intake Package</h1>
+      <h1 className="mb-1 mt-1 text-2xl font-bold">
+        PDF Field Mapping{providerMode ? " - Provider Packet" : " - Moore Divine Care Client Intake Package"}
+      </h1>
       <p className="mb-4 text-sm text-slate-500">
-        The base map was generated from the actual PDF (870 anchored placements). Adjust anything
-        here - your changes are saved as database overrides and used the next time a packet is generated.
+        {providerMode
+          ? "Map the selected provider's uploaded packet. These placements are saved only for that provider template."
+          : "The base map was generated from the actual PDF. Adjustments here are saved as default packet overrides."}
       </p>
-      <PdfFieldMapper />
+      <PdfFieldMapper providerId={providerId} templateId={templateId} />
     </main>
   );
 }
