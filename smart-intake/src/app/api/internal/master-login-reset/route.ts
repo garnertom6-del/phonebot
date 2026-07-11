@@ -3,7 +3,7 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
-const RESET_TOKEN_SHA256 = "8c211abcd1964da0cdf73dcfb565a9984cac9b2bc8a196e081471c39cf1d96f6";
+const RESET_TOKEN_SHA256 = "06800bf5b3c9e167f85a5b2520d0c9b2151582203593550e8bd557cc8f891e45";
 const ADMIN_EMAIL = "admin@mooredivinecare.local";
 
 function isAuthorized(token: string | null) {
