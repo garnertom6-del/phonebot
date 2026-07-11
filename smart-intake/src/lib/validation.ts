@@ -70,7 +70,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
   }
   for (const s of SECTIONS) {
     for (const q of s.questions) {
-      if (s.key === "welcome" || q.key === "intake_mode") continue;
+      if (s.key === "welcome" || q.key === "intake_mode" || q.staffOnly || q.type === "info" || q.type === "heading") continue;
       if (!q.required || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];
       if (v === undefined || v === "" || v === false || v === null || (Array.isArray(v) && !v.length)) {
@@ -83,7 +83,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
   return missing;
 }
 
-/** Every unanswered (visible) question, grouped for the staff checklist. */
+/** Every unanswered client-visible question, plus key staff helper blanks, grouped for the staff checklist. */
 export function missingOptional(answers: Answers): MissingField[] {
   const out: MissingField[] = [];
   const staffReviewKeys = new Set([
@@ -95,6 +95,7 @@ export function missingOptional(answers: Answers): MissingField[] {
   ]);
   for (const s of SECTIONS) {
     for (const q of s.questions) {
+      if (q.staffOnly) continue;
       if (!q.essential && !q.required && !staffReviewKeys.has(q.key)) continue;
       if (q.type === "info" || q.type === "heading") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;

@@ -61,6 +61,10 @@ export function applyInsurancePlanDefaults(a: Answers) {
     const normalized = normalizeInsuranceValue(providerChoice, "mco");
     if (normalized) a.mco = normalized;
   }
+  const confirmedCoverage = matchingPlan(text(a.provider_choice_plan) || text(a.mco));
+  if (!text(a.has_medicaid) && confirmedCoverage && confirmedCoverage.key !== "bcbs" && confirmedCoverage.key !== "not-sure") {
+    a.has_medicaid = "Yes";
+  }
 }
 
 export function insuranceSummary(answers: Record<string, unknown>): string {
