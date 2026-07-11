@@ -73,6 +73,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
       if (s.key === "welcome" || q.key === "intake_mode" || q.staffOnly || q.type === "info" || q.type === "heading") continue;
       if (!q.required || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];
+      if (q.key === "client_phone_cell" && (answers.client_email || v)) continue;
       if (v === undefined || v === "" || v === false || v === null || (Array.isArray(v) && !v.length)) {
         missing.push({ key: q.key, label: q.label, section: s.title });
         seen.add(q.key);
