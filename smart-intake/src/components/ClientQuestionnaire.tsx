@@ -145,6 +145,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const answeredCount = useMemo(() => {
     let total = 0, filled = 0;
     for (const s of SECTIONS) for (const q of s.questions) {
+      if (q.staffOnly) continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       total++;
       const v = answers[q.key];

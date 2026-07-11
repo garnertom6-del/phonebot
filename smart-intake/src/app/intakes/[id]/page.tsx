@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
+import { PROVIDER_CHOICE_PLAN_OPTIONS } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import {
   copiesMailtoHref,
@@ -30,7 +31,7 @@ interface Detail {
 }
 
 const HELPER_FORM_KEYS = [
-  "record_number", "mid_number", "preferred_emergency_facility",
+  "record_number", "mid_number", "provider_choice_plan", "preferred_emergency_facility",
   "race", "ethnicity", "marital_status", "employment_status",
   "pcp_name", "pcp_phone", "pcp_address",
   "ec1_name", "ec1_cell_phone", "staff_receiving_intake",
@@ -333,7 +334,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               <p className="mt-1 text-sm text-slate-500">
                 Look up automatically when the NC Tracks connection is set up, or enter
                 details manually. The app applies MID, PCP, emergency, staff names, dates,
-                Medicaid defaults, and repeated packet fields.
+                Medicaid defaults, insurance type, and repeated packet fields.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -364,6 +365,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           >
             <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
             <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
+            <HelperSelect
+              name="provider_choice_plan"
+              label="Type of insurance"
+              value={d.answers.provider_choice_plan ?? d.answers.mco ?? ""}
+              options={PROVIDER_CHOICE_PLAN_OPTIONS}
+            />
             <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
             <HelperInput name="race" label="Race" value={d.answers.race ?? ""} />
             <HelperInput name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} />
@@ -383,7 +390,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               <span className="label">Paste quick notes</span>
               <textarea name="helperNotes" className="input min-h-[110px]"
                 defaultValue={String(d.answers.staff_helper_notes ?? "")}
-                placeholder={"Examples:\nRace: Black or African American\nEthnicity: Non-Hispanic/Black\nMarital status: Single\nEmployment status: Unemployed\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nHeight: 5'8\"\nWeight: 160\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
+                placeholder={"Examples:\nInsurance type: Alliance\nRace: Black or African American\nEthnicity: Non-Hispanic/Black\nMarital status: Single\nEmployment status: Unemployed\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nHeight: 5'8\"\nWeight: 160\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
             </label>
             <div className="md:col-span-3 flex flex-wrap gap-2">
               <button className="btn-primary" type="submit">Save helper info</button>
@@ -432,6 +439,30 @@ function HelperInput({ name, label, value }: { name: string; label: string; valu
     <label>
       <span className="label">{label}</span>
       <input className="input" name={name} defaultValue={String(value ?? "")} />
+    </label>
+  );
+}
+
+function HelperSelect({
+  name,
+  label,
+  value,
+  options,
+}: {
+  name: string;
+  label: string;
+  value: unknown;
+  options: string[];
+}) {
+  return (
+    <label>
+      <span className="label">{label}</span>
+      <select className="input" name={name} defaultValue={String(value ?? "")}>
+        <option value="">Select insurance type</option>
+        {options.map((option) => (
+          <option key={option} value={option}>{option}</option>
+        ))}
+      </select>
     </label>
   );
 }

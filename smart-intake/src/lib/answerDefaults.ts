@@ -1,4 +1,5 @@
 import type { Answers } from "./fillPdf";
+import { applyInsurancePlanDefaults } from "./insurancePlans";
 
 /**
  * Operational defaults policy: a default may COPY a real answer somewhere
@@ -133,6 +134,7 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
 
   // a verified MID means Medicaid coverage is already established
   if (!isBlank(a.mid_number)) setDefault(a, "has_medicaid", "Yes");
+  applyInsurancePlanDefaults(a);
 
   // one staff member's name flows to the synonymous staff-name blanks
   const sharedStaffName =

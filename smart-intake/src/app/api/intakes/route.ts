@@ -6,6 +6,7 @@ import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
+import { insuranceSummary } from "@/lib/insurancePlans";
 
 function generatedRecordNumber(): string {
   const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
@@ -17,15 +18,6 @@ function stringValue(value: unknown): string {
   if (value == null) return "";
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean).join(", ");
   return String(value).trim();
-}
-
-function insuranceSummary(answers: Record<string, unknown>): string {
-  const parts: string[] = [];
-  if (stringValue(answers.has_medicaid) === "Yes") parts.push("Medicaid");
-  if (stringValue(answers.has_nchc) === "Yes") parts.push("NCHC");
-  const plan = stringValue(answers.mco);
-  if (plan && plan !== "Not sure") parts.push(plan);
-  return parts.join(" | ") || "Coverage not recorded";
 }
 
 export async function GET(req: NextRequest) {

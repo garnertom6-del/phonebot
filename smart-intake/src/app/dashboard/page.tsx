@@ -20,6 +20,7 @@ interface Row {
   client: {
     fullName: string;
     dob: string;
+    recordNumber?: string;
     midNumber?: string;
     phone?: string;
     email?: string;
@@ -91,6 +92,7 @@ function rowSearchText(row: Row) {
   return [
     row.client.fullName,
     row.client.dob,
+    row.client.recordNumber,
     row.client.midNumber,
     row.client.phone,
     row.client.email,
@@ -359,10 +361,10 @@ export default function Dashboard() {
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <MetaCard label="DOB / MID" value={`${displayDate(row.client.dob)} • ${row.client.midNumber || "No MID"}`} />
+                <MetaCard label="DOB / Record" value={`${displayDate(row.client.dob)} • ${row.client.recordNumber || "No record #"}`} />
+                <MetaCard label="MID / Insurance type" value={`${row.client.midNumber || "No MID"} • ${row.insuranceSummary || "Coverage not recorded"}`} />
                 <MetaCard label="Contact" value={[row.client.phone, row.client.email].filter(Boolean).join(" • ") || "No phone or email saved"} />
                 <MetaCard label="Guardian" value={row.client.guardianName || "No guardian on file"} />
-                <MetaCard label="Coverage" value={row.insuranceSummary || "Coverage not recorded"} />
               </div>
 
               <div className="mt-4 grid gap-4 xl:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)]">

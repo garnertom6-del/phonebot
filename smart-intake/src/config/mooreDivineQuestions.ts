@@ -125,7 +125,7 @@ export const SECTIONS: Section[] = [
       { key: "has_medicare", label: "Do you have Medicare?", type: "yesno", options: YN },
       { key: "medicare_effective_date", label: "Medicare effective date (if known)", type: "date", askIf: { key: "has_medicare", equals: "Yes" } },
       { key: "funding_other", label: "Other funding source", type: "text", voice: true },
-      { key: "mco", label: "Your health plan (MCO/LME)", type: "radio", options: ["Alliance", "Partners BH", "Trillium", "Vaya", "AmeriHealth", "Carolina Complete", "Healthy Blue Medicaid", "United Healthcare", "Wellcare", "Not sure"] },
+      { key: "mco", label: "Your health plan (MCO/LME)", type: "radio", staffOnly: true, options: ["Alliance", "Partners BH", "Trillium", "Vaya", "AmeriHealth", "Carolina Complete", "Healthy Blue Medicaid", "United Healthcare", "Wellcare", "Not sure"] },
       { key: "has_nchc", label: "Do you have NC Health Choice (NCHC)?", type: "yesno", options: YN },
       { key: "nchc_policy", label: "NCHC policy number", type: "text", askIf: { key: "has_nchc", equals: "Yes" } },
       { key: "nchc_effective_date", label: "NCHC effective date", type: "date", askIf: { key: "has_nchc", equals: "Yes" } },
@@ -282,7 +282,7 @@ export const SECTIONS: Section[] = [
   {
     key: "provider_choice", title: "Provider Choice", fastIntake: true,
     questions: [
-      { key: "provider_choice_plan", essential: true, label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare", "Not sure"] },
+      { key: "provider_choice_plan", essential: true, staffOnly: true, label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare", "Not sure"] },
       {
         key: "consent_provider_choice", label: "Provider Choice", type: "consent", required: true,
         consentText: "I understand that I have the right to choose which provider will provide services to me. I have selected Moore Divine Care, Inc. as my provider of choice and have been offered a list of other providers who offer the same or similar services based on my medical needs. I understand that at any time I may change my service provider and will, if possible, provide reasonable notice so my records can transition. I may contact my Local Management Entity with questions or concerns.",
@@ -597,7 +597,7 @@ export const ALL_CONSENT_KEYS = SECTIONS.flatMap((s) =>
  *  therefore can never be changed from a client token. */
 export const CLIENT_ANSWER_KEYS: ReadonlySet<string> = new Set(
   SECTIONS.flatMap((s) =>
-    s.questions.filter((q) => q.type !== "info" && q.type !== "heading").map((q) => q.key)),
+    s.questions.filter((q) => !q.staffOnly && q.type !== "info" && q.type !== "heading").map((q) => q.key)),
 );
 
 export const CLIENT_PREFILLED_QUESTION_KEYS: ReadonlySet<string> = new Set([

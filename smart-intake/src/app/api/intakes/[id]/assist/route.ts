@@ -4,6 +4,7 @@ import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { normalizeInsuranceValue } from "@/lib/insurancePlans";
 
 const FIELD_KEYS = new Set([
   "record_number", "mid_number", "pcp_name", "pcp_phone", "pcp_address",
@@ -13,7 +14,7 @@ const FIELD_KEYS = new Set([
   "address_city", "address_state", "race", "ethnicity", "marital_status",
   "employment_status", "occupation", "employer_name", "employer_address",
   "employer_phone", "has_medicaid", "medicaid_effective_date", "has_nchc",
-  "nchc_policy", "nchc_effective_date", "mco", "funding_other",
+  "nchc_policy", "nchc_effective_date", "mco", "provider_choice_plan", "funding_other",
   "staff_receiving_intake", "qp_referred_to", "clinician_name", "c_clinician",
   "c_practice", "c_secure_fax", "c_secure_email", "c_agency_secure_fax",
   "referral_source", "social_agency_name", "services_other", "transport_destination",
@@ -50,6 +51,7 @@ const NOTE_LABELS: Array<[RegExp, string]> = [
   [/^nchc policy$/i, "nchc_policy"],
   [/^nchc effective(?: date)?$/i, "nchc_effective_date"],
   [/^(mco|health plan|tailored plan)$/i, "mco"],
+  [/^(insurance type|insurance plan|provider choice plan)$/i, "provider_choice_plan"],
   [/^(funding|funding source)$/i, "funding_other"],
   [/^pcp(?: name| doctor)?$/i, "pcp_name"],
   [/^pcp phone$/i, "pcp_phone"],
@@ -140,6 +142,12 @@ function normalizeAssistValue(key: string, value: string): string | string[] {
   }
   if (key === "employment_status") {
     return option(text, ["Not in Labor Force", "Unemployed", "Disabled", "Employed"]);
+  }
+  if (key === "mco") {
+    return normalizeInsuranceValue(text, "mco") || text;
+  }
+  if (key === "provider_choice_plan") {
+    return normalizeInsuranceValue(text, "providerChoice") || text;
   }
   if (key === "transport_purposes") {
     return text.split(/[,;|]/).map((v) => v.trim()).filter(Boolean);

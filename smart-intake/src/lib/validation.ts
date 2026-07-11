@@ -111,7 +111,7 @@ export function percentComplete(answers: Answers): number {
   let visible = 0, answered = 0;
   for (const s of SECTIONS) {
     for (const q of s.questions) {
-      if (q.type === "info" || q.type === "heading") continue;
+      if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       visible++;
       const v = answers[q.key];
