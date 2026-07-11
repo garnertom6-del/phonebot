@@ -18,7 +18,7 @@ import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
 
 type Answers = Record<string, string | boolean | number | string[]>;
-type Phase = "welcome" | "question" | "break" | "signature" | "done";
+type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
 
 interface FlatQ { q: Question; sectionKey: string; sectionTitle: string }
 
@@ -155,7 +155,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
     const nextIdx = i + 1;
     setJustPicked(null);
     setNudge("");
-    if (nextIdx >= list.length) { void saveNow("completed"); setPhase("signature"); return; }
+    if (nextIdx >= list.length) { void saveNow("completed"); setPhase("photos"); return; }
     const here = list[i];
     const next = list[nextIdx];
     setIdx(nextIdx);
@@ -213,7 +213,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
 
   // Safety net: if there is somehow nothing left to ask, go to signing.
   useEffect(() => {
-    if (phase === "question" && flat.length === 0) setPhase("signature");
+    if (phase === "question" && flat.length === 0) setPhase("photos");
   }, [phase, flat.length]);
 
   /* --------------------------- submit / sign -------------------------- */
@@ -309,6 +309,27 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
         <span className="text-2xl font-bold leading-relaxed text-brand">{breakText}</span>
         <span className="mt-6 text-base text-slate-400">Tap anywhere to keep going</span>
       </button>
+    );
+  }
+
+  if (phase === "photos") {
+    return (
+      <div className="mx-auto max-w-md pb-28">
+        <ProgressBar percent={100} label="Almost done!" />
+        <h2 className="mt-6 text-3xl font-bold leading-snug text-brand">Two quick photos</h2>
+        <p className="mt-3 text-xl leading-relaxed text-slate-600">
+          If you have them handy, snap a photo of your insurance card and your ID.
+          It&apos;s okay to skip this - we can get them later.
+        </p>
+        <div className="mt-6 space-y-4">
+          <PhotoUpload token={token} docType="insurance_card" label="📷 My insurance card" />
+          <PhotoUpload token={token} docType="photo_id" label="📷 My photo ID" />
+        </div>
+        <button type="button" className="btn-primary mt-8 min-h-[64px] w-full text-xl"
+          onClick={() => setPhase("signature")}>
+          Next: sign my name
+        </button>
+      </div>
     );
   }
 
@@ -574,5 +595,28 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
         Next
       </button>
     </div>
+  );
+}
+
+/** Big-button photo upload for the client link (camera opens on phones). */
+function PhotoUpload({ token, docType, label }: { token: string; docType: string; label: string }) {
+  const [status, setStatus] = useState("");
+  const [busy, setBusy] = useState(false);
+  return (
+    <label className={`flex min-h-[64px] w-full cursor-pointer items-center justify-between rounded-xl border-2 px-4 text-xl font-semibold ${status.startsWith("Got") ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-white text-brand"}`}>
+      <span>{busy ? "Sending..." : status || label}</span>
+      {status.startsWith("Got") && <span>✓</span>}
+      <input type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
+        onChange={async (e) => {
+          const file = e.target.files?.[0];
+          if (!file) return;
+          setBusy(true);
+          const fd = new FormData();
+          fd.set("file", file); fd.set("docType", docType);
+          const r = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
+          setBusy(false);
+          setStatus(r.ok ? "Got it! Thank you" : "That didn't work - try again or skip");
+        }} />
+    </label>
   );
 }
