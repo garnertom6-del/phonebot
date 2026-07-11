@@ -23,6 +23,11 @@ export async function createStaffIntake(
   req?: Request | { headers?: Headers; nextUrl?: URL; url?: string },
 ): Promise<StaffIntakeResult> {
   const base = appBaseUrl(req);
+  const provider = await prisma.provider.findUnique({
+    where: { id: providerId },
+    select: { name: true },
+  });
+  if (!provider) throw new Error("Provider not found");
   const intake = await prisma.$transaction(async (tx) => {
     const client = await tx.client.create({
       data: {
@@ -43,6 +48,7 @@ export async function createStaffIntake(
       data: {
         providerId,
         clientId: client.id,
+        packageName: `${provider.name} Client Intake Package`,
         token: newIntakeToken(),
         tokenExpiresAt: tokenExpiry(),
         expectCca: data.expectCca !== false,

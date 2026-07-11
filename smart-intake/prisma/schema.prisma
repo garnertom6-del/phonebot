@@ -80,7 +80,7 @@ model Intake {
   provider           Provider? @relation(fields: [providerId], references: [id])
   clientId           String
   client             Client    @relation(fields: [clientId], references: [id])
-  packageName        String    @default("Moore Divine Care Client Intake Package")
+  packageName        String    @default("Client Intake Package")
   status             String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | SUBMITTED | NEEDS_REVIEW | SIGNED | COMPLETED
   mode               String    @default("full") // fast | full
   expectCca          Boolean   @default(true) // short client intake; clinician CCA fills the rest

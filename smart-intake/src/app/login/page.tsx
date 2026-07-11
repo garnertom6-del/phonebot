@@ -16,16 +16,17 @@ export default function LoginPage() {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ email, password }),
     });
+    const body = await res.json().catch(() => ({}));
     setBusy(false);
-    if (res.ok) router.push("/dashboard");
-    else setError((await res.json()).error || "Login failed");
+    if (res.ok) router.push(body.destination || "/dashboard");
+    else setError(body.error || "Login failed");
   }
 
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <form onSubmit={submit} className="card w-full max-w-md">
         <h1 className="text-xl font-bold text-brand">Smart Intake</h1>
-        <p className="mb-6 text-sm text-slate-500">Provider staff sign in</p>
+        <p className="mb-6 text-sm text-slate-500">Secure provider, staff, and master sign in</p>
         <label className="label">Email</label>
         <input className="input mb-4" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
         <label className="label">Password</label>

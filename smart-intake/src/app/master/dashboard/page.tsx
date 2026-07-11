@@ -75,6 +75,8 @@ export default function MasterDashboard() {
   const [packetFile, setPacketFile] = useState<File | null>(null);
   const [packetBusy, setPacketBusy] = useState(false);
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
+  const [adminBusy, setAdminBusy] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -83,6 +85,10 @@ export default function MasterDashboard() {
       const response = await fetch("/api/master/providers");
       if (response.status === 401) {
         router.push("/login");
+        return;
+      }
+      if (response.status === 403) {
+        router.push("/dashboard");
         return;
       }
       const body = await response.json().catch(() => ({}));
@@ -179,6 +185,38 @@ export default function MasterDashboard() {
       setError(err instanceof Error ? err.message : "Packet could not be uploaded.");
     } finally {
       setPacketBusy(false);
+    }
+  }
+
+  async function saveProviderAdmin(event: React.FormEvent) {
+    event.preventDefault();
+    const provider = providers.find((item) => item.id === selectedProviderId);
+    if (!provider) {
+      setError("Select a provider first.");
+      return;
+    }
+    setAdminBusy(true);
+    setError("");
+    setNote("");
+    try {
+      const response = await fetch(`/api/master/providers/${provider.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          adminName: adminForm.name,
+          adminEmail: adminForm.email,
+          adminPassword: adminForm.password,
+        }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Provider administrator could not be saved.");
+      setAdminForm({ name: "", email: "", password: "" });
+      setNote(`${provider.name} administrator access is ready.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Provider administrator could not be saved.");
+    } finally {
+      setAdminBusy(false);
     }
   }
 
@@ -298,6 +336,40 @@ export default function MasterDashboard() {
             </section>
           )}
 
+          {isMaster && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="text-lg font-bold">Provider Administrator Access</h2>
+              <p className="mt-1 text-sm text-slate-500">Create or reset the sign-in for an existing provider dashboard.</p>
+              <form onSubmit={saveProviderAdmin} className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+                <label>
+                  <span className="label">Provider</span>
+                  <select className="input" value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)}>
+                    <option value="">Select provider</option>
+                    {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
+                  </select>
+                </label>
+                <label>
+                  <span className="label">Administrator name</span>
+                  <input className="input" value={adminForm.name}
+                    onChange={(event) => setAdminForm((current) => ({ ...current, name: event.target.value }))} />
+                </label>
+                <label>
+                  <span className="label">Administrator email *</span>
+                  <input className="input" type="email" required value={adminForm.email}
+                    onChange={(event) => setAdminForm((current) => ({ ...current, email: event.target.value }))} />
+                </label>
+                <label>
+                  <span className="label">New password *</span>
+                  <input className="input" type="password" required minLength={8} value={adminForm.password}
+                    onChange={(event) => setAdminForm((current) => ({ ...current, password: event.target.value }))} />
+                </label>
+                <button className="btn-primary lg:col-span-2" disabled={adminBusy || !selectedProviderId}>
+                  {adminBusy ? "Saving..." : "Create / reset provider administrator"}
+                </button>
+              </form>
+            </section>
+          )}
+
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-lg font-bold">Provider list</h2>
@@ -314,7 +386,7 @@ export default function MasterDashboard() {
                 </thead>
                 <tbody>
                   {loading && <tr><td colSpan={8} className="p-6 text-center text-slate-400">Loading...</td></tr>}
-                  {!loading && filteredProviders.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-400">No providers match this search.</td></tr>}
+                  {!loading && !error && filteredProviders.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-400">No providers match this search.</td></tr>}
                   {filteredProviders.map((provider) => {
                     const admins = provider.memberships
                       .filter((membership) => membership.active && membership.role === "PROVIDER_ADMIN")

@@ -17,7 +17,7 @@ async function findByToken(token: string) {
   }
   if (intake.tokenExpiresAt < new Date()) {
     return {
-      error: `This link has expired. Please ask ${providerDisplayName(intake.provider?.name)} for a new one (${providerPhone(intake.provider?.phone)}).`,
+      error: `This link has expired. Please ask ${providerDisplayName(intake.provider?.name)} for a new one (${providerPhone(intake.provider?.phone, intake.provider?.name)}).`,
       intake: null,
     };
   }

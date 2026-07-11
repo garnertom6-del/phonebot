@@ -19,6 +19,11 @@ const DEFAULT_PROVIDER = {
   slug: "moore-divine-care",
 };
 
+const WELLIANCE_PROVIDER = {
+  name: "Welliance Care",
+  slug: "welliance-care",
+};
+
 const syncAdminPasswordOnSeed = process.env.SYNC_ADMIN_PASSWORD === "true";
 
 function sigDataUrl(file: string): string {
@@ -207,6 +212,19 @@ async function main() {
       email: "admin@mooredivinecare.local",
     },
   });
+  const welliance = await prisma.provider.upsert({
+    where: { slug: WELLIANCE_PROVIDER.slug },
+    create: {
+      ...WELLIANCE_PROVIDER,
+      status: "ACTIVE",
+      email: process.env.WELLIANCE_PROVIDER_EMAIL || null,
+      phone: process.env.WELLIANCE_PROVIDER_PHONE || null,
+    },
+    update: {
+      name: WELLIANCE_PROVIDER.name,
+      status: "ACTIVE",
+    },
+  });
   const admin = await prisma.user.upsert({
     where: { email: "admin@mooredivinecare.local" },
     create: {
@@ -249,6 +267,10 @@ async function main() {
   await prisma.client.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
   await prisma.intake.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
   await prisma.auditLog.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });
+  await prisma.intake.updateMany({
+    where: { providerId: welliance.id, packageName: "Moore Divine Care Client Intake Package" },
+    data: { packageName: "Welliance Care Client Intake Package" },
+  });
 
   // Demo clients are for local development only. Set SEED_DEMO_DATA=false
   // (as render.yaml does) to keep them out of a real deployment.

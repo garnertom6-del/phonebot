@@ -100,7 +100,7 @@ export async function sendClientLinkEmail(
   const body =
     `Hello ${clientName},\n\n${intakeProcessExplanation(providerName)} ` +
     `This secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days:\n\n${link}\n\n` +
-    `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone)}.`;
+    `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
@@ -163,7 +163,7 @@ export async function sendCopiesLinkEmail(
     `This includes the full wording for your client orientation, consent for treatment, ` +
     `rights and responsibilities, privacy/confidentiality notices, emergency care consents, ` +
     `and the other sections you reviewed and completed.\n\n` +
-    `View or save your completed copies here:\n\n${link}\n\nQuestions? Call ${providerPhone(supportPhone)}.`;
+    `View or save your completed copies here:\n\n${link}\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };

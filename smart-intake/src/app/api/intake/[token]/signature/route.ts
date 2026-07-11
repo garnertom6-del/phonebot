@@ -34,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const dobVerified = dobMatches(dobCheck || "", intake.client.dob);
   if (dobCheck && !dobVerified) {
     return NextResponse.json(
-      { error: `That birthday does not match what we have on file. Please check it and try again, or call ${providerPhone(intake.provider?.phone)}.` },
+      { error: `That birthday does not match what we have on file. Please check it and try again, or call ${providerPhone(intake.provider?.phone, intake.provider?.name)}.` },
       { status: 400 },
     );
   }

@@ -22,7 +22,7 @@ export default async function CopiesPage({ params }: { params: { token: string }
           <h1 className="text-2xl font-bold text-brand">Completed copies are not ready yet</h1>
           <p className="mt-3 text-sm text-slate-600">
             This intake has not been submitted or completed yet. Please contact {providerDisplayName(intake.provider?.name)}
-            {" "}at {providerPhone(intake.provider?.phone)} if you believe this is a mistake.
+            {" "}at {providerPhone(intake.provider?.phone, intake.provider?.name)} if you believe this is a mistake.
           </p>
         </section>
       </main>
@@ -101,7 +101,7 @@ export default async function CopiesPage({ params }: { params: { token: string }
       </section>
 
       <p className="mt-6 text-center text-sm text-slate-500">
-        Questions? Call {providerDisplayName(intake.provider?.name)} at {providerPhone(intake.provider?.phone)}.
+        Questions? Call {providerDisplayName(intake.provider?.name)} at {providerPhone(intake.provider?.phone, intake.provider?.name)}.
       </p>
     </main>
   );

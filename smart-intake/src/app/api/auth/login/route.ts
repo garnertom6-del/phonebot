@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { createSessionValue, SESSION_COOKIE } from "@/lib/auth";
 import { loginSchema } from "@/lib/validation";
 import { audit } from "@/lib/auditLog";
+import { isMasterUser } from "@/lib/staffGuard";
 
 // Simple in-memory lockout: 5 wrong tries per email+IP -> 15 minute wait.
 // Resets on server restart, which is fine - it only needs to stop guessing.
@@ -43,7 +44,8 @@ export async function POST(req: NextRequest) {
   }
 
   attempts.delete(key);
-  const res = NextResponse.json({ ok: true, name: user.name });
+  const destination = isMasterUser(user) ? "/master/dashboard" : "/dashboard";
+  const res = NextResponse.json({ ok: true, name: user.name, destination });
   res.cookies.set(SESSION_COOKIE, createSessionValue(user.id), {
     httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production",
   });

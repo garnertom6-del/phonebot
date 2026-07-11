@@ -161,7 +161,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
           <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
           <p className="mt-2 text-slate-600">
           {providerDisplayName(providerName)} got your answers. Our team will review them and finish
-          your paperwork. Questions? Call {providerPhone(supportPhone)}.
+          your paperwork. Questions? Call {providerPhone(supportPhone, providerName)}.
           </p>
         </div>
       );

@@ -129,7 +129,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       if (res.status === 404) {
         // the link expired mid-session - tell the client what to do, not "check connection"
         const body = await res.json().catch(() => ({} as { error?: string }));
-        setSaveError(body.error || `This link has stopped working. Please call ${providerPhone(supportPhone)} and we will text you a new one.`);
+        setSaveError(body.error || `This link has stopped working. Please call ${providerPhone(supportPhone, providerName)} and we will text you a new one.`);
         return false;
       }
       if (!res.ok) throw new Error("Save failed");
@@ -287,7 +287,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
           <p className="mt-4 text-xl text-slate-600">
           {providerDisplayName(providerName)} got your answers. We will call you soon.
           </p>
-        <p className="mt-6 text-base text-slate-400">Questions? Call {providerPhone(supportPhone)}.</p>
+        <p className="mt-6 text-base text-slate-400">Questions? Call {providerPhone(supportPhone, providerName)}.</p>
         </div>
       );
   }
@@ -504,7 +504,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
         </button>
         {q.required ? (
           <p className="rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">
-            Need help before you agree? Call {providerDisplayName(providerName)} at {providerPhone(supportPhone)}.
+            Need help before you agree? Call {providerDisplayName(providerName)} at {providerPhone(supportPhone, providerName)}.
           </p>
         ) : (
           <button type="button" className="btn-ghost min-h-[56px] w-full text-lg text-slate-600"

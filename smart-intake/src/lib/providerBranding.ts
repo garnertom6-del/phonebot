@@ -17,9 +17,13 @@ export function providerLegalName(name?: string | null): string {
   return value || DEFAULT_PROVIDER_LEGAL_NAME;
 }
 
-export function providerPhone(phone?: string | null): string {
+export function providerPhone(phone?: string | null, name?: string | null): string {
   const value = phone?.trim();
-  return value || DEFAULT_PROVIDER_PHONE;
+  if (value) return value;
+  const provider = name?.trim().toLowerCase() || "";
+  return provider.includes("moore divine") || !provider
+    ? DEFAULT_PROVIDER_PHONE
+    : "the number provided by your care team";
 }
 
 export function intakeProcessExplanation(name?: string | null): string {
@@ -31,7 +35,10 @@ export function brandText(text: string | null | undefined, branding?: ProviderBr
   if (!text) return "";
   const displayName = providerDisplayName(branding?.name);
   const legalName = providerLegalName(branding?.name);
-  const phone = providerPhone(branding?.phone);
+  const phone = providerPhone(branding?.phone, branding?.name);
+  if (text.includes("Karen Jones") && text.includes("Tonya Jones")) {
+    return `Welcome to ${displayName}. Our team will explain available services, office hours, how to reach us, and what happens after your clinical assessment. Questions? Call ${phone}.`;
+  }
   return text
     .replace(/Moore Divine Care, Inc\./g, legalName)
     .replace(/Moore Divine Care, Inc/g, legalName)

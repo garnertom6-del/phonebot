@@ -27,7 +27,7 @@ export function intakeMailtoHref(
 ): string {
   const provider = providerDisplayName(providerName);
   const subject = encodeURIComponent(`${provider} intake link`);
-  const body = encodeURIComponent(`${intakeShareMessage(link, provider)}\n\nQuestions? Call ${providerPhone(supportPhone)}.`);
+  const body = encodeURIComponent(`${intakeShareMessage(link, provider)}\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`);
   return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
 }
 
@@ -43,6 +43,6 @@ export function copiesMailtoHref(
 ): string {
   const provider = providerDisplayName(providerName);
   const subject = encodeURIComponent(`${provider} intake copies`);
-  const body = encodeURIComponent(`${copiesShareMessage(link, provider)}\n\nQuestions? Call ${providerPhone(supportPhone)}.`);
+  const body = encodeURIComponent(`${copiesShareMessage(link, provider)}\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`);
   return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
 }
