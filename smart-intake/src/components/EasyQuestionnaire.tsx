@@ -37,6 +37,7 @@ function flattenVisible(answers: Answers, prefilledAnswers: Answers, quick: bool
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
+    if (quick && s.key === "insurance") continue;
     for (const q of s.questions) {
       if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
       // Quick Intake: only the essentials + consents; the clinician's CCA

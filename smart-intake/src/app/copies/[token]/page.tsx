@@ -36,7 +36,7 @@ export default async function CopiesPage({ params }: { params: { token: string }
     <main className="mx-auto max-w-5xl p-6 print:p-0">
       <section className="mb-5 rounded-xl border border-slate-200 bg-white p-6 shadow-sm print:border-0 print:shadow-none">
         <p className="text-sm font-semibold uppercase tracking-wide text-brand">
-          {intake.provider?.name || "Moore Divine Care, Inc."}
+          {providerDisplayName(intake.provider?.name)}
         </p>
         <h1 className="mt-1 text-3xl font-bold text-slate-900">Completed Intake Copies</h1>
         <div className="mt-4 grid gap-3 text-sm text-slate-700 sm:grid-cols-2">

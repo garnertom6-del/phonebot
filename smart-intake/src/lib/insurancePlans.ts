@@ -53,13 +53,17 @@ export function normalizeInsuranceValue(value: string, target: "providerChoice" 
 export function applyInsurancePlanDefaults(a: Answers) {
   const providerChoice = text(a.provider_choice_plan);
   const mco = text(a.mco);
-  if (!providerChoice && mco) {
-    const normalized = normalizeInsuranceValue(mco, "providerChoice");
-    if (normalized) a.provider_choice_plan = normalized;
-  }
-  if (!mco && providerChoice) {
-    const normalized = normalizeInsuranceValue(providerChoice, "mco");
-    if (normalized) a.mco = normalized;
+  // Staff-set insurance type on the dashboard should control the packet-facing
+  // insurance fields, even if an older MCO value is already present.
+  if (providerChoice) {
+    const normalizedProviderChoice = normalizeInsuranceValue(providerChoice, "providerChoice") || providerChoice;
+    a.provider_choice_plan = normalizedProviderChoice;
+    const normalizedMco = normalizeInsuranceValue(normalizedProviderChoice, "mco");
+    a.mco = normalizedMco || "";
+  } else if (mco) {
+    const normalizedProviderChoice = normalizeInsuranceValue(mco, "providerChoice");
+    if (normalizedProviderChoice) a.provider_choice_plan = normalizedProviderChoice;
+    a.mco = normalizeInsuranceValue(mco, "mco") || mco;
   }
   const confirmedCoverage = matchingPlan(text(a.provider_choice_plan) || text(a.mco));
   if (!text(a.has_medicaid) && confirmedCoverage && confirmedCoverage.key !== "bcbs" && confirmedCoverage.key !== "not-sure") {

@@ -423,7 +423,7 @@ export default function MasterDashboard() {
                   <p className="mt-1">{selectedTemplate.pageCount} pages • updated {new Date(selectedTemplate.updatedAt).toLocaleDateString()}</p>
                 </div>
               ) : (
-                <p>Active packet: default Moore Divine Care packet.</p>
+                <p>Active packet: shared default intake packet.</p>
               )
             ) : (
               <p>Select a provider to view packet status.</p>

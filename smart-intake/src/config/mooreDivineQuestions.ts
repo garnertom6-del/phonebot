@@ -120,7 +120,7 @@ export const SECTIONS: Section[] = [
     ],
   },
   {
-    key: "insurance", title: "Insurance & Funding", fastIntake: true,
+    key: "insurance", title: "Insurance & Funding",
     questions: [
       { key: "has_medicaid", essential: true, staffOnly: true, label: "Do you have Medicaid?", type: "yesno", options: YN, required: true },
       { key: "medicaid_effective_date", label: "Medicaid effective date (if known)", type: "date", askIf: { key: "has_medicaid", equals: "Yes" } },

@@ -43,6 +43,8 @@ export async function appendCertificatePage(
 ): Promise<{ pdfBytes: Uint8Array; sha256: string }> {
   const fingerprint = sha256Hex(packetBytes);
   const doc = await PDFDocument.load(packetBytes);
+  const certificateProvider = info.providerName?.trim() || "Provider";
+  const certificateAppName = certificateProvider.replace(/,\s*Inc\.?$/i, "") || "Provider";
   const font = await doc.embedFont(StandardFonts.Helvetica);
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
   const page = doc.addPage([612, 792]);
@@ -54,7 +56,7 @@ export async function appendCertificatePage(
     y -= opts.gap ?? 16;
   };
 
-  line(`${info.providerName || "Moore Divine Care, Inc."} - Certificate of Electronic Signing`, { bold: true, size: 15, gap: 26 });
+  line(`${certificateProvider} - Certificate of Electronic Signing`, { bold: true, size: 15, gap: 26 });
   line(`Document: Client Intake Package for ${info.clientName}`, { size: 11, gap: 18 });
   line(`Generated: ${info.generatedAt.toLocaleString("en-US", { timeZone: "America/New_York" })} (Eastern)`, { size: 11, gap: 24 });
 
@@ -79,7 +81,7 @@ export async function appendCertificatePage(
   line(fingerprint.slice(0, 64), { size: 9, gap: 13 });
   y -= 4;
   line("If the packet pages are altered after signing, this fingerprint will no longer match.", { size: 8, gap: 12 });
-  line(`Signatures were captured electronically in the ${(info.providerName || "Moore Divine Care, Inc.").replace(/,\s*Inc\.?$/i, "")} Smart Intake application.`, { size: 8, gap: 12 });
+  line(`Signatures were captured electronically in the ${certificateAppName} Smart Intake application.`, { size: 8, gap: 12 });
 
   const pdfBytes = await doc.save();
   return { pdfBytes, sha256: fingerprint };
