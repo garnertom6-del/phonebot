@@ -4,6 +4,7 @@ import { createDocuSignEnvelope, docusignConfigured } from "@/lib/docusign";
 import { fillPacket } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import { answeredClientFields } from "@/lib/clientAnswerSync";
 
 export type DocuSignSendResult =
   | { status: "sent"; envelopeId: string; message: string }
@@ -33,7 +34,11 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
       message: "DocuSign is not set up yet, so the packet stayed in the intake app.",
     };
   }
-  if (!intake.client.email) {
+  const answers = await loadAnswers(intake.id);
+  const answeredClient = answeredClientFields(answers);
+  const clientEmail = intake.client.email || answeredClient.email;
+  const clientName = intake.client.fullName || answeredClient.fullName;
+  if (!clientEmail) {
     return {
       status: "missing_email",
       message: "Add a client email before DocuSign can be sent automatically.",
@@ -46,8 +51,6 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
       message: "DocuSign was already sent for this intake.",
     };
   }
-
-  const answers = await loadAnswers(intake.id);
   const consents = consentsFromAnswers(answers);
   const signatures = await loadSignatures(intake.id);
   delete signatures.client;
@@ -65,8 +68,8 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
   try {
     const { envelopeId } = await createDocuSignEnvelope(
       Buffer.from(result.pdfBytes),
-      intake.client.email,
-      intake.client.fullName,
+      clientEmail,
+      clientName,
       answers,
       consents,
       packetTemplate.fields,

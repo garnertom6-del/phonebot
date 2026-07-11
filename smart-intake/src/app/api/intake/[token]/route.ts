@@ -7,6 +7,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { CLIENT_ANSWER_KEYS } from "@/config/mooreDivineQuestions";
 import { providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 
 async function findByToken(token: string) {
   const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true, provider: true } });
@@ -64,7 +65,12 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
     // a client link may only write client-visible questions - never staff fields
     const clientOnly = Object.fromEntries(
       Object.entries(parsed.data).filter(([k]) => CLIENT_ANSWER_KEYS.has(k)));
-    await saveAnswers(intake.id, applyOperationalDefaults(clientOnly));
+    const answers = applyOperationalDefaults(clientOnly);
+    await saveAnswers(intake.id, answers);
+    await prisma.client.update({
+      where: { id: intake.clientId },
+      data: clientUpdateFromAnswers(intake.client, answers),
+    });
   }
   if (body.section && ["started", "completed"].includes(body.event)) {
     const now = new Date();
@@ -97,6 +103,10 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }
   await saveAnswers(intake.id, answers);
   await syncStructuredRows(intake.id, answers);
+  await prisma.client.update({
+    where: { id: intake.clientId },
+    data: clientUpdateFromAnswers(intake.client, answers),
+  });
   await prisma.intake.update({
     where: { id: intake.id },
     data: { status: sigs.client || sigs.guardian ? "SIGNED" : "SUBMITTED", submittedAt: new Date() },

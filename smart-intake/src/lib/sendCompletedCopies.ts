@@ -9,6 +9,7 @@ import {
   autoSendCompletedCopiesEnabled,
 } from "./completedCopies";
 import { sendCopiesLinkEmail, sendCopiesLinkSms, type NotifyResult } from "./notify";
+import { answeredClientFields } from "./clientAnswerSync";
 
 function sentLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}`;
@@ -58,15 +59,20 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
 
   const link = `${appBaseUrl(opts.req)}/copies/${intake.token}`;
   const attempts: NotifyResult[] = [];
+  const answers = await loadAnswers(intake.id);
+  const answeredClient = answeredClientFields(answers);
+  const clientName = intake.client.fullName || answeredClient.fullName;
+  const email = intake.client.email || answeredClient.email;
+  const phone = intake.client.phone || answeredClient.phone;
   const provider = await prisma.provider.findUnique({
     where: { id: opts.providerId },
     select: { name: true, phone: true },
   });
-  if (intake.client.email) {
-    attempts.push(await sendCopiesLinkEmail(intake.client.email, intake.client.fullName, link, provider?.name, provider?.phone));
+  if (email) {
+    attempts.push(await sendCopiesLinkEmail(email, clientName, link, provider?.name, provider?.phone));
   }
-  if (intake.client.phone) {
-    attempts.push(await sendCopiesLinkSms(intake.client.phone, link, provider?.name, provider?.phone));
+  if (phone) {
+    attempts.push(await sendCopiesLinkSms(phone, link, provider?.name, provider?.phone));
   }
 
   const sent = attempts.filter((r) => r.ok).map(sentLabel);

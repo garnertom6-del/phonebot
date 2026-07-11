@@ -7,6 +7,7 @@ import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -41,7 +42,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
   const body = await req.json();
-  const intake = await prisma.intake.findFirst({ where: { id: params.id, providerId: provider!.id } });
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: true },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (body.answers) {
     const parsed = answersSchema.safeParse(body.answers);
@@ -49,6 +53,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const answers = applyOperationalDefaults(parsed.data);
     await saveAnswers(intake.id, answers);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
+    await prisma.client.update({
+      where: { id: intake.clientId },
+      data: clientUpdateFromAnswers(intake.client, answers),
+    });
     await audit("answers_updated", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: "staff edit" });
     await audit("staff_reviewed", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
   }
