@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
-import { requireMaster } from "@/lib/staffGuard";
+import { isMasterUser, requireProviderAdmin } from "@/lib/staffGuard";
 import { saveFile } from "@/lib/storage";
 import { audit } from "@/lib/auditLog";
 import { DEFAULT_PACKET_TEMPLATE_NAME } from "@/lib/providerPacketTemplates";
@@ -51,28 +51,34 @@ function templateResponse(template: {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { deny } = await requireMaster();
+  const { user, provider: currentProvider, deny } = await requireProviderAdmin();
   if (deny) return deny;
+  if (!isMasterUser(user!) && currentProvider!.id !== params.id) {
+    return NextResponse.json({ error: "You can only view packet templates for your provider." }, { status: 403 });
+  }
 
-  const provider = await prisma.provider.findUnique({ where: { id: params.id }, select: { id: true } });
-  if (!provider) return NextResponse.json({ error: "Provider not found" }, { status: 404 });
+  const targetProvider = await prisma.provider.findUnique({ where: { id: params.id }, select: { id: true } });
+  if (!targetProvider) return NextResponse.json({ error: "Provider not found" }, { status: 404 });
 
   const template = await prisma.pdfTemplate.findFirst({
-    where: { providerId: provider.id, isActive: true },
+    where: { providerId: targetProvider.id, isActive: true },
     orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
   });
   return NextResponse.json(templateResponse(template));
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, deny } = await requireMaster();
+  const { user, provider: currentProvider, deny } = await requireProviderAdmin();
   if (deny) return deny;
+  if (!isMasterUser(user!) && currentProvider!.id !== params.id) {
+    return NextResponse.json({ error: "You can only upload packet templates for your provider." }, { status: 403 });
+  }
 
-  const provider = await prisma.provider.findUnique({
+  const targetProvider = await prisma.provider.findUnique({
     where: { id: params.id },
     select: { id: true, name: true },
   });
-  if (!provider) return NextResponse.json({ error: "Provider not found" }, { status: 404 });
+  if (!targetProvider) return NextResponse.json({ error: "Provider not found" }, { status: 404 });
 
   const form = await req.formData();
   const file = form.get("file");
@@ -106,19 +112,19 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
 
   const stamp = Date.now();
-  const relPath = `templates/providers/${provider.id}/${stamp}-${originalFileName}`;
+  const relPath = `templates/providers/${targetProvider.id}/${stamp}-${originalFileName}`;
   saveFile(relPath, bytes);
 
   const template = await prisma.$transaction(async (tx) => {
     await tx.pdfTemplate.updateMany({
-      where: { providerId: provider.id, isActive: true },
+      where: { providerId: targetProvider.id, isActive: true },
       data: { isActive: false },
     });
 
     return tx.pdfTemplate.create({
       data: {
-        providerId: provider.id,
-        name: `Provider Intake Packet ${provider.id} ${stamp}`,
+        providerId: targetProvider.id,
+        name: `Provider Intake Packet ${targetProvider.id} ${stamp}`,
         filePath: relPath,
         pageCount,
         pageWidth,
@@ -130,9 +136,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
 
   await audit("provider_packet_uploaded", {
-    providerId: provider.id,
+    providerId: targetProvider.id,
     userId: user!.id,
-    detail: `${provider.name}: ${originalFileName} (${pageCount} pages)`,
+    detail: `${targetProvider.name}: ${originalFileName} (${pageCount} pages)`,
   });
 
   return NextResponse.json(templateResponse(template), { status: 201 });

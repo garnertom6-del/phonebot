@@ -45,3 +45,18 @@ export async function requireMaster() {
   }
   return { user, deny: null };
 }
+
+export async function requireProviderAdmin() {
+  const ctx = await requireStaff();
+  if (ctx.deny) return ctx;
+  if (isMasterUser(ctx.user!) || ctx.membership?.role === "PROVIDER_ADMIN") {
+    return { ...ctx, deny: null };
+  }
+  return {
+    ...ctx,
+    deny: NextResponse.json(
+      { error: "Only the provider admin can manage provider settings." },
+      { status: 403 },
+    ),
+  };
+}

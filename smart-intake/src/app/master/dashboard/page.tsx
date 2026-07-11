@@ -64,6 +64,7 @@ function providerSearchText(provider: ProviderRow) {
 export default function MasterDashboard() {
   const router = useRouter();
   const [providers, setProviders] = useState<ProviderRow[]>([]);
+  const [isMaster, setIsMaster] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -86,7 +87,13 @@ export default function MasterDashboard() {
       }
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Provider load failed (${response.status})`);
-      setProviders(body.providers || []);
+      const loadedProviders = body.providers || [];
+      setProviders(loadedProviders);
+      setIsMaster(!!body.isMaster);
+      setSelectedProviderId((current) => {
+        if (current && loadedProviders.some((provider: ProviderRow) => provider.id === current)) return current;
+        return loadedProviders.length === 1 ? loadedProviders[0].id : "";
+      });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not load providers.");
     } finally {
@@ -191,15 +198,17 @@ export default function MasterDashboard() {
       <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-brand-dark to-brand px-6 py-7 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-light/90">Master Controls</p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight">Provider Master Dashboard</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-light/90">{isMaster ? "Master Controls" : "Provider Settings"}</p>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight">{isMaster ? "Provider Master Dashboard" : "Provider Packet Dashboard"}</h1>
             <p className="mt-2 text-sm text-slate-200">
-              Create provider workspaces, control who is active, and manage the packet PDF each provider uses for previews, downloads, and DocuSign.
+              {isMaster
+                ? "Create provider workspaces, control who is active, and manage the packet PDF each provider uses for previews, downloads, and DocuSign."
+                : "Manage the intake packet PDF your provider uses for previews, downloads, and DocuSign."}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
             <Link href="/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Intake dashboard</Link>
-            <a href="/api/admin/backup" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Download backup</a>
+            {isMaster && <a href="/api/admin/backup" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Download backup</a>}
             <button
               className="btn-secondary bg-white/15 text-white hover:bg-white/25"
               onClick={async () => {
@@ -246,46 +255,48 @@ export default function MasterDashboard() {
 
       <section className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
         <div className="space-y-5">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-lg font-bold">Create Provider Dashboard</h2>
-            <form onSubmit={createProvider} className="grid grid-cols-1 gap-4 lg:grid-cols-4">
-              <label className="lg:col-span-2">
-                <span className="label">Provider name *</span>
-                <input className="input" value={form.name} onChange={(event) => updateField("name", event.target.value)} />
-              </label>
-              <label>
-                <span className="label">Slug</span>
-                <input className="input" value={form.slug} onChange={(event) => updateField("slug", event.target.value)} placeholder="provider-name" />
-              </label>
-              <label>
-                <span className="label">Provider phone</span>
-                <input className="input" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
-              </label>
-              <label>
-                <span className="label">Contact name</span>
-                <input className="input" value={form.contactName} onChange={(event) => updateField("contactName", event.target.value)} />
-              </label>
-              <label>
-                <span className="label">Provider email</span>
-                <input className="input" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} />
-              </label>
-              <label>
-                <span className="label">Admin name</span>
-                <input className="input" value={form.adminName} onChange={(event) => updateField("adminName", event.target.value)} />
-              </label>
-              <label>
-                <span className="label">Admin email *</span>
-                <input className="input" type="email" value={form.adminEmail} onChange={(event) => updateField("adminEmail", event.target.value)} />
-              </label>
-              <label>
-                <span className="label">Admin password *</span>
-                <input className="input" type="password" value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
-              </label>
-              <div className="flex items-end">
-                <button className="btn-primary w-full" disabled={busy}>{busy ? "Creating..." : "Create provider"}</button>
-              </div>
-            </form>
-          </section>
+          {isMaster && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <h2 className="mb-4 text-lg font-bold">Create Provider Dashboard</h2>
+              <form onSubmit={createProvider} className="grid grid-cols-1 gap-4 lg:grid-cols-4">
+                <label className="lg:col-span-2">
+                  <span className="label">Provider name *</span>
+                  <input className="input" value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+                </label>
+                <label>
+                  <span className="label">Slug</span>
+                  <input className="input" value={form.slug} onChange={(event) => updateField("slug", event.target.value)} placeholder="provider-name" />
+                </label>
+                <label>
+                  <span className="label">Provider phone</span>
+                  <input className="input" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
+                </label>
+                <label>
+                  <span className="label">Contact name</span>
+                  <input className="input" value={form.contactName} onChange={(event) => updateField("contactName", event.target.value)} />
+                </label>
+                <label>
+                  <span className="label">Provider email</span>
+                  <input className="input" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} />
+                </label>
+                <label>
+                  <span className="label">Admin name</span>
+                  <input className="input" value={form.adminName} onChange={(event) => updateField("adminName", event.target.value)} />
+                </label>
+                <label>
+                  <span className="label">Admin email *</span>
+                  <input className="input" type="email" value={form.adminEmail} onChange={(event) => updateField("adminEmail", event.target.value)} />
+                </label>
+                <label>
+                  <span className="label">Admin password *</span>
+                  <input className="input" type="password" value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
+                </label>
+                <div className="flex items-end">
+                  <button className="btn-primary w-full" disabled={busy}>{busy ? "Creating..." : "Create provider"}</button>
+                </div>
+              </form>
+            </section>
+          )}
 
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
@@ -344,17 +355,19 @@ export default function MasterDashboard() {
                             <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setSelectedProviderId(provider.id)}>
                               Packet setup
                             </button>
-                            {packet && (
+                            {isMaster && packet && (
                               <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${provider.id}`}>
                                 Map packet
                               </Link>
                             )}
-                            <button
-                              className={active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
-                              onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}
-                            >
-                              {active ? "Deactivate" : "Activate"}
-                            </button>
+                            {isMaster && (
+                              <button
+                                className={active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
+                                onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}
+                              >
+                                {active ? "Deactivate" : "Activate"}
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>

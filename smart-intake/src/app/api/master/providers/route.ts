@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireMaster } from "@/lib/staffGuard";
+import { isMasterUser, requireMaster, requireProviderAdmin } from "@/lib/staffGuard";
 
 const createProviderSchema = z.object({
   name: z.string().trim().min(2, "Provider name is required"),
@@ -40,10 +40,12 @@ async function availableSlug(input: string) {
 }
 
 export async function GET() {
-  const { deny } = await requireMaster();
+  const { user, provider, deny } = await requireProviderAdmin();
   if (deny) return deny;
+  const isMaster = isMasterUser(user!);
 
   const providers = await prisma.provider.findMany({
+    where: isMaster ? undefined : { id: provider!.id },
     include: {
       _count: { select: { clients: true, intakes: true, memberships: true } },
       memberships: {
@@ -70,7 +72,7 @@ export async function GET() {
     orderBy: [{ status: "asc" }, { name: "asc" }],
   });
 
-  return NextResponse.json({ providers });
+  return NextResponse.json({ providers, isMaster });
 }
 
 export async function POST(req: NextRequest) {
