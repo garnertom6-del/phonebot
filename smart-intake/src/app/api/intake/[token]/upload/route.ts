@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { saveFile } from "@/lib/storage";
 
-const DOC_TYPES = ["birth_certificate", "insurance_card", "court_order", "ss_card",
+const DOC_TYPES = ["birth_certificate", "insurance_card", "photo_id", "court_order", "ss_card",
   "iep_records", "medication_list", "pcp_plan", "immunization_records", "standing_orders", "other"];
 
 // documents are photos or PDFs - anything else is refused
