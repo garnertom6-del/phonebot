@@ -3,6 +3,10 @@ import type { Answers } from "./fillPdf";
 
 export const AUTO_SEND_COMPLETED_COPIES_KEY = "auto_send_completed_copies";
 export const COPY_ALLOWED_STATUSES = ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];
+export const COPY_RECEIPT_ANSWER_DEFAULTS = {
+  hipaa_copy: "Yes",
+  welcome_letter_ack: "Yes",
+} as const;
 
 export interface CompletedCopyQuestion {
   key: string;
@@ -54,5 +58,5 @@ export function buildCompletedCopySections(answers: Answers): CompletedCopySecti
 }
 
 export function autoSendCompletedCopiesEnabled(answers: Answers): boolean {
-  return answers[AUTO_SEND_COMPLETED_COPIES_KEY] === true;
+  return answers[AUTO_SEND_COMPLETED_COPIES_KEY] !== false;
 }

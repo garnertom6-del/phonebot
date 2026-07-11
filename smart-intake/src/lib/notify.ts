@@ -3,7 +3,7 @@
  * console. Production adapters for SendGrid/Twilio are wired but inactive
  * until env vars are set - see COWORKER_HANDOFF.md.
  */
-import { providerDisplayName, providerPhone } from "./providerBranding";
+import { intakeProcessExplanation, providerDisplayName, providerPhone } from "./providerBranding";
 
 export interface NotifyResult {
   channel: "email" | "sms";
@@ -98,8 +98,8 @@ export async function sendClientLinkEmail(
   const provider = providerDisplayName(providerName);
   const subject = `${provider} - Your new-client questions`;
   const body =
-    `Hello ${clientName},\n\nPlease answer your new-client questions for ${provider} ` +
-    `using this secure link (it works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days):\n\n${link}\n\n` +
+    `Hello ${clientName},\n\n${intakeProcessExplanation(providerName)} ` +
+    `This secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days:\n\n${link}\n\n` +
     `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
@@ -133,7 +133,7 @@ export async function sendClientLinkSms(
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `${providerDisplayName(providerName)}: please answer your new-client questions here (secure link): ${link}`;
+  const body = `${intakeProcessExplanation(providerName)} Secure link: ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };

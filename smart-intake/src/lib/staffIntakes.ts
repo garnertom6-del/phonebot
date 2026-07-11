@@ -3,6 +3,7 @@ import { appBaseUrl } from "@/lib/baseUrl";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { AUTO_SEND_COMPLETED_COPIES_KEY } from "@/lib/completedCopies";
 import { newIntakeSchema } from "@/lib/validation";
 import { newIntakeToken, tokenExpiry, tokenExpiryDays } from "@/lib/tokens";
 
@@ -63,6 +64,7 @@ export async function createStaffIntake(
       guardian_email: data.guardianEmail,
       guardian_phone: data.guardianPhone,
       is_minor_or_incompetent: data.guardianName ? "Yes" : undefined,
+      [AUTO_SEND_COMPLETED_COPIES_KEY]: true,
     });
     const entries = Object.entries(prefill).filter(([, value]) => value !== undefined && value !== "");
     await Promise.all(entries.map(([key, value]) =>

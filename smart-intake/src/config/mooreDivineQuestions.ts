@@ -359,7 +359,7 @@ export const SECTIONS: Section[] = [
     key: "treatment_plan", title: "Treatment Plan Participation",
     questions: [
       { key: "consent_treatment_plan_participation", label: "Treatment Plan Participation", type: "consent", consentText: "I have met (or will meet) in person with agency staff to review and discuss my concerns regarding the goals and outcomes represented in the treatment plan. The goals and clinical direction meet my expectations and I am in agreement with the direction of services." },
-      { key: "consent_receipt_treatment_plan", label: "Receipt of Treatment Plan", type: "consent", consentText: "I have received and understand the current treatment plan for my child or myself, and I have been given a copy of the current treatment plan." },
+      { key: "consent_receipt_treatment_plan", staffOnly: true, label: "Receipt of Treatment Plan", type: "consent", consentText: "I have received and understand the current treatment plan for my child or myself, and I have been given a copy of the current treatment plan." },
     ],
   },
   {
@@ -367,7 +367,7 @@ export const SECTIONS: Section[] = [
     intro: "Federal law protects your health information. The notice explains how medical information about you may be used and disclosed and how you can get access to it.",
     questions: [
       { key: "hipaa_understood", essential: true, label: "I understand the information that was explained to me and had the opportunity to ask questions", type: "yesno", options: YN, required: true },
-      { key: "hipaa_copy", essential: true, label: "I was given a copy of this information", type: "yesno", options: YN, required: true },
+      { key: "hipaa_copy", essential: true, staffOnly: true, label: "I was given a copy of this information", type: "yesno", options: YN, required: true },
       { key: "consent_hipaa", label: "Notice of Privacy Practices Acknowledgment", type: "consent", required: true, consentText: "I reviewed the notice describing how medical information about me may be used and disclosed and how I can get access to this information. I understand my rights: to see and get a copy of my health records, to have corrections added, to receive a notice about how my information is used and shared, to decide whether to give permission before my information is used for certain purposes such as marketing, and to get a report on when and why it was shared. My health information cannot be used or shared without my written permission unless the law allows it, and I may file a complaint with my provider or the U.S. Government (www.hhs.gov/ocr/hipaa) if I believe my rights are denied." },
     ],
   },
@@ -381,7 +381,7 @@ export const SECTIONS: Section[] = [
   {
     key: "welcome_letter", title: "Welcome Letter", fastIntake: true,
     intro: "A welcome letter from the Executive and Leadership Team (Karen Jones, Nurse Practitioner; Tonya Jones, Clinical Director; Thadeous Young, Qualified Professional). Office hours: Greensboro Office, Monday through Friday, 10am-4pm. Emergency number: 336-285-5204. The mission: dedicated to the empowerment of You, our client, striving to assist you, your family and other stakeholders in achieving an enhanced quality of life through effective, efficient person-centered services.",
-    questions: [{ key: "welcome_letter_ack", essential: true, label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
+    questions: [{ key: "welcome_letter_ack", essential: true, staffOnly: true, label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
   },
   {
     key: "survey", title: "First-Contact Survey",

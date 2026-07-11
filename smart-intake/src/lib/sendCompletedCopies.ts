@@ -4,6 +4,7 @@ import { audit } from "./auditLog";
 import { loadAnswers } from "./intakeData";
 import {
   AUTO_SEND_COMPLETED_COPIES_KEY,
+  COPY_RECEIPT_ANSWER_DEFAULTS,
   COPY_ALLOWED_STATUSES,
   autoSendCompletedCopiesEnabled,
 } from "./completedCopies";
@@ -15,6 +16,17 @@ function sentLabel(r: NotifyResult): string {
 
 function failedLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}: ${r.detail}`;
+}
+
+async function markCopiesDelivered(intakeId: string): Promise<void> {
+  await prisma.$transaction(
+    Object.entries(COPY_RECEIPT_ANSWER_DEFAULTS).map(([key, value]) =>
+      prisma.intakeAnswer.upsert({
+        where: { intakeId_key: { intakeId, key } },
+        create: { intakeId, key, value: JSON.stringify(value) },
+        update: { value: JSON.stringify(value) },
+      })),
+  );
 }
 
 export interface SendCompletedCopiesOptions {
@@ -59,6 +71,9 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
 
   const sent = attempts.filter((r) => r.ok).map(sentLabel);
   const failed = attempts.filter((r) => !r.ok).map(failedLabel);
+  if (sent.length) {
+    await markCopiesDelivered(intake.id);
+  }
   await audit("copies_link_sent", {
     providerId: opts.providerId,
     intakeId: intake.id,
