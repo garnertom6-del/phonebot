@@ -11,11 +11,20 @@ const FIELDS = [
   ["guardianName", "Guardian name (if applicable)", "text"],
   ["guardianEmail", "Guardian email", "email"], ["guardianPhone", "Guardian phone", "tel"],
 ] as const;
+type FieldKey = (typeof FIELDS)[number][0];
 
 function todayInputDate(): string {
   const now = new Date();
   const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
   return local.toISOString().slice(0, 10);
+}
+
+function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, string>): Record<FieldKey, string> {
+  const formData = new FormData(formEl);
+  return Object.fromEntries(FIELDS.map(([key]) => {
+    const value = formData.get(key);
+    return [key, typeof value === "string" ? value : (fallback[key] || "")];
+  })) as Record<FieldKey, string>;
 }
 
 export default function NewIntake() {
@@ -115,14 +124,17 @@ export default function NewIntake() {
     }
   }
 
-  async function submit(e: React.FormEvent) {
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    const nextForm = readFieldValues(e.currentTarget, form);
+    setForm((current) => ({ ...current, ...nextForm }));
     setError("");
     setSetupStatus("");
     setIsCreating(true);
     try {
+      const requestBody = { ...form, ...nextForm, expectCca };
       const res = await fetch("/api/intakes", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...form, expectCca }),
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
       });
       const body = await readResponse(res);
       if (res.ok) {
@@ -214,7 +226,7 @@ export default function NewIntake() {
           {FIELDS.map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
               <label className="label">{label}</label>
-              <input className="input" type={type} value={form[key] || ""}
+              <input className="input" name={key} type={type} value={form[key] || ""}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
               {key === "recordNumber" && (
                 <p className="mt-1 text-xs text-slate-500">

@@ -24,8 +24,8 @@ export default function LoginPage() {
   return (
     <main className="flex min-h-screen items-center justify-center p-4">
       <form onSubmit={submit} className="card w-full max-w-md">
-        <h1 className="text-xl font-bold text-brand">Moore Divine Care, Inc.</h1>
-        <p className="mb-6 text-sm text-slate-500">Smart Intake - staff sign in</p>
+        <h1 className="text-xl font-bold text-brand">Smart Intake</h1>
+        <p className="mb-6 text-sm text-slate-500">Provider staff sign in</p>
         <label className="label">Email</label>
         <input className="input mb-4" type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="username" />
         <label className="label">Password</label>

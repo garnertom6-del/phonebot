@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Moore Divine Care - Smart Intake",
-  description: "Secure client intake for Moore Divine Care, Inc.",
+  title: "Smart Intake",
+  description: "Secure provider intake and staff workflow.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
