@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { signatureSchema } from "@/lib/validation";
+import { providerPhone } from "@/lib/providerBranding";
 
 /** Compare dates by digits so 04/12/1987, 1987-04-12 and 4/12/1987 all match. */
 function dobMatches(entered: string, onFile: string): boolean {
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const dobVerified = dobMatches(dobCheck || "", intake.client.dob);
   if (dobCheck && !dobVerified) {
     return NextResponse.json(
-      { error: "That birthday does not match what we have on file. Please check it and try again, or call 336-285-5204." },
+      { error: `That birthday does not match what we have on file. Please check it and try again, or call ${providerPhone(intake.provider?.phone)}.` },
       { status: 400 },
     );
   }

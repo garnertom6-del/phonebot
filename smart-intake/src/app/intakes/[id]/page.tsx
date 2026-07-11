@@ -16,7 +16,7 @@ interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
     docusignEnvelopeId?: string | null;
-    provider?: { name: string } | null;
+    provider?: { name: string; phone?: string | null } | null;
     client: { fullName: string; dob: string; midNumber?: string; email?: string; phone?: string; guardianName?: string };
     signatures: { role: string; printedName: string; signedDate: string }[];
     uploadedDocuments: { id: string; docType: string; fileName: string }[];
@@ -66,6 +66,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
   const providerName = i.provider?.name || "Moore Divine Care";
+  const providerPhone = i.provider?.phone || "";
   const clientMessage = intakeShareMessage(d.clientLink, providerName);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
@@ -225,7 +226,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status{" "}
             <b>{({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
               NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}</b>{" "}
-            - {d.percentComplete}% complete
+            - {d.missingRequired.length === 0 ? "Required packet complete" : `${d.percentComplete}% of answers filled`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -272,7 +273,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <a className="btn-primary px-3 py-1.5 text-xs" href={copiesSmsHref(i.client.phone, copiesLink, providerName)}>
               Open SMS on this computer
             </a>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink, providerName)}>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink, providerName, providerPhone)}>
               Open email
             </a>
             <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesLink} target="_blank">
@@ -292,7 +293,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <a className="btn-primary px-3 py-1.5 text-sm" href={intakeSmsHref(i.client.phone, d.clientLink, providerName)}>
               Open SMS on this computer
             </a>
-            <a className="btn-ghost px-3 py-1.5 text-sm" href={intakeMailtoHref(i.client.email, d.clientLink, providerName)}>
+            <a className="btn-ghost px-3 py-1.5 text-sm" href={intakeMailtoHref(i.client.email, d.clientLink, providerName, providerPhone)}>
               Open email
             </a>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Text message copied"); }}>Copy text message</button>

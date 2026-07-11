@@ -14,7 +14,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
     include: {
-      provider: { select: { name: true } },
+      provider: { select: { name: true, phone: true } },
       client: true,
       // never ship signature image blobs or server file paths to the browser
       signatures: { select: { role: true, printedName: true, signedDate: true } },

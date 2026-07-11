@@ -33,6 +33,7 @@ export default function NewIntake() {
   const [setupStatus, setSetupStatus] = useState("");
   const [setupStatusKind, setSetupStatusKind] = useState<"success" | "error" | "info">("info");
   const [providerName, setProviderName] = useState("Provider");
+  const [providerPhone, setProviderPhone] = useState("");
   const [packetName, setPacketName] = useState("Provider Intake Packet");
   const [packetPageCount, setPacketPageCount] = useState<number | null>(null);
 
@@ -40,11 +41,12 @@ export default function NewIntake() {
     let active = true;
     fetch("/api/intakes/context").then(async (res) => {
       const body = await readResponse(res) as {
-        provider?: { name?: string };
+        provider?: { name?: string; phone?: string };
         packet?: { name?: string; pageCount?: number };
       };
       if (!res.ok || !active) return;
       setProviderName(body.provider?.name || "Provider");
+      setProviderPhone(body.provider?.phone || "");
       setPacketName(body.packet?.name || "Provider Intake Packet");
       setPacketPageCount(typeof body.packet?.pageCount === "number" ? body.packet.pageCount : null);
     }).catch(() => {});
@@ -177,7 +179,7 @@ export default function NewIntake() {
             <button className="btn-ghost" onClick={() => { void sendWithApp(); }}>
               Send SMS/email now
             </button>
-            <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink, providerName)}>
+            <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}>
               Open email
             </a>
             <button className="btn-ghost" onClick={async () => {

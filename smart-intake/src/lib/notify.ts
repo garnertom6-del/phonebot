@@ -3,6 +3,7 @@
  * console. Production adapters for SendGrid/Twilio are wired but inactive
  * until env vars are set - see COWORKER_HANDOFF.md.
  */
+import { providerDisplayName, providerPhone } from "./providerBranding";
 
 export interface NotifyResult {
   channel: "email" | "sms";
@@ -10,10 +11,6 @@ export interface NotifyResult {
   ok: boolean;
   demo: boolean;
   detail: string;
-}
-
-function providerLabel(providerName?: string | null): string {
-  return providerName?.trim() || "Moore Divine Care";
 }
 
 type TwilioMessage = {
@@ -95,14 +92,15 @@ export async function sendClientLinkEmail(
   clientName: string,
   link: string,
   providerName?: string | null,
+  supportPhone?: string | null,
 ): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const provider = providerLabel(providerName);
+  const provider = providerDisplayName(providerName);
   const subject = `${provider} - Your new-client questions`;
   const body =
     `Hello ${clientName},\n\nPlease answer your new-client questions for ${provider} ` +
     `using this secure link (it works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days):\n\n${link}\n\n` +
-    `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call 336-285-5204.`;
+    `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
@@ -126,11 +124,16 @@ export async function sendClientLinkEmail(
   };
 }
 
-export async function sendClientLinkSms(to: string, link: string, providerName?: string | null): Promise<NotifyResult> {
+export async function sendClientLinkSms(
+  to: string,
+  link: string,
+  providerName?: string | null,
+  _supportPhone?: string | null,
+): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `${providerLabel(providerName)}: please answer your new-client questions here (secure link): ${link}`;
+  const body = `${providerDisplayName(providerName)}: please answer your new-client questions here (secure link): ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
@@ -150,16 +153,17 @@ export async function sendCopiesLinkEmail(
   clientName: string,
   link: string,
   providerName?: string | null,
+  supportPhone?: string | null,
 ): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const provider = providerLabel(providerName);
+  const provider = providerDisplayName(providerName);
   const subject = `${provider} - Your completed intake copies`;
   const body =
     `Hello ${clientName},\n\nYour completed ${provider} intake copies are ready. ` +
     `This includes the full wording for your client orientation, consent for treatment, ` +
     `rights and responsibilities, privacy/confidentiality notices, emergency care consents, ` +
     `and the other sections you reviewed and completed.\n\n` +
-    `View or save your completed copies here:\n\n${link}\n\nQuestions? Call 336-285-5204.`;
+    `View or save your completed copies here:\n\n${link}\n\nQuestions? Call ${providerPhone(supportPhone)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
@@ -183,11 +187,16 @@ export async function sendCopiesLinkEmail(
   };
 }
 
-export async function sendCopiesLinkSms(to: string, link: string, providerName?: string | null): Promise<NotifyResult> {
+export async function sendCopiesLinkSms(
+  to: string,
+  link: string,
+  providerName?: string | null,
+  _supportPhone?: string | null,
+): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `${providerLabel(providerName)}: your completed intake copies are ready. View or save them here: ${link}`;
+  const body = `${providerDisplayName(providerName)}: your completed intake copies are ready. View or save them here: ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };

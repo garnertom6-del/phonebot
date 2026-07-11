@@ -7,6 +7,7 @@ import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import { brandText } from "@/lib/providerBranding";
 
 export interface GeneratePacketOptions {
   skipAutoCompletedCopies?: boolean;
@@ -20,7 +21,7 @@ export async function generatePacketForIntake(
 ) {
   const intake = await prisma.intake.findFirst({
     where: { id: intakeId, ...(providerId ? { providerId } : {}) },
-    include: { client: true, signatures: true },
+    include: { client: true, provider: true, signatures: true },
   });
   if (!intake) return null;
 
@@ -37,9 +38,13 @@ export async function generatePacketForIntake(
   });
   const consentLabels = Object.entries(consents)
     .filter(([, agreed]) => agreed)
-    .map(([key]) => questionByKey(key)?.label || key);
+    .map(([key]) => brandText(questionByKey(key)?.label || key, {
+      name: intake.provider?.name,
+      phone: intake.provider?.phone,
+    }));
   const { pdfBytes, sha256 } = await appendCertificatePage(result.pdfBytes, {
     clientName: intake.client.fullName,
+    providerName: intake.provider?.name || undefined,
     signers: intake.signatures.map((s) => ({
       role: s.role,
       printedName: s.printedName,

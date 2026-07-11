@@ -17,10 +17,16 @@ function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString("base64url");
 }
 
+function authServerCandidates(): string[] {
+  const configuredBase = (process.env.DOCUSIGN_BASE_PATH || "").toLowerCase();
+  if (configuredBase.includes("demo")) return ["account-d.docusign.com"];
+  if (configuredBase) return ["account.docusign.com"];
+  // Prefer production first, then fall back to demo when the base path was not set.
+  return ["account.docusign.com", "account-d.docusign.com"];
+}
+
 /** OAuth JWT grant - exchanges a signed JWT for an access token. */
-async function getAccessToken(): Promise<string> {
-  const authServer = (process.env.DOCUSIGN_BASE_PATH || "").includes("demo")
-    ? "account-d.docusign.com" : "account.docusign.com";
+async function requestAccessToken(authServer: string): Promise<string> {
   const header = b64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const now = Math.floor(Date.now() / 1000);
   const body = b64url(JSON.stringify({
@@ -41,6 +47,41 @@ async function getAccessToken(): Promise<string> {
   });
   if (!res.ok) throw new Error(`DocuSign auth failed: ${await res.text()}`);
   return (await res.json()).access_token as string;
+}
+
+async function resolveRestBase(token: string, authServer: string): Promise<string> {
+  const configured = (process.env.DOCUSIGN_BASE_PATH || "").trim();
+  if (configured) return configured.replace(/\/+$/, "");
+
+  const res = await fetch(`https://${authServer}/oauth/userinfo`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`DocuSign userinfo failed: ${await res.text()}`);
+
+  const info = await res.json() as {
+    accounts?: Array<{ account_id?: string; base_uri?: string; is_default?: boolean }>;
+  };
+  const accountId = process.env.DOCUSIGN_ACCOUNT_ID;
+  const account = info.accounts?.find((item) => item.account_id === accountId)
+    ?? info.accounts?.find((item) => item.is_default);
+  const baseUri = account?.base_uri?.trim();
+  if (!baseUri) throw new Error("DocuSign userinfo did not include a REST base URI");
+  return `${baseUri.replace(/\/+$/, "")}/restapi`;
+}
+
+async function getApiContext(): Promise<{ token: string; base: string }> {
+  let lastError: unknown;
+  for (const authServer of authServerCandidates()) {
+    try {
+      const token = await requestAccessToken(authServer);
+      const base = await resolveRestBase(token, authServer);
+      return { token, base };
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  if (lastError instanceof Error) throw lastError;
+  throw new Error("DocuSign authentication failed");
 }
 
 type DocuSignTab = {
@@ -106,8 +147,7 @@ export async function createDocuSignEnvelope(
   if (!docusignConfigured()) throw new Error("DocuSign not configured");
   const tabs = clientDocuSignTabs(answers, consents, fields, pageHeight);
   if (tabs.signHereTabs.length === 0) throw new Error("No client DocuSign signature tabs found");
-  const token = await getAccessToken();
-  const base = process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
+  const { token, base } = await getApiContext();
   const res = await fetch(
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes`,
     {
@@ -141,8 +181,7 @@ export async function sendCompletedPacketForSignature(intakeId: string): Promise
 
 export async function checkDocuSignStatus(envelopeId: string): Promise<string> {
   if (!docusignConfigured()) return "not_configured";
-  const token = await getAccessToken();
-  const base = process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
+  const { token, base } = await getApiContext();
   const res = await fetch(
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes/${envelopeId}`,
     { headers: { Authorization: `Bearer ${token}` } },
@@ -153,8 +192,7 @@ export async function checkDocuSignStatus(envelopeId: string): Promise<string> {
 
 /** Download the signed packet (all documents combined) for a completed envelope. */
 export async function downloadDocuSignDocument(envelopeId: string): Promise<Buffer> {
-  const token = await getAccessToken();
-  const base = process.env.DOCUSIGN_BASE_PATH || "https://demo.docusign.net/restapi";
+  const { token, base } = await getApiContext();
   const res = await fetch(
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes/${envelopeId}/documents/combined`,
     { headers: { Authorization: `Bearer ${token}` } },

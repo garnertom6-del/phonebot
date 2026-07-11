@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import { prisma } from "@/lib/prisma";
 import { loadAnswers } from "@/lib/intakeData";
 import { buildCompletedCopySections, COPY_ALLOWED_STATUSES } from "@/lib/completedCopies";
+import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 
 export default async function CopiesPage({ params }: { params: { token: string } }) {
   const intake = await prisma.intake.findUnique({
@@ -20,8 +21,8 @@ export default async function CopiesPage({ params }: { params: { token: string }
         <section className="card">
           <h1 className="text-2xl font-bold text-brand">Completed copies are not ready yet</h1>
           <p className="mt-3 text-sm text-slate-600">
-            This intake has not been submitted or completed yet. Please contact Moore Divine Care
-            at 336-285-5204 if you believe this is a mistake.
+            This intake has not been submitted or completed yet. Please contact {providerDisplayName(intake.provider?.name)}
+            {" "}at {providerPhone(intake.provider?.phone)} if you believe this is a mistake.
           </p>
         </section>
       </main>
@@ -59,18 +60,18 @@ export default async function CopiesPage({ params }: { params: { token: string }
         {sections.map((section) => (
           <section key={section.key} className="rounded-xl border border-slate-200 bg-white p-5 shadow-sm print:break-inside-avoid print:shadow-none">
             <h2 className="text-xl font-bold text-brand">{section.title}</h2>
-            {section.intro && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{section.intro}</p>}
+            {section.intro && <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-700">{brandText(section.intro, intake.provider || undefined)}</p>}
             <div className="mt-4 space-y-4">
               {section.questions.map((q) => (
                 <div key={q.key} className="rounded-lg border border-slate-100 bg-slate-50 p-4 print:bg-white">
-                  <p className="font-semibold text-slate-900">{q.label}</p>
-                  {q.help && <p className="mt-1 text-sm leading-6 text-slate-600">{q.help}</p>}
+                  <p className="font-semibold text-slate-900">{brandText(q.label, intake.provider || undefined)}</p>
+                  {q.help && <p className="mt-1 text-sm leading-6 text-slate-600">{brandText(q.help, intake.provider || undefined)}</p>}
                   {q.placeholder && <p className="mt-1 text-xs text-slate-500">Prompt: {q.placeholder}</p>}
                   {q.options?.length ? (
-                    <p className="mt-1 text-xs text-slate-500">Options: {q.options.join(", ")}</p>
+                    <p className="mt-1 text-xs text-slate-500">Options: {q.options.map((opt) => brandText(opt, intake.provider || undefined)).join(", ")}</p>
                   ) : null}
                   {q.consentText && (
-                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{q.consentText}</p>
+                    <p className="mt-3 whitespace-pre-wrap text-sm leading-6 text-slate-700">{brandText(q.consentText, intake.provider || undefined)}</p>
                   )}
                   {q.clientAnswer && (
                     <p className="mt-3 rounded bg-white px-3 py-2 text-sm text-slate-700">
@@ -100,7 +101,7 @@ export default async function CopiesPage({ params }: { params: { token: string }
       </section>
 
       <p className="mt-6 text-center text-sm text-slate-500">
-        Questions? Call Moore Divine Care at 336-285-5204.
+        Questions? Call {providerDisplayName(intake.provider?.name)} at {providerPhone(intake.provider?.phone)}.
       </p>
     </main>
   );

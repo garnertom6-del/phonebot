@@ -15,6 +15,7 @@ function IntakeInner({ token }: { token: string }) {
   const [state, setState] = useState<"loading" | "error" | "ready">("loading");
   const [error, setError] = useState("");
   const [data, setData] = useState<{ clientName: string; status: string; quick?: boolean;
+    provider?: { name?: string | null; phone?: string | null };
     answers: Record<string, string | boolean | number | string[]>;
     signatures: Record<string, { printedName: string }> } | null>(null);
 
@@ -40,15 +41,19 @@ function IntakeInner({ token }: { token: string }) {
           <p className="text-lg font-bold text-red-600">Link problem</p>
           <p className="mt-2 text-slate-600">{error}</p>
           <button type="button" className="btn-primary mt-4 w-full" onClick={load}>Try again</button>
-          <p className="mt-3 text-sm text-slate-500">Need help? Call Moore Divine Care at 336-285-5204.</p>
+          <p className="mt-3 text-sm text-slate-500">Need help? Please contact your provider.</p>
         </div>
       )}
       {state === "ready" && data && (fullMode ? (
         <ClientQuestionnaire token={token} clientName={data.clientName}
+          providerName={data.provider?.name || undefined}
+          providerPhone={data.provider?.phone || undefined}
           initialAnswers={data.answers} initialStatus={data.status}
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ) : (
         <EasyQuestionnaire token={token} clientName={data.clientName}
+          providerName={data.provider?.name || undefined}
+          providerPhone={data.provider?.phone || undefined}
           initialAnswers={data.answers} initialStatus={data.status} quick={!!data.quick}
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ))}
@@ -60,7 +65,7 @@ export default function ClientIntakePage({ params }: { params: { token: string }
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-10 bg-brand p-4 text-white">
-        <h1 className="text-base font-bold">Moore Divine Care, Inc.</h1>
+        <h1 className="text-base font-bold">Client Intake</h1>
         <p className="text-xs opacity-80">We are glad you are here.</p>
       </header>
       <div className="p-4">

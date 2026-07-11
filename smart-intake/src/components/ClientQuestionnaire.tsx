@@ -10,6 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTIONS, type Question, type Section } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -24,10 +25,12 @@ const UPLOAD_TYPES = [
   ["standing_orders", "Physician standing orders"],
 ] as const;
 
-export default function ClientQuestionnaire({ token, clientName, initialAnswers, initialStatus, signed }: {
-  token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
+export default function ClientQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed }: {
+  token: string; clientName: string; providerName?: string; providerPhone?: string;
+  initialAnswers: Answers; initialStatus: string;
   signed: { client?: boolean; guardian?: boolean };
 }) {
+  const branding = { name: providerName, phone: supportPhone };
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [stepIdx, setStepIdx] = useState(0);
   const [saving, setSaving] = useState(false);
@@ -149,24 +152,24 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   if (done) {
     return (
       <div className="card mx-auto max-w-xl text-center">
-        <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
-        <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
-        <p className="mt-2 text-slate-600">
-          Moore Divine Care, Inc. got your answers. Our team will review them and finish
-          your paperwork. Questions? Call 336-285-5204.
-        </p>
-      </div>
-    );
+          <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
+          <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
+          <p className="mt-2 text-slate-600">
+          {providerDisplayName(providerName)} got your answers. Our team will review them and finish
+          your paperwork. Questions? Call {providerPhone(supportPhone)}.
+          </p>
+        </div>
+      );
   }
 
   return (
     <div className="mx-auto max-w-2xl pb-28">
       <ProgressBar percent={answeredCount}
-        label={`You are ${answeredCount}% complete - Step ${stepIdx + 1} of ${steps.length}: ${step.title}`} />
+        label={brandText(`You are ${answeredCount}% complete - Step ${stepIdx + 1} of ${steps.length}: ${step.title}`, branding)} />
 
       <div className="card mt-4">
-        <h2 className="text-lg font-bold text-brand">{step.title}</h2>
-        {step.intro && <p className="mt-1 text-sm text-slate-600">{step.intro}</p>}
+        <h2 className="text-lg font-bold text-brand">{brandText(step.title, branding)}</h2>
+        {step.intro && <p className="mt-1 text-sm text-slate-600">{brandText(step.intro, branding)}</p>}
 
         {step.key === "basic" && (
           <details className="mt-4 rounded-lg border border-slate-200 p-3">
@@ -192,7 +195,7 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
         )}
 
         <div className="mt-4 space-y-5">
-          {visibleQuestions(step).map((q) => <QuestionField key={q.key} q={q} answers={answers} set={set} />)}
+          {visibleQuestions(step).map((q) => <QuestionField key={q.key} q={q} answers={answers} set={set} providerName={providerName} providerPhone={supportPhone} />)}
         </div>
 
         {step.key === "__signature" && (
@@ -222,17 +225,19 @@ export default function ClientQuestionnaire({ token, clientName, initialAnswers,
   );
 }
 
-function QuestionField({ q, answers, set }: {
+function QuestionField({ q, answers, set, providerName, providerPhone: supportPhone }: {
   q: Question; answers: Answers; set: (k: string, v: Answers[string]) => void;
+  providerName?: string; providerPhone?: string;
 }) {
+  const branding = { name: providerName, phone: supportPhone };
   const v = answers[q.key];
   if (q.type === "consent") {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="font-semibold">{q.label}</p>
+        <p className="font-semibold">{brandText(q.label, branding)}</p>
         <details className="mt-1">
           <summary className="cursor-pointer text-sm text-brand">Read the full statement</summary>
-          <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{q.consentText}</p>
+          <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
         </details>
         <label className="mt-3 flex items-center gap-3 text-sm font-semibold">
           <input type="checkbox" className="h-5 w-5" checked={v === true}
@@ -243,11 +248,11 @@ function QuestionField({ q, answers, set }: {
     );
   }
   const label = (
-    <label className="label">
-      {q.label} {q.required && <span className="text-red-500">*</span>}
-      {q.help && <span className="block font-normal text-xs text-slate-400">{q.help}</span>}
-    </label>
-  );
+      <label className="label">
+        {brandText(q.label, branding)} {q.required && <span className="text-red-500">*</span>}
+        {q.help && <span className="block font-normal text-xs text-slate-400">{brandText(q.help, branding)}</span>}
+      </label>
+    );
   if (q.type === "radio" || q.type === "yesno") {
     return (
       <div>{label}

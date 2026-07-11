@@ -21,6 +21,7 @@ export interface CertificateSigner {
 
 export interface CertificateInfo {
   clientName: string;
+  providerName?: string;
   signers: CertificateSigner[];
   consentLabels: string[];
   generatedAt: Date;
@@ -53,7 +54,7 @@ export async function appendCertificatePage(
     y -= opts.gap ?? 16;
   };
 
-  line("Moore Divine Care, Inc. - Certificate of Electronic Signing", { bold: true, size: 15, gap: 26 });
+  line(`${info.providerName || "Moore Divine Care, Inc."} - Certificate of Electronic Signing`, { bold: true, size: 15, gap: 26 });
   line(`Document: Client Intake Package for ${info.clientName}`, { size: 11, gap: 18 });
   line(`Generated: ${info.generatedAt.toLocaleString("en-US", { timeZone: "America/New_York" })} (Eastern)`, { size: 11, gap: 24 });
 
@@ -78,7 +79,7 @@ export async function appendCertificatePage(
   line(fingerprint.slice(0, 64), { size: 9, gap: 13 });
   y -= 4;
   line("If the packet pages are altered after signing, this fingerprint will no longer match.", { size: 8, gap: 12 });
-  line("Signatures were captured electronically in the Moore Divine Care Smart Intake application.", { size: 8, gap: 12 });
+  line(`Signatures were captured electronically in the ${(info.providerName || "Moore Divine Care, Inc.").replace(/,\s*Inc\.?$/i, "")} Smart Intake application.`, { size: 8, gap: 12 });
 
   const pdfBytes = await doc.save();
   return { pdfBytes, sha256: fingerprint };

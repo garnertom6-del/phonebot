@@ -24,6 +24,7 @@ export async function GET() {
     provider: {
       id: provider!.id,
       name: provider!.name,
+      phone: provider!.phone,
       slug: provider!.slug,
     },
     packet: {

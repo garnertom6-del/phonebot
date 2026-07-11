@@ -13,6 +13,7 @@ import { SECTIONS, isQuickIntakeQuestion, type Question } from "@/config/mooreDi
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -23,9 +24,12 @@ type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
 interface FlatQ { q: Question; sectionKey: string; sectionTitle: string }
 
 /** Plain-language helpers (fall back to the original packet wording). */
-const easyQ = (q: Question) => EASY[q.key]?.q ?? q.label;
-const easyHelp = (q: Question) => EASY[q.key]?.help ?? q.help;
-const easyOpt = (q: Question, opt: string) => EASY[q.key]?.options?.[opt] ?? opt;
+const easyQ = (q: Question, providerName?: string, supportPhone?: string) =>
+  brandText(EASY[q.key]?.q ?? q.label, { name: providerName, phone: supportPhone });
+const easyHelp = (q: Question, providerName?: string, supportPhone?: string) =>
+  brandText(EASY[q.key]?.help ?? q.help, { name: providerName, phone: supportPhone });
+const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?: string) =>
+  brandText(EASY[q.key]?.options?.[opt] ?? opt, { name: providerName, phone: supportPhone });
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
@@ -55,10 +59,11 @@ function isAnswered(v: Answers[string] | undefined): boolean {
 const GATE_KEYS: string[] = [...new Set(
   SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)))];
 
-export default function EasyQuestionnaire({ token, clientName, initialAnswers, initialStatus, signed, quick = false }: {
-  token: string; clientName: string; initialAnswers: Answers; initialStatus: string;
+export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, quick = false }: {
+  token: string; clientName: string; providerName?: string; providerPhone?: string; initialAnswers: Answers; initialStatus: string;
   signed: { client?: boolean; guardian?: boolean }; quick?: boolean;
 }) {
+  const branding = { name: providerName, phone: supportPhone };
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [phase, setPhase] = useState<Phase>(
     ["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus) ? "done" : "welcome");
@@ -121,7 +126,7 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
       if (res.status === 404) {
         // the link expired mid-session - tell the client what to do, not "check connection"
         const body = await res.json().catch(() => ({} as { error?: string }));
-        setSaveError(body.error || "This link has stopped working. Please call 336-285-5204 and we will text you a new one.");
+        setSaveError(body.error || `This link has stopped working. Please call ${providerPhone(supportPhone)} and we will text you a new one.`);
         return false;
       }
       if (!res.ok) throw new Error("Save failed");
@@ -164,13 +169,13 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
         ? ENCOURAGEMENTS[breakCount.current % ENCOURAGEMENTS.length]
         : "Nice work! Keep going.";
       breakCount.current += 1;
-      setBreakText(SECTION_INTROS[next.sectionKey] ?? cheer);
+      setBreakText(brandText(SECTION_INTROS[next.sectionKey] ?? cheer, branding));
       setPhase("break");
     } else {
       setPhase("question");
     }
     window.scrollTo(0, 0);
-  }, [saveNow]);
+  }, [branding, saveNow]);
 
   const goBack = useCallback(() => {
     setJustPicked(null);
@@ -274,14 +279,14 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
   if (phase === "done") {
     return (
       <div className="card mx-auto mt-10 max-w-md text-center">
-        <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
-        <h2 className="mt-4 text-3xl font-bold text-brand">You did it!</h2>
-        <p className="mt-4 text-xl text-slate-600">
-          Moore Divine Care got your answers. We will call you soon.
-        </p>
-        <p className="mt-6 text-base text-slate-400">Questions? Call 336-285-5204.</p>
-      </div>
-    );
+          <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
+          <h2 className="mt-4 text-3xl font-bold text-brand">You did it!</h2>
+          <p className="mt-4 text-xl text-slate-600">
+          {providerDisplayName(providerName)} got your answers. We will call you soon.
+          </p>
+        <p className="mt-6 text-base text-slate-400">Questions? Call {providerPhone(supportPhone)}.</p>
+        </div>
+      );
   }
 
   if (phase === "welcome") {
@@ -362,8 +367,8 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
             {missing.length > 0 ? (
               <ul className="mt-2 list-inside list-disc space-y-1 text-base">
                 {missing.map((m) => {
-                  const q = flat.find((f) => f.q.key === m.key)?.q;
-                  return <li key={m.key}>{q ? easyQ(q) : m.label}</li>;
+      const q = flat.find((f) => f.q.key === m.key)?.q;
+      return <li key={m.key}>{q ? easyQ(q, providerName, supportPhone) : brandText(m.label, branding)}</li>;
                 })}
               </ul>
             ) : <p className="mt-1 text-base">{submitError}</p>}
@@ -409,13 +414,14 @@ export default function EasyQuestionnaire({ token, clientName, initialAnswers, i
       <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} - ${percent}% done`} />
 
       <div className="mt-8">
-        <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q)}</h2>
-        {easyHelp(q) && <p className="mt-3 text-lg leading-relaxed text-slate-500">{easyHelp(q)}</p>}
+        <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q, providerName, supportPhone)}</h2>
+        {easyHelp(q, providerName, supportPhone) && <p className="mt-3 text-lg leading-relaxed text-slate-500">{easyHelp(q, providerName, supportPhone)}</p>}
       </div>
 
       <div className="mt-6">
         <AnswerWidget key={q.key} q={q} value={answers[q.key]} justPicked={justPicked}
-          set={set} pickAndAdvance={pickAndAdvance} onNext={nextFromInput} />
+          set={set} pickAndAdvance={pickAndAdvance} onNext={nextFromInput}
+          providerName={providerName} providerPhone={supportPhone} />
       </div>
 
       {nudge && (
@@ -462,18 +468,22 @@ function SaveIndicator({ saving, saveError, onRetry }: {
 /*  One big answer widget per question type                            */
 /* ------------------------------------------------------------------ */
 
-function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
+function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, providerName, providerPhone: supportPhone }: {
   q: Question;
   value: Answers[string] | undefined;
   justPicked: string | null;
   set: (key: string, v: Answers[string]) => void;
   pickAndAdvance: (key: string, v: Answers[string], display: string) => void;
   onNext: () => void;
+  providerName?: string;
+  providerPhone?: string;
 }) {
   /* ---- consent: friendly summary + full text + agree/skip ---- */
   if (q.type === "consent") {
-    const simple = EASY[q.key]?.consentSimple ??
-      `This form is called "${q.label}". Please read the whole form below before you agree.`;
+    const simple = brandText(
+      EASY[q.key]?.consentSimple ?? `This form is called "${q.label}". Please read the whole form below before you agree.`,
+      { name: providerName, phone: supportPhone },
+    );
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-brand/20 bg-brand-light p-5">
@@ -482,7 +492,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
         </div>
         <details className="rounded-xl border border-slate-200 p-4">
           <summary className="cursor-pointer text-base font-semibold text-brand">Read the whole form</summary>
-          <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-600">{q.consentText}</p>
+          <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-600">{brandText(q.consentText, { name: providerName, phone: supportPhone })}</p>
         </details>
         <button type="button"
           className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
@@ -491,7 +501,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
         </button>
         {q.required ? (
           <p className="rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">
-            Need help before you agree? Call Moore Divine Care at 336-285-5204.
+            Need help before you agree? Call {providerDisplayName(providerName)} at {providerPhone(supportPhone)}.
           </p>
         ) : (
           <button type="button" className="btn-ghost min-h-[56px] w-full text-lg text-slate-600"
@@ -515,7 +525,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
               onChange={(e) => { if (e.target.value) pickAndAdvance(q.key, e.target.value, e.target.value); }}>
               <option value="">Choose one...</option>
               {options.map((opt) => (
-                <option key={opt} value={opt}>{easyOpt(q, opt)}</option>
+                  <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
               ))}
             </select>
           </div>
@@ -529,7 +539,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
               className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
                 ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}
                 ${justPicked === opt ? "scale-[0.98] ring-4 ring-brand/30" : ""}`}>
-              {easyOpt(q, opt)}
+              {easyOpt(q, opt, providerName, supportPhone)}
             </button>
           );
         })}
@@ -551,7 +561,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext }: {
               onClick={() => set(q.key, on ? arr.filter((x) => x !== opt) : [...arr, opt])}
               className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
                 ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}`}>
-              {on ? "Selected: " : ""}{easyOpt(q, opt)}
+              {on ? "Selected: " : ""}{easyOpt(q, opt, providerName, supportPhone)}
             </button>
           );
         })}

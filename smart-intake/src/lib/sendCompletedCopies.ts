@@ -48,13 +48,13 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   const attempts: NotifyResult[] = [];
   const provider = await prisma.provider.findUnique({
     where: { id: opts.providerId },
-    select: { name: true },
+    select: { name: true, phone: true },
   });
   if (intake.client.email) {
-    attempts.push(await sendCopiesLinkEmail(intake.client.email, intake.client.fullName, link, provider?.name));
+    attempts.push(await sendCopiesLinkEmail(intake.client.email, intake.client.fullName, link, provider?.name, provider?.phone));
   }
   if (intake.client.phone) {
-    attempts.push(await sendCopiesLinkSms(intake.client.phone, link, provider?.name));
+    attempts.push(await sendCopiesLinkSms(intake.client.phone, link, provider?.name, provider?.phone));
   }
 
   const sent = attempts.filter((r) => r.ok).map(sentLabel);

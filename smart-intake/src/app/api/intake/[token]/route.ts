@@ -5,6 +5,7 @@ import { loadAnswers, loadSignatures, saveAnswers, syncStructuredRows } from "@/
 import { answersSchema, missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { CLIENT_ANSWER_KEYS } from "@/config/mooreDivineQuestions";
+import { providerDisplayName, providerPhone } from "@/lib/providerBranding";
 
 async function findByToken(token: string) {
   const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true, provider: true } });
@@ -13,7 +14,10 @@ async function findByToken(token: string) {
     return { error: "This link is not valid. Please contact the provider for a new intake link.", intake: null };
   }
   if (intake.tokenExpiresAt < new Date()) {
-    return { error: "This link has expired. Please ask Moore Divine Care for a new one (336-285-5204).", intake: null };
+    return {
+      error: `This link has expired. Please ask ${providerDisplayName(intake.provider?.name)} for a new one (${providerPhone(intake.provider?.phone)}).`,
+      intake: null,
+    };
   }
   return { error: null, intake };
 }
@@ -33,6 +37,10 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   const sections = await prisma.intakeSection.findMany({ where: { intakeId: intake.id } });
   return NextResponse.json({
     clientName: intake.client.fullName,
+    provider: {
+      name: intake.provider?.name || null,
+      phone: intake.provider?.phone || null,
+    },
     status: intake.status,
     quick: intake.expectCca,
     answers,
