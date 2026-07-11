@@ -4,8 +4,9 @@ import type { Answers } from "./fillPdf";
  * Operational defaults policy: a default may COPY a real answer somewhere
  * else (same fact, different blank), but must never INVENT an answer nobody
  * gave. Payer status, clinical severity, consent/acknowledgment boxes and
- * "None reported" clinical negatives are deliberately NOT defaulted - those
- * stay blank until a human answers them.
+ * "None reported" clinical negatives are deliberately NOT defaulted unless a
+ * verified source already proves the answer (for example, a real MID means
+ * Medicaid has already been confirmed).
  */
 
 function s(v: unknown): string {
@@ -129,6 +130,9 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "client_phone_home", s(a.client_phone_cell));
   setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
   setDefault(a, "ec2_home_phone", s(a.ec2_cell_phone));
+
+  // a verified MID means Medicaid coverage is already established
+  if (!isBlank(a.mid_number)) setDefault(a, "has_medicaid", "Yes");
 
   // one staff member's name flows to the synonymous staff-name blanks
   const sharedStaffName =

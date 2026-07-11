@@ -9,7 +9,7 @@
  * Drop-in replacement for ClientQuestionnaire (identical props).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, isQuickIntakeQuestion, type Question } from "@/config/mooreDivineQuestions";
+import { SECTIONS, isQuestionPrefilledForClient, isQuickIntakeQuestion, type Question } from "@/config/mooreDivineQuestions";
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -33,7 +33,7 @@ const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?:
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
-function flattenVisible(answers: Answers, quick: boolean): FlatQ[] {
+function flattenVisible(answers: Answers, prefilledAnswers: Answers, quick: boolean): FlatQ[] {
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
@@ -44,6 +44,7 @@ function flattenVisible(answers: Answers, quick: boolean): FlatQ[] {
       if (quick && !isQuickIntakeQuestion(q)) continue;
       if (quick && q.key === "client_phone_home") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
+      if (isQuestionPrefilledForClient(q, prefilledAnswers)) continue;
       out.push({ q, sectionKey: s.key, sectionTitle: s.title });
     }
   }
@@ -79,8 +80,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
 
   const gateFingerprint = JSON.stringify(GATE_KEYS.map((k) => answers[k]));
+  const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const flat = useMemo(() => flattenVisible(answers, quick), [gateFingerprint, quick]);
+  const flat = useMemo(() => flattenVisible(answers, prefilledRef.current, quick), [gateFingerprint, quick]);
 
   // Refs so timers (auto-advance) always see the latest state.
   const answersRef = useRef(answers); answersRef.current = answers;

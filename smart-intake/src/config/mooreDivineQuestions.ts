@@ -600,6 +600,32 @@ export const CLIENT_ANSWER_KEYS: ReadonlySet<string> = new Set(
     s.questions.filter((q) => q.type !== "info" && q.type !== "heading").map((q) => q.key)),
 );
 
+export const CLIENT_PREFILLED_QUESTION_KEYS: ReadonlySet<string> = new Set([
+  "client_full_name",
+  "dob",
+  "mid_number",
+  "client_email",
+  "client_phone_cell",
+  "is_minor_or_incompetent",
+  "guardian_name",
+  "guardian_phone",
+  "guardian_email",
+]);
+
+function hasPrefilledClientValue(value: unknown): boolean {
+  if (value == null) return false;
+  if (Array.isArray(value)) return value.length > 0;
+  if (typeof value === "string") return value.trim().length > 0;
+  return value !== false;
+}
+
+export function isQuestionPrefilledForClient(q: Question, initialAnswers: Record<string, unknown>): boolean {
+  if (q.key === "has_medicaid") {
+    return hasPrefilledClientValue(initialAnswers.has_medicaid) || hasPrefilledClientValue(initialAnswers.mid_number);
+  }
+  return CLIENT_PREFILLED_QUESTION_KEYS.has(q.key) && hasPrefilledClientValue(initialAnswers[q.key]);
+}
+
 export function questionByKey(key: string): Question | undefined {
   for (const s of SECTIONS) for (const q of s.questions) if (q.key === key) return q;
   for (const g of STAFF_FIELDS) for (const q of g.fields) if (q.key === key) return q;

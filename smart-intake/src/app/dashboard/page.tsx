@@ -62,7 +62,7 @@ const TABS: DashboardTab[] = [
   { key: "waiting", label: "Waiting on client", statuses: ["NOT_STARTED", "IN_PROGRESS"] },
   { key: "signed", label: "Signed", statuses: ["SIGNED"] },
   { key: "done", label: "Done", statuses: ["COMPLETED"] },
-  { key: "copies", label: "Completed copies", statuses: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"] },
+  { key: "copies", label: "Client records", statuses: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"] },
   { key: "all", label: "All", statuses: [] as string[] },
   { key: "archived", label: "Archived", statuses: [] as string[] },
 ];
@@ -142,7 +142,7 @@ export default function Dashboard() {
   async function copyCompletedLink(row: Row) {
     const link = `${window.location.origin}/copies/${row.token}`;
     await navigator.clipboard.writeText(link);
-    showNote(`Completed copies link copied for ${row.client.fullName}`, 2500);
+    showNote(`Client records link copied for ${row.client.fullName}`, 2500);
   }
 
   async function remind(row: Row) {
@@ -163,10 +163,10 @@ export default function Dashboard() {
     if (response.ok) {
       const sent = body.sent?.length ? body.sent.join(", ") : "No phone or email saved for this client.";
       const failed = body.failed?.length ? ` Not sent: ${body.failed.join("; ")}` : "";
-      showNote(`Completed copies queued: ${sent}${failed}`, 6000);
+      showNote(`Completed intake + client records queued: ${sent}${failed}`, 6000);
       load(tab);
     } else {
-      showNote(`Completed copies failed: ${body.error || response.status}`, 6000);
+      showNote(`Completed intake + client records failed: ${body.error || response.status}`, 6000);
     }
   }
 
@@ -178,7 +178,7 @@ export default function Dashboard() {
     });
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
-      showNote(`Auto-send completed copies ${autoSend ? "on" : "off"} for ${row.client.fullName}`);
+      showNote(`Auto-send completed intake + client records ${autoSend ? "on" : "off"} for ${row.client.fullName}`);
       load(tab);
     } else {
       showNote(`Auto-send update failed: ${body.error || response.status}`, 6000);
@@ -384,16 +384,16 @@ export default function Dashboard() {
                     detail={row.hasPdf ? "Completed packet is ready" : "Generate packet after review"}
                   />
                   <StatusTile
-                    label="Copies"
+                    label="Client records"
                     state={row.copiesSentAt ? "Sent" : "Not sent"}
                     tone={row.copiesSentAt ? "good" : "neutral"}
-                    detail={row.copiesSentAt ? displayDateTime(row.copiesSentAt) : "No copies delivery logged yet"}
+                    detail={row.copiesSentAt ? displayDateTime(row.copiesSentAt) : "No completed intake delivery logged yet"}
                   />
                   <StatusTile
                     label="Auto-send"
                     state={row.autoSendCopies ? "On" : "Off"}
                     tone={row.autoSendCopies ? "brand" : "neutral"}
-                    detail={row.autoSendCopies ? "Completed copies send automatically" : "Staff sends copies manually"}
+                    detail={row.autoSendCopies ? "Completed intake + client records send automatically" : "Staff sends client records manually"}
                   />
                 </div>
               </div>
@@ -412,10 +412,10 @@ export default function Dashboard() {
                 <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>Copy intake link</button>
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => remind(row)}>Send reminder</button>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendCopies(row)}>Send copies</button>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy copies link</button>
+                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendCopies(row)}>Send client records</button>
+                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy records link</button>
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setAutoCopies(row, !row.autoSendCopies)}>
-                  Auto-send {row.autoSendCopies ? "off" : "on"}
+                  Auto-send records {row.autoSendCopies ? "off" : "on"}
                 </button>
                 {!row.docusignEnvelopeId && (
                   <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendDocuSign(row)}>

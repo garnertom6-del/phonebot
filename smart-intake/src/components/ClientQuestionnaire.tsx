@@ -7,7 +7,7 @@
  * the end that the server applies to every agreed form.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, type Question, type Section } from "@/config/mooreDivineQuestions";
+import { SECTIONS, isQuestionPrefilledForClient, type Question, type Section } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
@@ -42,6 +42,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const [uploadStatus, setUploadStatus] = useState<Record<string, string>>({});
   const answersRef = useRef(answers);
   answersRef.current = answers;
+  const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // what the server already has - saves send only the diff
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
 
@@ -53,7 +54,10 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const step = steps[Math.min(stepIdx, steps.length - 1)];
 
   const visibleQuestions = (s: Section): Question[] =>
-    s.questions.filter((q) => !q.staffOnly && askIfSatisfied(q.askIf, answers));
+    s.questions.filter((q) =>
+      !q.staffOnly &&
+      askIfSatisfied(q.askIf, answers) &&
+      !isQuestionPrefilledForClient(q, prefilledRef.current));
 
   const set = (key: string, value: Answers[string]) =>
     setAnswers((a) => ({ ...a, [key]: value }));
