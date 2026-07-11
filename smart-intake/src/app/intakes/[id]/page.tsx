@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
+import { moodScores } from "@/lib/moodScores";
 import {
   copiesMailtoHref,
   copiesShareMessage,
@@ -247,6 +248,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         </div>
       </div>
       <WorkflowSteps d={d} />
+      <MoodPanel answers={d.answers} />
       {note && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{note}</p>}
       {copiesLink && (
         <div className="mt-3 rounded-lg border border-brand/30 bg-white p-3 text-sm">
@@ -454,6 +456,30 @@ function WorkflowSteps({ d }: { d: Detail }) {
           {idx === current && <span className="font-normal">← next</span>}
         </span>
       ))}
+    </div>
+  );
+}
+
+/** PHQ-9 / GAD-7 auto-scores (full-intake clients). Informational, not a diagnosis. */
+function MoodPanel({ answers }: { answers: Record<string, unknown> }) {
+  const s = moodScores(answers);
+  if (!s.phq9 && !s.gad7) return null;
+  const chip = (label: string, m: { score: number; total: number; answered: number; severity: string; flag: boolean }, max: number) => (
+    <span className={`badge ${m.flag ? "bg-amber-100 text-amber-800" : "bg-emerald-100 text-emerald-800"}`}>
+      {label}: {m.score}/{max} - {m.severity}{m.answered < m.total ? ` (${m.answered}/${m.total} answered)` : ""}
+    </span>
+  );
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white p-2 text-xs">
+      <span className="font-bold text-slate-500">Mood check:</span>
+      {s.phq9 && chip("PHQ-9 depression screen", s.phq9, 27)}
+      {s.gad7 && chip("GAD-7 anxiety screen", s.gad7, 21)}
+      {s.selfHarmEndorsed && (
+        <span className="badge bg-red-100 text-red-800">
+          ⚠ Self-harm question answered above &quot;Not at all&quot; - clinician should follow up promptly
+        </span>
+      )}
+      <span className="text-slate-400">Screening scores only - not a diagnosis.</span>
     </div>
   );
 }
