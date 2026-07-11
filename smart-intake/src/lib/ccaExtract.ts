@@ -15,7 +15,8 @@ export function ccaConfigured(): boolean {
 /** Keys the CCA is allowed to fill. Consents, signatures, surveys and intake
  *  logistics are excluded — those must come from the client or staff. */
 function extractableQuestions(): Question[] {
-  const skipSections = new Set(["welcome", "survey", "referrals"]);
+  // mood_check (PHQ-9/GAD-7) is a client self-report - never filled from a CCA
+  const skipSections = new Set(["welcome", "survey", "referrals", "mood_check"]);
   const out: Question[] = [];
   for (const s of SECTIONS) {
     if (skipSections.has(s.key)) continue;

@@ -35,6 +35,31 @@ export interface Section {
 
 const YN = ["Yes", "No"];
 
+/** Standard PHQ-9 / GAD-7 frequency scale (score 0-3 by position). */
+export const MOOD_FREQ = ["Not at all", "Several days", "More than half the days", "Nearly every day"] as const;
+
+const PHQ9_ITEMS: [string, string][] = [
+  ["phq9_q1", "Little interest or pleasure in doing things"],
+  ["phq9_q2", "Feeling down, depressed, or hopeless"],
+  ["phq9_q3", "Trouble falling or staying asleep, or sleeping too much"],
+  ["phq9_q4", "Feeling tired or having little energy"],
+  ["phq9_q5", "Poor appetite or overeating"],
+  ["phq9_q6", "Feeling bad about yourself - or that you are a failure or have let yourself or your family down"],
+  ["phq9_q7", "Trouble concentrating on things, such as reading or watching television"],
+  ["phq9_q8", "Moving or speaking so slowly that other people could have noticed - or the opposite, being fidgety or restless"],
+  ["phq9_q9", "Thoughts that you would be better off dead or of hurting yourself in some way"],
+];
+
+const GAD7_ITEMS: [string, string][] = [
+  ["gad7_q1", "Feeling nervous, anxious, or on edge"],
+  ["gad7_q2", "Not being able to stop or control worrying"],
+  ["gad7_q3", "Worrying too much about different things"],
+  ["gad7_q4", "Trouble relaxing"],
+  ["gad7_q5", "Being so restless that it is hard to sit still"],
+  ["gad7_q6", "Becoming easily annoyed or irritable"],
+  ["gad7_q7", "Feeling afraid as if something awful might happen"],
+];
+
 export const SECTIONS: Section[] = [
   {
     key: "welcome", title: "Welcome", fastIntake: true,
@@ -130,6 +155,23 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "presenting_problem", essential: true, label: "In your own words: what brings you in, and why do you feel the need for services?", type: "textarea", required: true, voice: true },
       { key: "other_agencies", label: "Other agencies or providers you receive (or received) services from", type: "textarea", voice: true },
+    ],
+  },
+  {
+    // PHQ-9 + GAD-7: public-domain standardized mood/anxiety screens with
+    // automatic scoring (shown to staff on the intake page). Part of the FULL
+    // intake only - Quick Intake stays short. Answers use the standard
+    // 0-3 frequency scale stored as the option text.
+    key: "mood_check", title: "How You Have Been Feeling",
+    intro: "Over the LAST 2 WEEKS, how often have these things bothered you? There are no wrong answers.",
+    questions: [
+      ...PHQ9_ITEMS.map(([key, label]): Question => ({
+        key, label: `Over the last 2 weeks: ${label}`, type: "radio", options: [...MOOD_FREQ],
+        ...(key === "phq9_q9" ? { help: "If you feel like hurting yourself right now, please call 988 or 336-285-5204. Someone is there for you." } : {}),
+      })),
+      ...GAD7_ITEMS.map(([key, label]): Question => ({
+        key, label: `Over the last 2 weeks: ${label}`, type: "radio", options: [...MOOD_FREQ],
+      })),
     ],
   },
   {

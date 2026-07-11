@@ -541,6 +541,7 @@ export const EASY: Record<string, EasyText> = {
 /* ------------------------------------------------------------------ */
 
 export const SECTION_INTROS: Record<string, string> = {
+  mood_check: "Now a few questions about how you have been FEELING the last 2 weeks. There are no wrong answers.",
   welcome: "Hi! Let's get you set up. Go at your own pace - your answers are saved.",
   basic: "First, a little about you.",
   demographics: "A few more quick questions about you.",
