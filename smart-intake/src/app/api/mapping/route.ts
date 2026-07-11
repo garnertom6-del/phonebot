@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
   const overrides = target.providerSpecific
     ? parseMappings(target.template?.fieldMappings ?? [])
     : await mappingOverrides();
-  const fields = target.providerSpecific ? overrides : mergedMap(overrides);
+  const fields = mergedMap(overrides);
 
   return NextResponse.json({
     templateId: target.template?.id ?? null,
