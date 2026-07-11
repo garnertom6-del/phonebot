@@ -140,6 +140,7 @@ export default function Dashboard() {
           {isMaster && <Link href="/master/dashboard" className="btn-ghost">Master dashboard</Link>}
           {isMaster && <a href="/api/admin/backup" className="btn-ghost" title="Download a full copy of all client data - keep it somewhere safe">Download backup</a>}
           {isMaster && <Link href="/admin/pdf-mapping" className="btn-ghost">PDF mapping</Link>}
+          <Link href="/admin/users" className="btn-ghost" title="Add or disable staff logins">Staff logins</Link>
           <Link href="/intakes/new-many" className="btn-secondary">+ Create Many</Link>
           <Link href="/intakes/new" className="btn-primary">+ Create New Intake</Link>
           <button className="btn-secondary" onClick={async () => { await fetch("/api/auth/logout", { method: "POST" }); router.push("/login"); }}>Sign out</button>
