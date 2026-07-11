@@ -18,6 +18,46 @@ type SR = { start: () => void; stop: () => void; lang: string; interimResults: b
   onresult: ((e: { resultIndex: number; results: { length: number; [i: number]: { isFinal: boolean; 0: { transcript: string } } } }) => void) | null;
   onend: (() => void) | null; onerror: (() => void) | null };
 
+function normalizeTranscript(text: string): string {
+  return text.replace(/\s+/g, " ").trim();
+}
+
+function overlapLength(left: string, right: string): number {
+  const max = Math.min(left.length, right.length);
+  for (let len = max; len > 0; len--) {
+    if (left.slice(-len) === right.slice(0, len)) return len;
+  }
+  return 0;
+}
+
+function mergeTranscriptChunks(chunks: string[]): string {
+  const merged: string[] = [];
+  for (const raw of chunks) {
+    const chunk = normalizeTranscript(raw);
+    if (!chunk) continue;
+    const previous = merged[merged.length - 1];
+    if (!previous) {
+      merged.push(chunk);
+      continue;
+    }
+    const prevLower = previous.toLowerCase();
+    const chunkLower = chunk.toLowerCase();
+    if (prevLower === chunkLower) continue;
+    if (chunkLower.startsWith(prevLower)) {
+      merged[merged.length - 1] = chunk;
+      continue;
+    }
+    if (prevLower.startsWith(chunkLower)) continue;
+    const overlap = overlapLength(prevLower, chunkLower);
+    if (overlap > 0) {
+      merged[merged.length - 1] = `${previous}${chunk.slice(overlap)}`;
+      continue;
+    }
+    merged.push(chunk);
+  }
+  return merged.join(" ");
+}
+
 export default function VoiceInput({ value, onChange, multiline, placeholder, inputMode }: Props) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -38,22 +78,21 @@ export default function VoiceInput({ value, onChange, multiline, placeholder, in
     rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
     finalRef.current = "";
     rec.onresult = (e) => {
-      // Android Chrome re-delivers already-final results (and resultIndex can
-      // rewind), so appending across events repeats the speaker's words 2-3x.
-      // Rebuild the transcript from the full results list on every event and
-      // collapse back-to-back duplicate chunks instead.
+      // Android Chrome and some mobile browsers can re-deliver already-final
+      // transcript pieces or send a longer chunk that starts with the exact
+      // words from a previous chunk. Rebuild from the full result set and
+      // merge overlapping chunks so repeated openings do not duplicate text.
       const finals: string[] = [];
-      let interim = "";
+      const interims: string[] = [];
       for (let i = 0; i < e.results.length; i++) {
         const r = e.results[i];
-        const t = r[0].transcript.trim();
+        const t = normalizeTranscript(r[0].transcript);
         if (!t) continue;
-        if (r.isFinal) {
-          if (finals[finals.length - 1]?.toLowerCase() !== t.toLowerCase()) finals.push(t);
-        } else interim += " " + t;
+        if (r.isFinal) finals.push(t);
+        else interims.push(t);
       }
-      finalRef.current = finals.join(" ");
-      setPreview((finalRef.current + interim).trim());
+      finalRef.current = mergeTranscriptChunks(finals);
+      setPreview(mergeTranscriptChunks([finalRef.current, ...interims]));
     };
     rec.onend = () => setRecording(false);
     rec.onerror = () => setRecording(false);
