@@ -66,7 +66,7 @@ export default function ClientIntakePage({ params }: { params: { token: string }
     <main className="min-h-screen">
       <header className="sticky top-0 z-10 bg-brand p-4 text-white">
         <h1 className="text-base font-bold">Client Intake</h1>
-        <p className="text-xs opacity-80">We are glad you are here.</p>
+        <p className="text-xs opacity-80">Start your intake for services.</p>
       </header>
       <div className="p-4">
         <Suspense fallback={<p className="mt-10 text-center text-slate-500">Loading...</p>}>

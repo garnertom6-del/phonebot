@@ -64,7 +64,9 @@ export const SECTIONS: Section[] = [
   {
     key: "welcome", title: "Welcome", fastIntake: true,
     intro:
-      "This secure link takes the place of the paper forms for Moore Divine Care, Inc. " +
+      "You are completing your intake for services with Moore Divine Care, Inc. " +
+      "After this intake, a clinical assessor will follow up with you to complete an assessment. " +
+      "That assessment helps determine what type of services and support you will receive. " +
       "Answer at your own pace - your progress is saved so you can come back later. " +
       "Every box with a microphone lets you SPEAK your answer instead of typing. " +
       "You will sign once at the end.",
@@ -387,7 +389,6 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "survey_q1", label: "I got into the program within timeframes that were explained to me", type: "survey" },
       { key: "survey_q2", label: "The staff was courteous, professional, and explained services in a way I understood", type: "survey" },
-      { key: "survey_q3", label: "The staff explained orientation to services, client rights, and gave numbers for questions or concerns", type: "survey" },
       { key: "survey_q4", label: "I was allowed and encouraged to provide input about my presenting problems and history", type: "survey" },
       { key: "survey_q5", label: "I was informed whether I qualified and whether the agency could provide recommended services", type: "survey" },
       { key: "survey_q6", label: "I participated in my treatment plan and understood goals, time limits, and the discharge plan", type: "survey" },

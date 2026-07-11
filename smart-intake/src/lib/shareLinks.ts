@@ -1,7 +1,7 @@
-import { providerDisplayName, providerPhone } from "./providerBranding";
+import { intakeProcessExplanation, providerDisplayName, providerPhone } from "./providerBranding";
 
 export function intakeShareMessage(link: string, providerName?: string | null): string {
-  return `${providerDisplayName(providerName)}: please answer your new-client questions here (secure link): ${link}`;
+  return `${intakeProcessExplanation(providerName)} Secure link: ${link}`;
 }
 
 export function copiesShareMessage(link: string, providerName?: string | null): string {

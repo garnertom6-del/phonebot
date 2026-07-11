@@ -13,7 +13,7 @@ import { SECTIONS, isQuestionPrefilledForClient, isQuickIntakeQuestion, type Que
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
-import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -295,10 +295,10 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     return (
       <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center text-center">
         <h2 className="mt-6 text-3xl font-bold text-brand">Hi {firstName}!</h2>
-        <p className="mt-5 text-2xl leading-relaxed text-slate-700">
-          We&apos;re going to ask you some easy questions.
+        <p className="mt-5 text-xl leading-relaxed text-slate-700">
+          {intakeProcessExplanation(providerName)}
         </p>
-        <p className="mt-3 text-xl leading-relaxed text-slate-500">
+        <p className="mt-3 text-lg leading-relaxed text-slate-500">
           You can speak or tap to answer. Your answers save as you go.
         </p>
         <button type="button" className="btn-primary mt-10 min-h-[72px] w-full text-2xl"
