@@ -5,6 +5,7 @@
  * summary), and staff-side signature capture.
  */
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied } from "@/lib/validation";
@@ -28,6 +29,7 @@ const SIGN_MODES: { mode: SignMode; label: string; padLabel: string; roles: Staf
 ];
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
+  const router = useRouter();
   const [answers, setAnswers] = useState<Answers>({});
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
@@ -59,7 +61,12 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       method: "PATCH", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ answers, status: "NEEDS_REVIEW" }),
     });
-    setNote(r.ok ? "Saved (marked Needs Review until packet is generated)" : "Save failed");
+    if (!r.ok) {
+      setNote("Save failed");
+      return;
+    }
+    setNote("Saved. Opening the next workflow step...");
+    router.push(`/intakes/${params.id}`);
   }
 
   async function captureStaffSig(mode: SignMode, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
@@ -128,7 +135,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
       <div className="fixed inset-x-0 bottom-0 border-t bg-white p-3">
         <div className="mx-auto flex max-w-4xl items-center gap-3">
-          <button className="btn-primary flex-1" onClick={save}>Save all changes</button>
+          <button className="btn-primary flex-1" onClick={save}>Save all changes & continue</button>
           <Link href={`/intakes/${params.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
           <span className="text-sm text-slate-500">{note}</span>
         </div>
