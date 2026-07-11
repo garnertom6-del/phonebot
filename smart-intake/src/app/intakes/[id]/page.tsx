@@ -16,6 +16,7 @@ interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
     docusignEnvelopeId?: string | null;
+    provider?: { name: string } | null;
     client: { fullName: string; dob: string; midNumber?: string; email?: string; phone?: string; guardianName?: string };
     signatures: { role: string; printedName: string; signedDate: string }[];
     uploadedDocuments: { id: string; docType: string; fileName: string }[];
@@ -64,8 +65,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
-  const clientMessage = intakeShareMessage(d.clientLink);
-  const copiesMessage = copiesLink ? copiesShareMessage(copiesLink) : "";
+  const providerName = i.provider?.name || "Moore Divine Care";
+  const clientMessage = intakeShareMessage(d.clientLink, providerName);
+  const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
@@ -261,10 +263,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesMessage); setNote("Copies text message copied"); }}>
               Copy text message
             </button>
-            <a className="btn-primary px-3 py-1.5 text-xs" href={copiesSmsHref(i.client.phone, copiesLink)}>
+            <a className="btn-primary px-3 py-1.5 text-xs" href={copiesSmsHref(i.client.phone, copiesLink, providerName)}>
               Open SMS on this computer
             </a>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink)}>
+            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink, providerName)}>
               Open email
             </a>
             <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesLink} target="_blank">
@@ -281,10 +283,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <p className="mt-1 text-xs text-slate-400">Expires {new Date(i.tokenExpiresAt).toLocaleString()}</p>
           <div className="mt-2 flex flex-wrap gap-2">
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Link copied"); }}>Copy</button>
-            <a className="btn-primary px-3 py-1.5 text-sm" href={intakeSmsHref(i.client.phone, d.clientLink)}>
+            <a className="btn-primary px-3 py-1.5 text-sm" href={intakeSmsHref(i.client.phone, d.clientLink, providerName)}>
               Open SMS on this computer
             </a>
-            <a className="btn-ghost px-3 py-1.5 text-sm" href={intakeMailtoHref(i.client.email, d.clientLink)}>
+            <a className="btn-ghost px-3 py-1.5 text-sm" href={intakeMailtoHref(i.client.email, d.clientLink, providerName)}>
               Open email
             </a>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Text message copied"); }}>Copy text message</button>

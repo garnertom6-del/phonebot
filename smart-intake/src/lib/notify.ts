@@ -12,6 +12,10 @@ export interface NotifyResult {
   detail: string;
 }
 
+function providerLabel(providerName?: string | null): string {
+  return providerName?.trim() || "Moore Divine Care";
+}
+
 type TwilioMessage = {
   sid?: string;
   status?: string;
@@ -86,11 +90,17 @@ async function twilioSmsResult(res: Response, accountSid: string, auth: string):
   return { ok: true, detail: "queued by Twilio" };
 }
 
-export async function sendClientLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
+export async function sendClientLinkEmail(
+  to: string,
+  clientName: string,
+  link: string,
+  providerName?: string | null,
+): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const subject = "Moore Divine Care, Inc. - Your new-client questions";
+  const provider = providerLabel(providerName);
+  const subject = `${provider} - Your new-client questions`;
   const body =
-    `Hello ${clientName},\n\nPlease answer your new-client questions for Moore Divine Care, Inc. ` +
+    `Hello ${clientName},\n\nPlease answer your new-client questions for ${provider} ` +
     `using this secure link (it works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days):\n\n${link}\n\n` +
     `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call 336-285-5204.`;
   if (!key || !process.env.EMAIL_FROM) {
@@ -116,11 +126,11 @@ export async function sendClientLinkEmail(to: string, clientName: string, link: 
   };
 }
 
-export async function sendClientLinkSms(to: string, link: string): Promise<NotifyResult> {
+export async function sendClientLinkSms(to: string, link: string, providerName?: string | null): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `Moore Divine Care: please answer your new-client questions here (secure link): ${link}`;
+  const body = `${providerLabel(providerName)}: please answer your new-client questions here (secure link): ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
@@ -135,11 +145,17 @@ export async function sendClientLinkSms(to: string, link: string): Promise<Notif
   return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
 }
 
-export async function sendCopiesLinkEmail(to: string, clientName: string, link: string): Promise<NotifyResult> {
+export async function sendCopiesLinkEmail(
+  to: string,
+  clientName: string,
+  link: string,
+  providerName?: string | null,
+): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
-  const subject = "Moore Divine Care, Inc. - Your completed intake copies";
+  const provider = providerLabel(providerName);
+  const subject = `${provider} - Your completed intake copies`;
   const body =
-    `Hello ${clientName},\n\nYour completed Moore Divine Care intake copies are ready. ` +
+    `Hello ${clientName},\n\nYour completed ${provider} intake copies are ready. ` +
     `This includes the full wording for your client orientation, consent for treatment, ` +
     `rights and responsibilities, privacy/confidentiality notices, emergency care consents, ` +
     `and the other sections you reviewed and completed.\n\n` +
@@ -167,11 +183,11 @@ export async function sendCopiesLinkEmail(to: string, clientName: string, link: 
   };
 }
 
-export async function sendCopiesLinkSms(to: string, link: string): Promise<NotifyResult> {
+export async function sendCopiesLinkSms(to: string, link: string, providerName?: string | null): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `Moore Divine Care: your completed intake copies are ready. View or save them here: ${link}`;
+  const body = `${providerLabel(providerName)}: your completed intake copies are ready. View or save them here: ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };

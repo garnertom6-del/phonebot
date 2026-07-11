@@ -108,7 +108,7 @@ export default function Dashboard() {
   const [note, setNote] = useState("");
   const [tab, setTab] = useState("all");
   const [search, setSearch] = useState("");
-  const [providerName, setProviderName] = useState("Moore Divine Care");
+  const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
 
   const load = useCallback((activeTab: string = "all") => {

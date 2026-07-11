@@ -32,10 +32,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const link = `${base}/intake/${intake.token}`;
   const attempts: NotifyResult[] = [];
   if (intake.client.email) {
-    attempts.push(await sendClientLinkEmail(intake.client.email, intake.client.fullName, link));
+    attempts.push(await sendClientLinkEmail(intake.client.email, intake.client.fullName, link, provider!.name));
   }
   if (intake.client.phone) {
-    attempts.push(await sendClientLinkSms(intake.client.phone, link));
+    attempts.push(await sendClientLinkSms(intake.client.phone, link, provider!.name));
   }
   const sent = attempts.filter((r) => r.ok).map(sentLabel);
   const failed = attempts.filter((r) => !r.ok).map(failedLabel);

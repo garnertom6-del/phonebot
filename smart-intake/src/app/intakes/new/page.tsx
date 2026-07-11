@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 
 const FIELDS = [
@@ -32,6 +32,24 @@ export default function NewIntake() {
   const [ncTracksFile, setNcTracksFile] = useState<File | null>(null);
   const [setupStatus, setSetupStatus] = useState("");
   const [setupStatusKind, setSetupStatusKind] = useState<"success" | "error" | "info">("info");
+  const [providerName, setProviderName] = useState("Provider");
+  const [packetName, setPacketName] = useState("Provider Intake Packet");
+  const [packetPageCount, setPacketPageCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/intakes/context").then(async (res) => {
+      const body = await readResponse(res) as {
+        provider?: { name?: string };
+        packet?: { name?: string; pageCount?: number };
+      };
+      if (!res.ok || !active) return;
+      setProviderName(body.provider?.name || "Provider");
+      setPacketName(body.packet?.name || "Provider Intake Packet");
+      setPacketPageCount(typeof body.packet?.pageCount === "number" ? body.packet.pageCount : null);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, []);
 
   async function readResponse(res: Response) {
     const text = await res.text();
@@ -139,13 +157,13 @@ export default function NewIntake() {
   if (result) {
     const phone = form.phone || form.guardianPhone || "";
     const email = form.email || form.guardianEmail || "";
-    const message = intakeShareMessage(result.clientLink);
+    const message = intakeShareMessage(result.clientLink, providerName);
     return (
       <main className="mx-auto max-w-xl p-6">
         <div className="card">
           <h1 className="text-xl font-bold text-emerald-600">Intake created</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Package: <b>Moore Divine Care Client Intake Package</b>. Send the client this secure
+            Package: <b>{packetName}</b>. Send the client this secure
             link (works for {result.linkDays || 7} days, no client info in the URL):
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
@@ -153,13 +171,13 @@ export default function NewIntake() {
             <button className="btn-primary" onClick={async () => {
               await navigator.clipboard.writeText(result.clientLink); setCopied(true);
             }}>{copied ? "Copied" : "Copy client link"}</button>
-            <a className="btn-primary text-center" href={intakeSmsHref(phone, result.clientLink)}>
+            <a className="btn-primary text-center" href={intakeSmsHref(phone, result.clientLink, providerName)}>
               Open SMS on this computer
             </a>
             <button className="btn-ghost" onClick={() => { void sendWithApp(); }}>
               Send SMS/email now
             </button>
-            <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink)}>
+            <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink, providerName)}>
               Open email
             </a>
             <button className="btn-ghost" onClick={async () => {
@@ -187,7 +205,9 @@ export default function NewIntake() {
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
       <form onSubmit={submit} className="card mt-3">
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
-        <p className="mb-4 text-sm text-slate-500">Package: Moore Divine Care Client Intake Package (43 pages)</p>
+        <p className="mb-4 text-sm text-slate-500">
+          Package: {packetName}{packetPageCount ? ` (${packetPageCount} pages)` : ""}
+        </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {FIELDS.map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>

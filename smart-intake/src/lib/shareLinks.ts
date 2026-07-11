@@ -1,9 +1,13 @@
-export function intakeShareMessage(link: string): string {
-  return `Moore Divine Care: please answer your new-client questions here (secure link): ${link}`;
+function providerLabel(providerName?: string | null): string {
+  return providerName?.trim() || "Moore Divine Care";
 }
 
-export function copiesShareMessage(link: string): string {
-  return `Moore Divine Care: here are your copies from your visit (Your Rights, How Our Program Works, Consent for Treatment, and our Welcome Letter): ${link}`;
+export function intakeShareMessage(link: string, providerName?: string | null): string {
+  return `${providerLabel(providerName)}: please answer your new-client questions here (secure link): ${link}`;
+}
+
+export function copiesShareMessage(link: string, providerName?: string | null): string {
+  return `${providerLabel(providerName)}: here are your copies from your visit (Your Rights, How Our Program Works, Consent for Treatment, and our Welcome Letter): ${link}`;
 }
 
 function smsRecipient(phone?: string | null): string {
@@ -13,22 +17,24 @@ function smsRecipient(phone?: string | null): string {
   return leadingPlus + text.replace(/\D/g, "");
 }
 
-export function intakeSmsHref(phone: string | null | undefined, link: string): string {
-  return `sms:${smsRecipient(phone)}?&body=${encodeURIComponent(intakeShareMessage(link))}`;
+export function intakeSmsHref(phone: string | null | undefined, link: string, providerName?: string | null): string {
+  return `sms:${smsRecipient(phone)}?&body=${encodeURIComponent(intakeShareMessage(link, providerName))}`;
 }
 
-export function intakeMailtoHref(email: string | null | undefined, link: string): string {
-  const subject = encodeURIComponent("Moore Divine Care intake link");
-  const body = encodeURIComponent(`${intakeShareMessage(link)}\n\nQuestions? Call 336-285-5204.`);
+export function intakeMailtoHref(email: string | null | undefined, link: string, providerName?: string | null): string {
+  const provider = providerLabel(providerName);
+  const subject = encodeURIComponent(`${provider} intake link`);
+  const body = encodeURIComponent(`${intakeShareMessage(link, provider)}\n\nQuestions? Call 336-285-5204.`);
   return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
 }
 
-export function copiesSmsHref(phone: string | null | undefined, link: string): string {
-  return `sms:${smsRecipient(phone)}?&body=${encodeURIComponent(copiesShareMessage(link))}`;
+export function copiesSmsHref(phone: string | null | undefined, link: string, providerName?: string | null): string {
+  return `sms:${smsRecipient(phone)}?&body=${encodeURIComponent(copiesShareMessage(link, providerName))}`;
 }
 
-export function copiesMailtoHref(email: string | null | undefined, link: string): string {
-  const subject = encodeURIComponent("Moore Divine Care intake copies");
-  const body = encodeURIComponent(`${copiesShareMessage(link)}\n\nQuestions? Call 336-285-5204.`);
+export function copiesMailtoHref(email: string | null | undefined, link: string, providerName?: string | null): string {
+  const provider = providerLabel(providerName);
+  const subject = encodeURIComponent(`${provider} intake copies`);
+  const body = encodeURIComponent(`${copiesShareMessage(link, provider)}\n\nQuestions? Call 336-285-5204.`);
   return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
 }
