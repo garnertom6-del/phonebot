@@ -135,6 +135,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const b = await r.json().catch(() => ({}));
     if (label === "Reminder") {
       setNote(r.ok ? deliveryStatus(b, "No phone or email saved for this client.") : deliveryStatus(b, `${label} failed: ${b.error || r.status}`));
+    } else if (label === "Generate Completed Packet") {
+      const parts = [
+        r.ok ? `${label} complete${b.filled ? ` (${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`,
+        r.ok && b.docusign?.message ? String(b.docusign.message) : "",
+      ].filter(Boolean);
+      setNote(parts.join(" | "));
     } else {
       setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
     }
@@ -435,6 +441,7 @@ function WorkflowSteps({ d }: { d: Detail }) {
   const hasCca = i.uploadedDocuments.some((u) => u.docType === "CCA");
   const reviewed = i.auditLogs.some((a) => a.event === "staff_reviewed");
   const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
+  const docusignSent = !!i.docusignEnvelopeId || i.auditLogs.some((a) => a.event === "docusign_sent" || a.event === "docusign_completed");
   const copiesSent = i.auditLogs.some((a) => a.event === "copies_link_sent");
   const steps = [
     { label: "Send link", done: i.status !== "NOT_STARTED" },
@@ -443,6 +450,7 @@ function WorkflowSteps({ d }: { d: Detail }) {
     { label: "Review answers", done: reviewed },
     { label: "Generate packet", done: i.generatedPdfs.length > 0 },
     { label: "Signatures", done: signed },
+    { label: "DocuSign", done: docusignSent || i.status === "COMPLETED" },
     { label: "Send copies", done: copiesSent },
   ];
   const current = steps.findIndex((s) => !s.done);

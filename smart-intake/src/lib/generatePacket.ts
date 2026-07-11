@@ -8,7 +8,16 @@ import { questionByKey } from "@/config/mooreDivineQuestions";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
 
-export async function generatePacketForIntake(intakeId: string, userId: string, providerId?: string) {
+export interface GeneratePacketOptions {
+  skipAutoCompletedCopies?: boolean;
+}
+
+export async function generatePacketForIntake(
+  intakeId: string,
+  userId: string,
+  providerId?: string,
+  options: GeneratePacketOptions = {},
+) {
   const intake = await prisma.intake.findFirst({
     where: { id: intakeId, ...(providerId ? { providerId } : {}) },
     include: { client: true, signatures: true },
@@ -56,7 +65,7 @@ export async function generatePacketForIntake(intakeId: string, userId: string, 
     userId,
     detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`,
   });
-  if (signed && intake.providerId) {
+  if (signed && intake.providerId && !options.skipAutoCompletedCopies) {
     try {
       await autoSendCompletedCopiesIfEnabled({
         intakeId: intake.id,

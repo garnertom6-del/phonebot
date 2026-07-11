@@ -4,6 +4,7 @@ import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { checkDocuSignStatus, downloadDocuSignDocument, docusignConfigured } from "@/lib/docusign";
 import { saveFile } from "@/lib/storage";
+import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 
 const FRIENDLY: Record<string, string> = {
   sent: "Sent - waiting for the client to open it.",
@@ -33,6 +34,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       saveFile(rel, signedPdf);
       await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel } });
       await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
+      try {
+        await autoSendCompletedCopiesIfEnabled({
+          intakeId: intake.id,
+          providerId: provider!.id,
+          userId: user!.id,
+        });
+      } catch (error) {
+        console.error("auto-send completed copies failed", error);
+      }
       await audit("docusign_completed", {
         providerId: provider!.id,
         intakeId: intake.id,
