@@ -5,6 +5,7 @@
  * the completed packet out for a certified DocuSign signing ceremony.
  */
 import crypto from "crypto";
+import { PDFDocument } from "pdf-lib";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import type { Answers } from "./fillPdf";
 
@@ -93,6 +94,27 @@ type DocuSignTab = {
   yPosition: string;
 };
 
+function keepTabInDocument(tab: DocuSignTab, pageCount: number): boolean {
+  const page = Number(tab.pageNumber);
+  return Number.isInteger(page) && page >= 1 && page <= pageCount;
+}
+
+function clampTabsToDocument(
+  tabs: { signHereTabs: DocuSignTab[]; dateSignedTabs: DocuSignTab[] },
+  pageCount: number,
+) {
+  const signHereTabs = tabs.signHereTabs.filter((tab) => keepTabInDocument(tab, pageCount));
+  const dateSignedTabs = tabs.dateSignedTabs.filter((tab) => keepTabInDocument(tab, pageCount));
+  if (signHereTabs.length !== tabs.signHereTabs.length || dateSignedTabs.length !== tabs.dateSignedTabs.length) {
+    console.warn("DocuSign tabs outside the generated packet were skipped", {
+      pageCount,
+      droppedSignHereTabs: tabs.signHereTabs.length - signHereTabs.length,
+      droppedDateSignedTabs: tabs.dateSignedTabs.length - dateSignedTabs.length,
+    });
+  }
+  return { signHereTabs, dateSignedTabs };
+}
+
 function appliesToClientSigner(f: FieldMapping, answers: Answers, consents: Record<string, boolean>): boolean {
   if (!["client", "guardian", "auto"].includes(f.role)) return false;
   if (f.consentKey && !consents[f.consentKey]) return false;
@@ -145,7 +167,8 @@ export async function createDocuSignEnvelope(
   pageHeight = PACKET_MAP.pageHeight,
 ): Promise<{ envelopeId: string }> {
   if (!docusignConfigured()) throw new Error("DocuSign not configured");
-  const tabs = clientDocuSignTabs(answers, consents, fields, pageHeight);
+  const pageCount = (await PDFDocument.load(completedPdf)).getPageCount();
+  const tabs = clampTabsToDocument(clientDocuSignTabs(answers, consents, fields, pageHeight), pageCount);
   if (tabs.signHereTabs.length === 0) throw new Error("No client DocuSign signature tabs found");
   const { token, base } = await getApiContext();
   const res = await fetch(
