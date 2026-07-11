@@ -7,6 +7,12 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
 
+function generatedRecordNumber(): string {
+  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
+  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `TEMP-${stamp}-${suffix}`;
+}
+
 function stringValue(value: unknown): string {
   if (value == null) return "";
   if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean).join(", ");
@@ -91,7 +97,13 @@ export async function POST(req: NextRequest) {
   try {
     const { user, provider, deny } = await requireStaff();
     if (deny) return deny;
-    const parsed = newIntakeSchema.safeParse(await req.json());
+    const raw = await req.json();
+    const parsed = newIntakeSchema.safeParse({
+      ...raw,
+      recordNumber: typeof raw?.recordNumber === "string" && raw.recordNumber.trim()
+        ? raw.recordNumber.trim()
+        : generatedRecordNumber(),
+    });
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
     }

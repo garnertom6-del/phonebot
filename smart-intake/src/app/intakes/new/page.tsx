@@ -5,7 +5,7 @@ import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/share
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
-  ["midNumber", "MID#", "text"], ["recordNumber", "Record# *", "text"],
+  ["midNumber", "MID#", "text"], ["recordNumber", "Record# (optional)", "text"],
   ["intakeDate", "Date of intake", "date"], ["location", "Location", "text"],
   ["email", "Client email", "email"], ["phone", "Client phone", "tel"],
   ["guardianName", "Guardian name (if applicable)", "text"],
@@ -216,6 +216,11 @@ export default function NewIntake() {
               <label className="label">{label}</label>
               <input className="input" type={type} value={form[key] || ""}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
+              {key === "recordNumber" && (
+                <p className="mt-1 text-xs text-slate-500">
+                  If you don&apos;t have the record number yet, leave this blank and the app will make a temporary one.
+                </p>
+              )}
             </div>
           ))}
         </div>
