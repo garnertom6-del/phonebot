@@ -30,6 +30,11 @@ type PreflightResult = {
   generatedAt: string;
 };
 
+type IdentityMismatch = {
+  recordName: string;
+  answerName: string;
+};
+
 interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
@@ -101,6 +106,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
@@ -196,11 +202,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   async function act(label: string, fn: () => Promise<Response>) {
     setNote(`${label}...`);
+    if (label === "Generate Completed Packet") setIdentityMismatch(null);
     const r = await fn();
     const b = await r.json().catch(() => ({}));
     if (label === "Reminder") {
       setNote(r.ok ? deliveryStatus(b, "No phone or email saved for this client.") : deliveryStatus(b, `${label} failed: ${b.error || r.status}`));
     } else if (label === "Generate Completed Packet") {
+      if (!r.ok && b.code === "IDENTITY_MISMATCH") {
+        setIdentityMismatch({ recordName: String(b.recordName || "client record"), answerName: String(b.answerName || "intake answer") });
+        setNote("Packet generation paused. Confirm the client name or review and correct it before generating.");
+        return;
+      }
       const parts = [
         r.ok ? `${label} complete${b.filled ? ` (${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`,
         r.ok && b.docusign?.message ? String(b.docusign.message) : "",
@@ -416,6 +428,23 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesLink} target="_blank">
               Open records page
             </a>
+          </div>
+        </div>
+      )}
+      {identityMismatch && (
+        <div className="mt-3 rounded-xl border border-red-300 bg-red-50 p-4 text-red-900" role="alert">
+          <h2 className="font-bold">Packet generation paused for a client-name mismatch</h2>
+          <p className="mt-2 text-sm">The client record says <b>{identityMismatch.recordName}</b>, but the intake answer says <b>{identityMismatch.answerName}</b>.</p>
+          <p className="mt-2 text-sm">Review the name first. If the answer is correct and the DOB has been verified, a staff member may confirm the mismatch and generate the packet. This confirmation is recorded in the audit log.</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href={`/intakes/${i.id}/review?focus=client_full_name`} className="btn-secondary px-3 py-2 text-sm">Review / correct name</Link>
+            <button className="btn-primary px-3 py-2 text-sm" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ allowIdentityMismatch: true }),
+            }))}>
+              Confirm names and generate packet
+            </button>
           </div>
         </div>
       )}

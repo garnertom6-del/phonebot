@@ -13,10 +13,30 @@ import { extractPdfText } from "@/lib/pdfText";
 
 export interface GeneratePacketOptions {
   skipAutoCompletedCopies?: boolean;
+  allowNameMismatch?: boolean;
+}
+
+export class PacketIdentityMismatchError extends Error {
+  code = "IDENTITY_MISMATCH" as const;
+  recordName: string;
+  answerName: string;
+
+  constructor(recordName: string, answerName: string) {
+    super(
+      `Packet identity check failed: client record is "${recordName}" but intake answers say "${answerName}". Review the client record before generating.`,
+    );
+    this.name = "PacketIdentityMismatchError";
+    this.recordName = recordName;
+    this.answerName = answerName;
+  }
 }
 
 function normalizedName(value: unknown): string {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizedIdentityName(value: unknown): string {
+  return normalizedName(value).replace(/\s*\([^)]*\)\s*$/, "").trim();
 }
 
 function normalizedDate(value: unknown): string {
@@ -25,13 +45,17 @@ function normalizedDate(value: unknown): string {
   return iso ? `${iso[1]}${iso[2]}${iso[3]}` : raw.replace(/\D/g, "");
 }
 
-function assertPacketIdentity(intake: { client: { fullName: string; dob: string } }, answers: Record<string, unknown>) {
+function assertPacketIdentity(
+  intake: { client: { fullName: string; dob: string } },
+  answers: Record<string, unknown>,
+  options: { allowNameMismatch?: boolean } = {},
+) {
   const answerName = normalizedName(answers.client_full_name);
   const recordName = normalizedName(intake.client.fullName);
-  if (answerName && recordName && answerName !== recordName) {
-    throw new Error(
-      `Packet identity check failed: client record is "${intake.client.fullName}" but intake answers say "${String(answers.client_full_name)}". Review the client record before generating.`,
-    );
+  const identityNameMatch = normalizedIdentityName(answerName) === normalizedIdentityName(recordName);
+  const nameMismatch = !!(answerName && recordName && !identityNameMatch);
+  if (nameMismatch && !options.allowNameMismatch) {
+    throw new PacketIdentityMismatchError(intake.client.fullName, String(answers.client_full_name));
   }
   const answerDob = normalizedDate(answers.dob);
   const recordDob = normalizedDate(intake.client.dob);
@@ -40,6 +64,7 @@ function assertPacketIdentity(intake: { client: { fullName: string; dob: string 
       `Packet identity check failed: client DOB does not match the intake record. Review the DOB before generating.`,
     );
   }
+  return { nameMismatch };
 }
 
 function assertRenderedPacketText(text: string, expectedClientName: string, providerName: string) {
@@ -74,7 +99,18 @@ export async function generatePacketForIntake(
   if (!intake) return null;
 
   const answers = await loadAnswers(intake.id);
-  assertPacketIdentity(intake, answers);
+  const identity = assertPacketIdentity(intake, answers, options);
+  const packetClientName = identity.nameMismatch
+    ? String(answers.client_full_name || intake.client.fullName)
+    : intake.client.fullName;
+  if (identity.nameMismatch && options.allowNameMismatch) {
+    await audit("packet_identity_override", {
+      providerId: intake.providerId || undefined,
+      intakeId: intake.id,
+      userId,
+      detail: "Staff confirmed a client-name mismatch before packet generation",
+    });
+  }
   const providerName = intake.provider?.name?.trim() || "Provider";
   answers.provider_name = providerName;
   answers.provider_staff_signature_label = `${providerName} Staff Signature`;
@@ -91,7 +127,7 @@ export async function generatePacketForIntake(
   });
   assertRenderedPacketText(
     await extractPdfText(result.pdfBytes),
-    intake.client.fullName,
+    packetClientName,
     providerName,
   );
   const consentLabels = Object.entries(consents)
@@ -101,7 +137,7 @@ export async function generatePacketForIntake(
       phone: intake.provider?.phone,
     }));
   const { pdfBytes, sha256 } = await appendCertificatePage(result.pdfBytes, {
-    clientName: intake.client.fullName,
+    clientName: packetClientName,
     providerName: intake.provider?.name || undefined,
     signers: intake.signatures.map((s) => ({
       role: s.role,
