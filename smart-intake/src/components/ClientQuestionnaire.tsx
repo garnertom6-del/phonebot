@@ -273,7 +273,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <p className="font-semibold">{brandText(q.label, branding)}</p>
         <details className="mt-1">
-          <summary className="cursor-pointer text-sm text-brand">Read the full statement</summary>
+          <summary className="cursor-pointer text-sm text-brand">Read more about this section</summary>
           <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
         </details>
         <div className="mt-3 flex flex-wrap gap-2">
@@ -293,7 +293,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <p className="font-semibold">{brandText(q.label, branding)}</p>
         <details className="mt-1">
-          <summary className="cursor-pointer text-sm text-brand">Read the full statement</summary>
+          <summary className="cursor-pointer text-sm text-brand">Read more about this section</summary>
           <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
         </details>
         <label className="mt-3 flex items-center gap-3 text-sm font-semibold">

@@ -47,15 +47,14 @@ export default function IntakeOrientationAudio({ providerName, providerPhone: su
       <p className="mt-1 text-sm leading-relaxed text-sky-800">
         {INTAKE_ORIENTATION_SUMMARY} You can listen before you start or play it again later.
       </p>
-      {INTAKE_ORIENTATION_AUDIO_URL ? (
+      {INTAKE_ORIENTATION_AUDIO_URL && (
         <audio className="mt-3 w-full" controls preload="none" src={INTAKE_ORIENTATION_AUDIO_URL}>
           Your phone cannot play this audio. You can still complete the intake below.
         </audio>
-      ) : (
-        <button type="button" className="btn-secondary mt-3 min-h-[48px] w-full text-base" onClick={toggleSpeech}>
-          {speaking ? "Stop explanation" : "Hear the explanation"}
-        </button>
       )}
+      <button type="button" className="btn-secondary mt-3 min-h-[48px] w-full text-base" onClick={toggleSpeech}>
+        {speaking ? "Stop explanation" : INTAKE_ORIENTATION_AUDIO_URL ? "Hear the updated explanation" : "Hear the explanation"}
+      </button>
       {!INTAKE_ORIENTATION_AUDIO_URL && (
         <p className="mt-2 text-xs text-sky-700">A saved recording can be added by your provider later.</p>
       )}

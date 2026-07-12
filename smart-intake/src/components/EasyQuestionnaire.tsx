@@ -552,7 +552,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
           {value === true && <p className="mt-3 text-lg font-bold text-emerald-600">You said yes to this.</p>}
         </div>
         <details className="rounded-xl border border-slate-200 p-4">
-          <summary className="cursor-pointer text-base font-semibold text-brand">Read the whole form</summary>
+          <summary className="cursor-pointer text-base font-semibold text-brand">Read more about this section</summary>
           <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-600">{brandText(q.consentText, { name: providerName, phone: supportPhone })}</p>
         </details>
         {q.key === "consent_tailored_plan" ? (
