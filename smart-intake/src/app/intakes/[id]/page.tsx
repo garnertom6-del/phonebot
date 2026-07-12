@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import { PROVIDER_CHOICE_PLAN_OPTIONS } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
@@ -31,13 +31,45 @@ interface Detail {
 }
 
 const HELPER_FORM_KEYS = [
-  "record_number", "mid_number", "provider_choice_plan", "preferred_emergency_facility",
-  "race", "ethnicity", "marital_status", "employment_status",
-  "pcp_name", "pcp_phone", "pcp_address",
-  "ec1_name", "ec1_cell_phone", "staff_receiving_intake",
-  "height", "weight", "services_other", "transport_destination",
+  "record_number", "mid_number", "gender", "race", "ethnicity", "marital_status", "veteran",
+  "education", "language", "language_other", "communication_level", "employment_status",
+  "client_phone_cell", "client_phone_home", "client_phone_work", "client_email",
+  "address_street", "address_city", "address_state", "living_arrangement", "lives_with_whom", "lives_where",
+  "provider_choice_plan", "has_medicaid", "medicaid_effective_date", "has_medicare", "medicare_effective_date",
+  "has_nchc", "nchc_policy", "nchc_effective_date", "funding_other", "income_sources", "income_other",
+  "referral_source", "social_agency_name", "referred_for", "services_requested", "services_other", "presenting_problem",
+  "pcp_name", "pcp_phone", "pcp_address", "preferred_emergency_facility", "no_pcp_nearest_er",
+  "has_current_diagnosis", "diagnosis_list", "current_diagnosis_known", "has_current_therapist", "therapist_name", "therapist_agency_phone", "receiving_mh_services", "mh_services_desc", "mh_service_provider", "mh_history",
+  "medical_diagnoses", "treatments", "hospitalizations", "last_physical_date", "height", "weight", "hair_color", "eye_color", "identifying_marks", "special_diets", "medical_alerts", "fax",
+  "medications", "otc_medications", "drug_allergies", "environmental_allergies", "allergies",
+  "strengths", "needs", "abilities", "preferences",
+  "pending_court_cases", "court_case_desc", "is_minor_or_incompetent", "date_adjudicated", "guardian_name", "guardian_address", "guardian_phone", "guardian_email",
+  "ec1_name", "ec1_cell_phone", "ec1_home_phone", "ec1_work_phone", "ec1_street", "ec1_city", "ec1_state",
+  "staff_receiving_intake", "transport_destination", "transport_purposes",
   "staff_helper_notes",
 ] as const;
+
+const RACE_OPTIONS = [
+  "American Indian or Alaska Native", "Asian", "Black or African American",
+  "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
+];
+const ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
+const MARITAL_STATUS_OPTIONS = ["Single", "Married", "Separated", "Widowed"];
+const VETERAN_OPTIONS = ["Yes", "No"];
+const EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
+const GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
+const EDUCATION_OPTIONS = ["Grade/Elementary", "High School/GED", "College", "Graduate", "Post Graduate"];
+const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "German", "Other"];
+const COMMUNICATION_OPTIONS = ["Excellent", "Good", "Fair", "Poor"];
+const LIVING_ARRANGEMENT_OPTIONS = [
+  "Adult with Spouse", "Adult with Relative", "Adult Alone", "Homeless", "Residential",
+  "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative",
+];
+const YES_NO_OPTIONS = ["Yes", "No"];
+const REFERRAL_OPTIONS = [
+  "Self", "DSS", "LME", "Provider Agency", "State Facility", "Private Physician", "Social Agency",
+  "Employer", "School", "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility",
+];
 
 export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Detail | null>(null);
@@ -181,9 +213,23 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       body: JSON.stringify({ fields, helperNotes: String(fd.get("helperNotes") || "") }),
     });
     const b = await r.json().catch(() => ({}));
-    setNote(r.ok
-      ? `Helper info saved${b.applied ? ` (${b.applied} packet fields updated)` : ""}; smart defaults applied`
-      : `Helper info failed to save: ${b.error || r.status}`);
+    if (!r.ok) {
+      setNote(`Helper info failed to save: ${b.error || r.status}`);
+    } else {
+      const clientPrefilled = Array.isArray(b.clientPrefilled) ? b.clientPrefilled.length : 0;
+      const clientPrefilledLabels = Array.isArray(b.clientPrefilledLabels)
+        ? b.clientPrefilledLabels.filter((label: unknown): label is string => typeof label === "string")
+        : [];
+      const labelSummary = clientPrefilledLabels.length
+        ? ` (${clientPrefilledLabels.slice(0, 5).join(", ")}${clientPrefilledLabels.length > 5 ? ", ..." : ""})`
+        : "";
+      const packetFields = Number(b.applied || 0);
+      setNote(clientPrefilled
+        ? `Saved successfully. ${clientPrefilled} client answer${clientPrefilled === 1 ? "" : "s"} uploaded to the intake packet answers and ready for PDF generation${labelSummary}. SMS will skip those questions and start at the next unanswered question. Consent and signature still require the client.`
+        : packetFields
+          ? `Saved successfully. ${packetFields} intake packet field${packetFields === 1 ? "" : "s"} updated and ready for PDF generation. No client SMS questions were prefilled.`
+          : "Saved successfully. Your note was recorded. Use the fields or one-per-line notes to fill packet answers.");
+    }
     load();
   }
 
@@ -332,9 +378,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <div>
               <h3 className="font-bold">NC Tracks / staff helper info</h3>
               <p className="mt-1 text-sm text-slate-500">
-                Look up automatically when the NC Tracks connection is set up, or enter
-                details manually. The app applies MID, PCP, emergency, staff names, dates,
-                Medicaid defaults, insurance type, and repeated packet fields.
+                Use the dropdowns for common answers or paste one answer per line below.
+                Saving a client answer here fills the packet and removes that question
+                from the client&apos;s SMS intake. Consent and signature questions stay with the client.
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
@@ -360,42 +406,146 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
           <form
             key={helperFormKey}
-            className="mt-4 grid grid-cols-1 gap-3 md:grid-cols-3"
+            className="mt-4 space-y-3"
             onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
           >
-            <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
-            <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
-            <HelperSelect
-              name="provider_choice_plan"
-              label="Type of insurance"
-              value={d.answers.provider_choice_plan ?? d.answers.mco ?? ""}
-              options={PROVIDER_CHOICE_PLAN_OPTIONS}
-            />
-            <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
-            <HelperInput name="race" label="Race" value={d.answers.race ?? ""} />
-            <HelperInput name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} />
-            <HelperInput name="marital_status" label="Marital status" value={d.answers.marital_status ?? ""} />
-            <HelperInput name="employment_status" label="Employment status" value={d.answers.employment_status ?? ""} />
-            <HelperInput name="pcp_name" label="Primary care doctor" value={d.answers.pcp_name ?? ""} />
-            <HelperInput name="pcp_phone" label="PCP phone" value={d.answers.pcp_phone ?? ""} />
-            <HelperInput name="pcp_address" label="PCP address / practice" value={d.answers.pcp_address ?? ""} />
-            <HelperInput name="ec1_name" label="Emergency contact" value={d.answers.ec1_name ?? ""} />
-            <HelperInput name="ec1_cell_phone" label="Emergency phone" value={d.answers.ec1_cell_phone ?? ""} />
-            <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={d.answers.staff_receiving_intake ?? d.answers.clinician_name ?? ""} />
-            <HelperInput name="height" label="Height" value={d.answers.height ?? ""} />
-            <HelperInput name="weight" label="Weight" value={d.answers.weight ?? ""} />
-            <HelperInput name="services_other" label="Other service note" value={d.answers.services_other ?? ""} />
-            <HelperInput name="transport_destination" label="Transport line" value={d.answers.transport_destination ?? ""} />
-            <label className="md:col-span-3">
-              <span className="label">Paste quick notes</span>
-              <textarea name="helperNotes" className="input min-h-[110px]"
+            <HelperGroup title="Common client answers" description="Start here to shorten the SMS questions." defaultOpen>
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperSelect name="gender" label="Gender" value={d.answers.gender ?? ""} options={GENDER_OPTIONS} placeholder="Select gender" />
+                <HelperSelect name="race" label="Race" value={d.answers.race ?? ""} options={RACE_OPTIONS} placeholder="Select race" />
+                <HelperSelect name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} options={ETHNICITY_OPTIONS} placeholder="Select ethnicity" />
+                <HelperSelect name="marital_status" label="Marital status" value={d.answers.marital_status ?? ""} options={MARITAL_STATUS_OPTIONS} placeholder="Select marital status" />
+                <HelperSelect name="veteran" label="Veteran" value={d.answers.veteran ?? ""} options={VETERAN_OPTIONS} placeholder="Select yes or no" />
+                <HelperSelect name="employment_status" label="Employment status" value={d.answers.employment_status ?? ""} options={EMPLOYMENT_OPTIONS} placeholder="Select employment status" />
+                <HelperSelect name="education" label="Highest education" value={d.answers.education ?? ""} options={EDUCATION_OPTIONS} placeholder="Select education" />
+                <HelperSelect name="language" label="Preferred language" value={d.answers.language ?? ""} options={LANGUAGE_OPTIONS} placeholder="Select language" />
+                <HelperInput name="language_other" label="Other language" value={d.answers.language_other ?? ""} />
+                <HelperSelect name="communication_level" label="Communication level" value={d.answers.communication_level ?? ""} options={COMMUNICATION_OPTIONS} placeholder="Select level" />
+              </div>
+            </HelperGroup>
+
+            <HelperGroup title="Contact & household" description="Confirmed contact details can remove several client questions.">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperInput name="client_phone_cell" label="Cell phone" value={d.answers.client_phone_cell ?? i.client.phone ?? ""} />
+                <HelperInput name="client_phone_home" label="Home phone" value={d.answers.client_phone_home ?? ""} />
+                <HelperInput name="client_phone_work" label="Work phone" value={d.answers.client_phone_work ?? ""} />
+                <HelperInput name="client_email" label="Email" value={d.answers.client_email ?? i.client.email ?? ""} />
+                <HelperInput name="address_street" label="Street address" value={d.answers.address_street ?? ""} />
+                <HelperInput name="address_city" label="City" value={d.answers.address_city ?? ""} />
+                <HelperInput name="address_state" label="State" value={d.answers.address_state ?? "NC"} />
+                <HelperSelect name="living_arrangement" label="Living arrangement" value={d.answers.living_arrangement ?? ""} options={LIVING_ARRANGEMENT_OPTIONS} placeholder="Select arrangement" />
+                <HelperInput name="lives_with_whom" label="Who does the client live with?" value={d.answers.lives_with_whom ?? ""} />
+                <HelperInput name="lives_where" label="Living area" value={d.answers.lives_where ?? ""} />
+              </div>
+            </HelperGroup>
+
+            <HelperGroup title="Insurance, referral & services" description="Use confirmed plan, referral, and requested-service information.">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
+                <HelperSelect name="has_medicaid" label="Medicaid" value={d.answers.has_medicaid ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="medicaid_effective_date" label="Medicaid effective date" value={d.answers.medicaid_effective_date ?? ""} />
+                <HelperSelect name="provider_choice_plan" label="Type of insurance" value={d.answers.provider_choice_plan ?? d.answers.mco ?? ""} options={PROVIDER_CHOICE_PLAN_OPTIONS} placeholder="Select insurance type" />
+                <HelperSelect name="has_medicare" label="Medicare" value={d.answers.has_medicare ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="medicare_effective_date" label="Medicare effective date" value={d.answers.medicare_effective_date ?? ""} />
+                <HelperSelect name="has_nchc" label="NC Health Choice" value={d.answers.has_nchc ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="nchc_policy" label="NCHC policy number" value={d.answers.nchc_policy ?? ""} />
+                <HelperInput name="nchc_effective_date" label="NCHC effective date" value={d.answers.nchc_effective_date ?? ""} />
+                <HelperInput name="funding_other" label="Other funding source" value={d.answers.funding_other ?? ""} />
+                <HelperInput name="income_sources" label="Income sources (separate with commas)" value={d.answers.income_sources ?? ""} />
+                <HelperInput name="income_other" label="Other income" value={d.answers.income_other ?? ""} />
+                <HelperSelect name="referral_source" label="Referral source" value={d.answers.referral_source ?? ""} options={REFERRAL_OPTIONS} placeholder="Select referral source" />
+                <HelperInput name="social_agency_name" label="Social agency" value={d.answers.social_agency_name ?? ""} />
+                <HelperInput name="referred_for" label="Referred for (separate with commas)" value={d.answers.referred_for ?? ""} />
+                <HelperInput name="services_requested" label="Services requested (separate with commas)" value={d.answers.services_requested ?? ""} />
+                <HelperInput name="services_other" label="Other service" value={d.answers.services_other ?? ""} />
+              </div>
+            </HelperGroup>
+
+            <HelperGroup title="Health & care team" description="Add information already confirmed by the client, PCP, or clinical records.">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperInput name="pcp_name" label="Primary care doctor" value={d.answers.pcp_name ?? ""} />
+                <HelperInput name="pcp_phone" label="PCP phone" value={d.answers.pcp_phone ?? ""} />
+                <HelperInput name="pcp_address" label="PCP address / practice" value={d.answers.pcp_address ?? ""} />
+                <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
+                <HelperSelect name="no_pcp_nearest_er" label="No PCP; use nearest ER" value={d.answers.no_pcp_nearest_er ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperSelect name="has_current_diagnosis" label="Current diagnosis known" value={d.answers.has_current_diagnosis ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="diagnosis_list" label="Diagnosis list" value={d.answers.diagnosis_list ?? ""} />
+                <HelperInput name="current_diagnosis_known" label="Current diagnosis, if known" value={d.answers.current_diagnosis_known ?? ""} />
+                <HelperInput name="mh_history" label="Mental health history" value={d.answers.mh_history ?? ""} />
+                <HelperSelect name="has_current_therapist" label="Current therapist" value={d.answers.has_current_therapist ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="therapist_name" label="Therapist name" value={d.answers.therapist_name ?? ""} />
+                <HelperInput name="therapist_agency_phone" label="Therapist agency / phone" value={d.answers.therapist_agency_phone ?? ""} />
+                <HelperSelect name="receiving_mh_services" label="Receiving mental health services" value={d.answers.receiving_mh_services ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="mh_services_desc" label="Mental health services" value={d.answers.mh_services_desc ?? ""} />
+                <HelperInput name="mh_service_provider" label="Mental health provider" value={d.answers.mh_service_provider ?? ""} />
+                <HelperSelect name="has_limitations" label="Physical limitations" value={d.answers.has_limitations ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="limitations_desc" label="Limitations detail" value={d.answers.limitations_desc ?? ""} />
+                <HelperInput name="medical_diagnoses" label="Medical conditions" value={d.answers.medical_diagnoses ?? ""} />
+                <HelperInput name="treatments" label="Medical treatments" value={d.answers.treatments ?? ""} />
+                <HelperInput name="hospitalizations" label="Hospitalizations / surgeries" value={d.answers.hospitalizations ?? ""} />
+                <HelperInput name="last_physical_date" label="Last physical date" value={d.answers.last_physical_date ?? ""} />
+                <HelperInput name="height" label="Height" value={d.answers.height ?? ""} />
+                <HelperInput name="weight" label="Weight" value={d.answers.weight ?? ""} />
+                <HelperInput name="hair_color" label="Hair color" value={d.answers.hair_color ?? ""} />
+                <HelperInput name="eye_color" label="Eye color" value={d.answers.eye_color ?? ""} />
+                <HelperInput name="identifying_marks" label="Identifying marks / tattoos" value={d.answers.identifying_marks ?? ""} />
+                <HelperInput name="special_diets" label="Special diets" value={d.answers.special_diets ?? ""} />
+                <HelperInput name="medical_alerts" label="Medical alerts" value={d.answers.medical_alerts ?? ""} />
+                <HelperInput name="fax" label="Fax" value={d.answers.fax ?? ""} />
+                <HelperTextArea name="medications" label="Prescription medications" value={d.answers.medications ?? ""} />
+                <HelperTextArea name="otc_medications" label="Over-the-counter medications" value={d.answers.otc_medications ?? ""} />
+                <HelperInput name="drug_allergies" label="Drug allergies" value={d.answers.drug_allergies ?? ""} />
+                <HelperInput name="environmental_allergies" label="Food / environmental allergies" value={d.answers.environmental_allergies ?? ""} />
+                <HelperInput name="allergies" label="Other allergies" value={d.answers.allergies ?? ""} />
+                <HelperTextArea name="presenting_problem" label="What brings the client in?" value={d.answers.presenting_problem ?? ""} />
+                <HelperInput name="strengths" label="Strengths" value={d.answers.strengths ?? ""} />
+                <HelperInput name="needs" label="Needs" value={d.answers.needs ?? ""} />
+                <HelperInput name="abilities" label="Abilities" value={d.answers.abilities ?? ""} />
+                <HelperInput name="preferences" label="Care preferences" value={d.answers.preferences ?? ""} />
+              </div>
+            </HelperGroup>
+
+            <HelperGroup title="Guardian & emergency contact" description="Use this when the guardian or emergency contact information is already known.">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperSelect name="pending_court_cases" label="Pending court cases" value={d.answers.pending_court_cases ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="court_case_desc" label="Court case detail" value={d.answers.court_case_desc ?? ""} />
+                <HelperSelect name="is_minor_or_incompetent" label="Minor or legal guardian" value={d.answers.is_minor_or_incompetent ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="date_adjudicated" label="Date adjudicated" value={d.answers.date_adjudicated ?? ""} />
+                <HelperInput name="guardian_name" label="Guardian name" value={d.answers.guardian_name ?? i.client.guardianName ?? ""} />
+                <HelperInput name="guardian_address" label="Guardian address" value={d.answers.guardian_address ?? ""} />
+                <HelperInput name="guardian_phone" label="Guardian phone" value={d.answers.guardian_phone ?? ""} />
+                <HelperInput name="guardian_email" label="Guardian email" value={d.answers.guardian_email ?? ""} />
+                <HelperInput name="ec1_name" label="Emergency contact" value={d.answers.ec1_name ?? ""} />
+                <HelperInput name="ec1_cell_phone" label="Emergency cell phone" value={d.answers.ec1_cell_phone ?? ""} />
+                <HelperInput name="ec1_home_phone" label="Emergency home phone" value={d.answers.ec1_home_phone ?? ""} />
+                <HelperInput name="ec1_work_phone" label="Emergency work phone" value={d.answers.ec1_work_phone ?? ""} />
+                <HelperInput name="ec1_street" label="Emergency street" value={d.answers.ec1_street ?? ""} />
+                <HelperInput name="ec1_city" label="Emergency city" value={d.answers.ec1_city ?? ""} />
+                <HelperInput name="ec1_state" label="Emergency state" value={d.answers.ec1_state ?? ""} />
+              </div>
+            </HelperGroup>
+
+            <HelperGroup title="Staff & packet setup" description="These fields help staff complete the packet but do not replace client consent.">
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
+                <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={d.answers.staff_receiving_intake ?? d.answers.clinician_name ?? ""} />
+                <HelperInput name="transport_destination" label="Transport line" value={d.answers.transport_destination ?? ""} />
+                <HelperInput name="transport_purposes" label="Transport purpose(s)" value={d.answers.transport_purposes ?? ""} />
+              </div>
+            </HelperGroup>
+
+            <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
+              <summary className="cursor-pointer font-semibold text-slate-700">Paste quick notes instead (optional)</summary>
+              <p className="mt-2 text-xs text-slate-500">Use one confirmed answer per line. Example: <b>Race: Black or African American</b> or <b>Veteran: No</b>.</p>
+              <textarea name="helperNotes" className="input mt-3 min-h-[130px] w-full"
                 defaultValue={String(d.answers.staff_helper_notes ?? "")}
-                placeholder={"Examples:\nInsurance type: Alliance\nRace: Black or African American\nEthnicity: Non-Hispanic/Black\nMarital status: Single\nEmployment status: Unemployed\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nHeight: 5'8\"\nWeight: 160\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
-            </label>
-            <div className="md:col-span-3 flex flex-wrap gap-2">
-              <button className="btn-primary" type="submit">Save helper info</button>
+                placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
+            </details>
+
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button className="btn-primary" type="submit">Save answers &amp; notes</button>
               <span className="self-center text-xs text-slate-500">
-                Auto lookup works once the NC Tracks connection is set up. Typing the details in by hand always works.
+                The confirmation above will tell you what reached the intake packet and what the client can skip.
               </span>
             </div>
           </form>
@@ -443,22 +593,50 @@ function HelperInput({ name, label, value }: { name: string; label: string; valu
   );
 }
 
+function HelperTextArea({ name, label, value }: { name: string; label: string; value: unknown }) {
+  return (
+    <label>
+      <span className="label">{label}</span>
+      <textarea className="input min-h-[72px]" name={name} defaultValue={String(value ?? "")} />
+    </label>
+  );
+}
+
+function HelperGroup({
+  title,
+  description,
+  defaultOpen = false,
+  children,
+}: { title: string; description: string; defaultOpen?: boolean; children: ReactNode }) {
+  return (
+    <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3" open={defaultOpen}>
+      <summary className="cursor-pointer list-none">
+        <span className="font-semibold text-slate-800">{title}</span>
+        <span className="ml-2 text-xs text-slate-500">{description}</span>
+      </summary>
+      <div className="mt-3">{children}</div>
+    </details>
+  );
+}
+
 function HelperSelect({
   name,
   label,
   value,
   options,
+  placeholder,
 }: {
   name: string;
   label: string;
   value: unknown;
   options: string[];
+  placeholder?: string;
 }) {
   return (
     <label>
       <span className="label">{label}</span>
       <select className="input" name={name} defaultValue={String(value ?? "")}>
-        <option value="">Select insurance type</option>
+        <option value="">{placeholder || "Choose an option"}</option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
         ))}

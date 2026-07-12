@@ -613,6 +613,9 @@ export const CLIENT_PREFILLED_QUESTION_KEYS: ReadonlySet<string> = new Set([
   "guardian_email",
 ]);
 
+/** Stored on an intake when staff supplied a client-facing answer ahead of time. */
+export const STAFF_PREFILLED_CLIENT_FIELDS_KEY = "staff_prefilled_client_fields";
+
 function hasPrefilledClientValue(value: unknown): boolean {
   if (value == null) return false;
   if (Array.isArray(value)) return value.length > 0;
@@ -621,6 +624,13 @@ function hasPrefilledClientValue(value: unknown): boolean {
 }
 
 export function isQuestionPrefilledForClient(q: Question, initialAnswers: Record<string, unknown>): boolean {
+  // Consent is always collected from the client or guardian, even when staff
+  // have already supplied other answers for the packet.
+  if (q.type === "consent") return false;
+  const staffPrefilled = initialAnswers[STAFF_PREFILLED_CLIENT_FIELDS_KEY];
+  if (Array.isArray(staffPrefilled) && staffPrefilled.includes(q.key) && hasPrefilledClientValue(initialAnswers[q.key])) {
+    return true;
+  }
   if (q.key === "has_medicaid") {
     return hasPrefilledClientValue(initialAnswers.has_medicaid) || hasPrefilledClientValue(initialAnswers.mid_number);
   }

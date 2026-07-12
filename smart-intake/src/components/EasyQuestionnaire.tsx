@@ -302,6 +302,10 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         <p className="mt-3 text-lg leading-relaxed text-slate-500">
           You can speak or tap to answer. Your answers save as you go.
         </p>
+        <p className="mt-3 rounded-xl bg-brand-light p-4 text-base leading-relaxed text-brand">
+          Some answers may already be filled in by your care team. You will only see the questions that still need an answer.
+          Consent and your signature are always completed by you.
+        </p>
         <button type="button" className="btn-primary mt-10 min-h-[72px] w-full text-2xl"
           onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
           Start
