@@ -571,10 +571,10 @@ export const EASY_ES: Record<string, EasyText> = {
   },
 
   consent_tailored_plan: {
-    q: "Si su seguro no paga el cuidado que necesita, ¿podemos cambiarle a un plan que sí lo pague?",
+    q: "Si su seguro no paga un servicio que necesita, ¿quiere que le ayudemos a preguntar por un plan que pueda cubrirlo?",
     consentSimple:
-      "A veces un plan de seguro no paga un servicio que su doctor dice que usted necesita. " +
-      "Esto nos deja cambiarle a un plan que sí lo cubra, para que nada se interponga en su cuidado.",
+      "Usted puede decir que sí o que no. Sí nos permite ayudarle a preguntar por un plan que pueda cubrir el servicio. " +
+      "No significa que no pediremos cambiar su plan. Si no podemos prestar el servicio con su seguro, el personal se lo explicará y ofrecerá referirle a un proveedor que acepte su plan.",
   },
 
   ...emergencyContactEntriesEs(),

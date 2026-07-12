@@ -555,12 +555,29 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
           <summary className="cursor-pointer text-base font-semibold text-brand">Read the whole form</summary>
           <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-600">{brandText(q.consentText, { name: providerName, phone: supportPhone })}</p>
         </details>
-        <button type="button"
-          className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
-          onClick={() => pickAndAdvance(q.key, true, "yes")}>
-          Yes, I understand and agree
-        </button>
-        {q.required ? (
+        {q.key === "consent_tailored_plan" ? (
+          <div className="space-y-3">
+            <button type="button" className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
+              onClick={() => pickAndAdvance(q.key, true, "yes") }>
+              Yes, help me ask about plan options
+            </button>
+            <button type="button" className={`btn-ghost min-h-[64px] w-full text-lg ${justPicked === "no" ? "ring-4 ring-slate-300" : ""}`}
+              onClick={() => pickAndAdvance(q.key, false, "no") }>
+              No, do not ask to change my plan
+            </button>
+          </div>
+        ) : (
+          <button type="button"
+            className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
+            onClick={() => pickAndAdvance(q.key, true, "yes")}>
+            Yes, I understand and agree
+          </button>
+        )}
+        {q.key === "consent_tailored_plan" ? (
+          <p className="rounded-xl bg-sky-50 p-4 text-base font-semibold text-sky-800">
+            Your choice will be recorded. Saying no does not give permission to change your insurance plan.
+          </p>
+        ) : q.required ? (
           <p className="rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">
             Need help before you agree? Call {providerDisplayName(providerName)} at {providerPhone(supportPhone, providerName)}.
           </p>

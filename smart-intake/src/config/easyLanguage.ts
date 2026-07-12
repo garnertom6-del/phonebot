@@ -523,10 +523,10 @@ export const EASY: Record<string, EasyText> = {
 
   /* ---------- tailored_plan ---------- */
   consent_tailored_plan: {
-    q: "If your insurance won't pay for care you need, can we switch you to a plan that will?",
+    q: "If your insurance will not pay for a service you need, do you want us to help ask about a plan that may cover it?",
     consentSimple:
-      "Sometimes an insurance plan won't pay for a service your doctor says you need. " +
-      "This lets us move you to a plan that covers it, so nothing gets in the way of your care.",
+      "You can say yes or no. Yes lets us help ask about a plan that may cover the service. " +
+      "No means we will not ask to change your plan. If we cannot provide the service under your insurance, staff will explain and offer a referral to a provider that accepts your plan.",
   },
 
   /* ---------- generated repeats ---------- */

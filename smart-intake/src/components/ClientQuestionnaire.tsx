@@ -268,6 +268,26 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
 }) {
   const branding = { name: providerName, phone: supportPhone };
   const v = answers[q.key];
+  if (q.type === "consent" && q.key === "consent_tailored_plan") {
+    return (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
+        <p className="font-semibold">{brandText(q.label, branding)}</p>
+        <details className="mt-1">
+          <summary className="cursor-pointer text-sm text-brand">Read the full statement</summary>
+          <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
+        </details>
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className={`chip ${v === true ? "chip-on" : ""}`} onClick={() => set(q.key, true)}>
+            Yes, help me ask about plan options
+          </button>
+          <button type="button" className={`chip ${v === false ? "chip-on" : ""}`} onClick={() => set(q.key, false)}>
+            No, do not ask to change my plan
+          </button>
+        </div>
+        <p className="mt-2 text-xs text-slate-500">If we cannot provide the service under your insurance, staff will explain and offer a referral to a provider that accepts your plan.</p>
+      </div>
+    );
+  }
   if (q.type === "consent") {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">

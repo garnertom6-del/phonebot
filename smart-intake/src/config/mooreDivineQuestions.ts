@@ -422,8 +422,8 @@ export const SECTIONS: Section[] = [
   {
     key: "tailored_plan", title: "Tailored Plan Permission", fastIntake: true,
     questions: [{
-      key: "consent_tailored_plan", label: "Tailored Plan Insurance Permission", type: "consent", required: true,
-      consentText: "If the service ordered by the physician is not covered in my insurance plan, I give Moore Divine Care, Inc. permission to switch my insurance to the Tailored Plan that best suits my service needs.",
+      key: "consent_tailored_plan", label: "Tailored Plan Insurance Permission", type: "consent",
+      consentText: "If my insurance will not pay for a service I need, I may say yes or no to help asking about a plan that may cover it. If I say no and Moore Divine Care, Inc. cannot provide the service under my insurance, staff will explain the situation and offer a referral to a provider that accepts my insurance.",
     }],
   },
 ];
