@@ -23,6 +23,7 @@ type PreflightFinding = {
   fieldLabels?: string[];
   source: "rules" | "ai";
   overridden?: boolean;
+  pendingRecheck?: boolean;
 };
 
 type PreflightResult = {
@@ -133,10 +134,28 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   useEffect(load, [load]);
 
   useEffect(() => {
-    const saved = new URLSearchParams(window.location.search).get("saved");
+    try {
+      const stored = sessionStorage.getItem(`smart-intake:preflight:${params.id}`);
+      if (!stored) return;
+      const restored = JSON.parse(stored) as PreflightResult;
+      if (Array.isArray(restored.findings)) setPreflight(restored);
+    } catch {
+      sessionStorage.removeItem(`smart-intake:preflight:${params.id}`);
+    }
+  }, [params.id]);
+
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    const saved = query.get("saved");
     if (saved !== "staff") return;
-    setNote("Staff signature and changes saved successfully. Next step: review the intake/preflight findings, then generate the packet.");
+    const returningToPreflight = query.get("return") === "preflight";
+    setNote(returningToPreflight
+      ? "Saved. Your preflight checklist is still open; correct the next item and rerun the review when you are ready."
+      : "Staff signature and changes saved successfully. Next step: review the intake/preflight findings, then generate the packet.");
     window.history.replaceState({}, "", window.location.pathname);
+    if (returningToPreflight) {
+      window.setTimeout(() => document.getElementById("preflight-review")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
+    }
   }, [params.id]);
 
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
@@ -149,6 +168,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const hasCca = i.uploadedDocuments.some((document) => document.docType === "CCA");
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden).length ?? 0;
+  const preflightPendingCount = preflight?.findings.filter((finding) => finding.pendingRecheck && !finding.overridden).length ?? 0;
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -339,7 +359,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         setNote(body.error || "Preflight review failed.");
         return;
       }
-      setPreflight(body as PreflightResult);
+      const result = body as PreflightResult;
+      setPreflight(result);
+      sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(result));
       setNote(body.aiUsed ? "AI and automatic preflight review complete." : "Automatic preflight review complete.");
       load();
     } catch {
@@ -364,10 +386,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         setNote(body.error || "The override could not be recorded.");
         return;
       }
-      setPreflight((current) => current ? {
-        ...current,
-        findings: current.findings.map((item) => item.key === finding.key ? { ...item, overridden: true } : item),
-      } : current);
+      const next = preflight ? {
+        ...preflight,
+        findings: preflight.findings.map((item) => item.key === finding.key ? { ...item, overridden: true } : item),
+      } : null;
+      setPreflight(next);
+      if (next) sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
       setNote("Override recorded in the audit log. You may continue the workflow.");
     } catch {
       setNote("The override could not be recorded. Check the connection and try again.");
@@ -395,9 +419,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         setNote(body.error || "The correction could not be saved.");
         return;
       }
-      setNote("Correction saved. Running preflight again...");
+      const next = preflight ? {
+        ...preflight,
+        findings: preflight.findings.map((item) => item.key === finding.key ? { ...item, pendingRecheck: true } : item),
+      } : null;
+      setPreflight(next);
+      if (next) sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
+      setNote("Correction saved. The preflight checklist is still open; fix the next issue, then rerun the review when you are ready.");
       load();
-      await runPreflight();
     } catch {
       setNote("The correction could not be saved. Check the connection and try again.");
     } finally {
@@ -588,7 +617,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </p>
           )}
         </div>
-        <div className="card md:col-span-2 border-emerald-200 bg-emerald-50/40">
+        <div id="preflight-review" className="card md:col-span-2 border-emerald-200 bg-emerald-50/40">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-bold text-emerald-900">AI preflight review</h3>
@@ -617,12 +646,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               ) : (
                 <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
                   <p className="font-bold">{preflightBlockingCount} item{preflightBlockingCount === 1 ? " needs" : "s need"} attention before the packet is ready.</p>
+                  {preflightPendingCount > 0 && <p className="mt-1 text-sm">{preflightPendingCount} corrected item{preflightPendingCount === 1 ? " is" : "s are"} waiting for a final recheck.</p>}
                   <p className="mt-1 text-sm">{preflight.message}</p>
                 </div>
               )}
               {preflight.findings.map((finding, index) => (
                 <div key={`${finding.key}-${index}`} className={`rounded-lg border p-3 text-sm ${
                   finding.overridden ? "border-slate-200 bg-slate-100 text-slate-600" :
+                  finding.pendingRecheck ? "border-sky-200 bg-sky-50 text-sky-900" :
                   finding.severity === "error" ? "border-red-200 bg-red-50 text-red-800" :
                   finding.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
                   "border-slate-200 bg-white text-slate-700"
@@ -630,14 +661,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <b>{finding.title}</b>
                     <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                      {finding.overridden ? "Override recorded" : finding.source === "ai" ? "AI suggestion" : "Automatic check"}
+                      {finding.overridden ? "Override recorded" : finding.pendingRecheck ? "Saved - rerun to verify" : finding.source === "ai" ? "AI suggestion" : "Automatic check"}
                     </span>
                   </div>
                   <p className="mt-1">{finding.detail}</p>
                   <div className="mt-2 flex flex-wrap gap-3">
                     {finding.fieldKeys?.slice(0, 8).map((key, fieldIndex) => (
                       <Link key={key} className="font-semibold underline"
-                        href={`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}`}>
+                        href={`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}&return=preflight`}>
                         {finding.fieldLabels?.[fieldIndex] || (fieldIndex === 0 ? "Review in form" : key)}
                       </Link>
                     ))}
@@ -667,7 +698,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   )}
                 </div>
               ))}
-              <p className="text-xs text-slate-500">Use “Review in form,” correct the item, save, and run preflight again. The green 100% state appears when blocking items are cleared.</p>
+              <p className="text-xs text-slate-500">The checklist stays open while you correct several items. Run preflight again when you are ready to verify the saved changes.</p>
             </div>
           )}
         </div>

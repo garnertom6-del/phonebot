@@ -36,6 +36,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [signMode, setSignMode] = useState<SignMode | null>(null);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [returningToPreflight, setReturningToPreflight] = useState(false);
 
   const load = useCallback(() => {
     fetch(`/api/intakes/${params.id}`).then(async (r) => {
@@ -53,6 +54,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     });
   }, [params.id]);
   useEffect(load, [load]);
+
+  useEffect(() => {
+    setReturningToPreflight(new URLSearchParams(window.location.search).get("return") === "preflight");
+  }, []);
 
   useEffect(() => {
     if (!loaded) return;
@@ -88,7 +93,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         setSaving(false);
         return;
       }
-      router.push(`/intakes/${params.id}?saved=staff`);
+      const query = new URLSearchParams({ saved: "staff" });
+      if (returningToPreflight) query.set("return", "preflight");
+      router.push(`/intakes/${params.id}?${query.toString()}`);
     } catch {
       setNote("Save failed because the connection was interrupted. Please try again.");
       setSaving(false);
@@ -164,7 +171,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       <div className="fixed inset-x-0 bottom-0 border-t bg-white p-3">
         <div className="mx-auto flex max-w-4xl items-center gap-3">
           <button className="btn-primary flex-1 disabled:cursor-wait disabled:opacity-60" disabled={saving} onClick={save}>
-            {saving ? "Saving changes..." : "Save all changes & continue"}
+            {saving ? "Saving changes..." : returningToPreflight ? "Save & return to preflight" : "Save all changes & continue"}
           </button>
           <Link href={`/intakes/${params.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
           <span className={`text-sm ${note.toLowerCase().includes("failed") || note.toLowerCase().includes("could not") ? "text-red-700" : "text-slate-600"}`} role="status">
