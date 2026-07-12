@@ -7,6 +7,7 @@ export type AuditEvent =
   | "copies_link_sent" | "docusign_sent" | "answers_updated" | "document_uploaded" | "cca_imported"
   | "preflight_reviewed"
   | "preflight_overridden"
+  | "cca_rescrubbed"
   | "packet_identity_override"
   | "provider_status_changed"
   | "nctracks_lookup_not_configured" | "nctracks_lookup_completed" | "nctracks_lookup_failed"

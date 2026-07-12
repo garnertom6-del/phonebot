@@ -110,6 +110,9 @@ export function missingOptional(answers: Answers): MissingField[] {
   ]);
   for (const s of SECTIONS) {
     for (const q of s.questions) {
+      // This controls the client questionnaire mode; it is not a packet
+      // field staff need to resolve during preflight.
+      if (q.key === "intake_mode") continue;
       if (q.staffOnly) continue;
       if (!q.essential && !q.required && !staffReviewKeys.has(q.key)) continue;
       if (q.type === "info" || q.type === "heading") continue;

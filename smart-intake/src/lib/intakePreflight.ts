@@ -11,6 +11,7 @@ export type PreflightFinding = {
   title: string;
   detail: string;
   fieldKeys?: string[];
+  fieldLabels?: string[];
   source: "rules" | "ai";
 };
 
@@ -46,6 +47,7 @@ function missingFinding(key: string, fields: MissingField[], severity: Preflight
     title,
     detail: `${fields.length} item${fields.length === 1 ? " is" : "s are"} still missing: ${labels}${remainder}.`,
     fieldKeys: fields.map((field) => field.key),
+    fieldLabels: fields.map((field) => field.label),
     source: "rules",
   };
 }
@@ -193,6 +195,7 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
       "You are a behavioral-health intake documentation quality reviewer. " +
       "Review only for documentation completeness, identity/date conflicts, duplicate or contradictory service information, and items staff should verify. " +
       "You are not a clinician and must not diagnose, determine eligibility, recommend a level of care, create an answer, or say that a packet is legally or clinically compliant. " +
+      "Do not flag transition/discharge fields (dis_*), future treatment-plan signature rows (otp_*), or other information that is only completed when a client leaves the program. " +
       "Return only concerns supported by the supplied data. If a field is not present, say it is missing or leave it to the rule checks. " +
       "Give each concern a short stable key using lowercase letters and underscores so staff can override that exact concern. " +
       "Every finding must be a short, actionable suggestion for a human reviewer. Keep each detail under 280 characters.",

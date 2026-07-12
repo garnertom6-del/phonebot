@@ -20,6 +20,7 @@ type PreflightFinding = {
   title: string;
   detail: string;
   fieldKeys?: string[];
+  fieldLabels?: string[];
   source: "rules" | "ai";
   overridden?: boolean;
 };
@@ -103,12 +104,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [saveAssistMessage, setSaveAssistMessage] = useState("");
   const [saveAssistKind, setSaveAssistKind] = useState<"success" | "error" | "info">("info");
   const [ccaBusy, setCcaBusy] = useState(false);
+  const [ccaRescrubBusy, setCcaRescrubBusy] = useState(false);
   const [ccaResult, setCcaResult] = useState("");
   const [ccaResultKind, setCcaResultKind] = useState<"success" | "error" | "info">("info");
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [overrideBusyKey, setOverrideBusyKey] = useState("");
+  const [quickFixChoice, setQuickFixChoice] = useState<Record<string, string>>({});
+  const [quickFixBusyKey, setQuickFixBusyKey] = useState("");
   const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
@@ -142,6 +146,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const clientMessage = intakeShareMessage(d.clientLink, providerName);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
+  const hasCca = i.uploadedDocuments.some((document) => document.docType === "CCA");
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden).length ?? 0;
 
@@ -298,6 +303,31 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }
 
+  async function rescrubCca() {
+    setCcaRescrubBusy(true);
+    setCcaResultKind("info");
+    setCcaResult("Re-reading the saved CCA with AI...");
+    try {
+      const form = new FormData();
+      form.set("overwrite", String(ccaOverwrite));
+      const r = await fetch(`/api/intakes/${params.id}/cca/rescrub`, { method: "POST", body: form });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setCcaResultKind("error");
+        setCcaResult(body.error || "CCA re-scan failed.");
+        return;
+      }
+      setCcaResultKind("success");
+      setCcaResult(`CCA re-scan complete. AI found ${Number(body.extracted || 0)} field${Number(body.extracted || 0) === 1 ? "" : "s"} and updated ${Number(body.filled || 0)} answer${Number(body.filled || 0) === 1 ? "" : "s"}. Review the changes before generating the packet.`);
+      load();
+    } catch {
+      setCcaResultKind("error");
+      setCcaResult("CCA re-scan could not connect. Please try again.");
+    } finally {
+      setCcaRescrubBusy(false);
+    }
+  }
+
   async function runPreflight() {
     setPreflightBusy(true);
     setPreflight(null);
@@ -343,6 +373,35 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       setNote("The override could not be recorded. Check the connection and try again.");
     } finally {
       setOverrideBusyKey("");
+    }
+  }
+
+  async function applyQuickFix(finding: PreflightFinding) {
+    if (quickFixChoice[finding.key] !== "record") {
+      setNote("Choose “Use the intake record value” before applying this quick fix.");
+      return;
+    }
+    const answerKey = finding.key === "identity_name" ? "client_full_name" : "dob";
+    const answerValue = finding.key === "identity_name" ? i.client.fullName : i.client.dob;
+    setQuickFixBusyKey(finding.key);
+    try {
+      const r = await fetch(`/api/intakes/${i.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: { ...(d?.answers || {}), [answerKey]: answerValue }, status: "NEEDS_REVIEW" }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setNote(body.error || "The correction could not be saved.");
+        return;
+      }
+      setNote("Correction saved. Running preflight again...");
+      load();
+      await runPreflight();
+    } catch {
+      setNote("The correction could not be saved. Check the connection and try again.");
+    } finally {
+      setQuickFixBusyKey("");
     }
   }
 
@@ -510,6 +569,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <input type="file" className="hidden" accept="application/pdf,image/*" disabled={ccaBusy}
               onChange={(e) => e.target.files?.[0] && uploadCca(e.target.files[0])} />
           </label>
+          {hasCca && (
+            <button className="btn-secondary ml-2 px-3 py-1.5 text-sm disabled:cursor-wait disabled:opacity-60" type="button"
+              disabled={ccaRescrubBusy || ccaBusy} onClick={() => { void rescrubCca(); }}>
+              {ccaRescrubBusy ? "Re-reading CCA..." : "Re-scan latest CCA"}
+            </button>
+          )}
           <label className="mt-2 flex items-center gap-2 text-xs text-slate-600">
             <input type="checkbox" checked={ccaOverwrite} onChange={(e) => setCcaOverwrite(e.target.checked)} />
             Replace answers that already exist (otherwise existing answers are kept)
@@ -570,14 +635,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   </div>
                   <p className="mt-1">{finding.detail}</p>
                   <div className="mt-2 flex flex-wrap gap-3">
-                    {finding.fieldKeys?.[0] && (
-                      <Link
-                        className="font-semibold underline"
-                        href={`/intakes/${i.id}/review?focus=${encodeURIComponent(finding.fieldKeys[0])}`}
-                      >
-                        Review in form
+                    {finding.fieldKeys?.slice(0, 8).map((key, fieldIndex) => (
+                      <Link key={key} className="font-semibold underline"
+                        href={`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}`}>
+                        {finding.fieldLabels?.[fieldIndex] || (fieldIndex === 0 ? "Review in form" : key)}
                       </Link>
-                    )}
+                    ))}
                     {!finding.overridden && finding.severity !== "info" && (
                       <button className="font-semibold underline disabled:opacity-50" type="button"
                         disabled={overrideBusyKey === finding.key} onClick={() => { void overridePreflight(finding); }}>
@@ -585,6 +648,23 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                       </button>
                     )}
                   </div>
+                  {(finding.key === "identity_name" || finding.key === "identity_dob") && !finding.overridden && (
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      <select className="input max-w-sm py-1.5 text-sm" value={quickFixChoice[finding.key] || ""}
+                        onChange={(event) => setQuickFixChoice((current) => ({ ...current, [finding.key]: event.target.value }))}>
+                        <option value="">Choose a correction option</option>
+                        <option value="record">Use the intake record value</option>
+                        <option value="manual">Open the form and review manually</option>
+                      </select>
+                      {quickFixChoice[finding.key] === "record" && (
+                        <button className="btn-secondary px-3 py-1.5 text-sm disabled:opacity-50" type="button"
+                          disabled={quickFixBusyKey === finding.key} onClick={() => { void applyQuickFix(finding); }}>
+                          {quickFixBusyKey === finding.key ? "Applying..." : "Apply correction"}
+                        </button>
+                      )}
+                      <span className="text-xs text-slate-500">Identity changes should be confirmed by staff.</span>
+                    </div>
+                  )}
                 </div>
               ))}
               <p className="text-xs text-slate-500">Use “Review in form,” correct the item, save, and run preflight again. The green 100% state appears when blocking items are cleared.</p>
