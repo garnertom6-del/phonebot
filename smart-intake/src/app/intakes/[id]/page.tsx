@@ -74,6 +74,9 @@ const REFERRAL_OPTIONS = [
 export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Detail | null>(null);
   const [note, setNote] = useState("");
+  const [saveAssistBusy, setSaveAssistBusy] = useState(false);
+  const [saveAssistMessage, setSaveAssistMessage] = useState("");
+  const [saveAssistKind, setSaveAssistKind] = useState<"success" | "error" | "info">("info");
   const [ccaBusy, setCcaBusy] = useState(false);
   const [ccaResult, setCcaResult] = useState("");
   const [ccaResultKind, setCcaResultKind] = useState<"success" | "error" | "info">("info");
@@ -201,6 +204,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   }
 
   async function saveAssist(form: HTMLFormElement) {
+    setSaveAssistBusy(true);
+    setSaveAssistKind("info");
+    setSaveAssistMessage("Saving answers and notes to the intake form...");
     setNote("Saving NC Tracks / helper info...");
     const fd = new FormData(form);
     const fields = Object.fromEntries(
@@ -208,29 +214,44 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         .filter(([key]) => key !== "helperNotes")
         .map(([key, value]) => [key, String(value)]),
     );
-    const r = await fetch(`/api/intakes/${i.id}/assist`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields, helperNotes: String(fd.get("helperNotes") || "") }),
-    });
-    const b = await r.json().catch(() => ({}));
-    if (!r.ok) {
-      setNote(`Helper info failed to save: ${b.error || r.status}`);
-    } else {
-      const clientPrefilled = Array.isArray(b.clientPrefilled) ? b.clientPrefilled.length : 0;
-      const clientPrefilledLabels = Array.isArray(b.clientPrefilledLabels)
-        ? b.clientPrefilledLabels.filter((label: unknown): label is string => typeof label === "string")
-        : [];
-      const labelSummary = clientPrefilledLabels.length
-        ? ` (${clientPrefilledLabels.slice(0, 5).join(", ")}${clientPrefilledLabels.length > 5 ? ", ..." : ""})`
-        : "";
-      const packetFields = Number(b.applied || 0);
-      setNote(clientPrefilled
-        ? `Saved successfully. ${clientPrefilled} client answer${clientPrefilled === 1 ? "" : "s"} uploaded to the intake packet answers and ready for PDF generation${labelSummary}. SMS will skip those questions and start at the next unanswered question. Consent and signature still require the client.`
-        : packetFields
-          ? `Saved successfully. ${packetFields} intake packet field${packetFields === 1 ? "" : "s"} updated and ready for PDF generation. No client SMS questions were prefilled.`
-          : "Saved successfully. Your note was recorded. Use the fields or one-per-line notes to fill packet answers.");
+    try {
+      const r = await fetch(`/api/intakes/${i.id}/assist`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields, helperNotes: String(fd.get("helperNotes") || "") }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        const message = `Helper info failed to save: ${b.error || r.status}`;
+        setSaveAssistKind("error");
+        setSaveAssistMessage(message);
+        setNote(message);
+      } else {
+        const clientPrefilled = Array.isArray(b.clientPrefilled) ? b.clientPrefilled.length : 0;
+        const clientPrefilledLabels = Array.isArray(b.clientPrefilledLabels)
+          ? b.clientPrefilledLabels.filter((label: unknown): label is string => typeof label === "string")
+          : [];
+        const labelSummary = clientPrefilledLabels.length
+          ? ` (${clientPrefilledLabels.slice(0, 5).join(", ")}${clientPrefilledLabels.length > 5 ? ", ..." : ""})`
+          : "";
+        const packetFields = Number(b.applied || 0);
+        const message = clientPrefilled
+          ? `Saved successfully: ${packetFields || clientPrefilled} intake field${(packetFields || clientPrefilled) === 1 ? "" : "s"} updated. The client can skip ${clientPrefilled} SMS question${clientPrefilled === 1 ? "" : "s"}${labelSummary}.`
+          : packetFields
+            ? `Saved successfully: ${packetFields} intake packet field${packetFields === 1 ? "" : "s"} updated. No client SMS questions were prefilled.`
+            : "Saved successfully: your note was recorded in the intake form.";
+        setSaveAssistKind("success");
+        setSaveAssistMessage(message);
+        setNote(message);
+      }
+      load();
+    } catch {
+      const message = "Helper info failed to save. Check your connection and try again.";
+      setSaveAssistKind("error");
+      setSaveAssistMessage(message);
+      setNote(message);
+    } finally {
+      setSaveAssistBusy(false);
     }
-    load();
   }
 
   function generateRecordNumberFromPanel(form: HTMLFormElement) {
@@ -584,11 +605,21 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </HelperGroup>
 
             <div className="flex flex-wrap gap-2 pt-1">
-              <button className="btn-primary" type="submit">Save answers &amp; notes</button>
+              <button className="btn-primary disabled:cursor-wait disabled:opacity-60" type="submit" disabled={saveAssistBusy}>
+                {saveAssistBusy ? "Saving answers..." : "Save answers & notes"}
+              </button>
               <span className="self-center text-xs text-slate-500">
                 The confirmation above will tell you what reached the intake packet and what the client can skip.
               </span>
             </div>
+            {saveAssistMessage && (
+              <p className={`rounded-lg p-3 text-sm font-semibold ${
+                saveAssistKind === "success" ? "bg-emerald-50 text-emerald-700" :
+                saveAssistKind === "error" ? "bg-red-50 text-red-700" : "bg-brand-light text-brand"
+              }`} role="status">
+                {saveAssistMessage}
+              </p>
+            )}
           </form>
         </div>
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
