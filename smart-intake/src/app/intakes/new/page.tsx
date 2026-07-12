@@ -43,7 +43,7 @@ export default function NewIntake() {
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
-  const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("upload");
+  const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("notes");
   const [helperNotes, setHelperNotes] = useState("");
   const [ncTracksFile, setNcTracksFile] = useState<File | null>(null);
   const [setupStatus, setSetupStatus] = useState("");
@@ -416,6 +416,7 @@ export default function NewIntake() {
           {ncTracksTab === "notes" && (
             <label className="mt-4 block">
               <span className="label">Quick notes</span>
+              <span className="mt-1 block text-xs text-slate-500">Paste confirmed answers here. After you create the intake, these notes are applied to the packet and the client can skip those SMS questions.</span>
               <textarea
                 className="input min-h-[120px]"
                 value={helperNotes}

@@ -429,6 +429,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             className="mt-4 space-y-3"
             onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
           >
+            <details open className="rounded-xl border border-brand/30 bg-brand-light/30 p-3">
+              <summary className="cursor-pointer list-none">
+                <span className="font-semibold text-brand">Quick Notes: paste confirmed answers</span>
+                <span className="ml-2 text-xs text-slate-600">Race, veteran status, insurance, PCP, emergency contact, and more</span>
+              </summary>
+              <p className="mt-2 text-xs text-slate-600">Use one confirmed answer per line. Saving applies the answers to the intake packet and lets the client skip those questions in SMS. Consent and signature questions stay with the client.</p>
+              <textarea name="helperNotes" className="input mt-3 min-h-[130px] w-full"
+                defaultValue={String(d.answers.staff_helper_notes ?? "")}
+                placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
+            </details>
+
             <HelperGroup title="Common client answers" description="Start here to shorten the SMS questions." defaultOpen>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <HelperSelect name="gender" label="Gender" value={d.answers.gender ?? ""} options={GENDER_OPTIONS} placeholder="Select gender" />
@@ -571,14 +582,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 </details>
               </div>
             </HelperGroup>
-
-            <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3">
-              <summary className="cursor-pointer font-semibold text-slate-700">Paste quick notes instead (optional)</summary>
-              <p className="mt-2 text-xs text-slate-500">Use one confirmed answer per line. Example: <b>Race: Black or African American</b> or <b>Veteran: No</b>.</p>
-              <textarea name="helperNotes" className="input mt-3 min-h-[130px] w-full"
-                defaultValue={String(d.answers.staff_helper_notes ?? "")}
-                placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
-            </details>
 
             <div className="flex flex-wrap gap-2 pt-1">
               <button className="btn-primary" type="submit">Save answers &amp; notes</button>
