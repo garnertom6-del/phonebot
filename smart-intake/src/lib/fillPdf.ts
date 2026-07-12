@@ -112,6 +112,24 @@ function drawCenteredX(page: PDFPage, f: FieldMapping, font: PDFFont) {
   page.drawText("X", { x: x + 0.25, y, size, font, color: INK });
 }
 
+function drawCenteredInitials(page: PDFPage, f: FieldMapping, initials: string, font: PDFFont) {
+  let size = Math.min(f.fontSize || 9, f.height || 10);
+  while (size > 5 && font.widthOfTextAtSize(initials, size) > f.width) size -= 0.5;
+  const width = font.widthOfTextAtSize(initials, size);
+  page.drawText(initials, {
+    x: f.x + Math.max(0, (f.width - width) / 2),
+    y: f.y + Math.max(0, (f.height - size) / 2) + 1,
+    size,
+    font,
+    color: INK,
+  });
+}
+
+function missingClientPlaceholder(f: FieldMapping): string {
+  if (/height|weight|hair/i.test(f.source)) return "N/A";
+  return "Not reported";
+}
+
 export interface FillInput {
   answers: Answers;
   signatures: Record<string, SignatureRecord>;
@@ -206,6 +224,10 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       skipped.push(f.fieldKey);
       continue;
     }
+    const clearPocSlot = f.fieldKey.startsWith("poc_") && f.type !== "checkbox" && f.type !== "survey_rating";
+    if (clearPocSlot) {
+      page.drawRectangle({ x: f.x, y: f.y, width: f.width, height: f.height, color: rgb(1, 1, 1) });
+    }
     if (f.type === "signature" || f.type === "signature_small") {
       if (drawSignature(page, f, ctx, signatureFont)) filled++;
       else skipped.push(f.fieldKey);
@@ -216,6 +238,12 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       skipped.push(f.fieldKey);
       continue;
     }
+    // Purpose-of-disclosure boxes are intentionally left for the client to
+    // choose; do not infer or pre-check a legal purpose from staff notes.
+    if (/^roi\d+_purpose_/.test(f.fieldKey)) {
+      skipped.push(f.fieldKey);
+      continue;
+    }
     // a signing date only appears when that role actually signed
     if (f.source.endsWith("sign_date") &&
         !signatureForRole(ctx, f.role === "auto" ? "client" : f.role)) {
@@ -223,8 +251,9 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       continue;
     }
     if (f.type === "initials") {
-      if (initials) {
-        page.drawText(initials, { x: f.x, y: f.y + 1, size: 9, font: bold, color: INK });
+      const targetSelected = !f.source.includes("~") || resolveValue(f.source, answers).checked === true;
+      if (initials && targetSelected) {
+        drawCenteredInitials(page, f, initials, bold);
         filled++;
       } else skipped.push(f.fieldKey);
       continue;
@@ -254,8 +283,13 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       } else skipped.push(f.fieldKey);
       continue;
     }
-    if (resolved.text) {
-      drawTextField(page, f, resolved.text, bold);
+    const placeholder = f.page >= 2 && f.page <= 12 && f.role === "client" &&
+      f.type === "text" && !f.fieldKey.startsWith("hdr_") && !f.consentKey
+      ? missingClientPlaceholder(f)
+      : "";
+    const text = resolved.text || placeholder;
+    if (text) {
+      drawTextField(page, f, text, bold);
       filled++;
     } else skipped.push(f.fieldKey);
   }

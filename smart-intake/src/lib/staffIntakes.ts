@@ -77,6 +77,7 @@ export async function createStaffIntake(
       client_email: data.email,
       client_phone_cell: data.phone,
       provider_choice_plan: data.providerChoicePlan,
+      referral_source: data.referralSource,
       address_street: data.addressStreet,
       address_city: data.addressCity,
       address_state: data.addressState,

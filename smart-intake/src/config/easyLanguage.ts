@@ -263,6 +263,7 @@ export const EASY: Record<string, EasyText> = {
       "DSS": "Social Services (DSS)",
       "LME": "My health plan",
       "Provider Agency": "Another care agency",
+      "Other Agency or Provider": "Another agency or provider",
       "State Facility": "A state hospital",
       "Private Physician": "My doctor",
       "Social Agency": "A community agency",
@@ -317,8 +318,8 @@ export const EASY: Record<string, EasyText> = {
     help: "Just talk like you would to a friend. You can press the microphone and speak.",
   },
   other_agencies: {
-    q: "Have you gotten help from other places before? Tell us where.",
-    help: "Like a clinic, counselor, or program. Say 'none' if none.",
+    q: "Are you getting services anywhere else right now?",
+    help: "For example peer support, therapy, Community Support Team, medication management, or substance-use classes. Say 'none' if none.",
   },
 
   /* ---------- snap ---------- */

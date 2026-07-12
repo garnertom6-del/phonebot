@@ -4,6 +4,7 @@ import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
+import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import {
   copiesMailtoHref,
   copiesShareMessage,
@@ -41,7 +42,7 @@ const HELPER_FORM_KEYS = [
   "address_street", "address_city", "address_state", "living_arrangement", "lives_with_whom", "lives_where",
   "provider_choice_plan", "has_medicaid", "medicaid_effective_date", "has_medicare", "medicare_effective_date",
   "has_nchc", "nchc_policy", "nchc_effective_date", "funding_other", "income_sources", "income_other",
-  "referral_source", "social_agency_name", "referred_for", "services_requested", "services_other", "presenting_problem",
+  "referral_source", "referral_source_other", "social_agency_name", "referred_for", "services_requested", "services_other", "presenting_problem",
   "pcp_name", "pcp_phone", "pcp_address", "preferred_emergency_facility", "no_pcp_nearest_er",
   "has_current_diagnosis", "diagnosis_list", "current_diagnosis_known", "has_current_therapist", "therapist_name", "therapist_agency_phone", "receiving_mh_services", "mh_services_desc", "mh_service_provider", "mh_history",
   "medical_diagnoses", "treatments", "hospitalizations", "last_physical_date", "height", "weight", "hair_color", "eye_color", "identifying_marks", "special_diets", "medical_alerts", "fax",
@@ -70,10 +71,7 @@ const LIVING_ARRANGEMENT_OPTIONS = [
   "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative",
 ];
 const YES_NO_OPTIONS = ["Yes", "No"];
-const REFERRAL_OPTIONS = [
-  "Self", "DSS", "LME", "Provider Agency", "State Facility", "Private Physician", "Social Agency",
-  "Employer", "School", "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility",
-];
+const REFERRAL_OPTIONS = REFERRAL_SOURCE_OPTIONS;
 
 export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Detail | null>(null);
@@ -511,6 +509,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <HelperInput name="income_other" label="Other income" value={d.answers.income_other ?? ""} />
                 <HelperSelect name="referral_source" label="Referral source" value={d.answers.referral_source ?? ""} options={REFERRAL_OPTIONS} placeholder="Select referral source" />
                 <HelperInput name="social_agency_name" label="Social agency" value={d.answers.social_agency_name ?? ""} />
+                <HelperInput name="referral_source_other" label="Other agency/provider name" value={d.answers.referral_source_other ?? ""} />
                 <HelperInput name="referred_for" label="Referred for (separate with commas)" value={d.answers.referred_for ?? ""} />
                 <HelperInput name="services_requested" label="Services requested (separate with commas)" value={d.answers.services_requested ?? ""} />
                 <HelperInput name="services_other" label="Other service" value={d.answers.services_other ?? ""} />

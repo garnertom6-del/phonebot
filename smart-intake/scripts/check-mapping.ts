@@ -61,6 +61,31 @@ if (courtDescription?.y !== 299 || emergencyStreet?.width !== 270 || emergencyCo
 
 const pocFields = repairKnownPacketPlacements(PACKET_MAP.fields, 39);
 const pocByKey = new Map(pocFields.map((field) => [field.fieldKey, field]));
+const requiredPocFields = [
+  "poc_staff_receiving", "poc_current_diag_known", "poc_severity_routine",
+  "poc_sig_clinician_p8", "poc_int_targets", "poc_cca_clinician_printed",
+  "poc_treatment_plan_staff_sig", "poc_final_witness_sig",
+];
+for (const fieldKey of requiredPocFields) {
+  if (!pocByKey.has(fieldKey)) {
+    console.error(`missing Prayers of Care repair: ${fieldKey}`);
+    errors++;
+  }
+}
+for (const page of [17, 18, 19]) {
+  if (!pocFields.some((field) => field.page === page && field.fieldKey === `poc_${page}_roi1_understand_three`)) {
+    console.error(`page ${page} is missing the third disclosure acknowledgement initial`);
+    errors++;
+  }
+  if (pocFields.some((field) => field.page === page && field.fieldKey.includes("purpose"))) {
+    console.error(`page ${page} has a purpose-of-disclosure box mapped`);
+    errors++;
+  }
+}
+if (pocFields.some((field) => field.page === 6 && field.fieldKey === "mh_history_cont")) {
+  console.error("the old page-6 mental-health overlay is still mapped to the POC form");
+  errors++;
+}
 if (pocByKey.get("c_to")?.page !== 27 || pocByKey.get("c_phone")?.page !== 27 ||
     pocByKey.get("c_address")?.page !== 27 || !pocByKey.has("c_practice")) {
   console.error("✗ 39-page Prayers of Care PCP fields are not mapped to page 27");

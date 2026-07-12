@@ -35,6 +35,12 @@ export interface Section {
 
 const YN = ["Yes", "No"];
 
+export const REFERRAL_SOURCE_OPTIONS = [
+  "Self", "DSS", "LME", "Provider Agency", "Other Agency or Provider",
+  "State Facility", "Private Physician", "Social Agency", "Employer", "School",
+  "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility",
+];
+
 /** Standard PHQ-9 / GAD-7 frequency scale (score 0-3 by position). */
 export const MOOD_FREQ = ["Not at all", "Several days", "More than half the days", "Nearly every day"] as const;
 
@@ -139,8 +145,9 @@ export const SECTIONS: Section[] = [
   {
     key: "referral", title: "Referral & Screening", fastIntake: true,
     questions: [
-      { key: "referral_source", label: "Who referred you to us?", type: "radio", options: ["Self", "DSS", "LME", "Provider Agency", "State Facility", "Private Physician", "Social Agency", "Employer", "School", "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility"] },
+      { key: "referral_source", label: "Who referred you to us?", type: "radio", options: REFERRAL_SOURCE_OPTIONS },
       { key: "social_agency_name", label: "Which social agency?", type: "text", voice: true, askIf: { key: "referral_source", equals: "Social Agency" } },
+      { key: "referral_source_other", label: "Name of the other agency or provider", type: "text", voice: true, askIf: { key: "referral_source", equals: "Other Agency or Provider" } },
       { key: "referred_for", label: "What services were you referred for? (pick all that apply)", type: "chips", options: ["Case Management", "Case Support", "Community Support Team", "Comprehensive Clinical Assessment", "Diagnostic Assessment", "Individual Support Services", "In-Home Therapy Services", "Intensive In-Home Services", "Medication Management", "Outpatient Therapy", "Peer Support Services", "Residential Level III", "Substance Abuse Intensive Outpatient"] },
     ],
   },
@@ -156,7 +163,7 @@ export const SECTIONS: Section[] = [
     intro: "Take your time here - tap the microphone and just talk. This is the most important answer in here.",
     questions: [
       { key: "presenting_problem", essential: true, label: "In your own words: what brings you in, and why do you feel the need for services?", type: "textarea", required: true, voice: true },
-      { key: "other_agencies", label: "Other agencies or providers you receive (or received) services from", type: "textarea", voice: true },
+      { key: "other_agencies", label: "Are you getting services anywhere else right now?", help: "For example peer support, therapy, Community Support Team, medication management, or substance-use classes. Say none if no.", type: "textarea", voice: true },
     ],
   },
   {
@@ -464,7 +471,7 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
   {
     group: "Clinical (pages 4-9)",
     fields: [
-      { key: "placement_considerations", label: "Placement (match) considerations", type: "textarea" },
+      { key: "placement_considerations", label: "Placement (match) considerations", help: "Document the service setting that fits, staffing/schedule needs, safety or risk, housing and transportation barriers, communication needs, and ability to participate.", type: "textarea" },
       { key: "social_family_medical_history", label: "Pertinent social/family/medical history", type: "textarea" },
       { key: "additional_evals", label: "Additional evaluations present", type: "chips", options: ["Psychological", "Substance Abuse", "Psychiatric", "Educational", "Vocational", "Other"] },
       { key: "severity_of_need", label: "Severity of need", type: "radio", options: ["Emergent", "Urgent", "Routine", "Non-Threshold"] },

@@ -57,7 +57,9 @@ function diagnosisList(a: Answers): string[] {
 }
 
 function splitDiagnosis(value: unknown): { code: string; description: string } {
-  const text = s(value);
+  // Some CCA exports render codes such as F33,.1. Normalize that punctuation
+  // before splitting the code from the diagnosis description.
+  const text = s(value).replace(/^([A-Z]\d{2})[, ]+\.?([0-9]+)/i, "$1.$2");
   const match = /^([A-Z]\d{2}(?:\.\d+)?)\s*[-:)]?\s*(.*)$/i.exec(text);
   if (!match) return { code: "", description: text };
   return { code: match[1].toUpperCase(), description: match[2].trim() };
@@ -126,6 +128,15 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "c_date_sent", intakeDate);
   // the question itself states this default ("max 1 year - defaults to 1 year from today")
   setDefault(a, "intervention_valid_until", addOneYear(intakeDate));
+  for (const key of ["roi1_thru_date", "roi2_thru_date", "roi3_thru_date"]) {
+    setDefault(a, key, addOneYear(intakeDate));
+  }
+
+  // Screening workflow default requested by the provider. Staff can change
+  // this after reviewing risk, placement, and the CCA.
+  setDefault(a, "severity_of_need", "Routine");
+  setDefault(a, "severity_explanation", "Routine service initiation target: within 14 calendar days.");
+  setDefault(a, "program_can_meet_needs", "Yes");
 
   // phones: same number, different blanks
   setDefault(a, "client_phone_home", s(a.client_phone_cell));

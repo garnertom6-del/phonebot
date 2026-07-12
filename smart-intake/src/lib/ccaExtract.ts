@@ -134,6 +134,19 @@ function setGatingParents(extracted: Answers) {
   }
 }
 
+function setCcaWorkflowDefaults(extracted: Answers) {
+  // These are operational review defaults, not a replacement for clinical
+  // judgment. The staff screen can change them before the packet is signed.
+  if (!extracted.severity_of_need) extracted.severity_of_need = "Routine";
+  if (!extracted.severity_explanation) {
+    extracted.severity_explanation = "Routine service initiation target: within 14 calendar days.";
+  }
+  if (!extracted.program_can_meet_needs) extracted.program_can_meet_needs = "Yes";
+  if (!extracted.placement_considerations && extracted.cca_recommendations) {
+    extracted.placement_considerations = `Service match from CCA: ${String(extracted.cca_recommendations).slice(0, 170)}`;
+  }
+}
+
 export async function extractFromCca(
   fileBuffer: Buffer, mimeType: string,
 ): Promise<CcaExtractionResult> {
@@ -172,7 +185,15 @@ export async function extractFromCca(
       "the legal name in client_full_name, and staff should honor it in free-text summaries. " +
       "(5) mh_services_desc and mh_service_provider are only for current behavioral-health " +
       "providers/services (therapy, CST, peer support, OPT, medication management provider, etc.); " +
-      "do not put medication names there.",
+      "do not put medication names there. " +
+      "(6) Carefully identify the assessing clinician's printed name and credentials, assessment date, " +
+      "recommended services, ASAM/level-of-care recommendation, safety or risk facts, housing and " +
+      "transportation barriers, current services elsewhere, placement/match considerations, and " +
+      "whether the provider can meet the recommended service, but never infer a diagnosis, signature, " +
+      "consent, legal status, or service need that is not stated. " +
+      "(7) If the CCA recommends outpatient therapy, peer support, medication management referral, " +
+      "care coordination, housing, employment, transportation, food, or PCP support, preserve those " +
+      "recommendations in the matching service/recommendation fields.",
     messages: [{
       role: "user",
       content: [
@@ -210,6 +231,7 @@ export async function extractFromCca(
     extracted[item.key] = normalized;
   }
   setGatingParents(extracted);
+  setCcaWorkflowDefaults(extracted);
   // the CCA's own assessment date beats "today" for the assessment blanks
   if (extracted.cca_assessment_date) {
     for (const k of ["assess_date", "initial_assessment_date"]) {

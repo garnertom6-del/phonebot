@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -43,6 +44,7 @@ export default function NewIntake() {
   const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
   const [recordPanel, setRecordPanel] = useState("");
+  const [referralSource, setReferralSource] = useState("");
   const [recordTab, setRecordTab] = useState<"generate" | "lookup">("generate");
   const [housingTab, setHousingTab] = useState<"address" | "homeless">("address");
   const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
@@ -168,6 +170,7 @@ export default function NewIntake() {
         ...form,
         ...nextForm,
         providerChoicePlan: recordPanel,
+        referralSource,
         livingArrangement: housingTab === "homeless" ? "Homeless" : "",
         expectCca,
       };
@@ -277,6 +280,13 @@ export default function NewIntake() {
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
             </div>
           ))}
+          <label>
+            <span className="label">Referral source</span>
+            <select className="input" value={referralSource} onChange={(e) => setReferralSource(e.target.value)}>
+              <option value="">Select referral source</option>
+              {REFERRAL_SOURCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+            </select>
+          </label>
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <h2 className="font-bold text-slate-900">Address &amp; housing</h2>

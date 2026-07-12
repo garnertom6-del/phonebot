@@ -15,6 +15,7 @@ export const newIntakeSchema = z.object({
   intakeDate: z.string().optional().default(""),
   location: z.string().optional().default(""),
   providerChoicePlan: z.string().optional().default(""),
+  referralSource: z.string().optional().default(""),
   addressStreet: z.string().optional().default(""),
   addressCity: z.string().optional().default(""),
   addressState: z.string().optional().default(""),

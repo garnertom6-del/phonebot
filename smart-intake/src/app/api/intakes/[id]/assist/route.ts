@@ -25,7 +25,7 @@ const FIELD_KEYS = new Set([
   "dss_ive_eligible", "income_sources", "income_other",
   "staff_receiving_intake", "qp_referred_to", "clinician_name", "c_clinician",
   "c_practice", "c_secure_fax", "c_secure_email", "c_agency_secure_fax",
-  "referral_source", "social_agency_name", "referred_for", "services_requested", "services_other", "presenting_problem", "transport_destination",
+  "referral_source", "referral_source_other", "social_agency_name", "referred_for", "services_requested", "services_other", "presenting_problem", "transport_destination",
   "transport_purposes", "program_can_meet_needs", "initial_screening_date",
   "strengths", "needs", "abilities", "preferences", "has_current_diagnosis", "diagnosis_list",
   "has_current_therapist", "therapist_name", "therapist_agency_phone", "mh_history",
@@ -99,6 +99,7 @@ const NOTE_LABELS: Array<[RegExp, string]> = [
   [/^(staff|qp|clinician|witness) name$/i, "staff_receiving_intake"],
   [/^(transport|transport destination|transport purpose)$/i, "transport_destination"],
   [/^(referral|referral source|referred by)$/i, "referral_source"],
+  [/^(other referral|other agency or provider|referral source other)$/i, "referral_source_other"],
   [/^(social agency|agency name)$/i, "social_agency_name"],
   [/^(referred for|requested services)$/i, "referred_for"],
   [/^(services requested|services interested in)$/i, "services_requested"],
@@ -228,7 +229,7 @@ function normalizeAssistValue(key: string, value: string): string | string[] {
     ]);
   }
   if (key === "referral_source") {
-    return option(text, ["Self", "DSS", "LME", "Provider Agency", "State Facility", "Private Physician", "Social Agency", "Employer", "School", "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility"]);
+    return option(text, ["Self", "DSS", "LME", "Provider Agency", "Other Agency or Provider", "State Facility", "Private Physician", "Social Agency", "Employer", "School", "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility"]);
   }
   if (key === "employment_status") {
     return option(text, ["Not in Labor Force", "Unemployed", "Disabled", "Employed"]);
