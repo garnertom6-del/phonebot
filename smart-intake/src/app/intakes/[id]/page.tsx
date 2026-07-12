@@ -133,6 +133,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const clientMessage = intakeShareMessage(d.clientLink, providerName);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
+  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info").length ?? 0;
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -479,9 +480,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </div>
           {preflight && (
             <div className="mt-3 space-y-2" aria-live="polite">
-              <p className="rounded-lg bg-white/80 p-2 text-sm font-semibold text-emerald-900">
-                {preflight.message} {preflight.aiConfigured ? "AI is connected at the system level; no client AI account is needed." : ""}
-              </p>
+              {preflightBlockingCount === 0 ? (
+                <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-emerald-900">
+                  <p className="text-lg font-bold">→ 100% of blocking preflight checks are clear</p>
+                  <p className="mt-1 text-sm">{preflight.message} Staff approval is still required before the packet is final.</p>
+                </div>
+              ) : (
+                <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
+                  <p className="font-bold">{preflightBlockingCount} item{preflightBlockingCount === 1 ? " needs" : "s need"} attention before the packet is ready.</p>
+                  <p className="mt-1 text-sm">{preflight.message}</p>
+                </div>
+              )}
               {preflight.findings.map((finding, index) => (
                 <div key={`${finding.title}-${index}`} className={`rounded-lg border p-3 text-sm ${
                   finding.severity === "error" ? "border-red-200 bg-red-50 text-red-800" :
@@ -495,9 +504,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                     </span>
                   </div>
                   <p className="mt-1">{finding.detail}</p>
+                  {finding.fieldKeys?.[0] && (
+                    <Link
+                      className="mt-2 inline-block font-semibold underline"
+                      href={`/intakes/${i.id}/review?focus=${encodeURIComponent(finding.fieldKeys[0])}`}
+                    >
+                      Review in form
+                    </Link>
+                  )}
                 </div>
               ))}
-              <p className="text-xs text-slate-500">Review each item and make any needed corrections before generating the packet.</p>
+              <p className="text-xs text-slate-500">Use “Review in form,” correct the item, save, and run preflight again. The green 100% state appears when blocking items are cleared.</p>
             </div>
           )}
         </div>

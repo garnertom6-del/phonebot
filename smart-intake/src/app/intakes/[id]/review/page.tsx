@@ -54,6 +54,23 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   }, [params.id]);
   useEffect(load, [load]);
 
+  useEffect(() => {
+    if (!loaded) return;
+    const focusKey = new URLSearchParams(window.location.search).get("focus");
+    if (!focusKey) return;
+    const timer = window.setTimeout(() => {
+      const field = Array.from(document.querySelectorAll<HTMLElement>("[data-field-key]"))
+        .find((element) => element.dataset.fieldKey === focusKey);
+      if (!field) return;
+      const details = field.closest("details");
+      if (details) details.open = true;
+      field.scrollIntoView({ behavior: "smooth", block: "center" });
+      const input = field.querySelector<HTMLElement>("input, textarea");
+      input?.focus();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loaded]);
+
   const set = (k: string, v: Answers[string]) => setAnswers((a) => ({ ...a, [k]: v }));
 
   async function save() {
@@ -163,7 +180,7 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
   const v = answers[q.key];
   if (q.type === "consent") {
     return (
-      <label className="flex items-center gap-2 text-sm">
+      <label data-field-key={q.key} className="flex items-center gap-2 text-sm">
         <input type="checkbox" className="h-4 w-4" checked={v === true} onChange={(e) => set(q.key, e.target.checked)} />
         <span><b>Consent:</b> {q.label}</span>
       </label>
@@ -172,7 +189,7 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
   if (q.type === "radio" || q.type === "yesno" || q.type === "survey") {
     const opts = q.type === "survey" ? ["1", "2", "3"] : q.options || [];
     return (
-      <div>
+      <div data-field-key={q.key}>
         <label className="label">{q.label}</label>
         <div className="flex flex-wrap gap-1.5">
           {opts.map((o) => (
@@ -186,7 +203,7 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
   if (q.type === "chips") {
     const arr = Array.isArray(v) ? v : [];
     return (
-      <div>
+      <div data-field-key={q.key}>
         <label className="label">{q.label}</label>
         <div className="flex flex-wrap gap-1.5">
           {(q.options || []).map((o) => (
@@ -199,14 +216,14 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
   }
   if (q.type === "textarea") {
     return (
-      <div>
+      <div data-field-key={q.key}>
         <label className="label">{q.label}</label>
         <textarea className="input min-h-[70px]" value={String(v ?? "")} onChange={(e) => set(q.key, e.target.value)} />
       </div>
     );
   }
   return (
-    <div>
+    <div data-field-key={q.key}>
       <label className="label">{q.label}</label>
       <input className="input" type={q.type === "date" ? "date" : "text"} value={String(v ?? "")}
         onChange={(e) => set(q.key, e.target.value)} />
