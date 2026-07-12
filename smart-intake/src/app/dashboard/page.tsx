@@ -151,6 +151,12 @@ export default function Dashboard() {
     window.setTimeout(() => setNote(""), timeout);
   }
 
+  function selectDashboardTab(nextTab: string) {
+    setSearch("");
+    setTab(nextTab);
+    window.setTimeout(() => document.getElementById("intake-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
   async function copyLink(row: Row) {
     const link = `${window.location.origin}/intake/${row.token}`;
     await navigator.clipboard.writeText(link);
@@ -290,12 +296,12 @@ export default function Dashboard() {
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <StatCard label={tab === "archived" ? "Archived" : "All intakes"} value={totalCount} />
-          <StatCard label="Needs action" value={needsActionCount} />
-          <StatCard label="Waiting on client" value={waitingCount} />
-          <StatCard label="Completed" value={completedCount} />
-          <StatCard label="Packets ready" value={packetReadyCount} />
-          <StatCard label="CCA uploaded" value={ccaCount} />
+          <StatCard label={tab === "archived" ? "Archived" : "All intakes"} value={totalCount} active={tab === "all" || tab === "archived"} onClick={() => selectDashboardTab(tab === "archived" ? "archived" : "all")} />
+          <StatCard label="Needs action" value={needsActionCount} active={tab === "action"} onClick={() => selectDashboardTab("action")} />
+          <StatCard label="Waiting on client" value={waitingCount} active={tab === "waiting"} onClick={() => selectDashboardTab("waiting")} />
+          <StatCard label="Completed" value={completedCount} active={tab === "done"} onClick={() => selectDashboardTab("done")} />
+          <StatCard label="Packets ready" value={packetReadyCount} active={tab === "packet"} onClick={() => selectDashboardTab("packet")} />
+          <StatCard label="CCA uploaded" value={ccaCount} active={tab === "cca"} onClick={() => selectDashboardTab("cca")} />
         </div>
       </section>
 
@@ -344,7 +350,7 @@ export default function Dashboard() {
         </div>
       </section>
 
-      <section className="mt-5 space-y-4">
+      <section id="intake-results" className="mt-5 scroll-mt-4 space-y-4">
         {filteredRows === null && (
           <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center text-slate-400 shadow-sm">
             Loading the intake dashboard...
@@ -564,12 +570,23 @@ function CcaAiPanel({ row }: { row: Row }) {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value, active, onClick }: { label: string; value: number; active: boolean; onClick: () => void }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+    <button
+      type="button"
+      aria-pressed={active}
+      aria-label={`${label}: ${value}. ${active ? "Currently showing below" : "Click to view"}`}
+      onClick={onClick}
+      className={`rounded-2xl border px-4 py-3 text-left transition focus:outline-none focus:ring-2 focus:ring-white/80 ${
+        active
+          ? "border-white/60 bg-white/25 shadow-lg"
+          : "border-white/10 bg-white/10 hover:border-white/30 hover:bg-white/15"
+      }`}
+    >
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
-    </div>
+      <p className="mt-1 text-[11px] font-semibold text-slate-300">{active ? "Showing below" : "Click to view"}</p>
+    </button>
   );
 }
 
