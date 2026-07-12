@@ -15,11 +15,13 @@ import {
 } from "@/lib/shareLinks";
 
 type PreflightFinding = {
+  key: string;
   severity: "error" | "warning" | "info";
   title: string;
   detail: string;
   fieldKeys?: string[];
   source: "rules" | "ai";
+  overridden?: boolean;
 };
 
 type PreflightResult = {
@@ -106,6 +108,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
+  const [overrideBusyKey, setOverrideBusyKey] = useState("");
   const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
@@ -139,7 +142,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const clientMessage = intakeShareMessage(d.clientLink, providerName);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
-  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info").length ?? 0;
+  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden).length ?? 0;
+  const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden).length ?? 0;
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -312,6 +316,33 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       setNote("Connection problem. Preflight review could not be completed.");
     } finally {
       setPreflightBusy(false);
+    }
+  }
+
+  async function overridePreflight(finding: PreflightFinding) {
+    const reason = window.prompt(`Why are you overriding "${finding.title}"? This reason will be recorded in the audit log.`);
+    if (!reason?.trim()) return;
+    setOverrideBusyKey(finding.key);
+    try {
+      const r = await fetch(`/api/intakes/${params.id}/preflight/override`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ findingKey: finding.key, title: finding.title, reason: reason.trim() }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setNote(body.error || "The override could not be recorded.");
+        return;
+      }
+      setPreflight((current) => current ? {
+        ...current,
+        findings: current.findings.map((item) => item.key === finding.key ? { ...item, overridden: true } : item),
+      } : current);
+      setNote("Override recorded in the audit log. You may continue the workflow.");
+    } catch {
+      setNote("The override could not be recorded. Check the connection and try again.");
+    } finally {
+      setOverrideBusyKey("");
     }
   }
 
@@ -512,7 +543,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               {preflightBlockingCount === 0 ? (
                 <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-emerald-900">
                   <p className="text-lg font-bold">→ 100% of blocking preflight checks are clear</p>
-                  <p className="mt-1 text-sm">{preflight.message} Staff approval is still required before the packet is final.</p>
+                  <p className="mt-1 text-sm">{preflight.message} {preflightOverrideCount ? `${preflightOverrideCount} item${preflightOverrideCount === 1 ? " was" : "s were"} intentionally overridden. ` : ""}Staff approval is still required before the packet is final.</p>
+                  <button className="btn-primary mt-3 px-3 py-1.5 text-sm" type="button"
+                    onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
+                    Continue to generate packet
+                  </button>
                 </div>
               ) : (
                 <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
@@ -521,7 +556,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 </div>
               )}
               {preflight.findings.map((finding, index) => (
-                <div key={`${finding.title}-${index}`} className={`rounded-lg border p-3 text-sm ${
+                <div key={`${finding.key}-${index}`} className={`rounded-lg border p-3 text-sm ${
+                  finding.overridden ? "border-slate-200 bg-slate-100 text-slate-600" :
                   finding.severity === "error" ? "border-red-200 bg-red-50 text-red-800" :
                   finding.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
                   "border-slate-200 bg-white text-slate-700"
@@ -529,18 +565,26 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <b>{finding.title}</b>
                     <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                      {finding.source === "ai" ? "AI suggestion" : "Automatic check"}
+                      {finding.overridden ? "Override recorded" : finding.source === "ai" ? "AI suggestion" : "Automatic check"}
                     </span>
                   </div>
                   <p className="mt-1">{finding.detail}</p>
-                  {finding.fieldKeys?.[0] && (
-                    <Link
-                      className="mt-2 inline-block font-semibold underline"
-                      href={`/intakes/${i.id}/review?focus=${encodeURIComponent(finding.fieldKeys[0])}`}
-                    >
-                      Review in form
-                    </Link>
-                  )}
+                  <div className="mt-2 flex flex-wrap gap-3">
+                    {finding.fieldKeys?.[0] && (
+                      <Link
+                        className="font-semibold underline"
+                        href={`/intakes/${i.id}/review?focus=${encodeURIComponent(finding.fieldKeys[0])}`}
+                      >
+                        Review in form
+                      </Link>
+                    )}
+                    {!finding.overridden && finding.severity !== "info" && (
+                      <button className="font-semibold underline disabled:opacity-50" type="button"
+                        disabled={overrideBusyKey === finding.key} onClick={() => { void overridePreflight(finding); }}>
+                        {overrideBusyKey === finding.key ? "Recording..." : "Override and continue"}
+                      </button>
+                    )}
+                  </div>
                 </div>
               ))}
               <p className="text-xs text-slate-500">Use “Review in form,” correct the item, save, and run preflight again. The green 100% state appears when blocking items are cleared.</p>
