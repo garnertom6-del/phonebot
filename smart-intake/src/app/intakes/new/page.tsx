@@ -515,7 +515,16 @@ export default function NewIntake() {
           taps + consents + signature). The clinician&apos;s CCA will fill in the rest when you
           upload it in the <b>Add CCA</b> section on the client&apos;s page. Uncheck for the full question set.</span>
         </label>
-        {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
+        {error && (
+          <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
+            <p className="text-sm font-semibold text-red-700">{error}</p>
+            {error.toLowerCase().includes("not signed in") && (
+              <Link href="/login" className="btn-secondary mt-3 inline-flex px-3 py-1.5 text-sm">
+                Sign in again
+              </Link>
+            )}
+          </div>
+        )}
         <button className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-70" disabled={isCreating}>
           {isCreating ? "Creating secure link..." : "Create intake & generate secure link"}
         </button>
