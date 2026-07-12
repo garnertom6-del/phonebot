@@ -125,6 +125,29 @@ export async function generatePacketForIntake(
     templateBytes: packetTemplate.bytes,
     fields: packetTemplate.fields,
   });
+  const signatureStatuses = buildSignatureStatuses(intake.signatures);
+  const signatureFieldKeys = new Set(
+    packetTemplate.fields
+      .filter((field) => field.type === "signature" || field.type === "signature_small")
+      .map((field) => field.fieldKey),
+  );
+  const skippedSignatureSlots = result.skipped.filter((fieldKey) => signatureFieldKeys.has(fieldKey));
+  const missingSignatureStatuses = signatureStatuses.filter((status) => status.state === "missing");
+  const signatureAudit = {
+    captured: signatureStatuses.filter((status) => status.state === "captured").length,
+    missing: missingSignatureStatuses.length,
+    requiredMissing: missingSignatureStatuses.filter((status) => status.required).length,
+    missingLabels: missingSignatureStatuses.map((status) => status.label),
+    mappedSignatureSlots: signatureFieldKeys.size,
+    skippedSignatureSlots: skippedSignatureSlots.length,
+    skippedSignatureFields: skippedSignatureSlots.slice(0, 20),
+  };
+  await audit("signature_audited", {
+    providerId: intake.providerId || undefined,
+    intakeId: intake.id,
+    userId,
+    detail: `${signatureAudit.captured} captured, ${signatureAudit.missing} role(s) missing, ${signatureAudit.skippedSignatureSlots} PDF signature slot(s) blank`,
+  });
   assertRenderedPacketText(
     await extractPdfText(result.pdfBytes),
     packetClientName,
@@ -148,7 +171,7 @@ export async function generatePacketForIntake(
       ip: s.ip,
       createdAt: s.createdAt,
     })),
-    signatureStatuses: buildSignatureStatuses(intake.signatures),
+    signatureStatuses,
     consentLabels,
     generatedAt: new Date(),
   });
@@ -177,5 +200,5 @@ export async function generatePacketForIntake(
     }
   }
 
-  return { filled: result.filled, skipped: result.skipped.length };
+  return { filled: result.filled, skipped: result.skipped.length, signatureAudit };
 }

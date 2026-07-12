@@ -8,6 +8,7 @@ export type AuditEvent =
   | "preflight_reviewed"
   | "preflight_overridden"
   | "cca_rescrubbed"
+  | "signature_audited"
   | "packet_identity_override"
   | "provider_status_changed"
   | "nctracks_lookup_not_configured" | "nctracks_lookup_completed" | "nctracks_lookup_failed"

@@ -144,7 +144,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </details>
       ))}
 
-      <div className="card mt-3">
+      <div id="staff-signatures" className="card mt-3 scroll-mt-4">
         <h3 className="font-bold">Staff-side signatures</h3>
         <p className="mb-2 text-xs text-slate-500">
           These are staff/QP/clinician/witness signatures. They are separate from the client signature.

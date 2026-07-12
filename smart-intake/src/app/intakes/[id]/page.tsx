@@ -39,6 +39,16 @@ type IdentityMismatch = {
   answerName: string;
 };
 
+type SignatureAudit = {
+  captured: number;
+  missing: number;
+  requiredMissing: number;
+  missingLabels: string[];
+  mappedSignatureSlots: number;
+  skippedSignatureSlots: number;
+  skippedSignatureFields: string[];
+};
+
 interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
@@ -115,6 +125,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [quickFixChoice, setQuickFixChoice] = useState<Record<string, string>>({});
   const [quickFixBusyKey, setQuickFixBusyKey] = useState("");
   const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
+  const [lastSignatureAudit, setLastSignatureAudit] = useState<SignatureAudit | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
@@ -232,6 +243,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   async function act(label: string, fn: () => Promise<Response>) {
     setNote(`${label}...`);
     if (label === "Generate Completed Packet") setIdentityMismatch(null);
+    if (label === "Generate Completed Packet") setLastSignatureAudit(null);
     const r = await fn();
     const b = await r.json().catch(() => ({}));
     if (label === "Reminder") {
@@ -246,6 +258,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         r.ok ? `${label} complete${b.filled ? ` (${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`,
         r.ok && b.docusign?.message ? String(b.docusign.message) : "",
       ].filter(Boolean);
+      if (r.ok && b.signatureAudit) {
+        const audit = b.signatureAudit as SignatureAudit;
+        setLastSignatureAudit(audit);
+        parts.push(`Signatures: ${audit.captured} captured, ${audit.missing} role${audit.missing === 1 ? "" : "s"} missing, ${audit.skippedSignatureSlots} PDF slot${audit.skippedSignatureSlots === 1 ? "" : "s"} blank`);
+      }
       setNote(parts.join(" | "));
     } else {
       setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
@@ -565,6 +582,29 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               Confirm names and generate packet
             </button>
           </div>
+        </div>
+      )}
+      {lastSignatureAudit && (
+        <div className={`mt-3 rounded-xl border p-4 ${
+          lastSignatureAudit.missing || lastSignatureAudit.skippedSignatureSlots
+            ? "border-amber-300 bg-amber-50 text-amber-900"
+            : "border-emerald-300 bg-emerald-50 text-emerald-900"
+        }`} role="status">
+          <h2 className="font-bold">Signature audit from the generated packet</h2>
+          <p className="mt-1 text-sm">
+            {lastSignatureAudit.captured} signature role{lastSignatureAudit.captured === 1 ? "" : "s"} captured, {lastSignatureAudit.missing} missing, and {lastSignatureAudit.skippedSignatureSlots} PDF signature slot{lastSignatureAudit.skippedSignatureSlots === 1 ? "" : "s"} left blank.
+          </p>
+          {lastSignatureAudit.missingLabels.length > 0 && (
+            <p className="mt-1 text-sm">Missing roles: {lastSignatureAudit.missingLabels.join(", ")}.</p>
+          )}
+          {lastSignatureAudit.missingLabels.includes("Client / guardian") && (
+            <p className="mt-1 text-sm font-semibold">Client / guardian signatures are completed through the secure SMS intake, not the staff signature screen.</p>
+          )}
+          {(lastSignatureAudit.missing || lastSignatureAudit.skippedSignatureSlots) > 0 && (
+            <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-primary mt-3 inline-block px-3 py-2 text-sm">
+              Add / rerun missing signatures
+            </Link>
+          )}
         </div>
       )}
 
@@ -913,7 +953,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         </div>
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
         <div className="card">
-          <h3 className="mb-2 font-bold">Signatures</h3>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <h3 className="mb-2 font-bold">Signatures</h3>
+            <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-ghost px-3 py-1.5 text-xs">Add / rerun signatures</Link>
+          </div>
           {i.signatures.length === 0 && <p className="text-sm text-slate-400">None captured yet.</p>}
           <ul className="text-sm">
             {i.signatures.map((s) => (
