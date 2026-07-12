@@ -22,6 +22,21 @@ const INSURANCE_PLAN_MAP: InsurancePlanMap[] = [
   { key: "not-sure", aliases: ["not sure", "unknown"], providerChoice: "Not sure", mco: "Not sure" },
 ];
 
+const RECORD_NUMBER_PREFIXES: Record<string, string> = {
+  amerihealth: "AMERI",
+  alliance: "ALL",
+  bcbs: "BCBS",
+  partners: "PART",
+  "carolina-complete": "CC",
+  trillium: "TRI",
+  "healthy-blue": "HB",
+  vaya: "VAYA",
+  medicaid: "MED",
+  united: "UHC",
+  wellcare: "WELL",
+  "not-sure": "OTHER",
+};
+
 export const PROVIDER_CHOICE_PLAN_OPTIONS = INSURANCE_PLAN_MAP.map((item) => item.providerChoice);
 
 function text(value: unknown): string {
@@ -40,6 +55,18 @@ function matchingPlan(value: string): InsurancePlanMap | undefined {
       const normalizedAlias = normalizedKey(alias);
       return key === normalizedAlias || key.includes(normalizedAlias) || normalizedAlias.includes(key);
     }));
+}
+
+export function recordNumberPrefix(value: string): string {
+  const plan = matchingPlan(value);
+  return plan ? RECORD_NUMBER_PREFIXES[plan.key] || "OTHER" : "";
+}
+
+export function makeRecordNumber(value: string, random: () => number = Math.random): string {
+  const prefix = recordNumberPrefix(value) || "TEMP";
+  const safeRandom = Math.min(0.999999, Math.max(0, random()));
+  const digits = 10000 + Math.floor(safeRandom * 90000);
+  return `${prefix}-${digits}`;
 }
 
 export function normalizeInsuranceValue(value: string, target: "providerChoice" | "mco"): string {

@@ -2,10 +2,11 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
+import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
-  ["midNumber", "MID#", "text"], ["recordNumber", "Record# (optional)", "text"],
+  ["midNumber", "MID#", "text"], ["recordNumber", "Record# (generated if blank)", "text"],
   ["intakeDate", "Date of intake", "date"], ["location", "Location", "text"],
   ["email", "Client email", "email"], ["phone", "Client phone", "tel"],
   ["guardianName", "Guardian name (if applicable)", "text"],
@@ -29,10 +30,12 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 
 export default function NewIntake() {
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
+  const [recordPanel, setRecordPanel] = useState("");
+  const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
   const [expectCca, setExpectCca] = useState(true);
   const [error, setError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number } | null>(null);
+  const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string } | null>(null);
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
@@ -81,6 +84,16 @@ export default function NewIntake() {
       return "NC Tracks screenshot uploaded, but no matching helper fields were found. Best results come from a clear screenshot that shows Recipient ID, PCP, and plan details.";
     }
     return `NC Tracks screenshot scanned. Filled ${count} field${count === 1 ? "" : "s"}${labels.length ? `: ${labels.join(", ")}.` : "."}`;
+  }
+
+  function generateRecordNumber() {
+    if (!recordPanel) {
+      setRecordGeneratorNote("Choose an insurance panel first so the Record# gets the correct prefix.");
+      return;
+    }
+    const generated = makeRecordNumber(recordPanel);
+    setForm((current) => ({ ...current, recordNumber: generated }));
+    setRecordGeneratorNote(`Generated ${generated} for ${recordPanel}.`);
   }
 
   async function applyStarterInfo(intakeId: string) {
@@ -132,13 +145,13 @@ export default function NewIntake() {
     setSetupStatus("");
     setIsCreating(true);
     try {
-      const requestBody = { ...form, ...nextForm, expectCca };
+      const requestBody = { ...form, ...nextForm, providerChoicePlan: recordPanel, expectCca };
       const res = await fetch("/api/intakes", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
       });
       const body = await readResponse(res);
       if (res.ok) {
-        const created = body as { id: string; clientLink: string; linkDays?: number };
+        const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string };
         await applyStarterInfo(created.id);
         setResult(created);
       }
@@ -179,6 +192,9 @@ export default function NewIntake() {
           <p className="mt-2 text-sm text-slate-600">
             Package: <b>{packetName}</b>. Send the client this secure
             link (works for {result.linkDays || 7} days, no client info in the URL):
+          </p>
+          <p className="mt-2 text-sm font-semibold text-brand">
+            Record#: {result.recordNumber || "Generated"}{result.providerChoicePlan ? ` (${result.providerChoicePlan})` : ""}
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
@@ -223,18 +239,40 @@ export default function NewIntake() {
           Package: {packetName}{packetPageCount ? ` (${packetPageCount} pages)` : ""}
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {FIELDS.map(([key, label, type]) => (
+          {FIELDS.filter(([key]) => key !== "recordNumber").map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
               <label className="label">{label}</label>
               <input className="input" name={key} type={type} value={form[key] || ""}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
-              {key === "recordNumber" && (
-                <p className="mt-1 text-xs text-slate-500">
-                  If you don&apos;t have the record number yet, leave this blank and the app will make a temporary one.
-                </p>
-              )}
             </div>
           ))}
+        </div>
+        <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
+          <h2 className="font-bold text-brand">Record number generator</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Choose the insurance panel, then generate a Record# in the format <b>PANEL-12345</b>.
+            The five digits are random and the server checks for duplicates within this provider.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
+            <label>
+              <span className="label">Insurance panel</span>
+              <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
+                <option value="">Select panel</option>
+                {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => (
+                  <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="label">Record#</span>
+              <input className="input" name="recordNumber" value={form.recordNumber || ""}
+                onChange={(e) => setForm((current) => ({ ...current, recordNumber: e.target.value }))}
+                placeholder="Generate or type one" />
+            </label>
+            <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
+          </div>
+          {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
+          <p className="mt-2 text-xs text-slate-500">Examples: Partners = PART-12345, Carolina Complete = CC-12345, Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345.</p>
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">

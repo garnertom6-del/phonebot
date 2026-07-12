@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { isMasterUser, requireStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
@@ -7,11 +8,11 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
 import { insuranceSummary } from "@/lib/insurancePlans";
+import { recordNumberPrefix } from "@/lib/insurancePlans";
 
-function generatedRecordNumber(): string {
-  const stamp = new Date().toISOString().replace(/\D/g, "").slice(0, 14);
-  const suffix = Math.random().toString(36).slice(2, 6).toUpperCase();
-  return `TEMP-${stamp}-${suffix}`;
+function generatedRecordNumber(panel?: string): string {
+  const prefix = recordNumberPrefix(panel || "") || "TEMP";
+  return `${prefix}-${randomInt(10000, 100000)}`;
 }
 
 function stringValue(value: unknown): string {
@@ -90,14 +91,34 @@ export async function POST(req: NextRequest) {
     const { user, provider, deny } = await requireStaff();
     if (deny) return deny;
     const raw = await req.json();
+    let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
+    if (!recordNumber) {
+      for (let attempt = 0; attempt < 20; attempt++) {
+        const candidate = generatedRecordNumber(raw?.providerChoicePlan);
+        const used = await prisma.client.findFirst({
+          where: { providerId: provider!.id, recordNumber: candidate },
+          select: { id: true },
+        });
+        if (!used) {
+          recordNumber = candidate;
+          break;
+        }
+      }
+    }
+    if (!recordNumber) return NextResponse.json({ error: "Could not generate a unique Record#" }, { status: 409 });
     const parsed = newIntakeSchema.safeParse({
       ...raw,
-      recordNumber: typeof raw?.recordNumber === "string" && raw.recordNumber.trim()
-        ? raw.recordNumber.trim()
-        : generatedRecordNumber(),
+      recordNumber,
     });
     if (!parsed.success) {
       return NextResponse.json({ error: parsed.error.issues[0]?.message || "Invalid input" }, { status: 400 });
+    }
+    const existing = await prisma.client.findFirst({
+      where: { providerId: provider!.id, recordNumber: parsed.data.recordNumber },
+      select: { fullName: true },
+    });
+    if (existing) {
+      return NextResponse.json({ error: `Record# ${parsed.data.recordNumber} already belongs to ${existing.fullName}` }, { status: 409 });
     }
     return NextResponse.json(await createStaffIntake(parsed.data, user!.id, provider!.id, req));
   } catch (error) {

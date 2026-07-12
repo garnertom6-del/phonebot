@@ -14,6 +14,8 @@ export interface StaffIntakeResult {
   clientName: string;
   clientLink: string;
   linkDays: number;
+  recordNumber: string;
+  providerChoicePlan: string;
 }
 
 export async function createStaffIntake(
@@ -66,6 +68,7 @@ export async function createStaffIntake(
       location: intake.location,
       client_email: data.email,
       client_phone_cell: data.phone,
+      provider_choice_plan: data.providerChoicePlan,
       guardian_name: data.guardianName,
       guardian_email: data.guardianEmail,
       guardian_phone: data.guardianPhone,
@@ -84,5 +87,7 @@ export async function createStaffIntake(
     clientName: data.fullName,
     clientLink: `${base}/intake/${intake.token}`,
     linkDays: tokenExpiryDays(),
+    recordNumber: data.recordNumber,
+    providerChoicePlan: data.providerChoicePlan,
   };
 }

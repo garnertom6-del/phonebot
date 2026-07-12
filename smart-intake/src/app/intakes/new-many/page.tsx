@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 
 type Draft = {
   fullName: string;
@@ -81,6 +82,7 @@ function parsePastedRows(text: string): Draft[] {
 
 export default function CreateManyIntakes() {
   const [rows, setRows] = useState<Draft[]>([blankDraft(), blankDraft(), blankDraft()]);
+  const [recordPanel, setRecordPanel] = useState("");
   const [pasteText, setPasteText] = useState("");
   const [expectCca, setExpectCca] = useState(true);
   const [generateDraftPackets, setGenerateDraftPackets] = useState(false);
@@ -109,6 +111,26 @@ export default function CreateManyIntakes() {
     setPasteText("");
     setCreated([]);
     setFailures([]);
+  }
+
+  function generateMissingRecordNumbers() {
+    if (!recordPanel) {
+      setError("Choose an insurance panel before generating Record# values.");
+      return;
+    }
+    setError("");
+    setRows((current) => {
+      const used = new Set(current.map((row) => row.recordNumber.trim().toLowerCase()).filter(Boolean));
+      return current.map((row) => {
+        if (!hasDraftData(row) || row.recordNumber.trim()) return row;
+        let generated = "";
+        do {
+          generated = makeRecordNumber(recordPanel);
+        } while (used.has(generated.toLowerCase()));
+        used.add(generated.toLowerCase());
+        return { ...row, recordNumber: generated };
+      });
+    });
   }
 
   async function copyAllLinks() {
@@ -198,6 +220,23 @@ export default function CreateManyIntakes() {
               <input type="checkbox" className="h-4 w-4" checked={generateDraftPackets} onChange={(e) => setGenerateDraftPackets(e.target.checked)} />
               Auto-generate draft packet
             </label>
+          </div>
+        </div>
+
+        <div className="mb-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
+          <h3 className="font-bold text-brand">Record number generator</h3>
+          <p className="mt-1 text-sm text-slate-600">Choose one panel and fill missing Record# cells with unique five-digit numbers.</p>
+          <div className="mt-3 flex flex-wrap items-end gap-3">
+            <label className="min-w-64">
+              <span className="label">Insurance panel</span>
+              <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
+                <option value="">Select panel</option>
+                {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => (
+                  <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
+                ))}
+              </select>
+            </label>
+            <button type="button" className="btn-secondary" onClick={generateMissingRecordNumbers}>Generate missing Record# values</button>
           </div>
         </div>
 

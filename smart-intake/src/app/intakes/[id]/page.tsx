@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
-import { PROVIDER_CHOICE_PLAN_OPTIONS } from "@/lib/insurancePlans";
+import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import {
   copiesMailtoHref,
@@ -231,6 +231,22 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           : "Saved successfully. Your note was recorded. Use the fields or one-per-line notes to fill packet answers.");
     }
     load();
+  }
+
+  function generateRecordNumberFromPanel(form: HTMLFormElement) {
+    const panel = String(new FormData(form).get("provider_choice_plan") || "").trim();
+    if (!panel) {
+      setNote("Choose the insurance type first, then generate the Record#.");
+      return;
+    }
+    const input = form.elements.namedItem("record_number");
+    if (!(input instanceof HTMLInputElement)) {
+      setNote("The Record# field is not available. Please refresh this intake.");
+      return;
+    }
+    const generated = makeRecordNumber(panel);
+    input.value = generated;
+    setNote(`Generated ${generated} for ${panel} (${recordNumberPrefix(panel)}). Click Save answers & notes to store it.`);
   }
 
   async function lookupNcTracks() {
@@ -531,6 +547,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={d.answers.staff_receiving_intake ?? d.answers.clinician_name ?? ""} />
                 <HelperInput name="transport_destination" label="Transport line" value={d.answers.transport_destination ?? ""} />
                 <HelperInput name="transport_purposes" label="Transport purpose(s)" value={d.answers.transport_purposes ?? ""} />
+                <div className="flex flex-wrap items-center gap-2 md:col-span-3">
+                  <button type="button" className="btn-secondary px-3 py-1.5 text-sm"
+                    onClick={(e) => e.currentTarget.form && generateRecordNumberFromPanel(e.currentTarget.form)}>
+                    Generate record # from insurance panel
+                  </button>
+                  <span className="text-xs text-slate-500">Format: PANEL-12345. Select the insurance type in the section above first.</span>
+                </div>
               </div>
             </HelperGroup>
 
