@@ -108,29 +108,41 @@ export default function Dashboard() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
-  const [tab, setTab] = useState("all");
+  const [noticeKind, setNoticeKind] = useState<"success" | "error">("success");
+  const [tab, setTab] = useState("action");
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
-  const load = useCallback((activeTab: string = "all") => {
-    fetch(`/api/intakes${activeTab === "archived" ? "?archived=1" : ""}`).then(async (response) => {
-      if (response.status === 401) return router.push("/login");
+  const load = useCallback(async (activeTab: string = "all") => {
+    setRefreshing(true);
+    try {
+      const response = await fetch(`/api/intakes${activeTab === "archived" ? "?archived=1" : ""}`);
+      if (response.status === 401) {
+        router.push("/login");
+        return;
+      }
       const text = await response.text();
       const body = text ? JSON.parse(text) : {};
       if (!response.ok) throw new Error(body.error || `Dashboard load failed (${response.status})`);
       setRows(body.intakes ?? []);
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
-    }).catch((err) => {
-      setRows([]);
+      setNote("");
+    } catch (err) {
+      setNoticeKind("error");
       setNote(err instanceof Error ? err.message : "Couldn't load the intake list right now.");
-    });
+      setRows((current) => current ?? []);
+    } finally {
+      setRefreshing(false);
+    }
   }, [router]);
 
   useEffect(() => { load(tab); }, [load, tab]);
 
-  function showNote(message: string, timeout = 4500) {
+  function showNote(message: string, timeout = 4500, kind: "success" | "error" = "success") {
+    setNoticeKind(kind);
     setNote(message);
     window.setTimeout(() => setNote(""), timeout);
   }
@@ -155,7 +167,7 @@ export default function Dashboard() {
       const failed = body.failed?.length ? ` Not sent: ${body.failed.join("; ")}` : "";
       showNote(`Reminder queued: ${sent}${failed}`, 6000);
     } else {
-      showNote(`Reminder failed: ${body.error || response.status}`, 6000);
+      showNote(`Reminder failed: ${body.error || response.status}`, 6000, "error");
     }
   }
 
@@ -168,7 +180,7 @@ export default function Dashboard() {
       showNote(`Completed intake + client records queued: ${sent}${failed}`, 6000);
       load(tab);
     } else {
-      showNote(`Completed intake + client records failed: ${body.error || response.status}`, 6000);
+      showNote(`Completed intake + client records failed: ${body.error || response.status}`, 6000, "error");
     }
   }
 
@@ -183,7 +195,7 @@ export default function Dashboard() {
       showNote(`Auto-send completed intake + client records ${autoSend ? "on" : "off"} for ${row.client.fullName}`);
       load(tab);
     } else {
-      showNote(`Auto-send update failed: ${body.error || response.status}`, 6000);
+      showNote(`Auto-send update failed: ${body.error || response.status}`, 6000, "error");
     }
   }
 
@@ -198,7 +210,7 @@ export default function Dashboard() {
       load(tab);
     } else {
       const body = await response.json().catch(() => ({}));
-      showNote(`Could not mark completed: ${body.error || response.status}`, 6000);
+      showNote(`Could not mark completed: ${body.error || response.status}`, 6000, "error");
     }
   }
 
@@ -213,7 +225,7 @@ export default function Dashboard() {
       load(tab);
     } else {
       const body = await response.json().catch(() => ({}));
-      showNote(`Archive update failed: ${body.error || response.status}`, 6000);
+      showNote(`Archive update failed: ${body.error || response.status}`, 6000, "error");
     }
   }
 
@@ -228,7 +240,7 @@ export default function Dashboard() {
       showNote(`DocuSign sent for ${row.client.fullName}. Envelope ${body.envelopeId || "created"}.`, 6000);
       load(tab);
     } else {
-      showNote(`DocuSign failed: ${body.error || response.status}`, 6000);
+      showNote(`DocuSign failed: ${body.error || response.status}`, 6000, "error");
     }
   }
 
@@ -282,7 +294,14 @@ export default function Dashboard() {
         </div>
       </section>
 
-      {note && <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{note}</p>}
+      {note && (
+        <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold ${
+          noticeKind === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
+        }`} role="status">
+          <span>{note}</span>
+          {noticeKind === "error" && <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void load(tab)}>Try again</button>}
+        </div>
+      )}
 
       <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-3">
@@ -303,16 +322,19 @@ export default function Dashboard() {
             onChange={(event) => setSearch(event.target.value)}
             placeholder="Search client, MID, email, phone, guardian, insurance, or intake reason"
           />
-          <div className="flex flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             {TABS.map((item) => (
               <button
                 key={item.key}
                 className={item.key === tab ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
                 onClick={() => setTab(item.key)}
               >
-                {item.label}
+                {item.label} ({rows ? (item.key === "archived" || item.key === "all" ? rows.length : rows.filter((row) => item.statuses.includes(row.status)).length) : 0})
               </button>
             ))}
+            <button className="btn-ghost px-3 py-2 text-sm" disabled={refreshing} onClick={() => void load(tab)}>
+              {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
           </div>
         </div>
       </section>
@@ -414,18 +436,20 @@ export default function Dashboard() {
                 <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>Copy intake link</button>
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => remind(row)}>Send reminder</button>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendCopies(row)}>Send client records</button>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy records link</button>
+                {row.hasPdf && ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(row.status) && (
+                  <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendCopies(row)}>Send client records</button>
+                )}
+                {row.hasPdf && <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy records link</button>}
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setAutoCopies(row, !row.autoSendCopies)}>
                   Auto-send records {row.autoSendCopies ? "off" : "on"}
                 </button>
                 {!row.docusignEnvelopeId && (
-                  <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendDocuSign(row)}>
+                  <button className="btn-ghost px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!row.client.email} title={row.client.email ? "Send the packet for signature" : "Add a client email before sending DocuSign"} onClick={() => sendDocuSign(row)}>
                     Send DocuSign
                   </button>
                 )}
                 {row.status !== "COMPLETED" && (
-                  <button className="btn-ghost px-3 py-2 text-sm" onClick={() => markCompleted(row)}>
+                  <button className="btn-ghost px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!row.hasPdf || row.missingRequired.length > 0} title={row.hasPdf && !row.missingRequired.length ? "Mark this intake completed" : "Generate the packet and finish required items first"} onClick={() => markCompleted(row)}>
                     Mark completed
                   </button>
                 )}

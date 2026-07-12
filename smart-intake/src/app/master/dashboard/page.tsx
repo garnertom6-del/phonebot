@@ -77,6 +77,7 @@ export default function MasterDashboard() {
   const [fileInputKey, setFileInputKey] = useState(0);
   const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
   const [adminBusy, setAdminBusy] = useState(false);
+  const [contextBusyProviderId, setContextBusyProviderId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -220,6 +221,29 @@ export default function MasterDashboard() {
     }
   }
 
+  async function openProviderDashboard(providerId: string) {
+    if (!providerId) {
+      setError("Select a provider first.");
+      return;
+    }
+    setContextBusyProviderId(providerId);
+    setError("");
+    try {
+      const response = await fetch("/api/provider-context", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ providerId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Provider dashboard could not be opened.");
+      router.push("/dashboard");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Provider dashboard could not be opened.");
+    } finally {
+      setContextBusyProviderId("");
+    }
+  }
+
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null;
   const selectedTemplate = selectedProvider?.pdfTemplates?.[0] || null;
   const trimmedSearch = search.trim().toLowerCase();
@@ -245,7 +269,17 @@ export default function MasterDashboard() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Intake dashboard</Link>
+            {isMaster ? (
+              <button
+                className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
+                disabled={!selectedProviderId || !!contextBusyProviderId}
+                onClick={() => void openProviderDashboard(selectedProviderId)}
+              >
+                {contextBusyProviderId ? "Opening intakes..." : selectedProvider ? `Open ${selectedProvider.name} intakes` : "Choose a provider"}
+              </button>
+            ) : (
+              <Link href="/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Intake dashboard</Link>
+            )}
             {isMaster && <a href="/api/admin/backup" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Download backup</a>}
             <button
               className="btn-secondary bg-white/15 text-white hover:bg-white/25"
@@ -373,7 +407,7 @@ export default function MasterDashboard() {
           <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-lg font-bold">Provider list</h2>
-              <p className="text-sm text-slate-500">Activate, deactivate, map packets, and jump directly into packet setup.</p>
+              <p className="text-sm text-slate-500">Open a provider&apos;s intake workspace, activate or deactivate access, and manage its packet.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -422,9 +456,20 @@ export default function MasterDashboard() {
                         <td className="px-4 py-3">{provider._count.clients}</td>
                         <td className="px-4 py-3">{provider._count.intakes}</td>
                         <td className="px-4 py-3">{provider._count.memberships}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex flex-wrap gap-2">
-                            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setSelectedProviderId(provider.id)}>
+                          <td className="px-4 py-3">
+                            <div className="flex flex-wrap gap-2">
+                              {active ? (
+                                <button
+                                  className="btn-primary px-3 py-1.5 text-xs"
+                                  disabled={contextBusyProviderId === provider.id}
+                                  onClick={() => void openProviderDashboard(provider.id)}
+                                >
+                                  {contextBusyProviderId === provider.id ? "Opening..." : "Open intakes"}
+                                </button>
+                              ) : (
+                                <span className="px-3 py-1.5 text-xs text-slate-400">Inactive</span>
+                              )}
+                              <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setSelectedProviderId(provider.id)}>
                               Packet setup
                             </button>
                             {isMaster && packet && (

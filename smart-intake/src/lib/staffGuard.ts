@@ -1,6 +1,9 @@
 import { NextResponse } from "next/server";
+import { cookies } from "next/headers";
 import { currentUser } from "./auth";
 import { prisma } from "./prisma";
+
+export const SELECTED_PROVIDER_COOKIE = "mdc_provider";
 
 export function isMasterUser(user: { role?: string | null }) {
   const role = String(user.role || "").trim().toLowerCase();
@@ -12,10 +15,24 @@ export async function requireStaff() {
   if (!user) {
     return { user: null, deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   }
+  const selectedProviderId = cookies().get(SELECTED_PROVIDER_COOKIE)?.value;
+
+  // Master users can work across providers; the selected cookie scopes their
+  // intake routes without granting access to an inactive or unknown provider.
+  if (selectedProviderId && isMasterUser(user)) {
+    const selectedProvider = await prisma.provider.findFirst({
+      where: { id: selectedProviderId, status: "ACTIVE" },
+    });
+    if (selectedProvider) {
+      return { user, provider: selectedProvider, membership: null, deny: null };
+    }
+  }
+
   const membership = await prisma.userMembership.findFirst({
     where: {
       userId: user.id,
       active: true,
+      ...(selectedProviderId ? { providerId: selectedProviderId } : {}),
       provider: { status: "ACTIVE" },
     },
     include: { provider: true },
