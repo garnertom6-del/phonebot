@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
-import { makeRecordNumber, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -15,6 +15,14 @@ const FIELDS = [
   ["livingArrangement", "Living arrangement", "text"],
 ] as const;
 type FieldKey = (typeof FIELDS)[number][0];
+
+const QUICK_NOTE_RACE_OPTIONS = [
+  "American Indian or Alaska Native", "Asian", "Black or African American",
+  "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
+];
+const QUICK_NOTE_ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
+const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
+const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
 
 function todayInputDate(): string {
   const now = new Date();
@@ -45,6 +53,7 @@ export default function NewIntake() {
   const [sendStatus, setSendStatus] = useState("");
   const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("notes");
   const [helperNotes, setHelperNotes] = useState("");
+  const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
   const [ncTracksFile, setNcTracksFile] = useState<File | null>(null);
   const [setupStatus, setSetupStatus] = useState("");
   const [setupStatusKind, setSetupStatusKind] = useState<"success" | "error" | "info">("info");
@@ -101,7 +110,10 @@ export default function NewIntake() {
   }
 
   async function applyStarterInfo(intakeId: string) {
-    const notes = helperNotes.trim();
+    const selectedNotes = Object.entries(quickAnswers)
+      .filter(([, value]) => value.trim())
+      .map(([key, value]) => `${key}: ${value.trim()}`);
+    const notes = [helperNotes.trim(), ...selectedNotes].filter(Boolean).join("\n");
     const messages: string[] = [];
     let hadError = false;
 
@@ -414,16 +426,78 @@ export default function NewIntake() {
             </div>
           )}
           {ncTracksTab === "notes" && (
-            <label className="mt-4 block">
-              <span className="label">Quick notes</span>
-              <span className="mt-1 block text-xs text-slate-500">Paste confirmed answers here. After you create the intake, these notes are applied to the packet and the client can skip those SMS questions.</span>
-              <textarea
-                className="input min-h-[120px]"
-                value={helperNotes}
-                onChange={(e) => setHelperNotes(e.target.value)}
-                placeholder={"Examples:\nMID: 123456789A\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nRace: Black or African American\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101"}
-              />
-            </label>
+            <div className="mt-4 space-y-3">
+              <details open className="rounded-lg border border-brand/20 bg-white p-3">
+                <summary className="cursor-pointer list-none">
+                  <span className="font-semibold text-brand">Quick-fill common answers</span>
+                  <span className="ml-2 text-xs text-slate-500">Optional - selections are added to the notes automatically</span>
+                </summary>
+                <p className="mt-2 text-xs text-slate-600">Use only answers confirmed by the client or records. When you create the intake, these answers are saved to the packet and the client can skip those SMS questions.</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label>
+                    <span className="label">Race</span>
+                    <select className="input" value={quickAnswers.race || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, race: e.target.value }))}>
+                      <option value="">Select race</option>
+                      {QUICK_NOTE_RACE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="label">Ethnicity</span>
+                    <select className="input" value={quickAnswers.ethnicity || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ethnicity: e.target.value }))}>
+                      <option value="">Select ethnicity</option>
+                      {QUICK_NOTE_ETHNICITY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="label">Veteran</span>
+                    <select className="input" value={quickAnswers.veteran || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, veteran: e.target.value }))}>
+                      <option value="">Select yes or no</option>
+                      {QUICK_NOTE_YES_NO_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="label">Employment status</span>
+                    <select className="input" value={quickAnswers.employment_status || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, employment_status: e.target.value }))}>
+                      <option value="">Select employment</option>
+                      {QUICK_NOTE_EMPLOYMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="label">Type of insurance</span>
+                    <select className="input" value={quickAnswers.provider_choice_plan || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, provider_choice_plan: e.target.value }))}>
+                      <option value="">Select insurance</option>
+                      {PROVIDER_CHOICE_PLAN_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span className="label">PCP name</span>
+                    <input className="input" value={quickAnswers.pcp_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_name: e.target.value }))} placeholder="Primary care provider" />
+                  </label>
+                  <label>
+                    <span className="label">PCP phone</span>
+                    <input className="input" value={quickAnswers.pcp_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_phone: e.target.value }))} placeholder="336-555-0100" />
+                  </label>
+                  <label>
+                    <span className="label">Emergency contact</span>
+                    <input className="input" value={quickAnswers.ec1_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_name: e.target.value }))} placeholder="Full name" />
+                  </label>
+                  <label>
+                    <span className="label">Emergency phone</span>
+                    <input className="input" value={quickAnswers.ec1_cell_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_cell_phone: e.target.value }))} placeholder="336-555-0101" />
+                  </label>
+                </div>
+              </details>
+              <label className="block">
+                <span className="label">Quick notes</span>
+                <span className="mt-1 block text-xs text-slate-500">Paste any additional confirmed answers here. The selected fields above are added automatically.</span>
+                <textarea
+                  className="input min-h-[120px]"
+                  value={helperNotes}
+                  onChange={(e) => setHelperNotes(e.target.value)}
+                  placeholder={"Examples:\nMID: 123456789A\nAddress: 123 Main St, Greensboro, NC\nLiving arrangement: Homeless\nTransport: Services / treatment plan activities"}
+                />
+              </label>
+            </div>
           )}
           {ncTracksTab === "lookup" && (
             <div className="mt-4 rounded-lg bg-white p-4 text-sm text-slate-600">
