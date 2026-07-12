@@ -4,9 +4,16 @@ import { useEffect, useState } from "react";
 import { INTAKE_ORIENTATION_AUDIO_URL, INTAKE_ORIENTATION_SUMMARY } from "@/lib/intakeOrientation";
 import { providerDisplayName, providerPhone } from "@/lib/providerBranding";
 
+/** Keep speech synthesis from interpreting a phone number as one huge number. */
+export function spokenPhoneNumber(displayPhone: string): string {
+  const groups = displayPhone.match(/\d+/g);
+  if (!groups?.length) return displayPhone;
+  return groups.map((group) => group.split("").join(" ")).join(", ");
+}
+
 const spokenExplanation = (providerName?: string, supportPhone?: string) =>
   `Welcome to ${providerDisplayName(providerName)}. ${INTAKE_ORIENTATION_SUMMARY} ` +
-  `Answer each question as best you can. You may ask questions or contact us at ${providerPhone(supportPhone, providerName)}. ` +
+  `Answer each question as best you can. You may ask questions or contact us at ${spokenPhoneNumber(providerPhone(supportPhone, providerName))}. ` +
   "You will review your answers and sign at the end.";
 
 export default function IntakeOrientationAudio({ providerName, providerPhone: supportPhone, compact = false }: {
