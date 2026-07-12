@@ -9,6 +9,7 @@ import { useEffect, useRef, useState } from "react";
 interface Props {
   value: string;
   onChange: (v: string) => void;
+  onPendingValueChange?: (v: string | null) => void;
   multiline?: boolean;
   placeholder?: string;
   inputMode?: "text" | "tel" | "email";
@@ -58,7 +59,7 @@ function mergeTranscriptChunks(chunks: string[]): string {
   return merged.join(" ");
 }
 
-export default function VoiceInput({ value, onChange, multiline, placeholder, inputMode }: Props) {
+export default function VoiceInput({ value, onChange, onPendingValueChange, multiline, placeholder, inputMode }: Props) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -69,6 +70,12 @@ export default function VoiceInput({ value, onChange, multiline, placeholder, in
     const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
     setSupported(!!(w.SpeechRecognition || w.webkitSpeechRecognition));
   }, []);
+
+  useEffect(() => {
+    if (!onPendingValueChange) return;
+    const pending = preview ? (value ? `${value} ${preview}`.trim() : preview) : null;
+    onPendingValueChange(pending);
+  }, [onPendingValueChange, preview, value]);
 
   function start() {
     const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };

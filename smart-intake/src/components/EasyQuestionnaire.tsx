@@ -204,14 +204,24 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     advanceTimer.current = setTimeout(goNext, 350);
   }, [set, goNext]);
 
-  const nextFromInput = useCallback(() => {
+  const nextFromInput = useCallback((pendingVoiceValue?: string) => {
     const q = flatRef.current[idxRef.current]?.q;
-    if (q && isQuestionRequired(q, answersRef.current) && !isAnswered(answersRef.current[q.key])) {
+    const current = answersRef.current;
+    const value = pendingVoiceValue ?? (q ? current[q.key] : undefined);
+    if (q && pendingVoiceValue !== undefined && pendingVoiceValue !== current[q.key]) {
+      const nextAnswers = { ...current, [q.key]: pendingVoiceValue };
+      answersRef.current = nextAnswers;
+      setAnswers(nextAnswers);
+      setNudge("");
+      setSaveError("");
+      queueSave();
+    }
+    if (q && isQuestionRequired(q, current) && !isAnswered(value)) {
       setNudge("Please answer this one - we really need it.");
       return;
     }
     goNext();
-  }, [goNext]);
+  }, [goNext, queueSave]);
 
   // Encouragement screens auto-advance after 1.2s (or tap to continue).
   useEffect(() => {
@@ -482,10 +492,11 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   justPicked: string | null;
   set: (key: string, v: Answers[string]) => void;
   pickAndAdvance: (key: string, v: Answers[string], display: string) => void;
-  onNext: () => void;
+  onNext: (pendingVoiceValue?: string) => void;
   providerName?: string;
   providerPhone?: string;
 }) {
+  const [pendingVoiceValue, setPendingVoiceValue] = useState<string | null>(null);
   /* ---- consent: friendly summary + full text + agree/skip ---- */
   if (q.type === "consent") {
     const simple = brandText(
@@ -573,7 +584,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             </button>
           );
         })}
-        <button type="button" className="btn-primary mt-2 min-h-[64px] w-full text-xl" onClick={onNext}>
+        <button type="button" className="btn-primary mt-2 min-h-[64px] w-full text-xl" onClick={() => onNext()}>
           Done - Next
         </button>
       </div>
@@ -586,7 +597,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
       <div className="space-y-4">
         <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
           onChange={(e) => set(q.key, e.target.value)} />
-        <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={onNext}>
+        <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={() => onNext()}>
           Next
         </button>
       </div>
@@ -600,6 +611,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
     <div className="space-y-4">
       {q.voice || multiline ? (
         <VoiceInput value={String(value ?? "")} onChange={(x) => set(q.key, x)}
+          onPendingValueChange={setPendingVoiceValue}
           multiline={multiline} placeholder={q.placeholder} inputMode={inputMode} />
       ) : (
         <input
@@ -609,8 +621,9 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
           value={String(value ?? "")} placeholder={q.placeholder}
           onChange={(e) => set(q.key, e.target.value)} />
       )}
-      <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={onNext}>
-        Next
+      <button type="button" className="btn-primary min-h-[64px] w-full text-xl"
+        onClick={() => onNext(pendingVoiceValue ?? undefined)}>
+        {pendingVoiceValue ? "Use speech & Next" : "Next"}
       </button>
     </div>
   );
