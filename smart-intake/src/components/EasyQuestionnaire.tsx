@@ -17,6 +17,7 @@ import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
+import IntakeOrientationAudio from "./IntakeOrientationAudio";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
@@ -71,6 +72,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const [phase, setPhase] = useState<Phase>(
     ["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus) ? "done" : "welcome");
   const [idx, setIdx] = useState(0);
+  const [progressRestored, setProgressRestored] = useState(false);
   const [breakText, setBreakText] = useState("");
   const [justPicked, setJustPicked] = useState<string | null>(null);
   const [nudge, setNudge] = useState("");
@@ -95,6 +97,39 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const breakCount = useRef(0);
   // what the server already has - autosaves send only the diff, not all 200+ answers
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
+
+  const progressKey = `smart-intake-progress:${token}`;
+
+  // Camera apps can briefly unload the browser tab on some phones. Store only
+  // the current screen and question number so the client can resume safely.
+  useEffect(() => {
+    if (["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus)) {
+      localStorage.removeItem(progressKey);
+      setProgressRestored(true);
+      return;
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey) || "null") as { phase?: Phase; idx?: number } | null;
+      const validPhases: Phase[] = ["welcome", "question", "break", "photos", "signature", "done"];
+      if (saved && saved.phase && validPhases.includes(saved.phase)) {
+        setPhase(saved.phase);
+        setIdx(Math.max(0, Math.min(Number(saved.idx) || 0, Math.max(flat.length - 1, 0))));
+      }
+    } catch {
+      // A private browsing mode may block local storage; the intake still works.
+    }
+    setProgressRestored(true);
+  }, [flat.length, initialStatus, progressKey]);
+
+  useEffect(() => {
+    if (!progressRestored) return;
+    try {
+      if (phase === "done") localStorage.removeItem(progressKey);
+      else localStorage.setItem(progressKey, JSON.stringify({ phase, idx }));
+    } catch {
+      // Progress is also autosaved to the server; local storage is only resume help.
+    }
+  }, [idx, phase, progressKey, progressRestored]);
 
   useEffect(() => () => {
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
@@ -321,6 +356,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
           Some answers may already be filled in by your care team. You will only see the questions that still need an answer.
           Consent and your signature are always completed by you.
         </p>
+        <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} />
         <button type="button" className="btn-primary mt-10 min-h-[72px] w-full text-2xl"
           onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
           Start
@@ -348,6 +384,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
           If you have them handy, snap a photo of your insurance card and your ID.
           It&apos;s okay to skip this - we can get them later.
         </p>
+        <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} compact />
         <div className="mt-6 space-y-4">
           <PhotoUpload token={token} docType="insurance_card" label="📷 My insurance card" />
           <PhotoUpload token={token} docType="photo_id" label="📷 My photo ID" />
@@ -368,6 +405,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         <p className="mt-3 text-xl leading-relaxed text-slate-600">
           Sign your name with your finger in the box.
         </p>
+        <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} compact />
         <div className="mt-4">
           {hasSignature ? (
             <p className="rounded-xl bg-emerald-50 p-4 text-lg font-semibold text-emerald-700">
@@ -647,7 +685,7 @@ function PhotoUpload({ token, docType, label }: { token: string; docType: string
       fd.set("file", file); fd.set("docType", docType);
       const response = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
       const body = await response.json().catch(() => ({} as { error?: string }));
-      setStatus(response.ok ? "Got it! Thank you" : body.error || "That did not upload. Tap to try again.");
+      setStatus(response.ok ? "Saved securely. You can continue." : body.error || "That did not upload. Tap to try again.");
     } catch {
       setStatus("Connection problem. Tap to try again.");
     } finally {
@@ -661,9 +699,9 @@ function PhotoUpload({ token, docType, label }: { token: string; docType: string
     <div>
       <button type="button" disabled={busy}
         onClick={() => { setStatus("Opening camera..."); inputRef.current?.click(); }}
-        className={`flex min-h-[64px] w-full items-center justify-between rounded-xl border-2 px-4 text-left text-xl font-semibold disabled:cursor-wait disabled:opacity-70 ${status.startsWith("Got") ? "border-emerald-400 bg-emerald-50 text-emerald-700" : status && status !== "Opening camera..." && status !== "Sending..." ? "border-red-300 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
+        className={`flex min-h-[64px] w-full items-center justify-between rounded-xl border-2 px-4 text-left text-xl font-semibold disabled:cursor-wait disabled:opacity-70 ${status.startsWith("Saved") ? "border-emerald-400 bg-emerald-50 text-emerald-700" : status && status !== "Opening camera..." && status !== "Sending..." ? "border-red-300 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
       <span>{busy ? "Sending..." : status || label}</span>
-      {status.startsWith("Got") && <span>✓</span>}
+      {status.startsWith("Saved") && <span>Saved</span>}
       </button>
       <input ref={inputRef} type="file" accept="image/*,.pdf" capture="environment" className="sr-only"
         onChange={(e) => {

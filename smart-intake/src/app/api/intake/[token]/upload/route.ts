@@ -37,5 +37,5 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     intakeId: intake.id,
     detail: `${docType}: ${file.name}`,
   });
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, message: "Saved securely to the intake record." });
 }

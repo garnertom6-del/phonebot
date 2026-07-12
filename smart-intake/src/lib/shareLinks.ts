@@ -1,7 +1,8 @@
 import { intakeProcessExplanation, providerDisplayName, providerPhone } from "./providerBranding";
+import { intakeOrientationAudioLine } from "./intakeOrientation";
 
 export function intakeShareMessage(link: string, providerName?: string | null): string {
-  return `${intakeProcessExplanation(providerName)} Secure link: ${link}`;
+  return `${intakeProcessExplanation(providerName)} Secure link: ${link}${intakeOrientationAudioLine()}`;
 }
 
 export function copiesShareMessage(link: string, providerName?: string | null): string {

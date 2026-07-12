@@ -14,11 +14,12 @@ import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBra
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
+import IntakeOrientationAudio from "./IntakeOrientationAudio";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 
 const UPLOAD_TYPES = [
-  ["birth_certificate", "Birth certificate"], ["insurance_card", "Health insurance card"],
+  ["photo_id", "Photo ID"], ["birth_certificate", "Birth certificate"], ["insurance_card", "Health insurance card"],
   ["court_order", "Court order (if in DSS/guardian custody)"], ["ss_card", "Social Security card"],
   ["iep_records", "IEP / school records"], ["medication_list", "Medication list"],
   ["pcp_plan", "Person-Centered Plan"], ["immunization_records", "Immunization records"],
@@ -33,6 +34,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const branding = { name: providerName, phone: supportPhone };
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [stepIdx, setStepIdx] = useState(0);
+  const [progressRestored, setProgressRestored] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [error, setError] = useState("");
@@ -45,6 +47,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // what the server already has - saves send only the diff
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
+  const progressKey = `smart-intake-full-progress:${token}`;
 
   const fastMode = answers.intake_mode === "Fast Intake - required questions first";
   const steps: Section[] = useMemo(() => {
@@ -52,6 +55,32 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
     return [...base, { key: "__signature", title: "Signature & Submit", questions: [] }];
   }, [fastMode]);
   const step = steps[Math.min(stepIdx, steps.length - 1)];
+
+  // Keep the current section when a phone briefly leaves the page for its camera.
+  useEffect(() => {
+    if (["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus)) {
+      localStorage.removeItem(progressKey);
+      setProgressRestored(true);
+      return;
+    }
+    try {
+      const saved = JSON.parse(localStorage.getItem(progressKey) || "null") as { stepIdx?: number } | null;
+      if (saved) setStepIdx(Math.max(0, Math.min(Number(saved.stepIdx) || 0, Math.max(steps.length - 1, 0))));
+    } catch {
+      // Server autosave remains the source of truth if local storage is blocked.
+    }
+    setProgressRestored(true);
+  }, [initialStatus, progressKey, steps.length]);
+
+  useEffect(() => {
+    if (!progressRestored) return;
+    try {
+      if (done) localStorage.removeItem(progressKey);
+      else localStorage.setItem(progressKey, JSON.stringify({ stepIdx }));
+    } catch {
+      // This is only resume help; answers are still saved to the server.
+    }
+  }, [done, progressKey, progressRestored, stepIdx]);
 
   const visibleQuestions = (s: Section): Question[] =>
     s.questions.filter((q) =>
@@ -199,6 +228,8 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
             </div>
           </details>
         )}
+
+        {stepIdx === 0 && <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} compact />}
 
         <div className="mt-4 space-y-5">
           {visibleQuestions(step).map((q) => <QuestionField key={q.key} q={q} answers={answers} set={set} providerName={providerName} providerPhone={supportPhone} />)}

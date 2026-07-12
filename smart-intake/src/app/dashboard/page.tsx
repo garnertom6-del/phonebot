@@ -56,15 +56,18 @@ type DashboardTab = {
   key: string;
   label: string;
   statuses: string[];
+  matches?: (row: Row) => boolean;
 };
 
 const TABS: DashboardTab[] = [
   { key: "action", label: "Needs action", statuses: ["SUBMITTED", "NEEDS_REVIEW"] },
   { key: "waiting", label: "Waiting on client", statuses: ["NOT_STARTED", "IN_PROGRESS"] },
   { key: "signed", label: "Signed", statuses: ["SIGNED"] },
-  { key: "done", label: "Done", statuses: ["COMPLETED"] },
+  { key: "done", label: "Completed", statuses: ["COMPLETED"] },
+  { key: "packet", label: "Packet ready", statuses: [], matches: (row) => row.hasPdf },
+  { key: "cca", label: "CCA uploaded", statuses: [], matches: (row) => row.hasCca },
   { key: "copies", label: "Client records", statuses: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"] },
-  { key: "all", label: "All", statuses: [] as string[] },
+  { key: "all", label: "All intakes", statuses: [] as string[] },
   { key: "archived", label: "Archived", statuses: [] as string[] },
 ];
 
@@ -85,6 +88,7 @@ function rowMatchesTab(row: Row, tab: string) {
   const tabDef = TABS.find((item) => item.key === tab);
   if (tab === "archived") return !!row.archived;
   if (!tabDef || tab === "all") return true;
+  if (tabDef.matches) return tabDef.matches(row);
   return tabDef.statuses.includes(row.status);
 }
 
@@ -253,6 +257,7 @@ export default function Dashboard() {
   const completedCount = rows?.filter((row) => row.status === "COMPLETED").length ?? 0;
   const packetReadyCount = rows?.filter((row) => row.hasPdf).length ?? 0;
   const ccaCount = rows?.filter((row) => row.hasCca).length ?? 0;
+  const tabCount = (key: string) => rows?.filter((row) => rowMatchesTab(row, key)).length ?? 0;
 
   return (
     <main className="mx-auto max-w-7xl p-6">
@@ -329,7 +334,7 @@ export default function Dashboard() {
                 className={item.key === tab ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
                 onClick={() => setTab(item.key)}
               >
-                {item.label} ({rows ? (item.key === "archived" || item.key === "all" ? rows.length : rows.filter((row) => item.statuses.includes(row.status)).length) : 0})
+                {item.label} ({tabCount(item.key)})
               </button>
             ))}
             <button className="btn-ghost px-3 py-2 text-sm" disabled={refreshing} onClick={() => void load(tab)}>

@@ -83,6 +83,11 @@ Uncheck "Short client intake" when creating an intake for the full question set.
    DocuSign — the envelope is tracked, and **Check DocuSign status** pulls the
    certified signed PDF back into the record when the client finishes.
 
+8. The client link includes an optional intake-orientation player. Set
+   `NEXT_PUBLIC_INTAKE_ORIENTATION_AUDIO_URL` to a generic, non-PHI recording
+   hosted in a HIPAA-appropriate location. Clients can listen before starting
+   and replay it before signing; the SMS/email message includes the link too.
+
 ## Useful commands
 
 | Command | What it does |
