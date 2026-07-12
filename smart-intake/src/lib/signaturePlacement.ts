@@ -72,8 +72,12 @@ export function drawSignature(
       height,
     });
   } else {
+    let size = Math.min(14, f.height);
+    while (size > 6 && italicFont.widthOfTextAtSize(match.record.printedName, size) > f.width) {
+      size -= 0.5;
+    }
     page.drawText(match.record.printedName, {
-      x: f.x, y: f.y + 6, size: Math.min(14, f.height), font: italicFont,
+      x: f.x, y: f.y + 6, size, font: italicFont,
       color: rgb(0.05, 0.1, 0.3),
     });
   }
