@@ -637,21 +637,40 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
 function PhotoUpload({ token, docType, label }: { token: string; docType: string; label: string }) {
   const [status, setStatus] = useState("");
   const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  async function upload(file: File, input: HTMLInputElement) {
+    setBusy(true);
+    setStatus("Sending...");
+    try {
+      const fd = new FormData();
+      fd.set("file", file); fd.set("docType", docType);
+      const response = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
+      const body = await response.json().catch(() => ({} as { error?: string }));
+      setStatus(response.ok ? "Got it! Thank you" : body.error || "That did not upload. Tap to try again.");
+    } catch {
+      setStatus("Connection problem. Tap to try again.");
+    } finally {
+      setBusy(false);
+      // Allow the same photo to be selected again after a failed upload.
+      input.value = "";
+    }
+  }
+
   return (
-    <label className={`flex min-h-[64px] w-full cursor-pointer items-center justify-between rounded-xl border-2 px-4 text-xl font-semibold ${status.startsWith("Got") ? "border-emerald-400 bg-emerald-50 text-emerald-700" : "border-slate-300 bg-white text-brand"}`}>
+    <div>
+      <button type="button" disabled={busy}
+        onClick={() => { setStatus("Opening camera..."); inputRef.current?.click(); }}
+        className={`flex min-h-[64px] w-full items-center justify-between rounded-xl border-2 px-4 text-left text-xl font-semibold disabled:cursor-wait disabled:opacity-70 ${status.startsWith("Got") ? "border-emerald-400 bg-emerald-50 text-emerald-700" : status && status !== "Opening camera..." && status !== "Sending..." ? "border-red-300 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
       <span>{busy ? "Sending..." : status || label}</span>
       {status.startsWith("Got") && <span>✓</span>}
-      <input type="file" accept="image/*,application/pdf" capture="environment" className="hidden"
-        onChange={async (e) => {
-          const file = e.target.files?.[0];
-          if (!file) return;
-          setBusy(true);
-          const fd = new FormData();
-          fd.set("file", file); fd.set("docType", docType);
-          const r = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
-          setBusy(false);
-          setStatus(r.ok ? "Got it! Thank you" : "That didn't work - try again or skip");
+      </button>
+      <input ref={inputRef} type="file" accept="image/*,.pdf" capture="environment" className="sr-only"
+        onChange={(e) => {
+          const file = e.currentTarget.files?.[0];
+          if (file) void upload(file, e.currentTarget);
+          else setStatus("");
         }} />
-    </label>
+    </div>
   );
 }
