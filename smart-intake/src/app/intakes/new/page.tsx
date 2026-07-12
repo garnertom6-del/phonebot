@@ -1,5 +1,6 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
@@ -39,6 +40,7 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 }
 
 export default function NewIntake() {
+  const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
   const [recordPanel, setRecordPanel] = useState("");
   const [recordTab, setRecordTab] = useState<"generate" | "lookup">("generate");
@@ -51,6 +53,7 @@ export default function NewIntake() {
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
+  const [redirectingAfterSend, setRedirectingAfterSend] = useState(false);
   const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("notes");
   const [helperNotes, setHelperNotes] = useState("");
   const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
@@ -197,7 +200,13 @@ export default function NewIntake() {
         sent.length ? `Sent: ${sent.join(", ")}` : "",
         failed.length ? `Not sent: ${failed.join("; ")}` : "",
       ].filter(Boolean);
-      setSendStatus(parts.length ? parts.join(" | ") : "No phone or email saved for this client.");
+      if (sent.length) {
+        setRedirectingAfterSend(true);
+        setSendStatus(`${parts.join(" | ")} Returning to the provider portal...`);
+        window.setTimeout(() => router.push("/dashboard"), 1500);
+      } else {
+        setSendStatus(parts.length ? parts.join(" | ") : "No phone or email saved for this client.");
+      }
     } else {
       setSendStatus(`Send failed: ${body.error || res.status}`);
     }
@@ -226,8 +235,8 @@ export default function NewIntake() {
             <a className="btn-primary text-center" href={intakeSmsHref(phone, result.clientLink, providerName)}>
               Open SMS on this computer
             </a>
-            <button className="btn-ghost" onClick={() => { void sendWithApp(); }}>
-              Send SMS/email now
+            <button className="btn-ghost" disabled={redirectingAfterSend} onClick={() => { void sendWithApp(); }}>
+              {redirectingAfterSend ? "Returning to portal..." : "Send SMS/email now"}
             </button>
             <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}>
               Open email
