@@ -422,6 +422,8 @@ export default function Dashboard() {
                 </div>
               </div>
 
+              <CcaAiPanel row={row} />
+
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Missing required items</p>
                 <p className={`mt-2 text-sm ${row.missingRequired.length ? "text-rose-700" : "font-semibold text-emerald-700"}`}>
@@ -466,6 +468,94 @@ export default function Dashboard() {
         HIPAA note: before using with real clients, make sure hosting and vendors have signed privacy agreements and a compliance review is complete.
       </p>
     </main>
+  );
+}
+
+function CcaAiPanel({ row }: { row: Row }) {
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [overwrite, setOverwrite] = useState(false);
+  const [hasUploaded, setHasUploaded] = useState(row.hasCca);
+  const [result, setResult] = useState("");
+  const [resultKind, setResultKind] = useState<"success" | "error" | "info">("info");
+
+  async function uploadCca(file: File, input: HTMLInputElement) {
+    setBusy(true);
+    setResult("Reading the CCA with AI. This can take a minute or two...");
+    setResultKind("info");
+    try {
+      const form = new FormData();
+      form.set("file", file);
+      form.set("overwrite", String(overwrite));
+      const response = await fetch(`/api/intakes/${row.id}/cca`, { method: "POST", body: form });
+      const body = await response.json().catch(() => ({} as { error?: string }));
+      if (!response.ok) {
+        setResultKind("error");
+        setResult(body.error || "CCA import failed. Please try again.");
+        return;
+      }
+      const filled = Number(body.filled || 0);
+      const extracted = Number(body.extracted || 0);
+      const skipped = Number(body.skipped || 0);
+      setHasUploaded(true);
+      setResultKind("success");
+      setResult(`CCA uploaded and AI filled ${filled} intake question${filled === 1 ? "" : "s"}` +
+        (extracted && extracted !== filled ? ` (${extracted} found${skipped ? `, ${skipped} existing answers kept` : ""})` : "") +
+        ". Review the answers before generating the packet.");
+    } catch {
+      setResultKind("error");
+      setResult("Connection problem. The CCA was not uploaded.");
+    } finally {
+      setBusy(false);
+      input.value = "";
+    }
+  }
+
+  return (
+    <div className="mt-4">
+      <button type="button" onClick={() => setOpen((current) => !current)}
+        className={`rounded-full px-4 py-2 text-sm font-bold ${open ? "bg-brand text-white" : "bg-brand-light text-brand hover:bg-brand/10"}`}>
+        {open ? "Hide CCA & AI" : "CCA & AI - Upload assessment"}
+      </button>
+      {open && (
+        <div className="mt-3 rounded-2xl border border-brand/30 bg-brand-light/30 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-brand">Upload CCA &amp; fill answers with AI</h3>
+              <p className="mt-1 max-w-2xl text-sm text-slate-600">
+                Add the clinician&apos;s Comprehensive Clinical Assessment as a PDF or photo. The AI will read it,
+                fill matching intake answers, and leave consent and signature for the client.
+              </p>
+            </div>
+            {hasUploaded && <span className="badge bg-emerald-100 text-emerald-800">CCA uploaded</span>}
+          </div>
+          <div className="mt-3 flex flex-wrap items-center gap-3">
+            <label className={`btn-primary cursor-pointer ${busy ? "pointer-events-none opacity-60" : ""}`}>
+              {busy ? "Reading CCA..." : "Choose CCA PDF / photo"}
+              <input type="file" className="hidden" accept="application/pdf,image/*" disabled={busy}
+                onChange={(event) => {
+                  const file = event.currentTarget.files?.[0];
+                  if (file) void uploadCca(file, event.currentTarget);
+                }} />
+            </label>
+            <label className="flex items-center gap-2 text-xs text-slate-600">
+              <input type="checkbox" checked={overwrite} onChange={(event) => setOverwrite(event.target.checked)} />
+              Replace existing answers
+            </label>
+          </div>
+          {result && (
+            <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
+              resultKind === "success" ? "bg-emerald-50 text-emerald-700" :
+              resultKind === "error" ? "bg-red-50 text-red-700" : "bg-slate-50 text-slate-700"
+            }`} role="status">{result}</p>
+          )}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <Link href={`/intakes/${row.id}/review`} className="btn-secondary px-3 py-2 text-sm">Review AI-filled answers</Link>
+            <Link href={`/intakes/${row.id}`} className="btn-ghost px-3 py-2 text-sm">Open intake setup</Link>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
