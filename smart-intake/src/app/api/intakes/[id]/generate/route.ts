@@ -7,7 +7,14 @@ import { sendIntakeToDocuSign } from "@/lib/sendDocuSign";
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
   const { user, provider, deny } = await requireStaff();
   if (deny) return deny;
-  const result = await generatePacketForIntake(params.id, user!.id, provider!.id, { skipAutoCompletedCopies: true });
+  let result: Awaited<ReturnType<typeof generatePacketForIntake>>;
+  try {
+    result = await generatePacketForIntake(params.id, user!.id, provider!.id, { skipAutoCompletedCopies: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Packet generation failed";
+    const status = message.startsWith("Packet identity check failed") ? 409 : 500;
+    return NextResponse.json({ error: message }, { status });
+  }
   if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const docusign = await sendIntakeToDocuSign({

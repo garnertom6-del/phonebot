@@ -8,6 +8,7 @@
  */
 import crypto from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
+import type { SignatureStatus } from "@/lib/signatureStatus";
 
 export interface CertificateSigner {
   role: string;
@@ -23,6 +24,7 @@ export interface CertificateInfo {
   clientName: string;
   providerName?: string;
   signers: CertificateSigner[];
+  signatureStatuses?: SignatureStatus[];
   consentLabels: string[];
   generatedAt: Date;
 }
@@ -70,6 +72,16 @@ export async function appendCertificatePage(
       (s.dobVerified ? " - identity confirmed by date of birth" : ""), { size: 9, gap: 16 });
   }
   y -= 8;
+
+  line("Signature status", { bold: true, size: 12, gap: 16 });
+  for (const status of info.signatureStatuses || []) {
+    if (status.state === "captured") {
+      line(`${status.label}: Captured${status.signedDate ? ` on ${status.signedDate}` : " (date not recorded)"}`, { size: 8, gap: 11 });
+    } else {
+      line(`${status.label}: Missing - ${status.reason}`, { size: 8, gap: 11 });
+    }
+  }
+  y -= 6;
 
   line("Consents agreed to in this packet", { bold: true, size: 12, gap: 18 });
   if (info.consentLabels.length === 0) line("(none)", { size: 10, gap: 14 });

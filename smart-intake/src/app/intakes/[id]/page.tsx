@@ -28,6 +28,10 @@ interface Detail {
   clientLink: string; percentComplete: number;
   missingRequired: { key: string; label: string }[];
   missingOptional: { key: string; label: string; section?: string }[];
+  signatureStatuses: {
+    key: string; label: string; state: "captured" | "missing"; required: boolean;
+    signedDate?: string; reason: string;
+  }[];
 }
 
 const HELPER_FORM_KEYS = [
@@ -631,6 +635,19 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               <li key={s.role}><b>{signatureRoleLabel(s.role)}</b> - {s.printedName} ({s.signedDate})</li>
             ))}
           </ul>
+          <div className="mt-4 space-y-2 border-t border-slate-200 pt-3">
+            {d.signatureStatuses.map((status) => (
+              <div key={status.key} className={`rounded-lg px-3 py-2 text-xs ${
+                status.state === "captured" ? "bg-emerald-50 text-emerald-800" :
+                status.required ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
+              }`}>
+                <b>{status.label}:</b>{" "}
+                {status.state === "captured"
+                  ? `Captured${status.signedDate ? ` on ${status.signedDate}` : " (date not recorded)"}`
+                  : `Missing - ${status.reason}`}
+              </div>
+            ))}
+          </div>
           <p className="mt-2 text-xs text-slate-400">Staff/clinician signatures are added on the review screen.</p>
         </div>
         <div className="card">

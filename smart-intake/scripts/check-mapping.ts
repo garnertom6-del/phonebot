@@ -4,6 +4,7 @@
  * the question config. Run: npm run check:mapping
  */
 import { PACKET_MAP } from "../src/config/mooreDivinePacketMap";
+import { repairKnownPacketPlacements } from "../src/lib/providerPacketTemplates";
 import { SECTIONS, STAFF_FIELDS, questionByKey } from "../src/config/mooreDivineQuestions";
 
 const SPECIAL_SOURCES = new Set([
@@ -34,6 +35,36 @@ for (const f of PACKET_MAP.fields) {
 
 for (let p = 1; p <= PACKET_MAP.pageCount; p++) {
   if (!pagesWithHeader.has(p)) { console.error(`✗ page ${p} missing repeated header fields`); errors++; }
+}
+
+const repaired = repairKnownPacketPlacements(PACKET_MAP.fields, PACKET_MAP.pageCount);
+const repairedByKey = new Map(repaired.map((field) => [field.fieldKey, field]));
+const page3Date = repairedByKey.get("screen_date");
+const page3Qp = repairedByKey.get("qp_referred_to");
+if (page3Date?.x !== 325 || page3Qp?.x !== 448) {
+  console.error("✗ page 3 staff/date/QP placements are not separated");
+  errors++;
+}
+for (const [fieldKey, x] of [["a_gender_female", 74], ["a_gender_male", 123.5], ["a_gender_transgender", 163.7]] as const) {
+  if (repairedByKey.get(fieldKey)?.x !== x) {
+    console.error(`✗ ${fieldKey} is not centered on its printed answer line`);
+    errors++;
+  }
+}
+const courtDescription = repairedByKey.get("court_desc");
+const emergencyStreet = repairedByKey.get("e_street");
+const emergencyContactStreet = repairedByKey.get("ec1_street");
+if (courtDescription?.y !== 299 || emergencyStreet?.width !== 270 || emergencyContactStreet?.width !== 270) {
+  console.error("✗ page 7/page 10 text fields can overlap adjacent sections");
+  errors++;
+}
+
+const pocFields = repairKnownPacketPlacements(PACKET_MAP.fields, 39);
+const pocByKey = new Map(pocFields.map((field) => [field.fieldKey, field]));
+if (pocByKey.get("c_to")?.page !== 27 || pocByKey.get("c_phone")?.page !== 27 ||
+    pocByKey.get("c_address")?.page !== 27 || !pocByKey.has("c_practice")) {
+  console.error("✗ 39-page Prayers of Care PCP fields are not mapped to page 27");
+  errors++;
 }
 
 const byType: Record<string, number> = {};

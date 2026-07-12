@@ -8,6 +8,7 @@ import { answersSchema, missingRequired, missingOptional, percentComplete } from
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
+import { buildSignatureStatuses } from "@/lib/signatureStatus";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -35,6 +36,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     percentComplete: percentComplete(answers),
     missingRequired: missingRequired(answers, signed),
     missingOptional: missingOptional(answers),
+    signatureStatuses: buildSignatureStatuses(intake.signatures),
   });
 }
 
