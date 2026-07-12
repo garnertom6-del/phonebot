@@ -102,10 +102,6 @@ export async function PUT(req: NextRequest) {
   for (const f of body.fields) {
     if (!f.fieldKey || !f.page) continue;
     const { fieldKey, page, ...data } = f;
-    if (data.deleted && target.providerSpecific) {
-      await prisma.pdfFieldMapping.deleteMany({ where: { templateId: template.id, fieldKey } });
-      continue;
-    }
     await prisma.pdfFieldMapping.upsert({
       where: { templateId_fieldKey: { templateId: template.id, fieldKey } },
       create: { templateId: template.id, fieldKey, page, data: JSON.stringify(data) },
