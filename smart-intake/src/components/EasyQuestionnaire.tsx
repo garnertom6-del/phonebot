@@ -204,7 +204,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     advanceTimer.current = setTimeout(goNext, 350);
   }, [set, goNext]);
 
-  const nextFromInput = useCallback((pendingVoiceValue?: string) => {
+  const nextFromInput = useCallback(async (pendingVoiceValue?: string) => {
     const q = flatRef.current[idxRef.current]?.q;
     const current = answersRef.current;
     const value = pendingVoiceValue ?? (q ? current[q.key] : undefined);
@@ -214,14 +214,18 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       setAnswers(nextAnswers);
       setNudge("");
       setSaveError("");
-      queueSave();
+      const saved = await saveNow("completed");
+      if (!saved) {
+        setNudge("We could not save that answer. Please try Next again.");
+        return;
+      }
     }
     if (q && isQuestionRequired(q, current) && !isAnswered(value)) {
       setNudge("Please answer this one - we really need it.");
       return;
     }
     goNext();
-  }, [goNext, queueSave]);
+  }, [goNext, saveNow]);
 
   // Encouragement screens auto-advance after 1.2s (or tap to continue).
   useEffect(() => {
