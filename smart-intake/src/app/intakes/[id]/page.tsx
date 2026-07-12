@@ -14,6 +14,22 @@ import {
   intakeSmsHref,
 } from "@/lib/shareLinks";
 
+type PreflightFinding = {
+  severity: "error" | "warning" | "info";
+  title: string;
+  detail: string;
+  fieldKeys?: string[];
+  source: "rules" | "ai";
+};
+
+type PreflightResult = {
+  aiUsed: boolean;
+  aiConfigured: boolean;
+  message: string;
+  findings: PreflightFinding[];
+  generatedAt: string;
+};
+
 interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
@@ -83,6 +99,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ccaResult, setCcaResult] = useState("");
   const [ccaResultKind, setCcaResultKind] = useState<"success" | "error" | "info">("info");
   const [ccaOverwrite, setCcaOverwrite] = useState(false);
+  const [preflightBusy, setPreflightBusy] = useState(false);
+  const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
@@ -256,6 +274,27 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }
 
+  async function runPreflight() {
+    setPreflightBusy(true);
+    setPreflight(null);
+    setNote("Running intake preflight review...");
+    try {
+      const r = await fetch(`/api/intakes/${params.id}/preflight`, { method: "POST" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setNote(body.error || "Preflight review failed.");
+        return;
+      }
+      setPreflight(body as PreflightResult);
+      setNote(body.aiUsed ? "AI and automatic preflight review complete." : "Automatic preflight review complete.");
+      load();
+    } catch {
+      setNote("Connection problem. Preflight review could not be completed.");
+    } finally {
+      setPreflightBusy(false);
+    }
+  }
+
   function generateRecordNumberFromPanel(form: HTMLFormElement) {
     const panel = String(new FormData(form).get("provider_choice_plan") || "").trim();
     if (!panel) {
@@ -407,13 +446,52 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <input type="checkbox" checked={ccaOverwrite} onChange={(e) => setCcaOverwrite(e.target.checked)} />
             Replace answers that already exist (otherwise existing answers are kept)
           </label>
-          {ccaResult && (
+        {ccaResult && (
             <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
               ccaResultKind === "success" ? "bg-emerald-50 text-emerald-700" :
               ccaResultKind === "error" ? "bg-red-50 text-red-700" : "bg-brand-light text-brand"
             }`}>
               {ccaResult}
             </p>
+          )}
+        </div>
+        <div className="card md:col-span-2 border-emerald-200 bg-emerald-50/40">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h3 className="font-bold text-emerald-900">AI preflight review</h3>
+              <p className="mt-1 max-w-3xl text-sm text-slate-600">
+                Staff-only final check before generating the packet. It looks for missing required items,
+                identity or date conflicts, and service information that needs confirmation. It suggests only;
+                it never signs, consents, diagnoses, or changes answers automatically.
+              </p>
+            </div>
+            <button className="btn-primary px-3 py-1.5 text-sm disabled:cursor-wait disabled:opacity-60" type="button"
+              disabled={preflightBusy} onClick={() => { void runPreflight(); }}>
+              {preflightBusy ? "Reviewing..." : "Run preflight review"}
+            </button>
+          </div>
+          {preflight && (
+            <div className="mt-3 space-y-2" aria-live="polite">
+              <p className="rounded-lg bg-white/80 p-2 text-sm font-semibold text-emerald-900">
+                {preflight.message} {preflight.aiConfigured ? "AI is connected at the system level; no client AI account is needed." : ""}
+              </p>
+              {preflight.findings.map((finding, index) => (
+                <div key={`${finding.title}-${index}`} className={`rounded-lg border p-3 text-sm ${
+                  finding.severity === "error" ? "border-red-200 bg-red-50 text-red-800" :
+                  finding.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
+                  "border-slate-200 bg-white text-slate-700"
+                }`}>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <b>{finding.title}</b>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                      {finding.source === "ai" ? "AI suggestion" : "Automatic check"}
+                    </span>
+                  </div>
+                  <p className="mt-1">{finding.detail}</p>
+                </div>
+              ))}
+              <p className="text-xs text-slate-500">Review each item and make any needed corrections before generating the packet.</p>
+            </div>
           )}
         </div>
         <div className="card md:col-span-2">

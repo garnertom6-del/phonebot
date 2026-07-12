@@ -556,7 +556,7 @@ function CcaAiPanel({ row }: { row: Row }) {
           )}
           <div className="mt-3 flex flex-wrap gap-2">
             <Link href={`/intakes/${row.id}/review`} className="btn-secondary px-3 py-2 text-sm">Review AI-filled answers</Link>
-            <Link href={`/intakes/${row.id}`} className="btn-ghost px-3 py-2 text-sm">Open intake setup</Link>
+            <Link href={`/intakes/${row.id}`} className="btn-ghost px-3 py-2 text-sm">Open intake &amp; preflight</Link>
           </div>
         </div>
       )}
