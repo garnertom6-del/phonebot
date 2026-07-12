@@ -65,6 +65,7 @@ export default function MasterDashboard() {
   const router = useRouter();
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [isMaster, setIsMaster] = useState(false);
+  const [aiConfigured, setAiConfigured] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
@@ -78,6 +79,7 @@ export default function MasterDashboard() {
   const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
   const [adminBusy, setAdminBusy] = useState(false);
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
+  const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -97,6 +99,7 @@ export default function MasterDashboard() {
       const loadedProviders = body.providers || [];
       setProviders(loadedProviders);
       setIsMaster(!!body.isMaster);
+      setAiConfigured(!!body.aiConfigured);
       setSelectedProviderId((current) => {
         if (current && loadedProviders.some((provider: ProviderRow) => provider.id === current)) return current;
         return loadedProviders.length === 1 ? loadedProviders[0].id : "";
@@ -138,20 +141,27 @@ export default function MasterDashboard() {
   }
 
   async function setProviderStatus(provider: ProviderRow, status: "ACTIVE" | "INACTIVE") {
+    setStatusBusyProviderId(provider.id);
     setError("");
     setNote("");
-    const response = await fetch(`/api/master/providers/${provider.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      setError(body.error || "Provider status could not be changed.");
-      return;
+    try {
+      const response = await fetch(`/api/master/providers/${provider.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(body.error || "Provider status could not be changed.");
+        return;
+      }
+      setNote(`${provider.name} is now ${status.toLowerCase()}.`);
+      await load();
+    } catch {
+      setError("Provider status could not be changed. Check the connection and try again.");
+    } finally {
+      setStatusBusyProviderId("");
     }
-    setNote(`${provider.name} is now ${status.toLowerCase()}.`);
-    await load();
   }
 
   async function uploadPacket(event: React.FormEvent) {
@@ -293,15 +303,36 @@ export default function MasterDashboard() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
+        <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
           <StatCard label="Providers" value={providers.length} />
           <StatCard label="Active" value={activeCount} />
           <StatCard label="Inactive" value={inactiveCount} />
           <StatCard label="Custom packets" value={customPacketCount} />
           <StatCard label="Total intakes" value={totalIntakes} />
           <StatCard label="Staff users" value={totalMemberships} />
+          <StatCard label="AI preflight" value={aiConfigured ? "ON" : "OFF"} />
         </div>
       </section>
+
+      {isMaster && (
+        <section className={`mt-4 rounded-2xl border p-4 shadow-sm ${
+          aiConfigured ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"
+        }`}>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="font-bold text-slate-900">System AI for provider intake reviews</h2>
+              <p className="mt-1 text-sm text-slate-600">
+                {aiConfigured
+                  ? "Connected. Providers use their normal portal login; they do not need separate AI accounts."
+                  : "Not configured. Providers can still use automatic checks, but AI suggestions require the system AI key."}
+              </p>
+            </div>
+            <span className={`badge ${aiConfigured ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+              {aiConfigured ? "Connected" : "Needs setup"}
+            </span>
+          </div>
+        </section>
+      )}
 
       {note && <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{note}</p>}
       {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
@@ -479,10 +510,23 @@ export default function MasterDashboard() {
                             )}
                             {isMaster && (
                               <button
-                                className={active ? "btn-ghost px-3 py-1.5 text-xs" : "btn-secondary px-3 py-1.5 text-xs"}
+                                type="button"
+                                role="switch"
+                                aria-checked={active}
+                                aria-label={`${active ? "Turn off" : "Turn on"} ${provider.name} portal`}
+                                title={`${active ? "Turn off" : "Turn on"} provider portal access`}
+                                className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-semibold transition ${
+                                  active
+                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                                    : "border-slate-300 bg-slate-100 text-slate-600"
+                                }`}
+                                disabled={statusBusyProviderId === provider.id}
                                 onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}
                               >
-                                {active ? "Deactivate" : "Activate"}
+                                <span className={`relative h-5 w-9 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`}>
+                                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${active ? "left-4" : "left-0.5"}`} />
+                                </span>
+                                {statusBusyProviderId === provider.id ? "Updating..." : active ? "Portal on" : "Portal off"}
                               </button>
                             )}
                           </div>
@@ -552,7 +596,7 @@ export default function MasterDashboard() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value }: { label: string; value: number | string }) {
   return (
     <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">{label}</p>

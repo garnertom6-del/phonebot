@@ -72,7 +72,13 @@ export async function GET() {
     orderBy: [{ status: "asc" }, { name: "asc" }],
   });
 
-  return NextResponse.json({ providers, isMaster });
+  return NextResponse.json({
+    providers,
+    isMaster,
+    // Only expose availability, never the key itself. Provider staff use the
+    // shared system service through their normal portal login.
+    aiConfigured: !!process.env.ANTHROPIC_API_KEY,
+  });
 }
 
 export async function POST(req: NextRequest) {

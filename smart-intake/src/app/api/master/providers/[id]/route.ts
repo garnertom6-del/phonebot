@@ -3,6 +3,7 @@ import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
+import { audit } from "@/lib/auditLog";
 
 const updateProviderSchema = z.object({
   name: z.string().trim().min(2).optional(),
@@ -29,7 +30,7 @@ function nullableText(value: string | null | undefined) {
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { deny } = await requireMaster();
+  const { user, deny } = await requireMaster();
   if (deny) return deny;
 
   const parsed = updateProviderSchema.safeParse(await req.json());
@@ -72,6 +73,14 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
     return updated;
   });
+
+  if (data.status !== undefined) {
+    await audit("provider_status_changed", {
+      providerId: provider.id,
+      userId: user!.id,
+      detail: `${provider.name}: ${data.status}`,
+    });
+  }
 
   return NextResponse.json({ provider, adminUpdated: !!data.adminEmail });
 }
