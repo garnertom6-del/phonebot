@@ -184,6 +184,17 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
     [3, pocField("poc_screening_date", "screening_date", "text", { x: 325, y: 219, width: 100, height: 11 }, "staff")],
     [3, pocField("poc_qp_referred_to", "qp_referred_to", "text", { x: 430, y: 219, width: 135, height: 11 }, "staff", null, "QP name on the staff signature line")],
 
+    // The 39-page Prayers of Care form includes a three-row Axis table on
+    // page 4 that is not present in the 43-page base map. Keep the printed
+    // table and place the existing diagnosis code/description answers inside
+    // its rows instead of drawing over the borders.
+    [4, pocField("poc_axis1_code_p4", "c_axis1_code", "text", { x: 225, y: 418, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis1_description_p4", "c_axis1_description", "text", { x: 407, y: 418, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis2_code_p4", "c_axis2_code", "text", { x: 225, y: 381, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis2_description_p4", "c_axis2_description", "text", { x: 407, y: 381, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis3_code_p4", "c_axis3_code", "text", { x: 225, y: 337, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis3_description_p4", "c_axis3_description", "text", { x: 407, y: 337, width: 165, height: 11 }, "staff")],
+
     [6, pocField("poc_current_diag_known", "current_diagnosis_known", "text", { x: 161, y: 681, width: 340, height: 11 }, "client")],
     [6, pocField("poc_severity_emergent", "severity_of_need=Emergent", "checkbox", { x: 38.5, y: 660, width: 18.8, height: 11.2 }, "staff")],
     [6, pocField("poc_severity_urgent", "severity_of_need=Urgent", "checkbox", { x: 38.5, y: 581.7, width: 18.8, height: 11.2 }, "staff")],
