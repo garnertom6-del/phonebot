@@ -95,6 +95,7 @@ export async function appendCertificatePage(
   line("If the packet pages are altered after signing, this fingerprint will no longer match.", { size: 8, gap: 12 });
   line(`Signatures were captured electronically in the ${certificateAppName} Smart Intake application.`, { size: 8, gap: 12 });
 
-  const pdfBytes = await doc.save();
+  // Preserve the form's original drawing streams when appending the certificate.
+  const pdfBytes = await doc.save({ useObjectStreams: false });
   return { pdfBytes, sha256: fingerprint };
 }

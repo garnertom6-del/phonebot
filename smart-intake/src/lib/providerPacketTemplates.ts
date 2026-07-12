@@ -214,7 +214,6 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
     [39, pocField("poc_final_client_date", "sign_date", "text", { x: 330, y: 503.6, width: 90, height: 11 }, "client")],
     [39, pocField("poc_final_witness_sig", "signature", "signature", { x: 160, y: 444.1, width: 133, height: 18 }, "clinician")],
     [39, pocField("poc_final_witness_date", "clinician_sign_date", "text", { x: 333, y: 444.1, width: 90, height: 11 }, "clinician")],
-    [39, pocField("poc_final_stale_label_clear", "__blank__", "whiteout_text", { x: 36, y: 443, width: 40, height: 16 }, "auto", null, "Remove stale template company name before the Staff Witness label")],
   ];
   const pocExtra = pocExtraRows.map(([page, field]): FieldMapping => ({ ...field, page }));
 

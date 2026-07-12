@@ -224,10 +224,9 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       skipped.push(f.fieldKey);
       continue;
     }
-    const clearPocSlot = f.fieldKey.startsWith("poc_") && f.type !== "checkbox" && f.type !== "survey_rating";
-    if (clearPocSlot) {
-      page.drawRectangle({ x: f.x, y: f.y, width: f.width, height: f.height, color: rgb(1, 1, 1) });
-    }
+    // The POC template's printed rules are part of the form. Normal mapped
+    // text and signature fields sit on those rules and must not erase them.
+    // Only an explicit whiteout mapping may cover stale template text.
     if (f.type === "signature" || f.type === "signature_small") {
       if (drawSignature(page, f, ctx, signatureFont)) filled++;
       else skipped.push(f.fieldKey);
@@ -294,5 +293,7 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
     } else skipped.push(f.fieldKey);
   }
 
-  return { pdfBytes: await doc.save(), filled, skipped };
+  // Keep the original Word/PDF drawing streams readable by older viewers.
+  // Object-stream rewriting can make the ruled form render blank or lose lines.
+  return { pdfBytes: await doc.save({ useObjectStreams: false }), filled, skipped };
 }
