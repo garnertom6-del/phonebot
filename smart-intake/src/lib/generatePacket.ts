@@ -26,6 +26,10 @@ export async function generatePacketForIntake(
   if (!intake) return null;
 
   const answers = await loadAnswers(intake.id);
+  const providerName = intake.provider?.name?.trim() || "Provider";
+  answers.provider_name = providerName;
+  answers.provider_staff_signature_label = `${providerName} Staff Signature`;
+  answers.provider_staff_witness_label = `${providerName} Staff Witness:`;
   const signatures = await loadSignatures(intake.id);
   const consents = consentsFromAnswers(answers);
   const packetTemplate = await packetTemplateForProvider(intake.providerId);

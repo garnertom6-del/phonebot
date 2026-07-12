@@ -72,7 +72,7 @@ export function drawSignature(
       height,
     });
   } else {
-    let size = Math.min(14, f.height);
+    let size = Math.min(12, f.height);
     while (size > 6 && italicFont.widthOfTextAtSize(match.record.printedName, size) > f.width) {
       size -= 0.5;
     }

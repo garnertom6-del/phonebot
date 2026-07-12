@@ -79,7 +79,10 @@ function drawTextField(
     const size = fitFontSize(text, font, f.fontSize, f.width);
     let t = text;
     while (t.length > 1 && font.widthOfTextAtSize(t, size) > f.width) t = t.slice(0, -1);
-    page.drawText(t, { x: f.x, y: f.y + 4.5, size, font, color: INK });
+    const x = f.align === "center"
+      ? f.x + Math.max(0, (f.width - font.widthOfTextAtSize(t, size)) / 2)
+      : f.x;
+    page.drawText(t, { x, y: f.y + 4.5, size, font, color: INK });
   }
 }
 
@@ -149,7 +152,7 @@ export function mergedMap(overrides?: FieldMapping[]): FieldMapping[] {
 export async function fillPacket(input: FillInput): Promise<FillResult> {
   const doc = await PDFDocument.load(input.templateBytes ?? loadTemplateBytes());
   const bold = await doc.embedFont(StandardFonts.HelveticaBold);
-  const italic = await doc.embedFont(StandardFonts.HelveticaOblique);
+  const signatureFont = await doc.embedFont(StandardFonts.Helvetica);
   const pages = doc.getPages();
 
   const answers: Answers = applyOperationalDefaults(input.answers, { forPdf: true });
@@ -199,7 +202,7 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       continue;
     }
     if (f.type === "signature" || f.type === "signature_small") {
-      if (drawSignature(page, f, ctx, italic)) filled++;
+      if (drawSignature(page, f, ctx, signatureFont)) filled++;
       else skipped.push(f.fieldKey);
       continue;
     }
@@ -225,6 +228,15 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       const v = str(answers[f.source]);
       if (/^[123]$/.test(v)) {
         page.drawText(`[ ${v} ]`, { x: f.x, y: f.y + 2, size: f.fontSize, font: bold, color: INK });
+        filled++;
+      } else skipped.push(f.fieldKey);
+      continue;
+    }
+    if (f.type === "whiteout_text") {
+      page.drawRectangle({ x: f.x, y: f.y, width: f.width, height: f.height, color: rgb(1, 1, 1) });
+      const resolved = resolveValue(f.source, answers);
+      if (resolved.text) {
+        drawTextField(page, f, resolved.text, bold);
         filled++;
       } else skipped.push(f.fieldKey);
       continue;

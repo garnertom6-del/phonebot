@@ -8,7 +8,8 @@
 import rawMap from "./mooreDivinePacketMap.json";
 
 export type FieldType =
-  | "text" | "checkbox" | "signature" | "initials" | "survey_rating" | "signature_small";
+  | "text" | "checkbox" | "signature" | "initials" | "survey_rating" | "signature_small"
+  | "whiteout_text";
 
 export interface FieldMapping {
   page: number;          // 1-based
@@ -26,6 +27,7 @@ export interface FieldMapping {
   role: "client" | "guardian" | "staff" | "clinician" | "medicalDirector" | "witness" | "auto";
   consentKey: string | null;
   notes: string;
+  align?: "left" | "center";
   // long-answer flow: the answer is wrapped once to `flowLines` total lines and
   // this placement renders `lines` of them starting at `startLine` - lets one
   // answer continue across ruled-line blocks (even onto the next page)
