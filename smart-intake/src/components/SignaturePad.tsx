@@ -29,6 +29,13 @@ const STAFF_ROLE_LABELS: Record<NonNullable<Props["expectedRole"]>, string> = {
 
 const PAD_HEIGHT = 220;
 
+function formatDobInput(value: string): string {
+  const digits = value.replace(/\D/g, "").slice(0, 8);
+  if (digits.length <= 2) return digits;
+  if (digits.length <= 4) return `${digits.slice(0, 2)}/${digits.slice(2)}`;
+  return `${digits.slice(0, 2)}/${digits.slice(2, 4)}/${digits.slice(4)}`;
+}
+
 function croppedSignatureDataUrl(canvas: HTMLCanvasElement): string {
   const ctx = canvas.getContext("2d");
   if (!ctx) return canvas.toDataURL("image/png");
@@ -152,8 +159,9 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
       {askDob && (
         <>
           <label className="label mt-3">Client&apos;s date of birth (identity check)</label>
-          <input className="input max-w-[220px]" placeholder="MM/DD/YYYY" inputMode="numeric"
-            value={dobCheck} onChange={(e) => setDobCheck(e.target.value)} />
+          <input className="input max-w-[220px]" placeholder="MM / DD / YYYY" inputMode="numeric"
+            maxLength={10} autoComplete="bday"
+            value={dobCheck} onChange={(e) => setDobCheck(formatDobInput(e.target.value))} />
         </>
       )}
       <label className="label mt-3">Date</label>
