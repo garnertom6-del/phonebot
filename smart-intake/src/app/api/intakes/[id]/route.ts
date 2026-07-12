@@ -50,8 +50,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (body.answers) {
-    const parsed = answersSchema.safeParse(body.answers);
-    if (!parsed.success) return NextResponse.json({ error: "Invalid answers" }, { status: 400 });
+    // Older intakes may contain JSON nulls for untouched fields. Treat those
+    // as blanks while keeping the strict value validation for real answers.
+    const answerPayload = typeof body.answers === "object" && body.answers !== null
+      ? Object.fromEntries(Object.entries(body.answers).filter(([, value]) => value !== null && value !== undefined))
+      : body.answers;
+    const parsed = answersSchema.safeParse(answerPayload);
+    if (!parsed.success) {
+      const fields = parsed.error.issues
+        .slice(0, 6)
+        .map((issue) => issue.path.join(".") || "answers")
+        .join(", ");
+      return NextResponse.json({ error: `Some answers could not be saved. Review: ${fields}.` }, { status: 400 });
+    }
     const answers = applyOperationalDefaults(parsed.data);
     await saveAnswers(intake.id, answers);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));

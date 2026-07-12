@@ -34,6 +34,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
   const [signMode, setSignMode] = useState<SignMode | null>(null);
+  const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
   const load = useCallback(() => {
@@ -56,17 +57,25 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const set = (k: string, v: Answers[string]) => setAnswers((a) => ({ ...a, [k]: v }));
 
   async function save() {
+    if (saving) return;
+    setSaving(true);
     setNote("Saving...");
-    const r = await fetch(`/api/intakes/${params.id}`, {
-      method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers, status: "NEEDS_REVIEW" }),
-    });
-    if (!r.ok) {
-      setNote("Save failed");
-      return;
+    try {
+      const r = await fetch(`/api/intakes/${params.id}`, {
+        method: "PATCH", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers, status: "NEEDS_REVIEW" }),
+      });
+      const body = await r.json().catch(() => ({} as { error?: string }));
+      if (!r.ok) {
+        setNote(body.error || "Save failed. Please refresh and try again.");
+        setSaving(false);
+        return;
+      }
+      router.push(`/intakes/${params.id}?saved=staff`);
+    } catch {
+      setNote("Save failed because the connection was interrupted. Please try again.");
+      setSaving(false);
     }
-    setNote("Saved. Opening the next workflow step...");
-    router.push(`/intakes/${params.id}`);
   }
 
   async function captureStaffSig(mode: SignMode, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
@@ -77,7 +86,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       body: JSON.stringify({ role, ...d }),
     })));
     const ok = results.every((r) => r.ok);
-    setNote(ok ? `${config?.padLabel || "Staff"} captured` : "Signature failed");
+    setNote(ok
+      ? `${config?.padLabel || "Staff"} saved successfully. Click Save all changes & continue to advance.`
+      : "Signature failed. Please try again.");
     setSignMode(null);
     load();
   }
@@ -135,9 +146,13 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
       <div className="fixed inset-x-0 bottom-0 border-t bg-white p-3">
         <div className="mx-auto flex max-w-4xl items-center gap-3">
-          <button className="btn-primary flex-1" onClick={save}>Save all changes & continue</button>
+          <button className="btn-primary flex-1 disabled:cursor-wait disabled:opacity-60" disabled={saving} onClick={save}>
+            {saving ? "Saving changes..." : "Save all changes & continue"}
+          </button>
           <Link href={`/intakes/${params.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
-          <span className="text-sm text-slate-500">{note}</span>
+          <span className={`text-sm ${note.toLowerCase().includes("failed") || note.toLowerCase().includes("could not") ? "text-red-700" : "text-slate-600"}`} role="status">
+            {note}
+          </span>
         </div>
       </div>
     </main>

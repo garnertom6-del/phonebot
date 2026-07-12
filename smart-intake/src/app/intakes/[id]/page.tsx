@@ -119,6 +119,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   }, [params.id]);
   useEffect(load, [load]);
 
+  useEffect(() => {
+    const saved = new URLSearchParams(window.location.search).get("saved");
+    if (saved !== "staff") return;
+    setNote("Staff signature and changes saved successfully. Next step: review the intake/preflight findings, then generate the packet.");
+    window.history.replaceState({}, "", window.location.pathname);
+  }, [params.id]);
+
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
   const providerName = i.provider?.name || "Moore Divine Care";
