@@ -53,7 +53,7 @@ function matchingPlan(value: string): InsurancePlanMap | undefined {
   return INSURANCE_PLAN_MAP.find((plan) =>
     plan.aliases.some((alias) => {
       const normalizedAlias = normalizedKey(alias);
-      return key === normalizedAlias || key.includes(normalizedAlias) || normalizedAlias.includes(key);
+      return key === normalizedAlias || key.includes(normalizedAlias);
     }));
 }
 
