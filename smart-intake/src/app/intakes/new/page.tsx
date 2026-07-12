@@ -361,7 +361,7 @@ export default function NewIntake() {
               placeholder={recordTab === "lookup" ? "Enter the official lookup Record#" : "Generate or type one"} />
           </label>
           {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
-          <p className="mt-2 text-xs text-slate-500">Generator examples: Carolina Complete = CC-12345, Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345. Partners, Vaya, Alliance, and Trillium use lookup links instead.</p>
+          <p className="mt-2 text-xs text-slate-500">Only Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345, and Carolina Complete = CC-12345 use the generator. Other panels require their official Record#.</p>
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">

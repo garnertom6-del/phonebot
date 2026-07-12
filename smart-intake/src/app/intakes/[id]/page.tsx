@@ -240,7 +240,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       return;
     }
     if (!canGenerateRecordNumber(panel)) {
-      setNote("Use the official lookup link below for this panel, then enter its Record# manually.");
+      setNote("Enter this panel's Record# manually. The generator is only for BCBS, United Health Care, AmeriHealth, and Carolina Complete.");
       return;
     }
     const input = form.elements.namedItem("record_number");

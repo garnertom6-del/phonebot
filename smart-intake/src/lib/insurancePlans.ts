@@ -38,6 +38,7 @@ const RECORD_NUMBER_PREFIXES: Record<string, string> = {
 };
 
 const LOOKUP_ONLY_RECORD_NUMBER_KEYS = new Set(["partners", "vaya", "alliance", "trillium"]);
+const GENERATOR_RECORD_NUMBER_KEYS = new Set(["bcbs", "united", "amerihealth", "carolina-complete"]);
 
 export const RECORD_NUMBER_LOOKUP_LINKS = [
   { key: "partners", label: "Partners", url: "https://www.partnersbhm.org/provider-search/", description: "Official Partners provider search" },
@@ -49,7 +50,7 @@ export const RECORD_NUMBER_LOOKUP_LINKS = [
 export const PROVIDER_CHOICE_PLAN_OPTIONS = INSURANCE_PLAN_MAP.map((item) => item.providerChoice);
 
 export const RECORD_NUMBER_GENERATOR_PLAN_OPTIONS = INSURANCE_PLAN_MAP
-  .filter((item) => !LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(item.key))
+  .filter((item) => GENERATOR_RECORD_NUMBER_KEYS.has(item.key))
   .map((item) => item.providerChoice);
 
 export const RECORD_NUMBER_LOOKUP_PLAN_OPTIONS = INSURANCE_PLAN_MAP
@@ -81,7 +82,7 @@ export function recordNumberPrefix(value: string): string {
 
 export function canGenerateRecordNumber(value: string): boolean {
   const plan = matchingPlan(value);
-  return !!plan && !LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(plan.key);
+  return !!plan && GENERATOR_RECORD_NUMBER_KEYS.has(plan.key);
 }
 
 export function makeRecordNumber(value: string, random: () => number = Math.random): string {

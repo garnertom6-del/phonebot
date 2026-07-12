@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
     if (deny) return deny;
     const raw = await req.json();
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
-    if (!recordNumber && (!raw?.providerChoicePlan || canGenerateRecordNumber(raw.providerChoicePlan))) {
+    if (!recordNumber && canGenerateRecordNumber(raw?.providerChoicePlan || "")) {
       for (let attempt = 0; attempt < 20; attempt++) {
         const candidate = generatedRecordNumber(raw?.providerChoicePlan);
         const used = await prisma.client.findFirst({
@@ -106,7 +106,9 @@ export async function POST(req: NextRequest) {
     }
     if (!recordNumber) {
       return NextResponse.json({
-        error: "Use the official panel lookup for Partners, Vaya, Alliance, or Trillium, then enter the returned Record#.",
+        error: raw?.providerChoicePlan
+          ? "Enter the panel's official Record# manually. Only BCBS, United Health Care, AmeriHealth, and Carolina Complete use the generator."
+          : "Choose an insurance panel and enter its Record#, or use the generator for BCBS, United Health Care, AmeriHealth, or Carolina Complete.",
       }, { status: 400 });
     }
     const parsed = newIntakeSchema.safeParse({
