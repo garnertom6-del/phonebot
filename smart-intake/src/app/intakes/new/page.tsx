@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
-import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { makeRecordNumber, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -11,6 +11,8 @@ const FIELDS = [
   ["email", "Client email", "email"], ["phone", "Client phone", "tel"],
   ["guardianName", "Guardian name (if applicable)", "text"],
   ["guardianEmail", "Guardian email", "email"], ["guardianPhone", "Guardian phone", "tel"],
+  ["addressStreet", "Street address", "text"], ["addressCity", "City", "text"], ["addressState", "State", "text"],
+  ["livingArrangement", "Living arrangement", "text"],
 ] as const;
 type FieldKey = (typeof FIELDS)[number][0];
 
@@ -31,6 +33,8 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 export default function NewIntake() {
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
   const [recordPanel, setRecordPanel] = useState("");
+  const [recordTab, setRecordTab] = useState<"generate" | "lookup">("generate");
+  const [housingTab, setHousingTab] = useState<"address" | "homeless">("address");
   const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
   const [expectCca, setExpectCca] = useState(true);
   const [error, setError] = useState("");
@@ -145,7 +149,13 @@ export default function NewIntake() {
     setSetupStatus("");
     setIsCreating(true);
     try {
-      const requestBody = { ...form, ...nextForm, providerChoicePlan: recordPanel, expectCca };
+      const requestBody = {
+        ...form,
+        ...nextForm,
+        providerChoicePlan: recordPanel,
+        livingArrangement: housingTab === "homeless" ? "Homeless" : "",
+        expectCca,
+      };
       const res = await fetch("/api/intakes", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
       });
@@ -239,7 +249,7 @@ export default function NewIntake() {
           Package: {packetName}{packetPageCount ? ` (${packetPageCount} pages)` : ""}
         </p>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {FIELDS.filter(([key]) => key !== "recordNumber").map(([key, label, type]) => (
+          {FIELDS.filter(([key]) => !["recordNumber", "addressStreet", "addressCity", "addressState", "livingArrangement"].includes(key)).map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
               <label className="label">{label}</label>
               <input className="input" name={key} type={type} value={form[key] || ""}
@@ -247,32 +257,111 @@ export default function NewIntake() {
             </div>
           ))}
         </div>
+        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <h2 className="font-bold text-slate-900">Address &amp; housing</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Add a confirmed address to save the client time. If the client has no fixed address, use the homeless tab instead and do not enter a made-up street address.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {[
+              ["address", "Address"],
+              ["homeless", "Homeless / no fixed address"],
+            ].map(([key, label]) => (
+              <button key={key} type="button" onClick={() => setHousingTab(key as "address" | "homeless")}
+                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${housingTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {housingTab === "address" ? (
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(["addressStreet", "addressCity", "addressState"] as const).map((key) => (
+                <label key={key}>
+                  <span className="label">{key === "addressStreet" ? "Street address" : key === "addressCity" ? "City" : "State"}</span>
+                  <input className="input" name={key} value={form[key] || ""}
+                    onChange={(e) => setForm((current) => ({ ...current, [key]: e.target.value }))}
+                    placeholder={key === "addressState" ? "NC" : ""} />
+                </label>
+              ))}
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="font-semibold text-amber-900">Homeless / no fixed address selected</p>
+              <p className="mt-1 text-sm text-amber-800">The packet will mark the client as homeless, skip the street-address requirement, and let the client continue without repeating that question.</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <label>
+                  <span className="label">City or area (optional)</span>
+                  <input className="input" name="addressCity" value={form.addressCity || ""}
+                    onChange={(e) => setForm((current) => ({ ...current, addressCity: e.target.value }))} />
+                </label>
+                <label>
+                  <span className="label">State (optional)</span>
+                  <input className="input" name="addressState" value={form.addressState || ""}
+                    onChange={(e) => setForm((current) => ({ ...current, addressState: e.target.value }))} placeholder="NC" />
+                </label>
+              </div>
+              <input type="hidden" name="livingArrangement" value="Homeless" />
+            </div>
+          )}
+        </div>
         <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
           <h2 className="font-bold text-brand">Record number generator</h2>
           <p className="mt-1 text-sm text-slate-600">
             Choose the insurance panel, then generate a Record# in the format <b>PANEL-12345</b>.
             The five digits are random and the server checks for duplicates within this provider.
           </p>
-          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-            <label>
-              <span className="label">Insurance panel</span>
-              <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
-                <option value="">Select panel</option>
-                {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => (
-                  <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <span className="label">Record#</span>
-              <input className="input" name="recordNumber" value={form.recordNumber || ""}
-                onChange={(e) => setForm((current) => ({ ...current, recordNumber: e.target.value }))}
-                placeholder="Generate or type one" />
-            </label>
-            <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button type="button" onClick={() => setRecordTab("generate")}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+              Generate new Record#
+            </button>
+            <button type="button" onClick={() => setRecordTab("lookup")}
+              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+              Lookup Partners / Vaya / Alliance / Trillium
+            </button>
           </div>
+          {recordTab === "generate" ? (
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+              <label>
+                <span className="label">Insurance panel</span>
+                <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
+                  <option value="">Select panel</option>
+                  {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
+                    <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
+                  ))}
+                </select>
+              </label>
+              <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
+            </div>
+          ) : (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+              <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
+              <label className="mt-3 block">
+                <span className="label">Insurance panel</span>
+                <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
+                  <option value="">Select lookup panel</option>
+                  {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
+                    <option key={plan} value={plan}>{plan}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
+                  <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
+                    {link.label} lookup
+                  </a>
+                ))}
+              </div>
+            </div>
+          )}
+          <label className="mt-3 block">
+            <span className="label">Record#</span>
+            <input className="input" name="recordNumber" value={form.recordNumber || ""}
+              onChange={(e) => setForm((current) => ({ ...current, recordNumber: e.target.value }))}
+              placeholder={recordTab === "lookup" ? "Enter the official lookup Record#" : "Generate or type one"} />
+          </label>
           {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
-          <p className="mt-2 text-xs text-slate-500">Examples: Partners = PART-12345, Carolina Complete = CC-12345, Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345.</p>
+          <p className="mt-2 text-xs text-slate-500">Generator examples: Carolina Complete = CC-12345, Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345. Partners, Vaya, Alliance, and Trillium use lookup links instead.</p>
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div className="flex flex-wrap items-start justify-between gap-3">

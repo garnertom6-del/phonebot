@@ -37,7 +37,24 @@ const RECORD_NUMBER_PREFIXES: Record<string, string> = {
   "not-sure": "OTHER",
 };
 
+const LOOKUP_ONLY_RECORD_NUMBER_KEYS = new Set(["partners", "vaya", "alliance", "trillium"]);
+
+export const RECORD_NUMBER_LOOKUP_LINKS = [
+  { key: "partners", label: "Partners", url: "https://www.partnersbhm.org/provider-search/", description: "Official Partners provider search" },
+  { key: "vaya", label: "Vaya", url: "https://providers.vayahealth.com/", description: "Official Vaya Provider Central" },
+  { key: "alliance", label: "Alliance", url: "https://www.alliancehealthplan.org/providers/tp/providers/", description: "Official Alliance provider resources" },
+  { key: "trillium", label: "Trillium", url: "https://www.trilliumhealthresources.org/for-providers/provider-contact-information-and-portals", description: "Official Trillium provider portals" },
+] as const;
+
 export const PROVIDER_CHOICE_PLAN_OPTIONS = INSURANCE_PLAN_MAP.map((item) => item.providerChoice);
+
+export const RECORD_NUMBER_GENERATOR_PLAN_OPTIONS = INSURANCE_PLAN_MAP
+  .filter((item) => !LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(item.key))
+  .map((item) => item.providerChoice);
+
+export const RECORD_NUMBER_LOOKUP_PLAN_OPTIONS = INSURANCE_PLAN_MAP
+  .filter((item) => LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(item.key))
+  .map((item) => item.providerChoice);
 
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -60,6 +77,11 @@ function matchingPlan(value: string): InsurancePlanMap | undefined {
 export function recordNumberPrefix(value: string): string {
   const plan = matchingPlan(value);
   return plan ? RECORD_NUMBER_PREFIXES[plan.key] || "OTHER" : "";
+}
+
+export function canGenerateRecordNumber(value: string): boolean {
+  const plan = matchingPlan(value);
+  return !!plan && !LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(plan.key);
 }
 
 export function makeRecordNumber(value: string, random: () => number = Math.random): string {

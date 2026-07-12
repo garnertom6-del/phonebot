@@ -11,7 +11,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTIONS, isQuestionPrefilledForClient, isQuickIntakeQuestion, type Question } from "@/config/mooreDivineQuestions";
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
-import { askIfSatisfied } from "@/lib/validation";
+import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import VoiceInput from "./VoiceInput";
@@ -44,6 +44,7 @@ function flattenVisible(answers: Answers, prefilledAnswers: Answers, quick: bool
       // fills the rest after upload by staff.
       if (quick && !isQuickIntakeQuestion(q)) continue;
       if (quick && q.key === "client_phone_home") continue;
+      if (q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       if (isQuestionPrefilledForClient(q, prefilledAnswers)) continue;
       out.push({ q, sectionKey: s.key, sectionTitle: s.title });
@@ -205,7 +206,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   const nextFromInput = useCallback(() => {
     const q = flatRef.current[idxRef.current]?.q;
-    if (q?.required && !isAnswered(answersRef.current[q.key])) {
+    if (q && isQuestionRequired(q, answersRef.current) && !isAnswered(answersRef.current[q.key])) {
       setNudge("Please answer this one - we really need it.");
       return;
     }

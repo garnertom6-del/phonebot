@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
-import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import {
   copiesMailtoHref,
@@ -239,6 +239,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       setNote("Choose the insurance type first, then generate the Record#.");
       return;
     }
+    if (!canGenerateRecordNumber(panel)) {
+      setNote("Use the official lookup link below for this panel, then enter its Record# manually.");
+      return;
+    }
     const input = form.elements.namedItem("record_number");
     if (!(input instanceof HTMLInputElement)) {
       setNote("The Record# field is not available. Please refresh this intake.");
@@ -448,7 +452,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <HelperInput name="client_email" label="Email" value={d.answers.client_email ?? i.client.email ?? ""} />
                 <HelperInput name="address_street" label="Street address" value={d.answers.address_street ?? ""} />
                 <HelperInput name="address_city" label="City" value={d.answers.address_city ?? ""} />
-                <HelperInput name="address_state" label="State" value={d.answers.address_state ?? "NC"} />
+                <HelperInput name="address_state" label="State" value={d.answers.address_state ?? ""} />
                 <HelperSelect name="living_arrangement" label="Living arrangement" value={d.answers.living_arrangement ?? ""} options={LIVING_ARRANGEMENT_OPTIONS} placeholder="Select arrangement" />
                 <HelperInput name="lives_with_whom" label="Who does the client live with?" value={d.answers.lives_with_whom ?? ""} />
                 <HelperInput name="lives_where" label="Living area" value={d.answers.lives_where ?? ""} />
@@ -554,6 +558,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   </button>
                   <span className="text-xs text-slate-500">Format: PANEL-12345. Select the insurance type in the section above first.</span>
                 </div>
+                <details className="rounded-lg border border-amber-200 bg-amber-50 p-3 md:col-span-3">
+                  <summary className="cursor-pointer text-sm font-semibold text-amber-900">Lookup Partners, Vaya, Alliance, or Trillium Record#</summary>
+                  <p className="mt-2 text-xs text-amber-800">These four plans are lookup-only. Open the official page, find the client record, then type that Record# above.</p>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
+                      <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
+                        {link.label} lookup
+                      </a>
+                    ))}
+                  </div>
+                </details>
               </div>
             </HelperGroup>
 

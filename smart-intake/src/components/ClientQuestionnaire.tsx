@@ -8,7 +8,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTIONS, isQuestionPrefilledForClient, type Question, type Section } from "@/config/mooreDivineQuestions";
-import { askIfSatisfied } from "@/lib/validation";
+import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import VoiceInput from "./VoiceInput";
@@ -57,6 +57,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
     s.questions.filter((q) =>
       !q.staffOnly &&
       askIfSatisfied(q.askIf, answers) &&
+      !(q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") &&
       !isQuestionPrefilledForClient(q, prefilledRef.current));
 
   const set = (key: string, value: Answers[string]) =>
@@ -93,7 +94,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   async function next() {
     setError("");
     for (const q of visibleQuestions(step)) {
-      if (q.required) {
+      if (isQuestionRequired(q, answers)) {
         const v = answers[q.key];
         if (v === undefined || v === "" || (Array.isArray(v) && !v.length) || v === false) {
           setError(`Please answer: ${q.label}`);

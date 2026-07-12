@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { REQUIRED_FOR_SUBMIT, SECTIONS, questionByKey, type AskIf } from "@/config/mooreDivineQuestions";
+import { REQUIRED_FOR_SUBMIT, SECTIONS, questionByKey, type AskIf, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 
 export const loginSchema = z.object({
@@ -15,6 +15,10 @@ export const newIntakeSchema = z.object({
   intakeDate: z.string().optional().default(""),
   location: z.string().optional().default(""),
   providerChoicePlan: z.string().optional().default(""),
+  addressStreet: z.string().optional().default(""),
+  addressCity: z.string().optional().default(""),
+  addressState: z.string().optional().default(""),
+  livingArrangement: z.string().optional().default(""),
   email: z.string().email().optional().or(z.literal("")),
   phone: z.string().optional().default(""),
   guardianName: z.string().optional().default(""),
@@ -54,6 +58,13 @@ export function askIfSatisfied(cond: AskIf | undefined, answers: Answers): boole
   return true;
 }
 
+/** A client without a fixed address should not be blocked by the street field. */
+export function isQuestionRequired(q: Pick<Question, "key" | "required">, answers: Answers): boolean {
+  if (!q.required) return false;
+  if (q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") return false;
+  return true;
+}
+
 export interface MissingField { key: string; label: string; section?: string }
 
 /** Required items still missing before a client can submit. */
@@ -62,6 +73,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
   const seen = new Set<string>();
   for (const req of REQUIRED_FOR_SUBMIT) {
     if (!askIfSatisfied(req.when, answers)) continue;
+    if (req.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") continue;
     const v = answers[req.key];
     if (req.key === "client_phone_cell" && (answers.client_email || v)) continue;
     if (v === undefined || v === "" || v === false || v === null) {
@@ -72,7 +84,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
   for (const s of SECTIONS) {
     for (const q of s.questions) {
       if (s.key === "welcome" || q.key === "intake_mode" || q.staffOnly || q.type === "info" || q.type === "heading") continue;
-      if (!q.required || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
+      if (!isQuestionRequired(q, answers) || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];
       if (q.key === "client_phone_cell" && (answers.client_email || v)) continue;
       if (v === undefined || v === "" || v === false || v === null || (Array.isArray(v) && !v.length)) {

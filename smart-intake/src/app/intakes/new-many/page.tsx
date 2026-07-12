@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { makeRecordNumber, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 
 type Draft = {
   fullName: string;
@@ -231,7 +231,7 @@ export default function CreateManyIntakes() {
               <span className="label">Insurance panel</span>
               <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
                 <option value="">Select panel</option>
-                {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => (
+                {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
                   <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
                 ))}
               </select>

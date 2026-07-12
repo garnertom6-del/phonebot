@@ -7,8 +7,7 @@ import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
-import { insuranceSummary } from "@/lib/insurancePlans";
-import { recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, insuranceSummary, recordNumberPrefix } from "@/lib/insurancePlans";
 
 function generatedRecordNumber(panel?: string): string {
   const prefix = recordNumberPrefix(panel || "") || "TEMP";
@@ -92,7 +91,7 @@ export async function POST(req: NextRequest) {
     if (deny) return deny;
     const raw = await req.json();
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
-    if (!recordNumber) {
+    if (!recordNumber && (!raw?.providerChoicePlan || canGenerateRecordNumber(raw.providerChoicePlan))) {
       for (let attempt = 0; attempt < 20; attempt++) {
         const candidate = generatedRecordNumber(raw?.providerChoicePlan);
         const used = await prisma.client.findFirst({
@@ -105,7 +104,11 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-    if (!recordNumber) return NextResponse.json({ error: "Could not generate a unique Record#" }, { status: 409 });
+    if (!recordNumber) {
+      return NextResponse.json({
+        error: "Use the official panel lookup for Partners, Vaya, Alliance, or Trillium, then enter the returned Record#.",
+      }, { status: 400 });
+    }
     const parsed = newIntakeSchema.safeParse({
       ...raw,
       recordNumber,

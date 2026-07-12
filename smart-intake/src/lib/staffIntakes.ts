@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { AUTO_SEND_COMPLETED_COPIES_KEY } from "@/lib/completedCopies";
+import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
 import { newIntakeSchema } from "@/lib/validation";
 import { newIntakeToken, tokenExpiry, tokenExpiryDays } from "@/lib/tokens";
 
@@ -59,6 +60,13 @@ export async function createStaffIntake(
       },
     });
 
+    const staffPrefilled = [
+      ["address_street", data.addressStreet],
+      ["address_city", data.addressCity],
+      ["address_state", data.addressState],
+      ["living_arrangement", data.livingArrangement],
+    ].filter(([, value]) => typeof value === "string" && value.trim())
+      .map(([key]) => key);
     const prefill: Record<string, unknown> = applyOperationalDefaults({
       client_full_name: data.fullName,
       dob: data.dob,
@@ -69,11 +77,16 @@ export async function createStaffIntake(
       client_email: data.email,
       client_phone_cell: data.phone,
       provider_choice_plan: data.providerChoicePlan,
+      address_street: data.addressStreet,
+      address_city: data.addressCity,
+      address_state: data.addressState,
+      living_arrangement: data.livingArrangement,
       guardian_name: data.guardianName,
       guardian_email: data.guardianEmail,
       guardian_phone: data.guardianPhone,
       is_minor_or_incompetent: data.guardianName ? "Yes" : undefined,
       [AUTO_SEND_COMPLETED_COPIES_KEY]: true,
+      ...(staffPrefilled.length ? { [STAFF_PREFILLED_CLIENT_FIELDS_KEY]: staffPrefilled } : {}),
     });
     const entries = Object.entries(prefill).filter(([, value]) => value !== undefined && value !== "");
     await Promise.all(entries.map(([key, value]) =>
