@@ -1,16 +1,13 @@
 // Moore Divine Care Smart Intake - Prisma schema.
 // Production uses the dedicated Supabase PostgreSQL database.
 
-
 generator client {
   provider = "prisma-client-js"
 }
 
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-  
 }
 
 model User {
@@ -24,7 +21,6 @@ model User {
   memberships  UserMembership[]
 }
 
-
 model Provider {
   id          String   @id @default(uuid())
   name        String
@@ -36,6 +32,277 @@ model Provider {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-
   memberships  UserMembership[]
   clients      Client[]
+  intakes      Intake[]
+  auditLogs    AuditLog[]
+  pdfTemplates PdfTemplate[]
+}
+
+model UserMembership {
+  id         String   @id @default(uuid())
+  userId     String
+  providerId String
+  role       String   @default("STAFF") // PROVIDER_ADMIN | STAFF | REVIEWER
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, providerId])
+  @@index([providerId])
+}
+
+model Client {
+  id            String    @id @default(uuid())
+  providerId    String?
+  provider      Provider? @relation(fields: [providerId], references: [id])
+  fullName      String
+  dob           String
+  midNumber     String?
+  recordNumber  String?
+  email         String?
+  phone         String?
+  guardianName  String?
+  guardianEmail String?
+  guardianPhone String?
+  createdAt     DateTime  @default(now())
+  intakes       Intake[]
+
+  @@index([providerId])
+}
+
+model Intake {
+  id                 String    @id @default(uuid())
+  providerId         String?
+  provider           Provider? @relation(fields: [providerId], references: [id])
+  clientId           String
+  client             Client    @relation(fields: [clientId], references: [id])
+  packageName        String    @default("Client Intake Package")
+  status             String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | SUBMITTED | NEEDS_REVIEW | SIGNED | COMPLETED
+  mode               String    @default("full") // fast | full
+  expectCca          Boolean   @default(true) // short client intake; clinician CCA fills the rest
+  archived           Boolean   @default(false) // hidden from the dashboard list
+  docusignEnvelopeId String? // set when a DocuSign envelope is sent
+  token              String    @unique
+  tokenExpiresAt     DateTime
+  intakeDate         String?
+  location           String?
+  linkSentAt         DateTime?
+  lastActivityAt     DateTime?
+  submittedAt        DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  answers           IntakeAnswer[]
+  sections          IntakeSection[]
+  signatures        Signature[]
+  generatedPdfs     GeneratedPdf[]
+  auditLogs         AuditLog[]
+  uploadedDocuments UploadedDocument[]
+  releaseConsents   ReleaseConsent[]
+  referrals         Referral[]
+  emergencyContacts EmergencyContact[]
+  medications       Medication[]
+  substanceUseRows  SubstanceUseRow[]
+  treatmentPlanRows TreatmentPlanSignatureRow[]
+
+  @@index([providerId])
+}
+
+model IntakeAnswer {
+  id        String   @id @default(uuid())
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  key       String
+  value     String // JSON-encoded value (string | string[] | boolean | number)
+  updatedAt DateTime @updatedAt
+
+  @@unique([intakeId, key])
+  @@index([intakeId])
+}
+
+model IntakeSection {
+  id          String    @id @default(uuid())
+  intakeId    String
+  intake      Intake    @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  sectionKey  String
+  status      String    @default("NOT_STARTED") // NOT_STARTED | IN_PROGRESS | COMPLETED
+  startedAt   DateTime?
+  completedAt DateTime?
+
+  @@unique([intakeId, sectionKey])
+}
+
+model Signature {
+  id           String   @id @default(uuid())
+  intakeId     String
+  intake       Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  role         String // client | guardian | staff | clinician | witness | medicalDirector
+  imageData    String // PNG data URL from the signature canvas
+  printedName  String
+  relationship String? // client | parent | guardian | legalRepresentative
+  signedDate   String
+  dobVerified  Boolean  @default(false) // signer confirmed the client's DOB
+  ip           String?
+  userAgent    String?
+  createdAt    DateTime @default(now())
+
+  @@unique([intakeId, role])
+}
+
+model PdfTemplate {
+  id               String            @id @default(uuid())
+  name             String            @unique
+  filePath         String
+  pageCount        Int
+  pageWidth        Float?
+  pageHeight       Float?
+  providerId       String?
+  provider         Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  originalFileName String?
+  isActive         Boolean           @default(true)
+  mappingStatus    String            @default("APPROVED") // DRAFT | APPROVED
+  mappingScore     Int?
+  mappingIssues    String?
+  approvedAt       DateTime?
+  approvedByUserId String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @default(now()) @updatedAt
+  fieldMappings    PdfFieldMapping[]
+
+  @@index([providerId, isActive])
+}
+
+// Admin mapping-screen overrides; merged over src/config/mooreDivinePacketMap.json
+model PdfFieldMapping {
+  id         String      @id @default(uuid())
+  templateId String
+  template   PdfTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  fieldKey   String
+  page       Int
+  data       String // JSON: {source,type,x,y,width,height,fontSize,lines,required,role,consentKey,notes,deleted?}
+  updatedAt  DateTime    @updatedAt
+
+  @@unique([templateId, fieldKey])
+}
+
+model GeneratedPdf {
+  id        String   @id @default(uuid())
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  filePath  String
+  sha256    String? // fingerprint of the packet pages (certificate page excluded)
+  createdAt DateTime @default(now())
+
+  @@index([intakeId])
+}
+
+model AuditLog {
+  id         String    @id @default(uuid())
+  providerId String?
+  provider   Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  intakeId   String?
+  intake     Intake?   @relation(fields: [intakeId], references: [id], onDelete: SetNull)
+  userId     String?
+  user       User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+  event      String // intake_created | link_opened | section_started | section_completed | signature_captured | packet_submitted | staff_reviewed | pdf_generated | pdf_downloaded | ...
+  detail     String?
+  ip         String?
+  createdAt  DateTime  @default(now())
+
+  @@index([intakeId])
+  @@index([providerId])
+}
+
+model UploadedDocument {
+  id        String   @id @default(uuid())
+  intakeId  String
+  intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  docType   String // birth_certificate | insurance_card | court_order | ss_card | iep_records | medication_list | pcp_plan | immunization_records | standing_orders | other
+  fileName  String
+  filePath  String
+  mimeType  String
+  createdAt DateTime @default(now())
+
+  @@index([intakeId])
+}
+
+model ReleaseConsent {
+  id        String  @id @default(uuid())
+  intakeId  String
+  intake    Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  slot      Int // 1..3 map to packet pages 19-21; >3 duplicates page template
+  recipient String
+  items     String // JSON string[]
+  purpose   String?
+  thruDate  String?
+  agreed    Boolean @default(false)
+
+  @@index([intakeId])
+}
+
+model Referral {
+  id       String  @id @default(uuid())
+  intakeId String
+  intake   Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  slot     Int
+  name     String
+  phone    String?
+
+  @@index([intakeId])
+}
+
+model EmergencyContact {
+  id        String  @id @default(uuid())
+  intakeId  String
+  intake    Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  slot      Int // 1 or 2
+  name      String
+  street    String?
+  city      String?
+  state     String?
+  homePhone String?
+  workPhone String?
+  cellPhone String?
+
+  @@index([intakeId])
+}
+
+model Medication {
+  id       String  @id @default(uuid())
+  intakeId String
+  intake   Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  name     String
+  dosage   String?
+  kind     String  @default("prescription") // prescription | otc
+
+  @@index([intakeId])
+}
+
+model SubstanceUseRow {
+  id        String  @id @default(uuid())
+  intakeId  String
+  intake    Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  slot      Int // 1..5
+  name      String
+  ageFirst  String?
+  frequency String?
+  route     String?
+  amount    String?
+  lastUsed  String?
+
+  @@index([intakeId])
+}
+
+model TreatmentPlanSignatureRow {
+  id         String  @id @default(uuid())
+  intakeId   String
+  intake     Intake  @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  slot       Int
+  staffDate  String?
+  clientDate String?
+
+  @@index([intakeId])
+}
