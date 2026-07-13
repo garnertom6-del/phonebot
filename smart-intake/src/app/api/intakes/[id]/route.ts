@@ -9,6 +9,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
+import { parseCcaReview } from "@/lib/ccaReview";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -20,7 +21,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       client: true,
       // never ship signature image blobs or server file paths to the browser
       signatures: { select: { role: true, printedName: true, signedDate: true } },
-      uploadedDocuments: { select: { id: true, docType: true, fileName: true, createdAt: true } },
+      uploadedDocuments: { select: { id: true, docType: true, fileName: true, createdAt: true, reviewJson: true } },
       generatedPdfs: { orderBy: { createdAt: "desc" }, select: { id: true, createdAt: true, sha256: true } },
       auditLogs: { orderBy: { createdAt: "desc" }, take: 50, select: { id: true, event: true, detail: true, createdAt: true } },
     },
@@ -29,8 +30,15 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const signed = intake.signatures.some((s) => s.role === "client" || s.role === "guardian");
   const base = appBaseUrl(_req);
+  const uploadedDocuments = intake.uploadedDocuments.map((document) => ({
+    id: document.id,
+    docType: document.docType,
+    fileName: document.fileName,
+    createdAt: document.createdAt,
+    ccaReview: parseCcaReview(document.reviewJson),
+  }));
   return NextResponse.json({
-    intake,
+    intake: { ...intake, uploadedDocuments },
     answers,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),

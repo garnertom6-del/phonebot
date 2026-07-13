@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
+import type { CcaReview } from "@/lib/ccaReview";
 import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
@@ -24,6 +25,7 @@ type PreflightFinding = {
   source: "rules" | "ai";
   overridden?: boolean;
   pendingRecheck?: boolean;
+  resolved?: "corrected" | "overridden";
 };
 
 type PreflightResult = {
@@ -56,7 +58,7 @@ interface Detail {
     provider?: { name: string; phone?: string | null } | null;
     client: { fullName: string; dob: string; midNumber?: string; email?: string; phone?: string; guardianName?: string };
     signatures: { role: string; printedName: string; signedDate: string }[];
-    uploadedDocuments: { id: string; docType: string; fileName: string }[];
+    uploadedDocuments: { id: string; docType: string; fileName: string; createdAt?: string; ccaReview?: CcaReview | null }[];
     generatedPdfs: { id: string; createdAt: string }[];
     auditLogs: { id: string; event: string; detail?: string; createdAt: string }[];
   };
@@ -161,11 +163,30 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const saved = query.get("saved");
     if (saved !== "staff") return;
     const returningToPreflight = query.get("return") === "preflight";
+    const focusKey = query.get("focus");
     setNote(returningToPreflight
       ? "Saved. Your preflight checklist is still open; correct the next item and rerun the review when you are ready."
       : "Staff signature and changes saved successfully. Next step: review the intake/preflight findings, then generate the packet.");
     window.history.replaceState({}, "", window.location.pathname);
     if (returningToPreflight) {
+      if (focusKey) {
+        try {
+          const stored = sessionStorage.getItem(`smart-intake:preflight:${params.id}`);
+          if (stored) {
+            const restored = JSON.parse(stored) as PreflightResult;
+            const next = {
+              ...restored,
+              findings: restored.findings.map((finding) => finding.fieldKeys?.includes(focusKey)
+                ? { ...finding, pendingRecheck: true, resolved: "corrected" as const }
+                : finding),
+            };
+            setPreflight(next);
+            sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
+          }
+        } catch {
+          sessionStorage.removeItem(`smart-intake:preflight:${params.id}`);
+        }
+      }
       window.setTimeout(() => document.getElementById("preflight-review")?.scrollIntoView({ behavior: "smooth", block: "start" }), 80);
     }
   }, [params.id]);
@@ -177,12 +198,18 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const clientMessage = intakeShareMessage(d.clientLink, providerName);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
-  const hasCca = i.uploadedDocuments.some((document) => document.docType === "CCA");
+  const ccaDocuments = i.uploadedDocuments
+    .filter((document) => document.docType === "CCA")
+    .sort((a, b) => Date.parse(String(b.createdAt || "")) - Date.parse(String(a.createdAt || "")));
+  const latestCca = ccaDocuments[0];
+  const hasCca = ccaDocuments.length > 0;
+  const ccaReview = latestCca?.ccaReview || null;
   const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
   const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
-  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden).length ?? 0;
-  const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden).length ?? 0;
-  const preflightPendingCount = preflight?.findings.filter((finding) => finding.pendingRecheck && !finding.overridden).length ?? 0;
+  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
+  const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
+  const preflightCorrectedCount = preflight?.findings.filter((finding) => finding.resolved === "corrected").length ?? 0;
+  const preflightIsClear = !!preflight && preflightBlockingCount === 0;
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -239,11 +266,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       const filled = Number(b.filled || 0);
       const extracted = Number(b.extracted || 0);
       const skipped = Number(b.skipped || 0);
+      const review = b.ccaReview as CcaReview | undefined;
+      const medicationCount = (review?.prescriptionMedications.length || 0) + (review?.otcMedications.length || 0);
+      const majorErrors = review?.majorErrors.length || 0;
       setCcaResultKind("success");
       setCcaResult(`CCA successfully uploaded. It answered ${filled} intake question${filled === 1 ? "" : "s"} automatically` +
         (extracted && extracted !== filled ? ` (${extracted} found in the CCA` +
           (skipped ? `, ${skipped} kept from existing answers` : "") + ")" : "") +
-        ". Review/edit, then Generate Completed Packet.");
+        `. Medication review captured ${medicationCount} medication${medicationCount === 1 ? "" : "s"}.` +
+        ` CCA accuracy review found ${majorErrors} major issue${majorErrors === 1 ? "" : "s"}. Review the separate CCA accuracy section before generating the packet.`);
       setNote(`CCA uploaded and ${filled} answer${filled === 1 ? "" : "s"} filled automatically.`);
       load();
     } else {
@@ -419,7 +450,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         return;
       }
       setCcaResultKind("success");
-      setCcaResult(`CCA re-scan complete. AI found ${Number(body.extracted || 0)} field${Number(body.extracted || 0) === 1 ? "" : "s"} and updated ${Number(body.filled || 0)} answer${Number(body.filled || 0) === 1 ? "" : "s"}. Review the changes before generating the packet.`);
+      const review = body.ccaReview as CcaReview | undefined;
+      const medicationCount = (review?.prescriptionMedications.length || 0) + (review?.otcMedications.length || 0);
+      const majorErrors = review?.majorErrors.length || 0;
+      setCcaResult(`CCA re-scan complete. AI found ${Number(body.extracted || 0)} field${Number(body.extracted || 0) === 1 ? "" : "s"} and updated ${Number(body.filled || 0)} answer${Number(body.filled || 0) === 1 ? "" : "s"}. Medication review captured ${medicationCount} medication${medicationCount === 1 ? "" : "s"}; ${majorErrors} major CCA issue${majorErrors === 1 ? "" : "s"} need attention. Review the separate CCA accuracy section before generating the packet.`);
       load();
     } catch {
       setCcaResultKind("error");
@@ -469,7 +503,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       }
       const next = preflight ? {
         ...preflight,
-        findings: preflight.findings.map((item) => item.key === finding.key ? { ...item, overridden: true } : item),
+        findings: preflight.findings.map((item) => item.key === finding.key
+          ? { ...item, overridden: true, resolved: "overridden" as const, pendingRecheck: false }
+          : item),
       } : null;
       setPreflight(next);
       if (next) sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
@@ -502,7 +538,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       }
       const next = preflight ? {
         ...preflight,
-        findings: preflight.findings.map((item) => item.key === finding.key ? { ...item, pendingRecheck: true } : item),
+        findings: preflight.findings.map((item) => item.key === finding.key
+          ? { ...item, pendingRecheck: true, resolved: "corrected" as const }
+          : item),
       } : null;
       setPreflight(next);
       if (next) sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
@@ -742,8 +780,18 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               {ccaResult}
             </p>
           )}
+          {hasCca && (
+            <CcaAccuracyPanel
+              review={ccaReview}
+              onCopy={async () => {
+                if (!ccaReview) return;
+                await navigator.clipboard.writeText(formatCcaFollowUp(ccaReview));
+                setNote("CCA creator follow-up note copied.");
+              }}
+            />
+          )}
         </div>
-        <div id="preflight-review" className="card md:col-span-2 border-emerald-200 bg-emerald-50/40">
+        <div id="preflight-review" className={`card md:col-span-2 ${preflightIsClear ? "border-emerald-500 bg-emerald-100" : "border-emerald-200 bg-emerald-50/40"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-bold text-emerald-900">AI preflight review</h3>
@@ -772,13 +820,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               ) : (
                 <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
                   <p className="font-bold">{preflightBlockingCount} item{preflightBlockingCount === 1 ? " needs" : "s need"} attention before the packet is ready.</p>
-                  {preflightPendingCount > 0 && <p className="mt-1 text-sm">{preflightPendingCount} corrected item{preflightPendingCount === 1 ? " is" : "s are"} waiting for a final recheck.</p>}
+                  {preflightCorrectedCount > 0 && <p className="mt-1 text-sm font-semibold text-emerald-900">{preflightCorrectedCount} item{preflightCorrectedCount === 1 ? " is" : "s are"} corrected and removed from the attention count. Rerun the review to verify the saved changes.</p>}
                   <p className="mt-1 text-sm">{preflight.message}</p>
                 </div>
               )}
               {preflight.findings.map((finding, index) => (
                 <div key={`${finding.key}-${index}`} className={`rounded-lg border p-3 text-sm ${
-                  finding.overridden ? "border-slate-200 bg-slate-100 text-slate-600" :
+                  finding.resolved === "overridden" || finding.overridden ? "border-lime-300 bg-lime-50 text-lime-950" :
+                  finding.resolved === "corrected" ? "border-emerald-500 bg-emerald-100 text-emerald-950" :
                   finding.pendingRecheck ? "border-sky-200 bg-sky-50 text-sky-900" :
                   finding.severity === "error" ? "border-red-200 bg-red-50 text-red-800" :
                   finding.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
@@ -787,7 +836,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   <div className="flex flex-wrap items-center gap-2">
                     <b>{finding.title}</b>
                     <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
-                      {finding.overridden ? "Override recorded" : finding.pendingRecheck ? "Saved - rerun to verify" : finding.source === "ai" ? "AI suggestion" : "Automatic check"}
+                      {finding.resolved === "overridden" || finding.overridden ? "Override recorded" : finding.resolved === "corrected" ? "Corrected - rerun to verify" : finding.pendingRecheck ? "Saved - rerun to verify" : finding.source === "ai" ? "AI suggestion" : "Automatic check"}
                     </span>
                   </div>
                   <p className="mt-1">{finding.detail}</p>
@@ -798,7 +847,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                         {finding.fieldLabels?.[fieldIndex] || (fieldIndex === 0 ? "Review in form" : key)}
                       </Link>
                     ))}
-                    {!finding.overridden && finding.severity !== "info" && (
+                    {!finding.overridden && !finding.resolved && finding.severity !== "info" && (
                       <button className="font-semibold underline disabled:opacity-50" type="button"
                         disabled={overrideBusyKey === finding.key} onClick={() => { void overridePreflight(finding); }}>
                         {overrideBusyKey === finding.key ? "Recording..." : "Override and continue"}
@@ -1084,6 +1133,91 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         </div>
       </div>
     </main>
+  );
+}
+
+function formatCcaFollowUp(review: CcaReview): string {
+  const lines = [
+    "CCA creator follow-up requested",
+    review.sourceClinician ? `Assessment clinician: ${review.sourceClinician}` : "Assessment clinician: not identified",
+    review.assessmentDate ? `Assessment date: ${review.assessmentDate}` : "Assessment date: not identified",
+    "",
+    "Please review and correct these CCA items:",
+    ...review.majorErrors.map((item) => `- MAJOR: ${item}`),
+    ...review.warnings.map((item) => `- Clarification: ${item}`),
+  ];
+  return lines.join("\n");
+}
+
+function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy: () => void }) {
+  if (!review) {
+    return (
+      <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+        <p className="font-bold">CCA accuracy review is not available yet</p>
+        <p className="mt-1">Upload or re-scan the CCA to create the medication and documentation accuracy review.</p>
+      </div>
+    );
+  }
+  const medicationCount = review.prescriptionMedications.length + review.otcMedications.length;
+  const clear = review.majorErrors.length === 0 && review.warnings.length === 0;
+  return (
+    <div className={`mt-4 rounded-xl border p-3 text-sm ${
+      review.majorErrors.length ? "border-red-300 bg-red-50 text-red-950" :
+      review.warnings.length ? "border-amber-300 bg-amber-50 text-amber-950" :
+      "border-emerald-500 bg-emerald-100 text-emerald-950"
+    }`}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <p className="font-bold">CCA accuracy review</p>
+          <p className="mt-1 text-xs opacity-80">Separate from the intake preflight. AI suggests only; staff must confirm the CCA before using it.</p>
+        </div>
+        <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={onCopy}>
+          Copy creator follow-up note
+        </button>
+      </div>
+      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+        <div><b>Clinician:</b> {review.sourceClinician || "Not identified"}</div>
+        <div><b>Assessment date:</b> {review.assessmentDate || "Not identified"}</div>
+        <div><b>Medications captured:</b> {medicationCount}</div>
+      </div>
+      {clear ? (
+        <p className="mt-3 font-semibold text-emerald-950">No major CCA accuracy issues were identified. Confirm the medication list and source document manually.</p>
+      ) : (
+        <>
+          {review.majorErrors.length > 0 && (
+            <div className="mt-3 rounded-lg border border-red-300 bg-red-100 p-2">
+              <p className="font-bold">Major issues to send back to the CCA creator</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">{review.majorErrors.map((item, index) => <li key={`major-${index}`}>{item}</li>)}</ul>
+            </div>
+          )}
+          {review.warnings.length > 0 && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 p-2">
+              <p className="font-bold">Clarifications to review</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">{review.warnings.map((item, index) => <li key={`warning-${index}`}>{item}</li>)}</ul>
+            </div>
+          )}
+        </>
+      )}
+      {medicationCount > 0 && (
+        <details className="mt-3 rounded-lg border border-current/20 bg-white/60 p-2">
+          <summary className="cursor-pointer font-semibold">Show captured medication list</summary>
+          <div className="mt-2 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="font-semibold">Prescription</p>
+              {review.prescriptionMedications.length
+                ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.prescriptionMedications.map((item, index) => <li key={`rx-${index}`}>{item}</li>)}</ul>
+                : <p className="mt-1 text-xs opacity-70">None identified.</p>}
+            </div>
+            <div>
+              <p className="font-semibold">Over the counter</p>
+              {review.otcMedications.length
+                ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.otcMedications.map((item, index) => <li key={`otc-${index}`}>{item}</li>)}</ul>
+                : <p className="mt-1 text-xs opacity-70">None identified.</p>}
+            </div>
+          </div>
+        </details>
+      )}
+    </div>
   );
 }
 

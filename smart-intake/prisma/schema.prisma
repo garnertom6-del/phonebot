@@ -224,6 +224,7 @@ model UploadedDocument {
   fileName  String
   filePath  String
   mimeType  String
+  reviewJson String? // JSON: CcaReview from the AI document accuracy pass
   createdAt DateTime @default(now())
 
   @@index([intakeId])

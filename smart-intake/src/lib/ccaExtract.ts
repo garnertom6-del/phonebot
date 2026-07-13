@@ -7,6 +7,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
+import type { CcaReview } from "./ccaReview";
 
 export function ccaConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
@@ -54,9 +55,22 @@ function buildSchema(questions: Question[]) {
           required: ["key", "value"],
           additionalProperties: false,
         },
+    },
+      ccaReview: {
+        type: "object",
+        properties: {
+          sourceClinician: { type: "string" },
+          assessmentDate: { type: "string" },
+          prescriptionMedications: { type: "array", items: { type: "string" } },
+          otcMedications: { type: "array", items: { type: "string" } },
+          majorErrors: { type: "array", items: { type: "string" } },
+          warnings: { type: "array", items: { type: "string" } },
+        },
+        required: ["sourceClinician", "assessmentDate", "prescriptionMedications", "otcMedications", "majorErrors", "warnings"],
+        additionalProperties: false,
       },
     },
-    required: ["answers"],
+    required: ["answers", "ccaReview"],
     additionalProperties: false,
   } as const;
 }
@@ -70,6 +84,7 @@ function fieldGuide(questions: Question[]): string {
 export interface CcaExtractionResult {
   extracted: Answers;
   fieldCount: number;
+  review: CcaReview;
 }
 
 /** Match a model-produced value to the question's fixed options, tolerating
@@ -193,7 +208,17 @@ export async function extractFromCca(
       "consent, legal status, or service need that is not stated. " +
       "(7) If the CCA recommends outpatient therapy, peer support, medication management referral, " +
       "care coordination, housing, employment, transportation, food, or PCP support, preserve those " +
-      "recommendations in the matching service/recommendation fields.",
+      "recommendations in the matching service/recommendation fields. " +
+      "(8) Build a complete medication inventory from every medication list, reconciliation table, " +
+      "and narrative page. Keep one medication per line with the exact name, dose, route, frequency, " +
+      "and status when stated. Put prescription medications and OTC medications in separate arrays; " +
+      "never summarize a long list into a few examples. If the CCA explicitly says none, return an " +
+      "empty list and do not call it an error. " +
+      "(9) In ccaReview, report only major documentation problems supported by the CCA, such as an " +
+      "illegible or contradictory identity/date, a medication with a missing or conflicting dose, a " +
+      "missing assessment author/date, or a recommendation that is not clear enough to map. Do not " +
+      "invent a clinical error. Use warnings for items that need the CCA creator to clarify. Keep each " +
+      "review item under 240 characters.",
     messages: [{
       role: "user",
       content: [
@@ -217,7 +242,10 @@ export async function extractFromCca(
   }
   const text = response.content.find((b) => b.type === "text");
   if (!text || text.type !== "text") throw new Error("No extraction result returned.");
-  const raw = JSON.parse(text.text) as { answers?: Array<{ key?: string; value?: unknown }> };
+  const raw = JSON.parse(text.text) as {
+    answers?: Array<{ key?: string; value?: unknown }>;
+    ccaReview?: Partial<CcaReview>;
+  };
 
   // keep only known keys with non-empty values
   const byKey = new Map(questions.map((q) => [q.key, q]));
@@ -230,6 +258,28 @@ export async function extractFromCca(
     if (normalized === undefined || (Array.isArray(normalized) && normalized.length === 0)) continue;
     extracted[item.key] = normalized;
   }
+  const review: CcaReview = {
+    sourceClinician: typeof raw.ccaReview?.sourceClinician === "string" ? raw.ccaReview.sourceClinician.trim() : "",
+    assessmentDate: typeof raw.ccaReview?.assessmentDate === "string" ? raw.ccaReview.assessmentDate.trim() : "",
+    prescriptionMedications: Array.isArray(raw.ccaReview?.prescriptionMedications)
+      ? raw.ccaReview.prescriptionMedications.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 100)
+      : [],
+    otcMedications: Array.isArray(raw.ccaReview?.otcMedications)
+      ? raw.ccaReview.otcMedications.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 100)
+      : [],
+    majorErrors: Array.isArray(raw.ccaReview?.majorErrors)
+      ? raw.ccaReview.majorErrors.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 20)
+      : [],
+    warnings: Array.isArray(raw.ccaReview?.warnings)
+      ? raw.ccaReview.warnings.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 30)
+      : [],
+  };
+  if (review.prescriptionMedications.length) {
+    extracted.medications = review.prescriptionMedications.join("\n");
+  }
+  if (review.otcMedications.length) {
+    extracted.otc_medications = review.otcMedications.join("\n");
+  }
   setGatingParents(extracted);
   setCcaWorkflowDefaults(extracted);
   // the CCA's own assessment date beats "today" for the assessment blanks
@@ -238,7 +288,7 @@ export async function extractFromCca(
       if (!extracted[k]) extracted[k] = extracted.cca_assessment_date;
     }
   }
-  return { extracted, fieldCount: Object.keys(extracted).length };
+  return { extracted, fieldCount: Object.keys(extracted).length, review };
 }
 
 /**

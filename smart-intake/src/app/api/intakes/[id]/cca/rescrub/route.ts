@@ -38,6 +38,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: error instanceof Error ? error.message : "CCA re-scan failed" }, { status: 502 });
   }
 
+  await prisma.uploadedDocument.update({
+    where: { id: document.id },
+    data: { reviewJson: JSON.stringify(extraction.review) },
+  });
+
   const current = await loadAnswers(intake.id);
   const { merged, filled, skipped } = mergeCcaAnswers(current, extraction.extracted, overwrite);
   const withDefaults = applyOperationalDefaults({ ...current, ...merged });
@@ -75,5 +80,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     skipped: skipped.length,
     extracted: extraction.fieldCount,
     filledLabels: filled.map(label).slice(0, 60),
+    ccaReview: extraction.review,
   });
 }

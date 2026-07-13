@@ -91,6 +91,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       }
       const query = new URLSearchParams({ saved: "staff" });
       if (returningToPreflight) query.set("return", "preflight");
+      const focusKey = new URLSearchParams(window.location.search).get("focus");
+      if (focusKey) query.set("focus", focusKey);
       router.push(`/intakes/${params.id}?${query.toString()}`);
     } catch {
       setNote("Save failed because the connection was interrupted. Please try again.");

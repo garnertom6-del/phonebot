@@ -47,7 +47,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const rel = `uploads/${intake.id}/cca-${Date.now()}-${safeName}`;
   saveFile(rel, buffer);
   await prisma.uploadedDocument.create({
-    data: { intakeId: intake.id, docType: "CCA", fileName: `CCA: ${file.name}`, filePath: rel, mimeType: mime },
+    data: {
+      intakeId: intake.id,
+      docType: "CCA",
+      fileName: `CCA: ${file.name}`,
+      filePath: rel,
+      mimeType: mime,
+      reviewJson: JSON.stringify(extraction.review),
+    },
   });
 
   const current = await loadAnswers(intake.id);
@@ -89,5 +96,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     extracted: extraction.fieldCount,
     filledLabels: filled.map(label).slice(0, 60),
     skippedLabels: skipped.map(label).slice(0, 30),
+    ccaReview: extraction.review,
   });
 }
