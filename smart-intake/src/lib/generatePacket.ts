@@ -81,7 +81,7 @@ function assertRenderedPacketText(text: string, expectedClientName: string, prov
     .filter((name) => !normalizedName(providerName).includes(name) && normalized.includes(name));
   if (staleProviders.length) {
     throw new Error(
-      `Packet template check failed: rendered packet contains stale provider text (${staleProviders.join(", ")}). Upload a clean ${providerName} packet before generating.`,
+      `Packet template check failed: the rendered packet contains older provider text. No packet was generated. To fix it, upload the correct clean ${providerName} packet in Master Dashboard > Provider Packet Setup, activate/approve that packet, then try Generate Completed Packet again.`,
     );
   }
 }
