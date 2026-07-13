@@ -22,6 +22,8 @@ type TwilioMessage = {
   code?: number;
 };
 
+type ClientLinkPurpose = "intake" | "signature";
+
 function normalizeUsPhone(value: string): string {
   const trimmed = value.trim();
   if (trimmed.startsWith("+")) return trimmed;
@@ -93,14 +95,19 @@ export async function sendClientLinkEmail(
   link: string,
   providerName?: string | null,
   supportPhone?: string | null,
+  purpose: ClientLinkPurpose = "intake",
 ): Promise<NotifyResult> {
   const key = process.env.SENDGRID_API_KEY;
   const provider = providerDisplayName(providerName);
-  const subject = `${provider} - Your new-client questions`;
-  const body =
-    `Hello ${clientName},\n\n${intakeProcessExplanation(providerName)} ` +
-    `This secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days:\n\n${link}\n\n` +
-    `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
+  const signatureReminder = purpose === "signature";
+  const subject = signatureReminder
+    ? `${provider} - Signature needed to finish your intake`
+    : `${provider} - Your new-client questions`;
+  const body = signatureReminder
+    ? `Hello ${clientName},\n\nYour intake answers are saved, but we still need your signature or guardian signature to finish the intake. Open the same secure link below, review your answers, and sign at the end:\n\n${link}\n\nThis secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days. If you already signed, no action is needed. Questions? Call ${providerPhone(supportPhone, providerName)}.`
+    : `Hello ${clientName},\n\n${intakeProcessExplanation(providerName)} ` +
+      `This secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days:\n\n${link}\n\n` +
+      `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
@@ -128,12 +135,15 @@ export async function sendClientLinkSms(
   to: string,
   link: string,
   providerName?: string | null,
-  _supportPhone?: string | null,
+  supportPhone?: string | null,
+  purpose: ClientLinkPurpose = "intake",
 ): Promise<NotifyResult> {
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `${intakeProcessExplanation(providerName)} Secure link: ${link}`;
+  const body = purpose === "signature"
+    ? `${providerDisplayName(providerName)}: your intake answers are saved, but we still need your signature or guardian signature. Review and sign at the end of this secure link: ${link} Questions? Call ${providerPhone(supportPhone, providerName)}.`
+    : `${intakeProcessExplanation(providerName)} Secure link: ${link}`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };

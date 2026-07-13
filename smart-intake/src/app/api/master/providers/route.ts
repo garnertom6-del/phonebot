@@ -53,9 +53,8 @@ export async function GET() {
         orderBy: { createdAt: "asc" },
       },
       pdfTemplates: {
-        where: { isActive: true },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        take: 1,
+        take: 5,
         select: {
           id: true,
           name: true,
@@ -64,6 +63,10 @@ export async function GET() {
           pageWidth: true,
           pageHeight: true,
           isActive: true,
+          mappingStatus: true,
+          mappingScore: true,
+          mappingIssues: true,
+          approvedAt: true,
           createdAt: true,
           updatedAt: true,
         },

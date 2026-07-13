@@ -67,6 +67,10 @@ export async function GET(req: NextRequest) {
     pageCount: target.template?.pageCount ?? PACKET_MAP.pageCount,
     pageWidth: target.template?.pageWidth ?? PACKET_MAP.pageWidth,
     pageHeight: target.template?.pageHeight ?? PACKET_MAP.pageHeight,
+    mappingStatus: target.template?.mappingStatus ?? "APPROVED",
+    mappingScore: target.template?.mappingScore ?? null,
+    mappingIssues: target.template?.mappingIssues ?? null,
+    savedMappingCount: target.template?.fieldMappings.length ?? 0,
     fields,
     overrideKeys: overrides.map((o: { fieldKey: string }) => o.fieldKey),
   });

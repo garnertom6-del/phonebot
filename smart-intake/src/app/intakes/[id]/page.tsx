@@ -126,6 +126,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [quickFixBusyKey, setQuickFixBusyKey] = useState("");
   const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
   const [lastSignatureAudit, setLastSignatureAudit] = useState<SignatureAudit | null>(null);
+  const [signatureReminderBusy, setSignatureReminderBusy] = useState(false);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
@@ -177,6 +178,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
   const hasCca = i.uploadedDocuments.some((document) => document.docType === "CCA");
+  const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden).length ?? 0;
   const preflightPendingCount = preflight?.findings.filter((finding) => finding.pendingRecheck && !finding.overridden).length ?? 0;
@@ -287,6 +289,29 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       setCopiesBusy(false);
     }
     load();
+  }
+
+  async function sendSignatureReminder() {
+    setSignatureReminderBusy(true);
+    setNote("Checking the client signature and sending a secure reminder...");
+    try {
+      const r = await fetch(`/api/intakes/${i.id}/signature-reminder`, { method: "POST" });
+      const b = await r.json().catch(() => ({}));
+      if (b.alreadySigned) {
+        setNote(b.message || "The client or guardian signature is already saved.");
+      } else if (r.ok) {
+        const sent = Array.isArray(b.sent) ? b.sent.join(", ") : "the saved contact";
+        setNote(`Signature reminder sent to ${sent}. The client can reopen the same link, review saved answers, and sign at the end.`);
+      } else {
+        const failed = Array.isArray(b.failed) && b.failed.length ? ` ${b.failed.join(" ")}` : "";
+        setNote(`Signature reminder could not be sent.${failed} Check the client's phone or email, then try again.`);
+      }
+      load();
+    } catch {
+      setNote("Signature reminder could not connect. Please try again.");
+    } finally {
+      setSignatureReminderBusy(false);
+    }
   }
 
   async function saveAssist(form: HTMLFormElement) {
@@ -623,6 +648,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </a>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Text message copied"); }}>Copy text message</button>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Reminder", () => fetch(`/api/intakes/${i.id}/remind`, { method: "POST" }))}>Send reminder</button>
+            <button
+              className="btn-primary px-3 py-1.5 text-sm"
+              disabled={signatureReminderBusy || hasClientSignature}
+              onClick={sendSignatureReminder}
+            >
+              {hasClientSignature ? "Client signature saved" : signatureReminderBusy ? "Sending signature reminder..." : "Send signature reminder"}
+            </button>
             <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Extend link", () => fetch(`/api/intakes/${i.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ extendToken: true }) }))}>Extend</button>
           </div>
         </div>

@@ -22,6 +22,10 @@ type ProviderRow = {
     pageWidth?: number | null;
     pageHeight?: number | null;
     isActive: boolean;
+    mappingStatus: string;
+    mappingScore?: number | null;
+    mappingIssues?: string | null;
+    approvedAt?: string | null;
     createdAt: string;
     updatedAt: string;
   }>;
@@ -57,7 +61,7 @@ function providerSearchText(provider: ProviderRow) {
     provider.email,
     provider.phone,
     admins,
-    provider.pdfTemplates[0]?.originalFileName,
+    provider.pdfTemplates.map((template) => template.originalFileName).join(" "),
   ].join(" ").toLowerCase();
 }
 
@@ -75,6 +79,7 @@ export default function MasterDashboard() {
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [packetFile, setPacketFile] = useState<File | null>(null);
   const [packetBusy, setPacketBusy] = useState(false);
+  const [packetActionBusy, setPacketActionBusy] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
   const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
   const [adminBusy, setAdminBusy] = useState(false);
@@ -190,12 +195,62 @@ export default function MasterDashboard() {
       if (!response.ok) throw new Error(body.error || "Packet could not be uploaded.");
       setPacketFile(null);
       setFileInputKey((current) => current + 1);
-      setNote(`${provider.name} packet is active: ${body.template?.originalFileName || "uploaded PDF"}.`);
+      setNote(`${provider.name} packet uploaded as a review draft: ${body.template?.originalFileName || "uploaded PDF"}. Map and quality-check it before approval.`);
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Packet could not be uploaded.");
     } finally {
       setPacketBusy(false);
+    }
+  }
+
+  async function approvePacket(templateId: string) {
+    const provider = selectedProvider;
+    if (!provider) return;
+    setPacketActionBusy(templateId);
+    setError("");
+    setNote("Checking the packet map before approval...");
+    try {
+      const response = await fetch(`/api/master/providers/${provider.id}/packet-template/approve`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const blocking = Array.isArray(body.health?.blockingIssues) ? body.health.blockingIssues.slice(0, 3).join(" ") : "";
+        setError(`${body.error || "Packet approval failed."}${blocking ? ` ${blocking}` : ""}`);
+        return;
+      }
+      setNote(`Packet approved with a ${body.health?.score ?? "completed"}/100 mapping score. It is now the provider's active packet.`);
+      await load();
+    } catch {
+      setError("Packet approval could not connect. Check the mapping and try again.");
+    } finally {
+      setPacketActionBusy("");
+    }
+  }
+
+  async function activatePacket(templateId: string) {
+    const provider = selectedProvider;
+    if (!provider) return;
+    setPacketActionBusy(templateId);
+    setError("");
+    try {
+      const response = await fetch(`/api/master/providers/${provider.id}/packet-template/activate`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ templateId }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        setError(body.error || "Packet could not be activated.");
+        return;
+      }
+      setNote("The selected approved packet is now active. The previous packet remains available in history.");
+      await load();
+    } catch {
+      setError("Packet activation could not connect. Check the connection and try again.");
+    } finally {
+      setPacketActionBusy("");
     }
   }
 
@@ -479,6 +534,9 @@ export default function MasterDashboard() {
                             <div>
                               <div className="font-semibold text-slate-700">{packet.originalFileName || "Provider packet"}</div>
                               <div className="text-slate-500">{packet.pageCount} pages</div>
+                              <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${packet.isActive ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
+                                {packet.isActive ? "Active" : packet.mappingStatus === "APPROVED" ? "Approved history" : "Draft - needs review"}
+                              </span>
                             </div>
                           ) : (
                             <span className="text-slate-500">Default packet</span>
@@ -504,7 +562,7 @@ export default function MasterDashboard() {
                               Packet setup
                             </button>
                             {isMaster && packet && (
-                              <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${provider.id}`}>
+                              <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${provider.id}&templateId=${packet.id}`}>
                                 Map packet
                               </Link>
                             )}
@@ -590,6 +648,37 @@ export default function MasterDashboard() {
               <p>Select a provider to view packet status.</p>
             )}
           </div>
+          {selectedProvider && selectedTemplate && (
+            <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">Latest upload: {selectedTemplate.originalFileName || selectedTemplate.name}</p>
+              <p className="mt-1 text-xs">{selectedTemplate.pageCount} pages. {selectedTemplate.isActive ? "This is active." : "This is a review draft and is not active yet."}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${selectedProvider.id}&templateId=${selectedTemplate.id}`}>
+                  Open mapper
+                </Link>
+                {selectedTemplate.mappingStatus === "DRAFT" && (
+                  <button className="btn-primary px-3 py-1.5 text-xs" disabled={packetActionBusy === selectedTemplate.id} onClick={() => void approvePacket(selectedTemplate.id)}>
+                    {packetActionBusy === selectedTemplate.id ? "Checking..." : "Approve after review"}
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+          {selectedProvider && selectedProvider.pdfTemplates.filter((template) => template.mappingStatus === "APPROVED" && !template.isActive).length > 0 && (
+            <div className="mt-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-700">
+              <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Approved packet history</p>
+              <div className="mt-2 space-y-2">
+                {selectedProvider.pdfTemplates.filter((template) => template.mappingStatus === "APPROVED" && !template.isActive).map((template) => (
+                  <div key={template.id} className="flex flex-wrap items-center justify-between gap-2 rounded-lg bg-white px-3 py-2 text-xs">
+                    <span>{template.originalFileName || template.name} ({template.pageCount} pages)</span>
+                    <button className="btn-ghost px-2 py-1 text-xs" disabled={packetActionBusy === template.id} onClick={() => void activatePacket(template.id)}>
+                      {packetActionBusy === template.id ? "Activating..." : "Restore this packet"}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </section>
       </section>
     </main>

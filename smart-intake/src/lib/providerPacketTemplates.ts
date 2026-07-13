@@ -288,7 +288,10 @@ export async function packetTemplateForProvider(providerId?: string | null): Pro
     })
     : null;
 
-  const template = providerTemplate ?? await defaultTemplate();
+  // Only an approved provider template may replace the shared default packet.
+  // New uploads stay drafts until a master reviews and approves their map.
+  const approvedProviderTemplate = providerTemplate?.mappingStatus === "APPROVED" ? providerTemplate : null;
+  const template = approvedProviderTemplate ?? await defaultTemplate();
   const overrides = template ? parseMappings(template.fieldMappings) : [];
 
   const pageCount = template?.pageCount ?? PACKET_MAP.pageCount;

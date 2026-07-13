@@ -164,6 +164,11 @@ model PdfTemplate {
   provider         Provider?         @relation(fields: [providerId], references: [id], onDelete: SetNull)
   originalFileName String?
   isActive         Boolean           @default(true)
+  mappingStatus    String            @default("APPROVED") // DRAFT | APPROVED
+  mappingScore     Int?
+  mappingIssues    String?
+  approvedAt       DateTime?
+  approvedByUserId String?
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @default(now()) @updatedAt
   fieldMappings    PdfFieldMapping[]

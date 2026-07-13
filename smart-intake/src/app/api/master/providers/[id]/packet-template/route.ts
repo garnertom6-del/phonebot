@@ -29,6 +29,10 @@ function templateResponse(template: {
   pageWidth: number | null;
   pageHeight: number | null;
   isActive: boolean;
+  mappingStatus: string;
+  mappingScore: number | null;
+  mappingIssues: string | null;
+  approvedAt: Date | null;
   createdAt: Date;
   updatedAt: Date;
 } | null) {
@@ -42,6 +46,10 @@ function templateResponse(template: {
         pageWidth: template.pageWidth,
         pageHeight: template.pageHeight,
         isActive: template.isActive,
+        mappingStatus: template.mappingStatus,
+        mappingScore: template.mappingScore,
+        mappingIssues: template.mappingIssues,
+        approvedAt: template.approvedAt,
         createdAt: template.createdAt,
         updatedAt: template.updatedAt,
       }
@@ -116,11 +124,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   saveFile(relPath, bytes);
 
   const template = await prisma.$transaction(async (tx) => {
-    await tx.pdfTemplate.updateMany({
-      where: { providerId: targetProvider.id, isActive: true },
-      data: { isActive: false },
-    });
-
     return tx.pdfTemplate.create({
       data: {
         providerId: targetProvider.id,
@@ -130,7 +133,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         pageWidth,
         pageHeight,
         originalFileName,
-        isActive: true,
+        // Keep the current approved packet active until this new packet is
+        // mapped, tested, and explicitly approved by a master user.
+        isActive: false,
+        mappingStatus: "DRAFT",
       },
     });
   });

@@ -14,6 +14,14 @@ interface Field {
   flowLines?: number; startLine?: number; deleted?: boolean;
 }
 
+interface MappingHealth {
+  ready: boolean;
+  score: number;
+  blockingIssues: string[];
+  warnings: string[];
+  counts: { fields: number; text: number; checkboxes: number; signatures: number; pagesWithFields: number };
+}
+
 const TYPES = ["text", "checkbox", "signature", "signature_small", "initials", "survey_rating"];
 const ROLES = ["client", "guardian", "staff", "clinician", "medicalDirector", "witness", "auto"];
 const SOURCE_OPTIONS = Array.from(new Set([
@@ -51,6 +59,11 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [testFill, setTestFill] = useState(false);
   const [templateName, setTemplateName] = useState("Moore Divine Care Client Intake Package");
   const [providerSpecific, setProviderSpecific] = useState(false);
+  const [mappingStatus, setMappingStatus] = useState("APPROVED");
+  const [health, setHealth] = useState<MappingHealth | null>(null);
+  const [aiSuggestions, setAiSuggestions] = useState<Field[]>([]);
+  const [aiBusy, setAiBusy] = useState(false);
+  const [replaceMappingOnSave, setReplaceMappingOnSave] = useState(false);
   const pdfRef = useRef<unknown>(null);
   const dragRef = useRef<{ key: string; startX: number; startY: number; ox: number; oy: number; resize: boolean } | null>(null);
   const qs = queryString(providerId, templateId);
@@ -60,6 +73,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setSelected(null);
     setDirty(new Set());
     setDeletedFields([]);
+    setHealth(null);
+    setAiSuggestions([]);
+    setReplaceMappingOnSave(false);
     fetch(`/api/mapping${qs}`).then(async (r) => {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Mapping could not be loaded");
@@ -68,6 +84,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setPageSize({ w: d.pageWidth, h: d.pageHeight });
       setTemplateName(d.originalFileName || d.templateName || "Packet template");
       setProviderSpecific(!!d.providerSpecific);
+      setMappingStatus(d.mappingStatus || "APPROVED");
     }).catch((err) => {
       setFields([]);
       setNote(err instanceof Error ? err.message : "Mapping could not be loaded");
@@ -152,10 +169,58 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     const payload = [...changed, ...deletedFields];
     const r = await fetch(`/api/mapping${qs}`, {
       method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ fields: payload }),
+      body: JSON.stringify({ fields: payload, replace: replaceMappingOnSave }),
     });
     setNote(r.ok ? `Saved ${payload.length} mapping change(s)` : "Save failed");
-    if (r.ok) { setDirty(new Set()); setDeletedFields([]); }
+    if (r.ok) { setDirty(new Set()); setDeletedFields([]); setHealth(null); setReplaceMappingOnSave(false); }
+  }
+
+  async function runAiMapping() {
+    setAiBusy(true);
+    setNote("AI is reviewing the packet layout and preparing mapping suggestions...");
+    try {
+      const r = await fetch(`/api/mapping/ai-suggest${qs}`, { method: "POST" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setNote(body.error || "AI mapping could not be completed.");
+        return;
+      }
+      const suggestions = Array.isArray(body.suggestions) ? body.suggestions as Field[] : [];
+      setAiSuggestions(suggestions);
+      setNote(suggestions.length ? `AI prepared ${suggestions.length} suggestions. Review them before applying.` : "AI found no high-confidence mapping suggestions. Use the manual mapper.");
+    } catch {
+      setNote("AI mapping could not connect. Check the system AI setup and try again.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  function applyAiSuggestions(replace: boolean) {
+    if (!aiSuggestions.length) return;
+    if (replace) {
+      setFields(aiSuggestions);
+      setDirty(new Set(aiSuggestions.map((field) => field.fieldKey)));
+      setDeletedFields([]);
+      setReplaceMappingOnSave(true);
+    } else {
+      setFields((current) => [...current, ...aiSuggestions.filter((suggestion) => !current.some((field) => field.fieldKey === suggestion.fieldKey))]);
+      setDirty((current) => new Set([...current, ...aiSuggestions.map((field) => field.fieldKey)]));
+    }
+    setAiSuggestions([]);
+    setHealth(null);
+    setNote("AI suggestions applied locally only. Review the boxes, then save and run the quality check.");
+  }
+
+  async function runHealthCheck() {
+    setNote("Checking mapping quality...");
+    const r = await fetch(`/api/mapping/health${qs}`);
+    const body = await r.json().catch(() => ({}));
+    if (!r.ok) {
+      setNote(body.error || "Mapping quality check failed.");
+      return;
+    }
+    setHealth(body.health || null);
+    setNote(body.health?.ready ? "Mapping quality check passed. A master can approve this packet." : "Mapping needs attention before approval.");
   }
 
   async function loadMooreDraft() {
@@ -200,6 +265,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       <div className="flex-1">
         <div className="mb-2 rounded-md bg-slate-50 p-3 text-sm text-slate-600">
           Mapping: <strong>{templateName}</strong>{providerSpecific ? " (provider packet)" : " (default packet)"}
+          {providerSpecific && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${mappingStatus === "APPROVED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{mappingStatus}</span>}
         </div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>Prev</button>
@@ -214,12 +280,34 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
             <input type="checkbox" checked={testFill} onChange={(e) => setTestFill(e.target.checked)} /> Test-fill labels
           </label>
           <button className="btn-primary px-3 py-1" onClick={saveOverrides}>Save mapping ({dirty.size + deletedFields.length})</button>
+          {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={runHealthCheck}>Check mapping quality</button>}
+          {providerSpecific && <button className="btn-ghost px-3 py-1" disabled={aiBusy} onClick={runAiMapping}>{aiBusy ? "AI reviewing..." : "AI suggest mappings"}</button>}
           {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
           <button className="btn-ghost px-3 py-1" onClick={clearMap}>Clear map</button>
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
           <span className="text-sm text-emerald-600">{note}</span>
         </div>
         <p className="mb-2 text-xs text-slate-500">Click empty space to add a field. Drag a box to move. Drag the corner dot to resize. Click a box to edit its properties.</p>
+        {health && (
+          <div className={`mb-3 rounded-lg border p-3 text-sm ${health.ready ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}>
+            <p className="font-semibold">Mapping score: {health.score}/100 {health.ready ? "- ready for master approval" : "- fix blocking items first"}</p>
+            <p className="mt-1 text-xs">{health.counts.fields} fields, {health.counts.signatures} signature fields, {health.counts.pagesWithFields} pages with mappings.</p>
+            {health.blockingIssues.length > 0 && <p className="mt-2 text-xs"><b>Blocking:</b> {health.blockingIssues.slice(0, 5).join(" ")}{health.blockingIssues.length > 5 ? " More issues remain." : ""}</p>}
+            {health.warnings.length > 0 && <p className="mt-2 text-xs"><b>Warnings:</b> {health.warnings.slice(0, 3).join(" ")}{health.warnings.length > 3 ? " More warnings remain." : ""}</p>}
+          </div>
+        )}
+        {aiSuggestions.length > 0 && (
+          <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
+            <p className="font-semibold">AI prepared {aiSuggestions.length} unsaved suggestions</p>
+            <p className="mt-1 text-xs">These are recommendations only. Review the highlighted boxes before saving.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button className="btn-primary px-3 py-1.5 text-xs" onClick={() => applyAiSuggestions(true)}>Apply as new draft map</button>
+              <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => applyAiSuggestions(false)}>Add to current map</button>
+              <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setAiSuggestions([])}>Discard</button>
+            </div>
+            <p className="mt-2 text-xs">Preview: {aiSuggestions.slice(0, 5).map((field) => `${field.source} p${field.page}`).join("; ")}{aiSuggestions.length > 5 ? "; ..." : ""}</p>
+          </div>
+        )}
         <div className="relative inline-block border border-slate-300 shadow" onClick={addFieldAt}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
           <canvas ref={canvasRef} />
