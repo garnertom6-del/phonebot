@@ -193,6 +193,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     return failed.length ? `Not sent: ${failed.join("; ")}` : fallback;
   }
 
+  function smsWasSent(body: Record<string, unknown>): boolean {
+    return Array.isArray(body.sent) && body.sent.some((item) => /^sms\b/i.test(String(item)));
+  }
+
+  function returnHomeAfterSms() {
+    setNote("SMS sent successfully. Returning to the provider portal...");
+    window.setTimeout(() => window.location.assign("/dashboard"), 900);
+  }
+
   function signatureRoleLabel(role: string): string {
     const labels: Record<string, string> = {
       client: "Client",
@@ -270,6 +279,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     } else {
       setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
     }
+    if (r.ok && smsWasSent(b)) {
+      returnHomeAfterSms();
+      return;
+    }
     load();
   }
 
@@ -285,6 +298,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       } else {
         setCopiesLink(b.link || "");
         setNote(deliveryStatus(b, `Client records send failed: ${b.error || r.status}`));
+      }
+      if (r.ok && smsWasSent(b)) {
+        returnHomeAfterSms();
+        return;
       }
     } finally {
       setCopiesBusy(false);

@@ -13,27 +13,23 @@ import SignaturePad from "@/components/SignaturePad";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
-type SignMode = StaffSignatureRole | "careTeam";
 
-const SIGN_MODES: { mode: SignMode; label: string; padLabel: string; roles: StaffSignatureRole[] }[] = [
-  {
-    mode: "careTeam",
-    label: "Sign once as QP + clinician + witness",
-    padLabel: "QP / clinician / witness signature",
-    roles: ["staff", "clinician", "witness"],
-  },
-  { mode: "staff", label: "Sign as QP / Qualified Professional", padLabel: "QP / Qualified Professional signature", roles: ["staff"] },
-  { mode: "clinician", label: "Sign as clinician", padLabel: "Clinician signature", roles: ["clinician"] },
-  { mode: "witness", label: "Sign as witness", padLabel: "Witness signature", roles: ["witness"] },
-  { mode: "medicalDirector", label: "Sign as medical director", padLabel: "Medical director signature", roles: ["medicalDirector"] },
+const SIGNER_OPTIONS: { role: StaffSignatureRole; label: string; padLabel: string }[] = [
+  { role: "staff", label: "QP / Qualified Professional", padLabel: "QP / Qualified Professional signature" },
+  { role: "clinician", label: "Clinician", padLabel: "Clinician signature" },
+  { role: "witness", label: "Witness", padLabel: "Witness signature" },
+  { role: "medicalDirector", label: "Medical director", padLabel: "Medical director signature" },
 ];
+const CARE_TEAM_ROLES: StaffSignatureRole[] = ["staff", "clinician", "witness"];
 
 export default function ReviewPage({ params }: { params: { id: string } }) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Answers>({});
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
-  const [signMode, setSignMode] = useState<SignMode | null>(null);
+  const [selectedSignerRoles, setSelectedSignerRoles] = useState<StaffSignatureRole[]>([]);
+  const [activeSignerIndex, setActiveSignerIndex] = useState(0);
+  const [isSigning, setIsSigning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [returningToPreflight, setReturningToPreflight] = useState(false);
@@ -102,18 +98,50 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     }
   }
 
-  async function captureStaffSig(mode: SignMode, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
-    const config = SIGN_MODES.find((m) => m.mode === mode);
-    const roles = config?.roles || [];
-    const results = await Promise.all(roles.map((role) => fetch(`/api/intakes/${params.id}/signature`, {
+  function toggleSigner(role: StaffSignatureRole) {
+    if (isSigning) return;
+    setSelectedSignerRoles((current) => current.includes(role)
+      ? current.filter((selected) => selected !== role)
+      : [...current, role]);
+  }
+
+  function selectCareTeam() {
+    if (!isSigning) setSelectedSignerRoles(CARE_TEAM_ROLES);
+  }
+
+  function startSigning() {
+    if (!selectedSignerRoles.length) {
+      setNote("Select at least one staff role before starting signatures.");
+      return;
+    }
+    setActiveSignerIndex(0);
+    setIsSigning(true);
+    setNote(`Ready for ${SIGNER_OPTIONS.find((option) => option.role === selectedSignerRoles[0])?.label || "the first signer"}.`);
+  }
+
+  async function captureStaffSig(role: StaffSignatureRole, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
+    const config = SIGNER_OPTIONS.find((option) => option.role === role);
+    const response = await fetch(`/api/intakes/${params.id}/signature`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role, ...d }),
-    })));
-    const ok = results.every((r) => r.ok);
-    setNote(ok
-      ? `${config?.padLabel || "Staff"} saved successfully. Click Save all changes & continue to advance.`
-      : "Signature failed. Please try again.");
-    setSignMode(null);
+    });
+    const body = await response.json().catch(() => ({} as { error?: string }));
+    if (!response.ok) {
+      setNote(body.error || `${config?.label || "Staff"} signature failed. Please try again.`);
+      return;
+    }
+
+    const nextIndex = activeSignerIndex + 1;
+    if (nextIndex < selectedSignerRoles.length) {
+      setActiveSignerIndex(nextIndex);
+      const nextRole = selectedSignerRoles[nextIndex];
+      setNote(`${config?.label || "Staff"} signature saved. Next: ${SIGNER_OPTIONS.find((option) => option.role === nextRole)?.label || "staff signer"}.`);
+    } else {
+      setIsSigning(false);
+      setSelectedSignerRoles([]);
+      setActiveSignerIndex(0);
+      setNote(`Saved ${selectedSignerRoles.length} staff signature${selectedSignerRoles.length === 1 ? "" : "s"} separately. Review the intake before generating the packet.`);
+    }
     load();
   }
 
@@ -147,24 +175,39 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       <div id="staff-signatures" className="card mt-3 scroll-mt-4">
         <h3 className="font-bold">Staff-side signatures</h3>
         <p className="mb-2 text-xs text-slate-500">
-          These are staff/QP/clinician/witness signatures. They are separate from the client signature.
+          Select every role that must sign. We will collect each signature separately so names and roles stay accurate in the packet.
         </p>
         <div className="flex flex-wrap gap-2">
-          {SIGN_MODES.map((m) => (
-            <button key={m.mode} type="button" aria-pressed={signMode === m.mode}
-              className={m.mode === signMode ? "btn-primary text-sm" : "btn-ghost text-sm"}
-              onClick={() => setSignMode(m.mode)}>
-              {m.label}
+          {SIGNER_OPTIONS.map((option) => (
+            <button key={option.role} type="button" aria-pressed={selectedSignerRoles.includes(option.role)} disabled={isSigning}
+              className={selectedSignerRoles.includes(option.role) ? "btn-primary text-sm" : "btn-ghost text-sm"}
+              onClick={() => toggleSigner(option.role)}>
+              {selectedSignerRoles.includes(option.role) ? "Selected: " : "Select: "}{option.label}
             </button>
           ))}
         </div>
-        {signMode && (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="btn-ghost px-3 py-1.5 text-sm" disabled={isSigning} onClick={selectCareTeam}>
+            Select QP + clinician + witness
+          </button>
+          <button type="button" className="btn-ghost px-3 py-1.5 text-sm" disabled={isSigning || !selectedSignerRoles.length}
+            onClick={() => setSelectedSignerRoles([])}>
+            Clear selection
+          </button>
+          <button type="button" className="btn-primary px-3 py-1.5 text-sm" disabled={isSigning || !selectedSignerRoles.length} onClick={startSigning}>
+            Start selected signatures
+          </button>
+        </div>
+        {isSigning && selectedSignerRoles[activeSignerIndex] && (
           <div className="mt-3">
+            <p className="mb-2 text-sm font-semibold text-brand">
+              Signature {activeSignerIndex + 1} of {selectedSignerRoles.length}: {SIGNER_OPTIONS.find((option) => option.role === selectedSignerRoles[activeSignerIndex])?.label}
+            </p>
             <SignaturePad
-              key={signMode}
-              roleLabel={SIGN_MODES.find((m) => m.mode === signMode)?.padLabel}
-              expectedRole={signMode === "careTeam" ? "staff" : signMode}
-              onCapture={(d) => captureStaffSig(signMode, d)}
+              key={`${selectedSignerRoles[activeSignerIndex]}-${activeSignerIndex}`}
+              roleLabel={SIGNER_OPTIONS.find((option) => option.role === selectedSignerRoles[activeSignerIndex])?.padLabel}
+              expectedRole={selectedSignerRoles[activeSignerIndex]}
+              onCapture={(d) => { void captureStaffSig(selectedSignerRoles[activeSignerIndex], d); }}
             />
           </div>
         )}

@@ -206,7 +206,8 @@ export default function NewIntake() {
         sent.length ? `Sent: ${sent.join(", ")}` : "",
         failed.length ? `Not sent: ${failed.join("; ")}` : "",
       ].filter(Boolean);
-      if (sent.length) {
+      const smsSent = sent.some((item: unknown) => /^sms\b/i.test(String(item)));
+      if (smsSent) {
         setRedirectingAfterSend(true);
         setSendStatus(`${parts.join(" | ")} Returning to the provider portal...`);
         window.setTimeout(() => router.push("/dashboard"), 1500);
