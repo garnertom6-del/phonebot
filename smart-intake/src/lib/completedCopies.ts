@@ -2,6 +2,7 @@ import { SECTIONS, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 
 export const AUTO_SEND_COMPLETED_COPIES_KEY = "auto_send_completed_copies";
+export const AUTO_EMAIL_PROVIDER_PACKET_KEY = "auto_email_provider_packet";
 export const COPY_ALLOWED_STATUSES = ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];
 export const COPY_RECEIPT_ANSWER_DEFAULTS = {
   hipaa_copy: "Yes",
@@ -59,4 +60,9 @@ export function buildCompletedCopySections(answers: Answers): CompletedCopySecti
 
 export function autoSendCompletedCopiesEnabled(answers: Answers): boolean {
   return answers[AUTO_SEND_COMPLETED_COPIES_KEY] !== false;
+}
+
+/** Provider delivery is opt-in because the attachment contains protected intake information. */
+export function autoEmailProviderPacketEnabled(answers: Answers): boolean {
+  return answers[AUTO_EMAIL_PROVIDER_PACKET_KEY] === true;
 }
