@@ -179,6 +179,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
   const hasCca = i.uploadedDocuments.some((document) => document.docType === "CCA");
   const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
+  const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden).length ?? 0;
   const preflightPendingCount = preflight?.findings.filter((finding) => finding.pendingRecheck && !finding.overridden).length ?? 0;
@@ -289,6 +290,27 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       setCopiesBusy(false);
     }
     load();
+  }
+
+  async function setProviderPacketEmail(enabled: boolean) {
+    setNote(`${enabled ? "Enabling" : "Disabling"} automatic provider packet email...`);
+    const r = await fetch(`/api/intakes/${i.id}/copies/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoEmailProvider: enabled }),
+    });
+    const b = await r.json().catch(() => ({}));
+    setNote(r.ok
+      ? `Automatic completed packet email ${enabled ? "enabled" : "disabled"}.`
+      : b.error || "Provider packet email setting could not be saved.");
+    if (r.ok) load();
+  }
+
+  async function sendProviderPacketNow() {
+    setNote("Emailing the completed packet to the provider...");
+    const r = await fetch(`/api/intakes/${i.id}/copies/provider`, { method: "POST" });
+    const b = await r.json().catch(() => ({}));
+    setNote(r.ok ? `Completed packet emailed to ${b.to || "the provider"}.` : `Provider packet email failed: ${b.reason || b.detail || b.error || r.status}`);
   }
 
   async function sendSignatureReminder() {
@@ -550,8 +572,23 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
             {copiesBusy ? "Sending Client Records..." : "Send completed intake + client records"}
           </button>
-          <button className="btn-ghost" onClick={() => act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, { method: "POST" }))}>
-            Send to DocuSign
+          <button className="btn-ghost" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
+            Email completed PDF to provider {providerPacketEmailEnabled ? "off" : "on"}
+          </button>
+          {i.generatedPdfs.length > 0 && ["SIGNED", "COMPLETED"].includes(i.status) && (
+            <button className="btn-ghost" onClick={() => { void sendProviderPacketNow(); }}>
+              Email provider now
+            </button>
+          )}
+          <button className="btn-ghost" onClick={() => {
+            if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
+            void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ allowStaffSigner: true }),
+            }));
+          }}>
+            Send missing signatures
           </button>
           {i.docusignEnvelopeId && (
             <button className="btn-ghost" onClick={async () => {
