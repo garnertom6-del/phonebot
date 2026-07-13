@@ -14,6 +14,7 @@ type ProviderRow = {
   phone?: string | null;
   createdAt: string;
   _count: { clients: number; intakes: number; memberships: number };
+  intakeSummary: Record<string, number>;
   pdfTemplates: Array<{
     id: string;
     name: string;
@@ -76,6 +77,7 @@ export default function MasterDashboard() {
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [packetFile, setPacketFile] = useState<File | null>(null);
   const [packetBusy, setPacketBusy] = useState(false);
@@ -146,6 +148,12 @@ export default function MasterDashboard() {
   }
 
   async function setProviderStatus(provider: ProviderRow, status: "ACTIVE" | "INACTIVE") {
+    if (status === "INACTIVE") {
+      const confirmed = window.confirm(
+        `${provider.name} will be deactivated. Staff sign-in, new intake links, and client access will be paused, but existing records will remain saved. Reactivate the provider to restore access. Continue?`,
+      );
+      if (!confirmed) return;
+    }
     setStatusBusyProviderId(provider.id);
     setError("");
     setNote("");
@@ -312,7 +320,11 @@ export default function MasterDashboard() {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null;
   const selectedTemplate = selectedProvider?.pdfTemplates?.[0] || null;
   const trimmedSearch = search.trim().toLowerCase();
-  const filteredProviders = providers.filter((provider) => !trimmedSearch || providerSearchText(provider).includes(trimmedSearch));
+  const filteredProviders = providers.filter((provider) => {
+    const matchesSearch = !trimmedSearch || providerSearchText(provider).includes(trimmedSearch);
+    const matchesStatus = statusFilter === "ALL" || provider.status === statusFilter;
+    return matchesSearch && matchesStatus;
+  });
 
   const activeCount = providers.filter((provider) => provider.status === "ACTIVE").length;
   const inactiveCount = providers.filter((provider) => provider.status !== "ACTIVE").length;
@@ -409,6 +421,20 @@ export default function MasterDashboard() {
           onChange={(event) => setSearch(event.target.value)}
           placeholder="Search provider, slug, contact, admin email, or packet name"
         />
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <label className="text-sm font-semibold text-slate-600" htmlFor="provider-status-filter">Show</label>
+          <select
+            id="provider-status-filter"
+            className="input max-w-[190px]"
+            value={statusFilter}
+            onChange={(event) => setStatusFilter(event.target.value as "ALL" | "ACTIVE" | "INACTIVE")}
+          >
+            <option value="ALL">All providers</option>
+            <option value="ACTIVE">Active only</option>
+            <option value="INACTIVE">Inactive only</option>
+          </select>
+          <span className="text-xs text-slate-500">Deactivate pauses access without deleting provider records.</span>
+        </div>
       </section>
 
       <section className="mt-5 grid gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
@@ -522,6 +548,12 @@ export default function MasterDashboard() {
                           {(provider.email || provider.phone) && (
                             <div className="mt-1 text-xs text-slate-500">{[provider.email, provider.phone].filter(Boolean).join(" • ")}</div>
                           )}
+                          <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-semibold">
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Needs review {provider.intakeSummary?.NEEDS_REVIEW || 0}</span>
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">Open work {[
+                              "NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED",
+                            ].reduce((total, key) => total + (provider.intakeSummary?.[key] || 0), 0)}</span>
+                          </div>
                         </td>
                         <td className="px-4 py-3">
                           <span className={`badge ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
@@ -566,27 +598,25 @@ export default function MasterDashboard() {
                                 Map packet
                               </Link>
                             )}
-                            {isMaster && (
+                            {isMaster && (active ? (
                               <button
                                 type="button"
-                                role="switch"
-                                aria-checked={active}
-                                aria-label={`${active ? "Turn off" : "Turn on"} ${provider.name} portal`}
-                                title={`${active ? "Turn off" : "Turn on"} provider portal access`}
-                                className={`inline-flex items-center gap-2 rounded-full border px-2 py-1 text-xs font-semibold transition ${
-                                  active
-                                    ? "border-emerald-200 bg-emerald-50 text-emerald-800"
-                                    : "border-slate-300 bg-slate-100 text-slate-600"
-                                }`}
+                                className="btn-ghost border-red-200 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50"
                                 disabled={statusBusyProviderId === provider.id}
-                                onClick={() => void setProviderStatus(provider, active ? "INACTIVE" : "ACTIVE")}
+                                onClick={() => void setProviderStatus(provider, "INACTIVE")}
                               >
-                                <span className={`relative h-5 w-9 rounded-full ${active ? "bg-emerald-500" : "bg-slate-400"}`}>
-                                  <span className={`absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition ${active ? "left-4" : "left-0.5"}`} />
-                                </span>
-                                {statusBusyProviderId === provider.id ? "Updating..." : active ? "Portal on" : "Portal off"}
+                                {statusBusyProviderId === provider.id ? "Deactivating..." : "Deactivate"}
                               </button>
-                            )}
+                            ) : (
+                              <button
+                                type="button"
+                                className="btn-primary px-3 py-1.5 text-xs"
+                                disabled={statusBusyProviderId === provider.id}
+                                onClick={() => void setProviderStatus(provider, "ACTIVE")}
+                              >
+                                {statusBusyProviderId === provider.id ? "Activating..." : "Activate"}
+                              </button>
+                            ))}
                           </div>
                         </td>
                       </tr>

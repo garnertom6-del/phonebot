@@ -75,8 +75,24 @@ export async function GET() {
     orderBy: [{ status: "asc" }, { name: "asc" }],
   });
 
+  const intakeStatusRows = await prisma.intake.groupBy({
+    by: ["providerId", "status"],
+    where: isMaster ? { providerId: { not: null } } : { providerId: provider!.id },
+    _count: { _all: true },
+  });
+  const intakeSummaryByProvider = new Map<string, Record<string, number>>();
+  for (const row of intakeStatusRows) {
+    if (!row.providerId) continue;
+    const summary = intakeSummaryByProvider.get(row.providerId) || {};
+    summary[row.status] = row._count._all;
+    intakeSummaryByProvider.set(row.providerId, summary);
+  }
+
   return NextResponse.json({
-    providers,
+    providers: providers.map((item) => ({
+      ...item,
+      intakeSummary: intakeSummaryByProvider.get(item.id) || {},
+    })),
     isMaster,
     // Only expose availability, never the key itself. Provider staff use the
     // shared system service through their normal portal login.
