@@ -151,7 +151,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </p>
         <div className="flex flex-wrap gap-2">
           {SIGN_MODES.map((m) => (
-            <button key={m.mode} className={m.mode === "careTeam" ? "btn-primary text-sm" : "btn-ghost text-sm"}
+            <button key={m.mode} type="button" aria-pressed={signMode === m.mode}
+              className={m.mode === signMode ? "btn-primary text-sm" : "btn-ghost text-sm"}
               onClick={() => setSignMode(m.mode)}>
               {m.label}
             </button>
@@ -160,6 +161,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         {signMode && (
           <div className="mt-3">
             <SignaturePad
+              key={signMode}
               roleLabel={SIGN_MODES.find((m) => m.mode === signMode)?.padLabel}
               expectedRole={signMode === "careTeam" ? "staff" : signMode}
               onCapture={(d) => captureStaffSig(signMode, d)}
