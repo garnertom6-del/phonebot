@@ -220,3 +220,45 @@ export async function sendCopiesLinkSms(
   const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
   return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
 }
+
+export async function sendCompletedPacketEmail(
+  to: string,
+  clientName: string,
+  providerName: string,
+  pdfBytes: Buffer,
+  fileName: string,
+): Promise<NotifyResult> {
+  const key = process.env.SENDGRID_API_KEY;
+  const subject = `${providerName} - Completed smart intake packet for ${clientName}`;
+  const body =
+    `The completed smart intake packet for ${clientName} is attached. ` +
+    `Keep this message and attachment in the provider's approved secure records system. ` +
+    `Questions? Contact ${providerName}.`;
+  if (!key || !process.env.EMAIL_FROM) {
+    console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}\nAttachment: ${fileName}`);
+    return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
+  }
+  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: process.env.EMAIL_FROM as string },
+      subject,
+      content: [{ type: "text/plain", value: body }],
+      attachments: [{
+        content: pdfBytes.toString("base64"),
+        type: "application/pdf",
+        filename: fileName,
+        disposition: "attachment",
+      }],
+    }),
+  });
+  return {
+    channel: "email",
+    to,
+    ok: res.ok,
+    demo: false,
+    detail: res.ok ? "completed packet attachment accepted by SendGrid" : await responseText(res),
+  };
+}
