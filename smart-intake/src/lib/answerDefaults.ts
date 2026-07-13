@@ -65,6 +65,20 @@ function splitDiagnosis(value: unknown): { code: string; description: string } {
   return { code: match[1].toUpperCase(), description: match[2].trim() };
 }
 
+function clearLegacyPresentingProblemFromAxis4(a: Answers) {
+  const presenting = s(a.presenting_problem);
+  const axis4 = s(a.c_axis4);
+  const axis4Description = s(a.c_axis4_description);
+  if (!presenting || s(a.social_family_medical_history)) return;
+
+  // Older SMS saves incorrectly copied the presenting problem into Axis IV.
+  // Remove only that exact derived value; preserve a real staff-entered Axis IV.
+  if (axis4 !== presenting && axis4Description !== presenting) return;
+  for (const key of ["c_axis4", "c_axis4_code", "c_axis4_description", "c_axis4_axis", "c_axis4_code_number"]) {
+    delete a[key];
+  }
+}
+
 /** Copy real, already-given diagnoses into the axis/discharge slots. */
 function applyDiagnosisDefaults(a: Answers) {
   const dx = diagnosisList(a);
@@ -75,7 +89,7 @@ function applyDiagnosisDefaults(a: Answers) {
     setDefault(a, "c_axis2", dx[1]);
   }
   setDefault(a, "c_axis3", s(a.medical_diagnoses));
-  setDefault(a, "c_axis4", s(a.social_family_medical_history) || s(a.presenting_problem));
+  setDefault(a, "c_axis4", s(a.social_family_medical_history));
   for (let i = 1; i <= 5; i++) {
     const { code, description } = splitDiagnosis(a[`c_axis${i}`]);
     setDefault(a, `c_axis${i}_code`, code);
@@ -173,6 +187,7 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "c_clinician", sharedStaffName);
   setDefault(a, "dis_prepared_by", sharedStaffName);
 
+  clearLegacyPresentingProblemFromAxis4(a);
   applyDiagnosisDefaults(a);
   applyDischargeDefaults(a);
   return a;

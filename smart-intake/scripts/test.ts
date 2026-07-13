@@ -16,6 +16,7 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "../src/lib/intakeData";
+import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { missingRequired, percentComplete } from "../src/lib/validation";
 
@@ -35,7 +36,12 @@ async function extractPageTexts(pdfBytes: Uint8Array): Promise<string[]> {
 
 async function main() {
   let passed = 0;
+  const presenting = "I need help managing my $1 million per year of business";
+  const defaulted = applyOperationalDefaults({ presenting_problem: presenting });
+  assert.equal(defaulted.c_axis4, undefined, "presenting problem must not populate Axis IV");
   const ok = (name: string) => { console.log(`✓ ${name}`); passed++; };
+
+  ok("presenting problem stays out of Axis IV");
 
   // 1. staff login
   const user = await prisma.user.findUnique({ where: { email: "admin@mooredivinecare.local" } });
