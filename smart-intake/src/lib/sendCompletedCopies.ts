@@ -4,12 +4,15 @@ import { audit } from "./auditLog";
 import { loadAnswers } from "./intakeData";
 import {
   AUTO_SEND_COMPLETED_COPIES_KEY,
+  AUTO_EMAIL_PROVIDER_PACKET_KEY,
   COPY_RECEIPT_ANSWER_DEFAULTS,
   COPY_ALLOWED_STATUSES,
+  autoEmailProviderPacketEnabled,
   autoSendCompletedCopiesEnabled,
 } from "./completedCopies";
-import { sendCopiesLinkEmail, sendCopiesLinkSms, type NotifyResult } from "./notify";
+import { sendCompletedPacketEmail, sendCopiesLinkEmail, sendCopiesLinkSms, type NotifyResult } from "./notify";
 import { answeredClientFields } from "./clientAnswerSync";
+import { fileExists, readFile } from "./storage";
 
 function sentLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}`;
@@ -80,7 +83,7 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   if (sent.length) {
     await markCopiesDelivered(intake.id);
   }
-  await audit("copies_link_sent", {
+  await audit(sent.length ? "copies_link_sent" : "copies_link_failed", {
     providerId: opts.providerId,
     intakeId: intake.id,
     userId: opts.userId,
@@ -98,18 +101,29 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
 
 export async function autoSendCompletedCopiesIfEnabled(opts: SendCompletedCopiesOptions) {
   const answers = await loadAnswers(opts.intakeId);
-  if (!autoSendCompletedCopiesEnabled(answers)) {
-    return { skipped: true, reason: "Auto-send is off" };
+  const results: Record<string, unknown> = {};
+  if (autoSendCompletedCopiesEnabled(answers)) {
+    const alreadySent = await prisma.auditLog.findFirst({
+      where: { providerId: opts.providerId, intakeId: opts.intakeId, event: "copies_link_sent" },
+    });
+    results.clientCopies = alreadySent ? { skipped: true, reason: "Completed copies were already sent" } : await sendCompletedCopiesLink(opts);
+  } else {
+    results.clientCopies = { skipped: true, reason: "Client copy auto-send is off" };
   }
-
-  const alreadySent = await prisma.auditLog.findFirst({
-    where: { providerId: opts.providerId, intakeId: opts.intakeId, event: "copies_link_sent" },
-  });
-  if (alreadySent) {
-    return { skipped: true, reason: "Completed copies were already sent" };
+  if (autoEmailProviderPacketEnabled(answers)) {
+    results.providerPacket = await sendCompletedPacketToProvider(opts);
+  } else {
+    results.providerPacket = { skipped: true, reason: "Provider packet email is off" };
   }
+  return results;
+}
 
-  return sendCompletedCopiesLink(opts);
+export async function autoEmailProviderPacketIfEnabled(opts: SendCompletedCopiesOptions) {
+  const answers = await loadAnswers(opts.intakeId);
+  if (!autoEmailProviderPacketEnabled(answers)) {
+    return { skipped: true, reason: "Provider packet email is off" };
+  }
+  return sendCompletedPacketToProvider(opts);
 }
 
 export async function setAutoSendCompletedCopies(intakeId: string, enabled: boolean): Promise<void> {
@@ -119,4 +133,56 @@ export async function setAutoSendCompletedCopies(intakeId: string, enabled: bool
     update: { value: JSON.stringify(enabled) },
   });
   await prisma.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
+}
+
+export async function setAutoEmailProviderPacket(intakeId: string, enabled: boolean): Promise<void> {
+  await prisma.intakeAnswer.upsert({
+    where: { intakeId_key: { intakeId, key: AUTO_EMAIL_PROVIDER_PACKET_KEY } },
+    create: { intakeId, key: AUTO_EMAIL_PROVIDER_PACKET_KEY, value: JSON.stringify(enabled) },
+    update: { value: JSON.stringify(enabled) },
+  });
+  await prisma.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
+}
+
+export async function sendCompletedPacketToProvider(opts: SendCompletedCopiesOptions) {
+  const intake = await prisma.intake.findFirst({
+    where: { id: opts.intakeId, providerId: opts.providerId },
+    include: {
+      client: true,
+      provider: { select: { name: true, email: true } },
+      generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 },
+    },
+  });
+  if (!intake) return { skipped: true, reason: "Intake not found" };
+  if (!["SIGNED", "COMPLETED"].includes(intake.status)) {
+    return { skipped: true, reason: "Provider packet email waits for client/guardian signature" };
+  }
+  if (!intake.provider?.email) return { skipped: true, reason: "Provider email is not configured" };
+  const latest = intake.generatedPdfs[0];
+  if (!latest || !fileExists(latest.filePath)) {
+    return { skipped: true, reason: "Completed packet file is not available yet" };
+  }
+  const alreadySent = await prisma.auditLog.findFirst({
+    where: { providerId: opts.providerId, intakeId: opts.intakeId, event: "provider_packet_email_sent" },
+  });
+  if (alreadySent) return { skipped: true, reason: "Provider packet email was already sent" };
+
+  const fileName = `${intake.provider.name}-${intake.client.fullName}-completed-intake.pdf`
+    .replace(/[^a-z0-9._-]+/gi, "-");
+  const result = await sendCompletedPacketEmail(
+    intake.provider.email,
+    intake.client.fullName,
+    intake.provider.name,
+    readFile(latest.filePath),
+    fileName,
+  );
+  if (result.ok) {
+    await audit("provider_packet_email_sent", {
+      providerId: opts.providerId,
+      intakeId: opts.intakeId,
+      userId: opts.userId,
+      detail: `sent to ${intake.provider.email}: ${result.detail}`,
+    });
+  }
+  return { sent: result.ok, to: intake.provider.email, demo: result.demo, detail: result.detail };
 }
