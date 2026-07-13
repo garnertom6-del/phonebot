@@ -149,10 +149,18 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
     ...field, page, y: field.y + yDelta,
   });
 
-  const pocRoiFields = (page: number, yDelta: number): FieldMapping[] => {
+  const pocRoiFields = (page: number, yDelta: number, clientNameDelta: number): FieldMapping[] => {
     const base = providerFields
-      .filter((field) => field.page === 19 && ["roi1_client", "roi1_recipient", "roi1_item_other"].includes(field.fieldKey))
-      .map((field) => ({ ...withPage(field, page, yDelta), fieldKey: `poc_${page}_${field.fieldKey}` }));
+      .filter((field) => field.page === 19 && ["roi1_client", "roi1_item_other"].includes(field.fieldKey))
+      .map((field) => ({
+        ...withPage(field, page, field.fieldKey === "roi1_client" ? clientNameDelta : yDelta),
+        fieldKey: field.fieldKey === "roi1_client"
+          ? `poc_${page}_client_printed_name`
+          : `poc_${page}_${field.fieldKey}`,
+        notes: field.fieldKey === "roi1_client"
+          ? "Print the client or legal representative name in the I-give consent line"
+          : field.notes,
+      }));
     const itemRows: Array<[string, number, number]> = [
       ["adm", 42, 532.3], ["hiv", 230.4, 532.3], ["notes", 397.1, 532.3], ["vo", 504.2, 532.3],
       ["meds", 42, 509.7], ["testing", 231.7, 509.7], ["plan", 399.1, 509.7], ["lme", 504.2, 509.7],
@@ -188,11 +196,14 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
     // page 4 that is not present in the 43-page base map. Keep the printed
     // table and place the existing diagnosis code/description answers inside
     // its rows instead of drawing over the borders.
-    [4, pocField("poc_axis1_code_p4", "c_axis1_code", "text", { x: 225, y: 418, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis1_axis_p4", "c_axis1_axis", "text", { x: 50, y: 418, width: 160, height: 11 }, "staff")],
+    [4, pocField("poc_axis1_code_p4", "c_axis1_code_number", "text", { x: 225, y: 418, width: 165, height: 11 }, "staff")],
     [4, pocField("poc_axis1_description_p4", "c_axis1_description", "text", { x: 407, y: 418, width: 165, height: 11 }, "staff")],
-    [4, pocField("poc_axis2_code_p4", "c_axis2_code", "text", { x: 225, y: 381, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis2_axis_p4", "c_axis2_axis", "text", { x: 50, y: 381, width: 160, height: 11 }, "staff")],
+    [4, pocField("poc_axis2_code_p4", "c_axis2_code_number", "text", { x: 225, y: 381, width: 165, height: 11 }, "staff")],
     [4, pocField("poc_axis2_description_p4", "c_axis2_description", "text", { x: 407, y: 381, width: 165, height: 11 }, "staff")],
-    [4, pocField("poc_axis3_code_p4", "c_axis3_code", "text", { x: 225, y: 337, width: 165, height: 11 }, "staff")],
+    [4, pocField("poc_axis3_axis_p4", "c_axis3_axis", "text", { x: 50, y: 337, width: 160, height: 11 }, "staff")],
+    [4, pocField("poc_axis3_code_p4", "c_axis3_code_number", "text", { x: 225, y: 337, width: 165, height: 11 }, "staff")],
     [4, pocField("poc_axis3_description_p4", "c_axis3_description", "text", { x: 407, y: 337, width: 165, height: 11 }, "staff")],
 
     [6, pocField("poc_current_diag_known", "current_diagnosis_known", "text", { x: 161, y: 681, width: 340, height: 11 }, "client")],
@@ -237,7 +248,15 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
     if ([17, 18, 19, 37, 38, 39].includes(field.page) && !field.fieldKey.startsWith("hdr_")) return false;
     return true;
   });
-  const roiPages = [...pocRoiFields(17, -22.7), ...pocRoiFields(18, 0), ...pocRoiFields(19, 0)];
+  const roiPages = [
+    // Page 17 has the same consent form printed lower on the sheet. Keep the
+    // client name in its first blank line, but shift initials/signatures down.
+    ...pocRoiFields(17, -22.7, 0),
+    // Pages 18 and 19 have the first consent line printed higher than the
+    // repeated item/signature layout used by the base map.
+    ...pocRoiFields(18, 0, 22.7),
+    ...pocRoiFields(19, 0, 22.7),
+  ];
   return [...customPageFields, ...pocExtra, ...roiPages].filter((field) => {
     if (field.page > pageCount) return false;
     if (field.page === 27) {

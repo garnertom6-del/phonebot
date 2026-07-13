@@ -80,6 +80,12 @@ function applyDiagnosisDefaults(a: Answers) {
     const { code, description } = splitDiagnosis(a[`c_axis${i}`]);
     setDefault(a, `c_axis${i}_code`, code);
     setDefault(a, `c_axis${i}_description`, description);
+    // The Prayers of Care Axis table has separate columns for the diagnosis
+    // letter and numeric code (for example: F | 33.1 | Major depression).
+    const normalizedCode = s(a[`c_axis${i}_code`]).toUpperCase();
+    const axisMatch = /^([A-Z])(\d{2}(?:\.\d+)?)$/.exec(normalizedCode);
+    setDefault(a, `c_axis${i}_axis`, axisMatch?.[1] || "");
+    setDefault(a, `c_axis${i}_code_number`, axisMatch?.[2] || "");
     setDefault(a, `dis_adm_axis${i}`, dx[i - 1] || "");
   }
 }
@@ -112,8 +118,8 @@ function applyDischargeDefaults(a: Answers) {
 }
 
 export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolean } = {}): Answers {
-  void opts; // kept for call-site compatibility; no PDF-only fabrications remain
   const a: Answers = { ...input };
+  const forPdf = opts.forPdf === true;
   const intakeDate = s(a.intake_date) || new Date().toISOString().slice(0, 10);
 
   // dates: the intake happened on one day - copy it to the date blanks
@@ -137,6 +143,16 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "severity_of_need", "Routine");
   setDefault(a, "severity_explanation", "Routine service initiation target: within 14 calendar days.");
   setDefault(a, "program_can_meet_needs", "Yes");
+
+  // These are packet-only workflow defaults. A CCA extraction that already
+  // supplied services wins; otherwise the standard starting service row is
+  // CCA, OPT, and medication management. The client questionnaire remains
+  // unchanged and can still collect a different answer.
+  if (forPdf) {
+    setDefault(a, "language", "English");
+    setDefault(a, "services_requested", ["CCA", "OPT", "Med Mgt"]);
+    setDefault(a, "intervention_target_behaviors", "Preventing harm to self or others");
+  }
 
   // phones: same number, different blanks
   setDefault(a, "client_phone_home", s(a.client_phone_cell));
