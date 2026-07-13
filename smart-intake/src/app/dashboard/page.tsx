@@ -14,6 +14,9 @@ interface Row {
   ccaDetail?: string;
   copiesSentAt?: string | null;
   autoSendCopies?: boolean;
+  autoEmailProviderPacket?: boolean;
+  providerPacketEmailedAt?: string | null;
+  readiness?: { state: string; tone: "good" | "warn" | "brand"; issues: string[] };
   docusignEnvelopeId?: string | null;
   insuranceSummary?: string;
   presentingProblem?: string;
@@ -209,6 +212,28 @@ export default function Dashboard() {
     }
   }
 
+  async function setProviderPacketEmail(row: Row, enabled: boolean) {
+    const response = await fetch(`/api/intakes/${row.id}/copies/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ autoEmailProvider: enabled }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      showNote(`Automatic completed-packet email ${enabled ? "on" : "off"} for ${row.client.fullName}`);
+      load(tab);
+    } else {
+      showNote(`Provider packet email update failed: ${body.error || response.status}`, 6000, "error");
+    }
+  }
+
+  async function sendProviderPacket(row: Row) {
+    const response = await fetch(`/api/intakes/${row.id}/copies/provider`, { method: "POST" });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) showNote(`Completed packet emailed to ${body.to || "the provider"}.`, 6000);
+    else showNote(`Provider packet email failed: ${body.reason || body.detail || body.error || response.status}`, 6000, "error");
+  }
+
   async function markCompleted(row: Row) {
     const response = await fetch(`/api/intakes/${row.id}`, {
       method: "PATCH",
@@ -240,14 +265,16 @@ export default function Dashboard() {
   }
 
   async function sendDocuSign(row: Row) {
-    if (!row.client.email) {
-      showNote("Client needs an email address before DocuSign can be sent.", 5000);
-      return;
-    }
-    const response = await fetch(`/api/intakes/${row.id}/docusign`, { method: "POST" });
+    const confirmed = window.confirm("Send the missing client or guardian signature fields through DocuSign? If staff fields are also missing, they will be routed to your signed-in staff account.");
+    if (!confirmed) return;
+    const response = await fetch(`/api/intakes/${row.id}/docusign`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ allowStaffSigner: true }),
+    });
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
-      showNote(`DocuSign sent for ${row.client.fullName}. Envelope ${body.envelopeId || "created"}.`, 6000);
+      showNote(body.message || `DocuSign processed for ${row.client.fullName}. Envelope ${body.envelopeId || "created"}.`, 6000);
       load(tab);
     } else {
       showNote(`DocuSign failed: ${body.error || response.status}`, 6000, "error");
@@ -430,6 +457,12 @@ export default function Dashboard() {
                     tone={row.autoSendCopies ? "brand" : "neutral"}
                     detail={row.autoSendCopies ? "Completed intake + client records send automatically" : "Staff sends client records manually"}
                   />
+                  <StatusTile
+                    label="Provider email"
+                    state={row.autoEmailProviderPacket ? "On" : "Off"}
+                    tone={row.autoEmailProviderPacket ? "brand" : "neutral"}
+                    detail={row.providerPacketEmailedAt ? `Sent ${displayDateTime(row.providerPacketEmailedAt)}` : row.autoEmailProviderPacket ? "Completed PDF emails to the provider address" : "Provider receives it only when staff sends it"}
+                  />
                 </div>
               </div>
 
@@ -440,6 +473,10 @@ export default function Dashboard() {
                 <p className={`mt-2 text-sm ${row.missingRequired.length ? "text-rose-700" : "font-semibold text-emerald-700"}`}>
                   {missingPreview}
                   {row.missingRequired.length > 3 ? ` + ${row.missingRequired.length - 3} more` : ""}
+                </p>
+                <p className={`mt-2 text-xs font-semibold ${row.readiness?.tone === "warn" ? "text-amber-800" : row.readiness?.tone === "brand" ? "text-brand" : "text-emerald-700"}`}>
+                  Readiness: {row.readiness?.state || "Review needed"}
+                  {row.readiness?.issues?.length ? ` - ${row.readiness.issues.join(", ")}` : ""}
                 </p>
               </div>
 
@@ -456,9 +493,17 @@ export default function Dashboard() {
                 <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setAutoCopies(row, !row.autoSendCopies)}>
                   Auto-send records {row.autoSendCopies ? "off" : "on"}
                 </button>
+                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setProviderPacketEmail(row, !row.autoEmailProviderPacket)}>
+                  Email provider packet {row.autoEmailProviderPacket ? "off" : "on"}
+                </button>
+                {row.hasPdf && ["SIGNED", "COMPLETED"].includes(row.status) && (
+                  <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendProviderPacket(row)}>
+                    Email provider now
+                  </button>
+                )}
                 {!row.docusignEnvelopeId && (
-                  <button className="btn-ghost px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!row.client.email} title={row.client.email ? "Send the packet for signature" : "Add a client email before sending DocuSign"} onClick={() => sendDocuSign(row)}>
-                    Send DocuSign
+                  <button className="btn-ghost px-3 py-2 text-sm" title="Send only the missing signature fields through DocuSign" onClick={() => sendDocuSign(row)}>
+                    Send missing signatures
                   </button>
                 )}
                 {row.status !== "COMPLETED" && (
