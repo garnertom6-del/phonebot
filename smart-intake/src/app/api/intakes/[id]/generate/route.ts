@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/staffGuard";
 import { generatePacketForIntake, PacketIdentityMismatchError } from "@/lib/generatePacket";
-import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { autoEmailProviderPacketIfEnabled, autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { sendIntakeToDocuSign } from "@/lib/sendDocuSign";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
@@ -46,6 +46,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     } catch (error) {
       console.error("auto-send completed copies failed", error);
     }
+  }
+
+  try {
+    await autoEmailProviderPacketIfEnabled({
+      intakeId: params.id,
+      providerId: provider!.id,
+      userId: user!.id,
+      req,
+    });
+  } catch (error) {
+    console.error("auto-email provider packet failed", error);
   }
 
   return NextResponse.json({ ok: true, ...result, docusign });
