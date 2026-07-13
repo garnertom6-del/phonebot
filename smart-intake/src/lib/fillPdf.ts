@@ -226,6 +226,12 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
   for (const f of input.fields ?? mergedMap(input.overrides)) {
     const page = pages[f.page - 1];
     if (!page) continue;
+    // The final discharge summary is completed at discharge, not during
+    // intake. Keep its prepared-by line blank in every generated packet.
+    if (f.fieldKey === "dis_prepared") {
+      skipped.push(f.fieldKey);
+      continue;
+    }
     const staffRoles = ["staff", "clinician", "medicalDirector", "witness"];
     if (staffRoles.includes(f.role) && input.includeStaffFields === false) {
       skipped.push(f.fieldKey);

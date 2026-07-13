@@ -226,6 +226,11 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
     [22, pocField("poc_int_staff_sig", "signature", "signature", { x: 103, y: 222, width: 315, height: 18 }, "clinician", "consent_emergency_interventions")],
     [22, pocField("poc_int_staff_date", "clinician_sign_date", "text", { x: 463, y: 222, width: 80, height: 11 }, "clinician", "consent_emergency_interventions")],
 
+    // The POC packet's CCA signature page is page 37. The client row must
+    // carry the printed client name, signature, and assessment date.
+    [37, pocField("poc_cca_client_printed", "client_full_name", "text", { x: 66, y: 473, width: 170, height: 11 }, "client", null, "Printed client name on the CCA signature page")],
+    [37, pocField("poc_cca_client_sig", "signature", "signature", { x: 300, y: 472, width: 140, height: 18 }, "client", null, "Client CCA signature")],
+    [37, pocField("poc_cca_client_date", "sign_date", "text", { x: 452, y: 472, width: 90, height: 11 }, "client", null, "Client CCA assessment date")],
     [37, pocField("poc_cca_clinician_printed", "clinician_name", "text", { x: 66, y: 377, width: 230, height: 11 }, "clinician", null, "Printed name only; do not sign this line")],
     [37, pocField("poc_cca_medical_director_printed", "clinician_name", "text", { x: 66, y: 346, width: 230, height: 11 }, "clinician", null, "Printed clinician name requested on the second line; do not sign")],
 
