@@ -49,6 +49,7 @@ export default function NewIntake() {
   const [housingTab, setHousingTab] = useState<"address" | "homeless">("address");
   const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
   const [expectCca, setExpectCca] = useState(true);
+  const [autoEmailProviderPacket, setAutoEmailProviderPacket] = useState(false);
   const [error, setError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string } | null>(null);
@@ -173,6 +174,7 @@ export default function NewIntake() {
         referralSource,
         livingArrangement: housingTab === "homeless" ? "Homeless" : "",
         expectCca,
+        autoEmailProviderPacket,
       };
       const res = await fetch("/api/intakes", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
@@ -533,6 +535,12 @@ export default function NewIntake() {
           <span><b>Fast Intake</b> - only ask the client the essentials (about 35 quick
           taps + consents + signature). The clinician&apos;s CCA will fill in the rest when you
           upload it in the <b>Add CCA</b> section on the client&apos;s page. Uncheck for the full question set.</span>
+        </label>
+        <label className="mt-3 flex items-start gap-3 rounded-lg border border-brand/20 bg-brand-light/30 p-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-5 w-5" checked={autoEmailProviderPacket}
+            onChange={(e) => setAutoEmailProviderPacket(e.target.checked)} />
+          <span><b>Email completed packet to provider</b> - after the client signs and the packet is generated,
+          email the completed PDF to the provider email on file. This is off by default and can also be changed later.</span>
         </label>
         {error && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
