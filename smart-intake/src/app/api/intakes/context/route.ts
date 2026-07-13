@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { DEFAULT_PACKET_TEMPLATE_NAME, packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
 import { requireStaff } from "@/lib/staffGuard";
 
 function cleanPacketLabel(value: string): string {
@@ -12,7 +12,10 @@ function packetDisplayName(providerName: string, packet: Awaited<ReturnType<type
     if (original && !/^provider intake packet$/i.test(original)) return original;
     return `${providerName} Intake Packet`;
   }
-  return packet.name || DEFAULT_PACKET_TEMPLATE_NAME;
+  // The shared fallback PDF can still be used while a provider's custom
+  // packet is awaiting upload or approval, but the client-facing label must
+  // identify the active provider instead of the default owner's name.
+  return `${providerName} Client Intake Package`;
 }
 
 export async function GET() {

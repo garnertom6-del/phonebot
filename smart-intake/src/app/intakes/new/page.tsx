@@ -22,6 +22,7 @@ const QUICK_NOTE_RACE_OPTIONS = [
   "American Indian or Alaska Native", "Asian", "Black or African American",
   "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
 ];
+const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male"];
 const QUICK_NOTE_ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
 const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
 const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
@@ -455,6 +456,13 @@ export default function NewIntake() {
                 </summary>
                 <p className="mt-2 text-xs text-slate-600">Use only answers confirmed by the client or records. When you create the intake, these answers are saved to the packet and the client can skip those SMS questions.</p>
                 <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label>
+                    <span className="label">Gender</span>
+                    <select className="input" value={quickAnswers.gender || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, gender: e.target.value }))}>
+                      <option value="">Select gender</option>
+                      {QUICK_NOTE_GENDER_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                    </select>
+                  </label>
                   <label>
                     <span className="label">Race</span>
                     <select className="input" value={quickAnswers.race || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, race: e.target.value }))}>
