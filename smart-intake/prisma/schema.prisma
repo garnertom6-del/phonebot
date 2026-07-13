@@ -1,13 +1,12 @@
 // Moore Divine Care Smart Intake - Prisma schema.
-// Local demo uses SQLite (default). For production with Supabase/PostgreSQL,
-// change provider to "postgresql" and set DATABASE_URL (see README_DEPLOYMENT.md).
+// Production uses the dedicated Supabase PostgreSQL database.
 
 generator client {
   provider = "prisma-client-js"
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
