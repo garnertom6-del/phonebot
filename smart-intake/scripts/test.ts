@@ -132,5 +132,9 @@ async function main() {
 }
 
 main()
-  .then(() => prisma.$disconnect())
+  .then(async () => {
+    await prisma.$disconnect();
+    // focused NC Tracks eligibility checks (no DB/network) run as part of `npm test`
+    await import("./test-eligibility");
+  })
   .catch((e) => { console.error("✗ TEST FAILED:", e.message); prisma.$disconnect(); process.exit(1); });
