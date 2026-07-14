@@ -53,6 +53,35 @@ two of back-and-forth with NC Tracks; the actual forms take under an hour.
 have them: the **Submitter/Trading Partner ID**, the EDI endpoint + secret,
 and which region (test vs production). I wire the rest to the companion guide.
 
+### Exact environment variables the app reads
+
+The feature is **inactive** until the first three are set:
+
+| Variable | Required | From | Notes |
+|---|---|---|---|
+| `NCTRACKS_EDI_URL` | ✅ | Companion guide | The NC Tracks real-time 270/271 endpoint URL |
+| `NCTRACKS_SUBMITTER_ID` | ✅ | Enrollment | Your Trading Partner / submitter ID |
+| `NCTRACKS_PROVIDER_NPI` | ✅ | The provider | NPI used on the inquiry (Type 2 org, or Type 1) |
+| `NCTRACKS_EDI_SECRET` | recommended | Enrollment | Bearer token / password for the endpoint |
+| `NCTRACKS_RECEIVER_ID` | optional | Companion guide | Defaults to `NCTRACKS` |
+| `NCTRACKS_PROVIDER_NAME` | optional | The provider | Printed in the 270; defaults to `PROVIDER` |
+| `NCTRACKS_ISA_SENDER_QUALIFIER` | optional | Companion guide | ISA05, defaults to `ZZ` |
+| `NCTRACKS_ISA_RECEIVER_QUALIFIER` | optional | Companion guide | ISA07, defaults to `ZZ` |
+
+With none set, the intake page shows "Direct check not connected — enroll as
+an NC Tracks Trading Partner," and the manual screenshot-upload reader remains
+the fallback. Nothing is sent anywhere.
+
+### What still needs the real companion guide (the one external blocker)
+
+The 270 is built to the standard 005010X279A1 structure, but a few values are
+**payer-specific and only in NC Tracks' companion guide**, which you receive at
+enrollment: the exact **endpoint URL**, the **receiver ID**, the **ISA
+interchange qualifiers**, and the authentication method (bearer token vs
+SOAP/CORE envelope). All are env-configurable above; once you paste the
+companion-guide values in, we run NC Tracks' connectivity test together and
+flip to production. No code change is required for standard values.
+
 > BAA / data agreement: the Trading Partner Agreement itself is the data
 > agreement with the state for this channel. Keep a copy for your compliance
 > file.

@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
+import CoveragePanel from "@/components/CoveragePanel";
 import type { CcaReview } from "@/lib/ccaReview";
 import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
@@ -660,6 +661,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       </div>
       <WorkflowSteps d={d} />
       <MoodPanel answers={d.answers} />
+      <CoveragePanel intakeId={i.id} />
       {note && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{note}</p>}
       {copiesLink && (
         <div className="mt-3 rounded-lg border border-brand/30 bg-white p-3 text-sm">
