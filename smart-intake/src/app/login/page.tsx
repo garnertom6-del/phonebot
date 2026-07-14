@@ -1,6 +1,7 @@
 "use client";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import InstallApp from "@/components/InstallApp";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -33,6 +34,9 @@ export default function LoginPage() {
         <input className="input mb-4" type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="current-password" />
         {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
         <button className="btn-primary w-full" disabled={busy}>{busy ? "Signing in..." : "Sign in"}</button>
+        <div className="relative mt-4 flex justify-center">
+          <InstallApp />
+        </div>
       </form>
     </main>
   );

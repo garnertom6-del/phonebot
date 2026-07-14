@@ -6,5 +6,18 @@ const nextConfig = {
     // package, not relative to .next/server/chunks.
     serverComponentsExternalPackages: ["@prisma/client", "pdfjs-dist"],
   },
+  async headers() {
+    return [
+      {
+        // let the service worker control the whole app scope
+        source: "/sw.js",
+        headers: [
+          { key: "Content-Type", value: "application/javascript; charset=utf-8" },
+          { key: "Cache-Control", value: "no-cache" },
+          { key: "Service-Worker-Allowed", value: "/" },
+        ],
+      },
+    ];
+  },
 };
 export default nextConfig;
