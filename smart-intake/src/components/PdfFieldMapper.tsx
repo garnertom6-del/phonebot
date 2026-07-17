@@ -223,6 +223,36 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setNote(body.health?.ready ? "Mapping quality check passed. A master can approve this packet." : "Mapping needs attention before approval.");
   }
 
+  async function approvePacket() {
+    if (!providerId || !templateId) return;
+    if (dirty.size > 0 || deletedFields.length > 0) {
+      setNote("Save the mapping changes before approval.");
+      return;
+    }
+    setNote("Checking the packet before approval...");
+    const healthResponse = await fetch(`/api/mapping/health${qs}`);
+    const healthBody = await healthResponse.json().catch(() => ({}));
+    if (!healthResponse.ok || !healthBody.health?.ready) {
+      setHealth(healthBody.health || null);
+      setNote(healthBody.error || "Mapping needs attention before approval.");
+      return;
+    }
+    const response = await fetch(`/api/master/providers/${encodeURIComponent(providerId)}/packet-template/approve`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ templateId }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setHealth(body.health || null);
+      setNote(body.error || "Packet approval failed.");
+      return;
+    }
+    setHealth(body.health || healthBody.health);
+    setMappingStatus("APPROVED");
+    setNote("Packet approved and activated for provider signatures.");
+  }
+
   async function loadMooreDraft() {
     const r = await fetch("/api/mapping");
     const d = await r.json();
@@ -281,6 +311,11 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           </label>
           <button className="btn-primary px-3 py-1" onClick={saveOverrides}>Save mapping ({dirty.size + deletedFields.length})</button>
           {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={runHealthCheck}>Check mapping quality</button>}
+          {providerSpecific && mappingStatus === "DRAFT" && (
+            <button className="btn-primary px-3 py-1" disabled={!health?.ready || dirty.size > 0 || deletedFields.length > 0} onClick={() => void approvePacket()}>
+              Approve packet
+            </button>
+          )}
           {providerSpecific && <button className="btn-ghost px-3 py-1" disabled={aiBusy} onClick={runAiMapping}>{aiBusy ? "AI reviewing..." : "AI suggest mappings"}</button>}
           {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
           <button className="btn-ghost px-3 py-1" onClick={clearMap}>Clear map</button>
