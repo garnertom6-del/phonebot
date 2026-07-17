@@ -7,6 +7,15 @@ export function mappingAiConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
+function mappingAiModel(): string {
+  return process.env.ANTHROPIC_MAPPING_MODEL || "claude-sonnet-4-20250514";
+}
+
+function mappingAiMaxTokens(): number {
+  const configured = Number(process.env.ANTHROPIC_MAPPING_MAX_TOKENS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 18000;
+}
+
 const SPECIAL_SOURCES = [
   "signature", "guardian_signature", "staff_signature", "clinician_signature",
   "medical_director_signature", "sign_date", "staff_sign_date", "clinician_sign_date",
@@ -118,8 +127,8 @@ export async function suggestPacketMappings(bytes: Buffer): Promise<{ suggestion
   const client = new Anthropic();
   const base64 = bytes.toString("base64");
   const response = await client.messages.create({
-    model: "claude-opus-4-8",
-    max_tokens: 18000,
+      model: mappingAiModel(),
+      max_tokens: mappingAiMaxTokens(),
     system:
       "You are a cautious PDF intake-form mapping assistant. Suggest coordinate mappings only; never claim that a suggestion is approved. " +
       "Use only labels and blank areas visibly supported by the packet. Never invent a field that is not present or obvious. " +

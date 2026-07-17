@@ -225,21 +225,35 @@ export default function MasterDashboard() {
   async function runAiPacketMapping(providerId: string, templateId: string) {
     setAiMapBusy(true);
     setError("");
-    setNote("AI is mapping the packet and checking signature readiness...");
+    setNote("AI mapping started in the background. You can keep working while the packet is checked...");
     try {
-      const response = await fetch(`/api/mapping/ai-suggest?providerId=${encodeURIComponent(providerId)}&templateId=${encodeURIComponent(templateId)}`, {
+      const statusUrl = `/api/mapping/ai-suggest?providerId=${encodeURIComponent(providerId)}&templateId=${encodeURIComponent(templateId)}`;
+      const response = await fetch(statusUrl, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ apply: true }),
+        body: JSON.stringify({ apply: true, background: true }),
       });
       const body = await response.json().catch(() => ({}));
-      if (!response.ok) throw new Error(body.error || "AI mapping could not be completed.");
-      const health = body.health;
+      if (!response.ok && response.status !== 202) throw new Error(body.error || "AI mapping could not be completed.");
+      let result = body;
+      if (body.queued) {
+        for (let attempt = 0; attempt < 90; attempt += 1) {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          const statusResponse = await fetch(statusUrl, { cache: "no-store" });
+          const statusBody = await statusResponse.json().catch(() => ({}));
+          if (!statusResponse.ok) throw new Error(statusBody.error || "AI mapping status could not be checked.");
+          if (statusBody.status === "ERROR") throw new Error(statusBody.mappingIssues?.error || "AI mapping failed.");
+          result = statusBody;
+          if (statusBody.mappingStatus !== "MAPPING") break;
+        }
+        if (result.mappingStatus === "MAPPING") throw new Error("AI mapping is still running. You can leave this page and check the packet status again shortly.");
+      }
+      const health = result.health;
       if (health?.ready) {
-        setNote(`AI mapped ${body.appliedCount || 0} fields. Quality check passed at ${health.score}/100. Review it, then approve for signatures.`);
+        setNote(`AI mapped ${result.appliedCount || 0} fields. Quality check passed at ${health.score}/100. Review it, then approve for signatures.`);
       } else {
         const blockers = Array.isArray(health?.blockingIssues) ? health.blockingIssues.slice(0, 2).join(" ") : "Review the mapping before approval.";
-        setNote(`AI mapped ${body.appliedCount || 0} fields, but the packet still needs attention. ${blockers}`);
+        setNote(`AI mapped ${result.appliedCount || 0} fields, but the packet still needs attention. ${blockers}`);
       }
       await load();
     } catch (err) {
@@ -509,7 +523,7 @@ export default function MasterDashboard() {
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${provider.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{provider.status === "ACTIVE" ? "Active" : "Inactive"}</span>
                       </div>
                       {openSummary === "packets" ? (
-                        packet ? <p className="mt-1 text-slate-300">{packet.originalFileName || packet.name} · {packet.pageCount} pages · {packet.isActive ? "Active" : "Draft - needs review"}</p> : <p className="mt-1 text-slate-300">Using the shared default packet.</p>
+                        packet ? <p className="mt-1 text-slate-300">{packet.originalFileName || packet.name} · {packet.pageCount} pages · {packet.isActive ? "Active" : packet.mappingStatus === "MAPPING" ? "AI mapping..." : "Draft - needs review"}</p> : <p className="mt-1 text-slate-300">Using the shared default packet.</p>
                       ) : (
                         <p className="mt-1 text-slate-300">{provider._count.clients} clients · {provider._count.intakes} intakes · {provider._count.memberships} staff users</p>
                       )}
@@ -715,7 +729,7 @@ export default function MasterDashboard() {
                               <div className="font-semibold text-slate-700">{packet.originalFileName || "Provider packet"}</div>
                               <div className="text-slate-500">{packet.pageCount} pages</div>
                               <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${packet.isActive ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>
-                                {packet.isActive ? "Active" : packet.mappingStatus === "APPROVED" ? "Approved history" : "Draft - needs review"}
+                                {packet.isActive ? "Active" : packet.mappingStatus === "MAPPING" ? "AI mapping..." : packet.mappingStatus === "APPROVED" ? "Approved history" : "Draft - needs review"}
                               </span>
                             </div>
                           ) : (
@@ -831,8 +845,10 @@ export default function MasterDashboard() {
               <p className="font-semibold">Latest upload: {selectedTemplate.originalFileName || selectedTemplate.name}</p>
               <p className="mt-1 text-xs">{selectedTemplate.pageCount} pages. {selectedTemplate.isActive ? "This is active." : "This is a review draft and is not active yet."}</p>
               <p className="mt-2 text-xs font-semibold">
-                {selectedTemplate.mappingScore == null
-                  ? "AI mapping has not been run yet."
+                {selectedTemplate.mappingStatus === "MAPPING"
+                  ? "AI is mapping this packet in the background. This draft is not active yet."
+                  : selectedTemplate.mappingScore == null
+                    ? "AI mapping has not been run yet."
                   : selectedTemplate.mappingStatus === "APPROVED"
                     ? `Signature-ready packet approved (${selectedTemplate.mappingScore}/100).`
                     : `Mapping quality score: ${selectedTemplate.mappingScore}/100. Review before approval.`}
@@ -841,9 +857,9 @@ export default function MasterDashboard() {
                 <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${selectedProvider.id}&templateId=${selectedTemplate.id}`}>
                   Open mapper
                 </Link>
-                {isMaster && selectedTemplate.mappingStatus === "DRAFT" && (
-                  <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!aiConfigured || aiMapBusy} onClick={() => void runAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
-                    {aiMapBusy ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI not configured"}
+                {isMaster && selectedTemplate.mappingStatus !== "APPROVED" && (
+                  <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!aiConfigured || aiMapBusy || selectedTemplate.mappingStatus === "MAPPING"} onClick={() => void runAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
+                    {aiMapBusy || selectedTemplate.mappingStatus === "MAPPING" ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI not configured"}
                   </button>
                 )}
                 {selectedTemplate.mappingStatus === "DRAFT" && (
