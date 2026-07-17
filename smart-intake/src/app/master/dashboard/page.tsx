@@ -378,8 +378,16 @@ export default function MasterDashboard() {
             {isMaster ? (
               <button
                 className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20 disabled:cursor-not-allowed disabled:opacity-60"
-                disabled={!selectedProviderId || !!contextBusyProviderId}
-                onClick={() => void openProviderDashboard(selectedProviderId)}
+                disabled={!!contextBusyProviderId}
+                onClick={() => {
+                  if (selectedProviderId) {
+                    void openProviderDashboard(selectedProviderId);
+                    return;
+                  }
+                  const providerSelector = document.getElementById("provider-selector");
+                  providerSelector?.scrollIntoView({ behavior: "smooth", block: "center" });
+                  if (providerSelector instanceof HTMLSelectElement) providerSelector.focus();
+                }}
               >
                 {contextBusyProviderId ? "Opening intakes..." : selectedProvider ? `Open ${selectedProvider.name} intakes` : "Choose a provider"}
               </button>
@@ -594,7 +602,7 @@ export default function MasterDashboard() {
               <form onSubmit={saveProviderAdmin} className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
                 <label>
                   <span className="label">Provider</span>
-                  <select className="input" value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)}>
+                  <select id="provider-selector" className="input" value={selectedProviderId} onChange={(event) => setSelectedProviderId(event.target.value)}>
                     <option value="">Select provider</option>
                     {providers.map((provider) => <option key={provider.id} value={provider.id}>{provider.name}</option>)}
                   </select>
