@@ -11,6 +11,7 @@ import { audit } from "@/lib/auditLog";
 export const runtime = "nodejs";
 
 const mappingControllers = new Map<string, AbortController>();
+const MAPPING_STALE_AFTER_MS = 5 * 60 * 1000;
 
 function parseIssues(value: string | null): Record<string, unknown> {
   if (!value) return {};
@@ -127,6 +128,18 @@ export async function GET(req: NextRequest) {
   if (deny) return deny;
   const template = await findTemplate(req);
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
+  const issues = parseIssues(template.mappingIssues);
+  const startedAt = typeof issues.startedAt === "string" ? Date.parse(issues.startedAt) : NaN;
+  if (template.mappingStatus === "MAPPING" && Number.isFinite(startedAt) && Date.now() - startedAt > MAPPING_STALE_AFTER_MS) {
+    mappingControllers.get(template.id)?.abort();
+    mappingControllers.delete(template.id);
+    const cancelledIssues = { status: "CANCELLED", cancelledAt: new Date().toISOString(), reason: "Mapping exceeded the five-minute safety limit." };
+    const recovered = await prisma.pdfTemplate.update({
+      where: { id: template.id },
+      data: { mappingStatus: "DRAFT", mappingScore: null, mappingIssues: JSON.stringify(cancelledIssues) },
+    });
+    return NextResponse.json(mappingStatusResponse(recovered));
+  }
   return NextResponse.json(mappingStatusResponse(template));
 }
 
