@@ -90,6 +90,7 @@ export default function MasterDashboard() {
   const [adminBusy, setAdminBusy] = useState(false);
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
   const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
+  const [providerNotifyBusy, setProviderNotifyBusy] = useState("");
   const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
   const aiStopRequested = useRef(false);
 
@@ -388,6 +389,32 @@ export default function MasterDashboard() {
       setError(err instanceof Error ? err.message : "Provider dashboard could not be opened.");
     } finally {
       setContextBusyProviderId("");
+    }
+  }
+
+  async function notifyProvider(provider: ProviderRow, channel: "email" | "sms") {
+    const recipient = channel === "email" ? provider.email : provider.phone;
+    if (!recipient) {
+      setError(`${provider.name} has no ${channel} contact saved.`);
+      return;
+    }
+    const busyKey = `${provider.id}:${channel}`;
+    setProviderNotifyBusy(busyKey);
+    setError("");
+    setNote("");
+    try {
+      const response = await fetch(`/api/master/providers/${provider.id}/notify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ channel }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.detail || body.error || `${channel} notification could not be sent.`);
+      setNote(`${channel === "email" ? "Email" : "Text message"} sent to ${provider.name}.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : `${channel} notification could not be sent.`);
+    } finally {
+      setProviderNotifyBusy("");
     }
   }
 
@@ -773,6 +800,26 @@ export default function MasterDashboard() {
                                 </button>
                               ) : (
                                 <span className="px-3 py-1.5 text-xs text-slate-400">Inactive</span>
+                              )}
+                              {active && provider.email && (
+                                <button
+                                  type="button"
+                                  className="btn-ghost px-3 py-1.5 text-xs"
+                                  disabled={providerNotifyBusy === `${provider.id}:email`}
+                                  onClick={() => void notifyProvider(provider, "email")}
+                                >
+                                  {providerNotifyBusy === `${provider.id}:email` ? "Emailing..." : "Email provider portal"}
+                                </button>
+                              )}
+                              {active && provider.phone && (
+                                <button
+                                  type="button"
+                                  className="btn-ghost px-3 py-1.5 text-xs"
+                                  disabled={providerNotifyBusy === `${provider.id}:sms`}
+                                  onClick={() => void notifyProvider(provider, "sms")}
+                                >
+                                  {providerNotifyBusy === `${provider.id}:sms` ? "Texting..." : "Text provider portal"}
+                                </button>
                               )}
                               <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => setSelectedProviderId(provider.id)}>
                               Packet setup
