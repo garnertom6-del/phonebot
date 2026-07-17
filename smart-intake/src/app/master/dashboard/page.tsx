@@ -83,6 +83,7 @@ export default function MasterDashboard() {
   const [selectedProviderId, setSelectedProviderId] = useState("");
   const [packetFile, setPacketFile] = useState<File | null>(null);
   const [packetBusy, setPacketBusy] = useState(false);
+  const [aiMapBusy, setAiMapBusy] = useState(false);
   const [packetActionBusy, setPacketActionBusy] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
   const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
@@ -206,12 +207,46 @@ export default function MasterDashboard() {
       if (!response.ok) throw new Error(body.error || "Packet could not be uploaded.");
       setPacketFile(null);
       setFileInputKey((current) => current + 1);
-      setNote(`${provider.name} packet uploaded as a review draft: ${body.template?.originalFileName || "uploaded PDF"}. Map and quality-check it before approval.`);
-      await load();
+      const templateId = body.template?.id;
+      if (templateId && aiConfigured) {
+        setNote(`${provider.name} packet uploaded. AI is mapping fields and signature locations now...`);
+        await runAiPacketMapping(provider.id, templateId);
+      } else {
+        setNote(`${provider.name} packet uploaded as a review draft: ${body.template?.originalFileName || "uploaded PDF"}. AI mapping is unavailable until system AI is configured.`);
+        await load();
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Packet could not be uploaded.");
     } finally {
       setPacketBusy(false);
+    }
+  }
+
+  async function runAiPacketMapping(providerId: string, templateId: string) {
+    setAiMapBusy(true);
+    setError("");
+    setNote("AI is mapping the packet and checking signature readiness...");
+    try {
+      const response = await fetch(`/api/mapping/ai-suggest?providerId=${encodeURIComponent(providerId)}&templateId=${encodeURIComponent(templateId)}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "AI mapping could not be completed.");
+      const health = body.health;
+      if (health?.ready) {
+        setNote(`AI mapped ${body.appliedCount || 0} fields. Quality check passed at ${health.score}/100. Review it, then approve for signatures.`);
+      } else {
+        const blockers = Array.isArray(health?.blockingIssues) ? health.blockingIssues.slice(0, 2).join(" ") : "Review the mapping before approval.";
+        setNote(`AI mapped ${body.appliedCount || 0} fields, but the packet still needs attention. ${blockers}`);
+      }
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI mapping could not be completed.");
+      await load();
+    } finally {
+      setAiMapBusy(false);
     }
   }
 
@@ -772,8 +807,8 @@ export default function MasterDashboard() {
               />
             </label>
 
-            <button className="btn-primary w-full" disabled={packetBusy || !selectedProviderId}>
-              {packetBusy ? "Uploading..." : "Upload packet"}
+            <button className="btn-primary w-full" disabled={packetBusy || aiMapBusy || !selectedProviderId}>
+              {packetBusy ? "Uploading..." : aiMapBusy ? "AI mapping..." : "Upload packet"}
             </button>
           </form>
 
@@ -795,10 +830,22 @@ export default function MasterDashboard() {
             <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">Latest upload: {selectedTemplate.originalFileName || selectedTemplate.name}</p>
               <p className="mt-1 text-xs">{selectedTemplate.pageCount} pages. {selectedTemplate.isActive ? "This is active." : "This is a review draft and is not active yet."}</p>
+              <p className="mt-2 text-xs font-semibold">
+                {selectedTemplate.mappingScore == null
+                  ? "AI mapping has not been run yet."
+                  : selectedTemplate.mappingStatus === "APPROVED"
+                    ? `Signature-ready packet approved (${selectedTemplate.mappingScore}/100).`
+                    : `Mapping quality score: ${selectedTemplate.mappingScore}/100. Review before approval.`}
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${selectedProvider.id}&templateId=${selectedTemplate.id}`}>
                   Open mapper
                 </Link>
+                {isMaster && selectedTemplate.mappingStatus === "DRAFT" && (
+                  <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!aiConfigured || aiMapBusy} onClick={() => void runAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
+                    {aiMapBusy ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI not configured"}
+                  </button>
+                )}
                 {selectedTemplate.mappingStatus === "DRAFT" && (
                   <button className="btn-primary px-3 py-1.5 text-xs" disabled={packetActionBusy === selectedTemplate.id} onClick={() => void approvePacket(selectedTemplate.id)}>
                     {packetActionBusy === selectedTemplate.id ? "Checking..." : "Approve after review"}
