@@ -38,6 +38,8 @@ type ProviderRow = {
   }>;
 };
 
+type SummaryKey = "providers" | "active" | "inactive" | "packets" | "intakes" | "staff" | "ai";
+
 const EMPTY_FORM = {
   name: "",
   slug: "",
@@ -87,6 +89,7 @@ export default function MasterDashboard() {
   const [adminBusy, setAdminBusy] = useState(false);
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
   const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
+  const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -332,6 +335,32 @@ export default function MasterDashboard() {
   const totalIntakes = providers.reduce((sum, provider) => sum + provider._count.intakes, 0);
   const totalMemberships = providers.reduce((sum, provider) => sum + provider._count.memberships, 0);
 
+  function toggleSummary(summary: SummaryKey) {
+    setOpenSummary((current) => current === summary ? null : summary);
+  }
+
+  const summaryProviders = openSummary === "active"
+    ? providers.filter((provider) => provider.status === "ACTIVE")
+    : openSummary === "inactive"
+      ? providers.filter((provider) => provider.status !== "ACTIVE")
+      : openSummary === "packets"
+        ? providers.filter((provider) => provider.pdfTemplates.length > 0)
+        : providers;
+
+  const summaryHeading = openSummary === "providers"
+    ? "All provider dashboards"
+    : openSummary === "active"
+      ? "Active provider dashboards"
+      : openSummary === "inactive"
+        ? "Inactive provider dashboards"
+        : openSummary === "packets"
+          ? "Custom packet details"
+          : openSummary === "intakes"
+            ? "Intakes by provider"
+            : openSummary === "staff"
+              ? "Staff users by provider"
+              : "AI preflight status";
+
   return (
     <main className="mx-auto max-w-7xl p-6">
       <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-brand-dark to-brand px-6 py-7 text-white shadow-xl">
@@ -371,14 +400,90 @@ export default function MasterDashboard() {
         </div>
 
         <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
-          <StatCard label="Providers" value={providers.length} />
-          <StatCard label="Active" value={activeCount} />
-          <StatCard label="Inactive" value={inactiveCount} />
-          <StatCard label="Custom packets" value={customPacketCount} />
-          <StatCard label="Total intakes" value={totalIntakes} />
-          <StatCard label="Staff users" value={totalMemberships} />
-          <StatCard label="AI preflight" value={aiConfigured ? "ON" : "OFF"} />
+          <StatCard label="Providers" value={providers.length} active={openSummary === "providers"} onClick={() => toggleSummary("providers")} />
+          <StatCard label="Active" value={activeCount} active={openSummary === "active"} onClick={() => toggleSummary("active")} />
+          <StatCard label="Inactive" value={inactiveCount} active={openSummary === "inactive"} onClick={() => toggleSummary("inactive")} />
+          <StatCard label="Custom packets" value={customPacketCount} active={openSummary === "packets"} onClick={() => toggleSummary("packets")} />
+          <StatCard label="Total intakes" value={totalIntakes} active={openSummary === "intakes"} onClick={() => toggleSummary("intakes")} />
+          <StatCard label="Staff users" value={totalMemberships} active={openSummary === "staff"} onClick={() => toggleSummary("staff")} />
+          <StatCard label="AI preflight" value={aiConfigured ? "ON" : "OFF"} active={openSummary === "ai"} onClick={() => toggleSummary("ai")} />
         </div>
+
+        {openSummary && (
+          <section className="mt-4 rounded-2xl border border-white/15 bg-slate-950/25 p-4" aria-live="polite">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-300">Selected summary</p>
+                <h2 className="mt-1 text-lg font-bold text-white">{summaryHeading}</h2>
+              </div>
+              <button type="button" className="btn-ghost border-white/25 bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20" onClick={() => setOpenSummary(null)}>
+                Close details
+              </button>
+            </div>
+
+            {openSummary === "ai" ? (
+              <div className="mt-3 rounded-xl border border-white/10 bg-white/10 p-4 text-sm text-slate-200">
+                <p className="font-semibold text-white">{aiConfigured ? "System AI is connected" : "System AI needs setup"}</p>
+                <p className="mt-1">{aiConfigured
+                  ? "Providers use their normal portal login for intake review suggestions. No separate AI account is needed."
+                  : "Automatic checks remain available, but AI suggestions need the system AI key configured in the app."}</p>
+              </div>
+            ) : openSummary === "staff" ? (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {providers.flatMap((provider) => provider.memberships.filter((membership) => membership.active).map((membership) => (
+                  <div key={membership.id} className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
+                    <p className="font-semibold text-white">{membership.user.name || membership.user.email}</p>
+                    <p className="text-slate-300">{membership.user.email}</p>
+                    <p className="mt-1 text-xs text-slate-400">{provider.name} · {membership.role.replaceAll("_", " ")}</p>
+                  </div>
+                )))}
+                {totalMemberships === 0 && <p className="mt-3 text-sm text-slate-300">No active staff users found.</p>}
+              </div>
+            ) : openSummary === "intakes" ? (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {providers.map((provider) => (
+                  <div key={provider.id} className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <p className="font-semibold text-white">{provider.name}</p>
+                      <span className="font-bold text-white">{provider._count.intakes}</span>
+                    </div>
+                    <p className="mt-1 text-xs text-slate-300">{provider._count.clients} clients · {provider._count.memberships} staff users</p>
+                    <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-300">
+                      {Object.entries(provider.intakeSummary).map(([status, count]) => <span key={status} className="rounded-full bg-white/10 px-2 py-0.5">{status.replaceAll("_", " ")}: {count}</span>)}
+                    </div>
+                    {provider.status === "ACTIVE" && <button type="button" className="mt-3 btn-ghost border-white/25 bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20" onClick={() => void openProviderDashboard(provider.id)}>Open intakes</button>}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="mt-3 grid gap-2 md:grid-cols-2">
+                {summaryProviders.map((provider) => {
+                  const packet = provider.pdfTemplates?.[0] || null;
+                  return (
+                    <div key={provider.id} className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="font-semibold text-white">{provider.name}</p>
+                        <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${provider.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{provider.status === "ACTIVE" ? "Active" : "Inactive"}</span>
+                      </div>
+                      {openSummary === "packets" ? (
+                        packet ? <p className="mt-1 text-slate-300">{packet.originalFileName || packet.name} · {packet.pageCount} pages · {packet.isActive ? "Active" : "Draft - needs review"}</p> : <p className="mt-1 text-slate-300">Using the shared default packet.</p>
+                      ) : (
+                        <p className="mt-1 text-slate-300">{provider._count.clients} clients · {provider._count.intakes} intakes · {provider._count.memberships} staff users</p>
+                      )}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="button" className="btn-ghost border-white/25 bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20" onClick={() => { setSelectedProviderId(provider.id); document.getElementById("provider-list")?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>
+                          Manage provider
+                        </button>
+                        {provider.status === "ACTIVE" && <button type="button" className="btn-ghost border-white/25 bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20" onClick={() => void openProviderDashboard(provider.id)}>Open intakes</button>}
+                      </div>
+                    </div>
+                  );
+                })}
+                {summaryProviders.length === 0 && <p className="text-sm text-slate-300">No providers match this summary.</p>}
+              </div>
+            )}
+          </section>
+        )}
       </section>
 
       {isMaster && (
@@ -516,7 +621,7 @@ export default function MasterDashboard() {
             </section>
           )}
 
-          <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section id="provider-list" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-lg font-bold">Provider list</h2>
               <p className="text-sm text-slate-500">Open a provider&apos;s intake workspace, activate or deactivate access, and manage its packet.</p>
@@ -715,11 +820,16 @@ export default function MasterDashboard() {
   );
 }
 
-function StatCard({ label, value }: { label: string; value: number | string }) {
+function StatCard({ label, value, active, onClick }: { label: string; value: number | string; active: boolean; onClick: () => void }) {
   return (
-    <div className="rounded-2xl border border-white/10 bg-white/10 px-4 py-3">
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={onClick}
+      className={`rounded-2xl border px-4 py-3 text-left transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${active ? "border-white/50 bg-white/25" : "border-white/10 bg-white/10"}`}
+    >
       <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-200">{label}</p>
       <p className="mt-2 text-3xl font-bold">{value}</p>
-    </div>
+    </button>
   );
 }
