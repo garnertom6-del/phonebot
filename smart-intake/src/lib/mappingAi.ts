@@ -16,6 +16,11 @@ function mappingAiMaxTokens(): number {
   return Number.isFinite(configured) && configured > 0 ? configured : 18000;
 }
 
+function mappingAiTimeoutMs(): number {
+  const configured = Number(process.env.ANTHROPIC_MAPPING_TIMEOUT_MS);
+  return Number.isFinite(configured) && configured > 0 ? configured : 180000;
+}
+
 const SPECIAL_SOURCES = [
   "signature", "guardian_signature", "staff_signature", "clinician_signature",
   "medical_director_signature", "sign_date", "staff_sign_date", "clinician_sign_date",
@@ -120,13 +125,23 @@ function normalizeSuggestions(raw: unknown, pageSizes: Map<number, { width: numb
   return output;
 }
 
-export async function suggestPacketMappings(bytes: Buffer): Promise<{ suggestions: FieldMapping[]; pageCount: number }> {
+export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal): Promise<{ suggestions: FieldMapping[]; pageCount: number }> {
   if (!mappingAiConfigured()) throw new Error("ANTHROPIC_API_KEY is not configured for AI mapping.");
   const pages = await extractPdfLayout(bytes);
   const pageSizes = new Map(pages.map((page) => [page.page, { width: page.width, height: page.height }]));
   const client = new Anthropic();
   const base64 = bytes.toString("base64");
-  const response = await client.messages.create({
+  const requestController = new AbortController();
+  let timedOut = false;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    requestController.abort();
+  }, mappingAiTimeoutMs());
+  const abortRequest = () => requestController.abort();
+  signal?.addEventListener("abort", abortRequest, { once: true });
+  if (signal?.aborted) requestController.abort();
+  try {
+    const response = await client.messages.create({
       model: mappingAiModel(),
       max_tokens: mappingAiMaxTokens(),
     system:
@@ -151,10 +166,17 @@ export async function suggestPacketMappings(bytes: Buffer): Promise<{ suggestion
       ],
     }],
     output_config: { format: { type: "json_schema", schema: suggestionSchema() } },
-  });
-  if (response.stop_reason === "refusal") throw new Error("AI could not review this packet.");
-  const text = response.content.find((block) => block.type === "text");
-  if (!text || text.type !== "text") throw new Error("AI returned no mapping suggestions.");
-  const raw = JSON.parse(text.text) as unknown;
-  return { suggestions: normalizeSuggestions(raw, pageSizes), pageCount: pages.length };
+    }, { signal: requestController.signal });
+    if (response.stop_reason === "refusal") throw new Error("AI could not review this packet.");
+    const text = response.content.find((block) => block.type === "text");
+    if (!text || text.type !== "text") throw new Error("AI returned no mapping suggestions.");
+    const raw = JSON.parse(text.text) as unknown;
+    return { suggestions: normalizeSuggestions(raw, pageSizes), pageCount: pages.length };
+  } catch (error) {
+    if (timedOut) throw new Error(`AI mapping timed out after ${Math.round(mappingAiTimeoutMs() / 60000)} minutes.`);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+    signal?.removeEventListener("abort", abortRequest);
+  }
 }

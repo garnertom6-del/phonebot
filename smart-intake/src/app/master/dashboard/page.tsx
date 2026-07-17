@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 type ProviderRow = {
   id: string;
@@ -91,6 +91,7 @@ export default function MasterDashboard() {
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
   const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
   const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
+  const aiStopRequested = useRef(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -223,6 +224,7 @@ export default function MasterDashboard() {
   }
 
   async function runAiPacketMapping(providerId: string, templateId: string) {
+    aiStopRequested.current = false;
     setAiMapBusy(true);
     setError("");
     setNote("AI mapping started in the background. You can keep working while the packet is checked...");
@@ -239,6 +241,7 @@ export default function MasterDashboard() {
       if (body.queued) {
         for (let attempt = 0; attempt < 90; attempt += 1) {
           await new Promise((resolve) => setTimeout(resolve, 2000));
+          if (aiStopRequested.current) return;
           const statusResponse = await fetch(statusUrl, { cache: "no-store" });
           const statusBody = await statusResponse.json().catch(() => ({}));
           if (!statusResponse.ok) throw new Error(statusBody.error || "AI mapping status could not be checked.");
@@ -248,6 +251,7 @@ export default function MasterDashboard() {
         }
         if (result.mappingStatus === "MAPPING") throw new Error("AI mapping is still running. You can leave this page and check the packet status again shortly.");
       }
+      if (aiStopRequested.current) return;
       const health = result.health;
       if (health?.ready) {
         setNote(`AI mapped ${result.appliedCount || 0} fields. Quality check passed at ${health.score}/100. Review it, then approve for signatures.`);
@@ -258,6 +262,24 @@ export default function MasterDashboard() {
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "AI mapping could not be completed.");
+      await load();
+    } finally {
+      setAiMapBusy(false);
+    }
+  }
+
+  async function stopAiPacketMapping(providerId: string, templateId: string) {
+    aiStopRequested.current = true;
+    setError("");
+    setNote("Stopping AI mapping and keeping this packet as a review draft...");
+    try {
+      const response = await fetch(`/api/mapping/ai-suggest?providerId=${encodeURIComponent(providerId)}&templateId=${encodeURIComponent(templateId)}`, { method: "DELETE" });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "AI mapping could not be stopped.");
+      setNote("AI mapping stopped. The packet remains a review draft and can be mapped again when you are ready.");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "AI mapping could not be stopped.");
       await load();
     } finally {
       setAiMapBusy(false);
@@ -860,6 +882,11 @@ export default function MasterDashboard() {
                 {isMaster && selectedTemplate.mappingStatus !== "APPROVED" && (
                   <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!aiConfigured || aiMapBusy || selectedTemplate.mappingStatus === "MAPPING"} onClick={() => void runAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
                     {aiMapBusy || selectedTemplate.mappingStatus === "MAPPING" ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI not configured"}
+                  </button>
+                )}
+                {isMaster && (aiMapBusy || selectedTemplate.mappingStatus === "MAPPING") && (
+                  <button className="btn-ghost border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50" onClick={() => void stopAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
+                    Stop AI mapping
                   </button>
                 )}
                 {selectedTemplate.mappingStatus === "DRAFT" && (

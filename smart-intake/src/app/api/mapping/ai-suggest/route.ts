@@ -10,6 +10,8 @@ import { audit } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
 
+const mappingControllers = new Map<string, AbortController>();
+
 function parseIssues(value: string | null): Record<string, unknown> {
   if (!value) return {};
   try {
@@ -54,12 +56,21 @@ function mappingStatusResponse(template: { id: string; mappingStatus: string; ma
   };
 }
 
-async function applyPacketMapping(templateId: string, userId: string) {
+async function mappingStillActive(templateId: string): Promise<boolean> {
+  const template = await prisma.pdfTemplate.findUnique({ where: { id: templateId }, select: { mappingStatus: true, mappingIssues: true } });
+  if (!template) return false;
+  const issues = parseIssues(template.mappingIssues);
+  return template.mappingStatus === "MAPPING" && issues.status === "MAPPING";
+}
+
+async function applyPacketMapping(templateId: string, userId: string, controller: AbortController) {
   try {
     const template = await prisma.pdfTemplate.findUnique({ where: { id: templateId }, include: { fieldMappings: true } });
     if (!template) throw new Error("Provider packet template not found.");
+    if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
 
-    const result = await suggestPacketMappings(loadTemplateFile(template.filePath));
+    const result = await suggestPacketMappings(loadTemplateFile(template.filePath), controller.signal);
+    if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
     const existing = template.fieldMappings.map((row) => ({
       fieldKey: row.fieldKey,
       page: row.page,
@@ -85,6 +96,7 @@ async function applyPacketMapping(templateId: string, userId: string) {
       template.pageHeight || PACKET_MAP.pageHeight,
       overrides.length,
     );
+    if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
     await prisma.pdfTemplate.update({
       where: { id: template.id },
       data: {
@@ -99,11 +111,14 @@ async function applyPacketMapping(templateId: string, userId: string) {
       detail: `${template.originalFileName || template.name}: ${result.suggestions.length} AI field suggestion(s); score ${health.score}`,
     });
   } catch (error) {
+    if (controller.signal.aborted) return;
     await prisma.pdfTemplate.update({
       where: { id: templateId },
       data: { mappingStatus: "DRAFT", mappingIssues: JSON.stringify({ status: "ERROR", error: error instanceof Error ? error.message : "AI mapping failed." }) },
     }).catch(() => undefined);
     throw error;
+  } finally {
+    if (mappingControllers.get(templateId) === controller) mappingControllers.delete(templateId);
   }
 }
 
@@ -113,6 +128,23 @@ export async function GET(req: NextRequest) {
   const template = await findTemplate(req);
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
   return NextResponse.json(mappingStatusResponse(template));
+}
+
+export async function DELETE(req: NextRequest) {
+  const { deny } = await requireMaster();
+  if (deny) return deny;
+  const template = await findTemplate(req);
+  if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
+  const controller = mappingControllers.get(template.id);
+  controller?.abort();
+  mappingControllers.delete(template.id);
+  if (template.mappingStatus === "MAPPING") {
+    await prisma.pdfTemplate.update({
+      where: { id: template.id },
+      data: { mappingStatus: "DRAFT", mappingScore: null, mappingIssues: JSON.stringify({ status: "CANCELLED", cancelledAt: new Date().toISOString() }) },
+    });
+  }
+  return NextResponse.json({ cancelled: true, ...mappingStatusResponse({ ...template, mappingStatus: "DRAFT", mappingScore: null, mappingIssues: JSON.stringify({ status: "CANCELLED" }) }) });
 }
 
 export async function POST(req: NextRequest) {
@@ -131,7 +163,9 @@ export async function POST(req: NextRequest) {
       where: { id: template.id },
       data: { mappingStatus: "MAPPING", mappingScore: null, mappingIssues: JSON.stringify({ status: "MAPPING", startedAt: new Date().toISOString() }) },
     });
-    void applyPacketMapping(template.id, user!.id).catch(() => undefined);
+    const controller = new AbortController();
+    mappingControllers.set(template.id, controller);
+    void applyPacketMapping(template.id, user!.id, controller).catch(() => undefined);
     return NextResponse.json({ queued: true, templateId: template.id, mappingStatus: "MAPPING" }, { status: 202 });
   }
 
