@@ -70,7 +70,9 @@ Do **not** enter real clients until:
 - Hosting is on a HIPAA-eligible platform **with a signed BAA**
   (the current Render free tier does not qualify).
 - `DATABASE_URL` points at an encrypted Postgres database, not local SQLite.
-- The app is behind a staff login (added in the next Phase 1 step).
+- `STAFF_PASSWORD` is set, which turns on the staff login. Without it the
+  app runs open (test mode - the header shows a warning). The Render
+  blueprint prompts for this password at deploy time.
 - You have a BAA with the clearinghouse (Claim.MD signs BAAs as part of
   onboarding).
 

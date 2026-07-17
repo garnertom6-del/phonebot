@@ -38,7 +38,18 @@
   </style>
 </head>
 <body>
-  <header><a href="{{ url_for('mh.client_list') }}">MH Practice — Medicaid Eligibility</a></header>
+  <header style="display:flex; justify-content:space-between; align-items:center;">
+    <a href="{{ url_for('mh.client_list') }}">MH Practice — Medicaid Eligibility</a>
+    {% if not login_enabled %}
+      <span style="background:#fff3cd; color:#8a6d00; padding:3px 10px; border-radius:12px; font-size:13px;">
+        test mode — no password set
+      </span>
+    {% elif logged_in %}
+      <form method="post" action="{{ url_for('auth.logout') }}" style="margin:0;">
+        <button type="submit" style="background:none; border:1px solid #ffffff88; color:#fff; border-radius:6px; padding:4px 12px; cursor:pointer;">Log out</button>
+      </form>
+    {% endif %}
+  </header>
   <main>{% block content %}{% endblock %}</main>
 </body>
 </html>
