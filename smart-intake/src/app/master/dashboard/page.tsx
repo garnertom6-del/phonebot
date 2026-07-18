@@ -877,6 +877,9 @@ export default function MasterDashboard() {
                   <option key={provider.id} value={provider.id}>{provider.name}</option>
                 ))}
               </select>
+              <span className="mt-1 block text-xs text-slate-500">
+                {selectedProvider ? `Packet will be assigned to ${selectedProvider.name}.` : "Select a provider before uploading. AI mapping starts after upload."}
+              </span>
             </label>
 
             <label>
@@ -891,7 +894,7 @@ export default function MasterDashboard() {
             </label>
 
             <button className="btn-primary w-full" disabled={packetBusy || aiMapBusy || !selectedProviderId}>
-              {packetBusy ? "Uploading..." : aiMapBusy ? "AI mapping..." : "Upload packet"}
+              {packetBusy ? "Uploading..." : aiMapBusy ? "AI mapping..." : selectedProviderId ? "Upload packet and start AI mapping" : "Select provider first"}
             </button>
           </form>
 
