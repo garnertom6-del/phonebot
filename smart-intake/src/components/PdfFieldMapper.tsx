@@ -367,7 +367,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           )}
           {providerSpecific && <button type="button" className="btn-ghost px-3 py-1" disabled={aiBusy || mappingStatus === "MAPPING"} onClick={() => void runAiMapping}>{aiBusy || mappingStatus === "MAPPING" ? "AI mapping..." : "Run AI mapping"}</button>}
           {providerSpecific && mappingStatus === "MAPPING" && <button type="button" className="btn-ghost border-red-300 px-3 py-1 text-red-700 hover:bg-red-50" disabled={aiBusy} onClick={() => void stopAiMapping}>Stop AI mapping</button>}
-          {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
+          {!providerSpecific && <button type="button" className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
           <button className="btn-ghost px-3 py-1" onClick={clearMap}>Clear map</button>
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
           {(statusError || note) && <span role={statusError ? "alert" : "status"} className={`text-sm ${statusError ? "text-red-700" : "text-emerald-600"}`}>{statusError || note}</span>}
