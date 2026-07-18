@@ -86,7 +86,9 @@ export default function MasterDashboard() {
   const [aiMapBusy, setAiMapBusy] = useState(false);
   const [packetActionBusy, setPacketActionBusy] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);
+  const [showProviderAdminPassword, setShowProviderAdminPassword] = useState(false);
   const [adminForm, setAdminForm] = useState({ name: "", email: "", password: "" });
+  const [showResetPassword, setShowResetPassword] = useState(false);
   const [adminBusy, setAdminBusy] = useState(false);
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
   const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
@@ -152,6 +154,7 @@ export default function MasterDashboard() {
       setNote(`Created ${body.provider?.name || "provider dashboard"}.`);
       if (body.provider?.id) {
         setSelectedProviderId(body.provider.id);
+        setShowProviderAdminPassword(false);
         window.setTimeout(() => document.getElementById("provider-packet-setup")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
       }
       await load();
@@ -398,6 +401,7 @@ export default function MasterDashboard() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Provider administrator could not be saved.");
       setAdminForm({ name: "", email: "", password: "" });
+      setShowResetPassword(false);
       setNote(`${provider.name} administrator access is ready.`);
       await load();
     } catch (err) {
@@ -739,7 +743,17 @@ export default function MasterDashboard() {
                 </label>
                 <label>
                   <span className="label">Admin password *</span>
-                  <input className="input" name="newProviderAdminPassword" autoComplete="new-password" type="password" value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
+                  <div className="relative">
+                    <input className="input pr-16" name="newProviderAdminPassword" autoComplete="new-password" type={showProviderAdminPassword ? "text" : "password"} value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
+                    <button
+                      type="button"
+                      className="absolute inset-y-1 right-1 px-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      onClick={() => setShowProviderAdminPassword((current) => !current)}
+                      aria-label={showProviderAdminPassword ? "Hide admin password" : "Show admin password"}
+                    >
+                      {showProviderAdminPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
                 </label>
                 <div className="flex items-end">
                   <button className="btn-primary w-full" disabled={busy}>{busy ? "Creating..." : "Create provider"}</button>
@@ -772,8 +786,18 @@ export default function MasterDashboard() {
                 </label>
                 <label>
                   <span className="label">New password *</span>
-                  <input className="input" type="password" required minLength={8} value={adminForm.password}
-                    onChange={(event) => setAdminForm((current) => ({ ...current, password: event.target.value }))} />
+                  <div className="relative">
+                    <input className="input pr-16" type={showResetPassword ? "text" : "password"} required minLength={8} value={adminForm.password}
+                      onChange={(event) => setAdminForm((current) => ({ ...current, password: event.target.value }))} />
+                    <button
+                      type="button"
+                      className="absolute inset-y-1 right-1 px-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
+                      onClick={() => setShowResetPassword((current) => !current)}
+                      aria-label={showResetPassword ? "Hide new password" : "Show new password"}
+                    >
+                      {showResetPassword ? "Hide" : "Show"}
+                    </button>
+                  </div>
                 </label>
                 <button className="btn-primary lg:col-span-2" disabled={adminBusy || !selectedProviderId}>
                   {adminBusy ? "Saving..." : "Create / reset provider administrator"}
