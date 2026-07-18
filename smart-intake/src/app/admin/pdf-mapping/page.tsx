@@ -16,10 +16,13 @@ export default function PdfMappingPage({
   const providerId = firstParam(searchParams?.providerId);
   const templateId = firstParam(searchParams?.templateId);
   const providerMode = !!providerId || !!templateId;
+  const dashboardHref = providerMode
+    ? `/master/dashboard${providerId ? `?providerId=${encodeURIComponent(providerId)}` : ""}`
+    : "/dashboard";
 
   return (
     <main className="mx-auto max-w-[1400px] p-6">
-      <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
+      <Link href={dashboardHref} className="text-sm text-brand hover:underline">{providerMode ? "Back to Master dashboard" : "Dashboard"}</Link>
       <h1 className="mb-1 mt-1 text-2xl font-bold">
         PDF Field Mapping{providerMode ? " - Provider Packet" : " - Moore Divine Care Client Intake Package"}
       </h1>

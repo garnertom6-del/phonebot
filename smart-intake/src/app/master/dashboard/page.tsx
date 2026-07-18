@@ -115,6 +115,10 @@ export default function MasterDashboard() {
       setIsMaster(!!body.isMaster);
       setAiConfigured(!!body.aiConfigured);
       setSelectedProviderId((current) => {
+        const requestedProviderId = typeof window !== "undefined"
+          ? new URLSearchParams(window.location.search).get("providerId")
+          : null;
+        if (requestedProviderId && loadedProviders.some((provider: ProviderRow) => provider.id === requestedProviderId)) return requestedProviderId;
         if (current && loadedProviders.some((provider: ProviderRow) => provider.id === current)) return current;
         return loadedProviders.length === 1 ? loadedProviders[0].id : "";
       });

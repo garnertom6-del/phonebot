@@ -176,20 +176,49 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   }
 
   async function runAiMapping() {
+    if (dirty.size > 0 || deletedFields.length > 0) {
+      const confirmed = window.confirm("You have unsaved mapping changes. Running AI will replace the current draft map after the AI review. Continue?");
+      if (!confirmed) return;
+    }
     setAiBusy(true);
-    setNote("AI is reviewing the packet layout and preparing mapping suggestions...");
+    setNote("AI is reviewing the packet layout and saving a review draft...");
     try {
-      const r = await fetch(`/api/mapping/ai-suggest${qs}`, { method: "POST" });
+      const r = await fetch(`/api/mapping/ai-suggest${qs}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ apply: true, background: true }),
+      });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
         setNote(body.error || "AI mapping could not be completed.");
         return;
       }
-      const suggestions = Array.isArray(body.suggestions) ? body.suggestions as Field[] : [];
-      setAiSuggestions(suggestions);
-      setNote(suggestions.length ? `AI prepared ${suggestions.length} suggestions. Review them before applying.` : "AI found no high-confidence mapping suggestions. Use the manual mapper.");
+      let result = body as { mappingStatus?: string; mappingIssues?: { error?: string }; appliedCount?: number };
+      for (let attempt = 0; attempt < 90 && result.mappingStatus === "MAPPING"; attempt += 1) {
+        await new Promise((resolve) => setTimeout(resolve, 2000));
+        const statusResponse = await fetch(`/api/mapping/ai-suggest${qs}`, { cache: "no-store" });
+        const statusBody = await statusResponse.json().catch(() => ({}));
+        if (!statusResponse.ok) throw new Error(statusBody.error || "AI mapping status could not be checked.");
+        result = statusBody;
+        if (result.mappingStatus !== "MAPPING") break;
+      }
+      if (result.mappingStatus === "MAPPING") throw new Error("AI mapping is still running. Return to the master dashboard shortly to check the packet status.");
+      if (result.mappingIssues?.error) throw new Error(result.mappingIssues.error);
+      const mappingResponse = await fetch(`/api/mapping${qs}`, { cache: "no-store" });
+      const mappingBody = await mappingResponse.json().catch(() => ({}));
+      if (!mappingResponse.ok) throw new Error(mappingBody.error || "The saved AI map could not be loaded.");
+      setFields(mappingBody.fields || []);
+      setPageCount(mappingBody.pageCount);
+      setPageSize({ w: mappingBody.pageWidth, h: mappingBody.pageHeight });
+      setTemplateName(mappingBody.originalFileName || mappingBody.templateName || "Packet template");
+      setMappingStatus(mappingBody.mappingStatus || "DRAFT");
+      setDirty(new Set());
+      setDeletedFields([]);
+      setAiSuggestions([]);
+      setHealth(null);
+      setNote(`AI saved ${result.appliedCount || 0} mapping suggestions as a draft. Review the packet, then run the quality check and approve it.`);
     } catch {
-      setNote("AI mapping could not connect. Check the system AI setup and try again.");
+      setNote("AI mapping could not finish. Check the system AI setup or return to the master dashboard to try again.");
     } finally {
       setAiBusy(false);
     }
@@ -316,7 +345,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
               Approve packet
             </button>
           )}
-          {providerSpecific && <button className="btn-ghost px-3 py-1" disabled={aiBusy} onClick={runAiMapping}>{aiBusy ? "AI reviewing..." : "AI suggest mappings"}</button>}
+          {providerSpecific && <button className="btn-ghost px-3 py-1" disabled={aiBusy || mappingStatus === "MAPPING"} onClick={runAiMapping}>{aiBusy || mappingStatus === "MAPPING" ? "AI mapping..." : "Run AI mapping"}</button>}
           {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
           <button className="btn-ghost px-3 py-1" onClick={clearMap}>Clear map</button>
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
