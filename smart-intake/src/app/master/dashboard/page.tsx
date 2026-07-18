@@ -90,6 +90,7 @@ export default function MasterDashboard() {
   const [adminBusy, setAdminBusy] = useState(false);
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
   const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
+  const [deleteBusyProviderId, setDeleteBusyProviderId] = useState("");
   const [providerNotifyBusy, setProviderNotifyBusy] = useState("");
   const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
   const aiStopRequested = useRef(false);
@@ -221,6 +222,35 @@ export default function MasterDashboard() {
       setError(err instanceof Error ? err.message : "Packet could not be uploaded.");
     } finally {
       setPacketBusy(false);
+    }
+  }
+
+  async function deleteProviderProfile(provider: ProviderRow) {
+    const confirmation = window.prompt(
+      `This permanently deletes ${provider.name}, its provider login memberships, clients, intakes, uploaded files, generated packets, and packet templates. Type the provider name exactly to continue:`,
+    );
+    if (confirmation !== provider.name) {
+      if (confirmation !== null) setError("Provider deletion cancelled. The name did not match exactly.");
+      return;
+    }
+    setDeleteBusyProviderId(provider.id);
+    setError("");
+    setNote("");
+    try {
+      const response = await fetch(`/api/master/providers/${provider.id}`, {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmName: confirmation }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) throw new Error(body.error || "Provider profile could not be deleted.");
+      if (selectedProviderId === provider.id) setSelectedProviderId("");
+      setNote(`${provider.name} and its provider records were permanently deleted.`);
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Provider profile could not be deleted.");
+    } finally {
+      setDeleteBusyProviderId("");
     }
   }
 
@@ -730,7 +760,7 @@ export default function MasterDashboard() {
           <section id="provider-list" className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-lg font-bold">Provider list</h2>
-              <p className="text-sm text-slate-500">Open a provider&apos;s intake workspace, activate or deactivate access, and manage its packet.</p>
+              <p className="text-sm text-slate-500">Open a provider&apos;s intake workspace, activate or deactivate access, and manage its packet. Delete permanently removes the provider profile and its records.</p>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left text-sm">
@@ -848,6 +878,14 @@ export default function MasterDashboard() {
                                 {statusBusyProviderId === provider.id ? "Activating..." : "Activate"}
                               </button>
                             ))}
+                            <button
+                              type="button"
+                              className="btn-ghost border-red-300 px-3 py-1.5 text-xs text-red-800 hover:bg-red-50"
+                              disabled={deleteBusyProviderId === provider.id}
+                              onClick={() => void deleteProviderProfile(provider)}
+                            >
+                              {deleteBusyProviderId === provider.id ? "Deleting..." : "Delete profile"}
+                            </button>
                           </div>
                         </td>
                       </tr>

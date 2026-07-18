@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
+import { deleteFile } from "@/lib/storage";
 
 const updateProviderSchema = z.object({
   name: z.string().trim().min(2).optional(),
@@ -83,4 +84,45 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   }
 
   return NextResponse.json({ provider, adminUpdated: !!data.adminEmail });
+}
+
+export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+  const { user, deny } = await requireMaster();
+  if (deny) return deny;
+  const body = await req.json().catch(() => ({}));
+  const provider = await prisma.provider.findUnique({ where: { id: params.id }, select: { id: true, name: true } });
+  if (!provider) return NextResponse.json({ error: "Provider not found." }, { status: 404 });
+  if (body?.confirmName !== provider.name) {
+    return NextResponse.json({ error: "Type the provider name exactly to confirm permanent deletion." }, { status: 400 });
+  }
+
+  const [templates, generatedPdfs, uploadedDocuments] = await Promise.all([
+    prisma.pdfTemplate.findMany({ where: { providerId: provider.id }, select: { filePath: true } }),
+    prisma.generatedPdf.findMany({ where: { intake: { providerId: provider.id } }, select: { filePath: true } }),
+    prisma.uploadedDocument.findMany({ where: { intake: { providerId: provider.id } }, select: { filePath: true } }),
+  ]);
+  const files = [...new Set([...templates, ...generatedPdfs, ...uploadedDocuments].map((file) => file.filePath).filter(Boolean))];
+
+  const deleted = await prisma.$transaction(async (tx) => {
+    const intakeResult = await tx.intake.deleteMany({ where: { providerId: provider.id } });
+    const clientResult = await tx.client.deleteMany({ where: { providerId: provider.id } });
+    const templateResult = await tx.pdfTemplate.deleteMany({ where: { providerId: provider.id } });
+    const membershipResult = await tx.userMembership.deleteMany({ where: { providerId: provider.id } });
+    await tx.provider.delete({ where: { id: provider.id } });
+    return {
+      intakes: intakeResult.count,
+      clients: clientResult.count,
+      templates: templateResult.count,
+      memberships: membershipResult.count,
+    };
+  });
+
+  for (const file of files) {
+    try { deleteFile(file); } catch (error) { console.error("provider profile file cleanup failed", file, error); }
+  }
+  await audit("provider_profile_deleted", {
+    userId: user!.id,
+    detail: `${provider.name}: ${deleted.clients} client(s), ${deleted.intakes} intake(s), ${deleted.templates} packet template(s) deleted`,
+  });
+  return NextResponse.json({ ok: true, providerName: provider.name, deleted });
 }

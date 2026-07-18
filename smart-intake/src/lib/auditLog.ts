@@ -18,7 +18,7 @@ export type AuditEvent =
   | "nctracks_lookup_not_configured" | "nctracks_lookup_completed" | "nctracks_lookup_failed"
   | "login_locked_out" | "backup_downloaded" | "document_downloaded" | "docusign_completed"
   | "provider_portal_notification_sent"
-  | "provider_packet_uploaded" | "provider_packet_ai_mapped" | "staff_user_created" | "staff_user_updated";
+  | "provider_packet_uploaded" | "provider_packet_ai_mapped" | "provider_profile_deleted" | "staff_user_created" | "staff_user_updated";
 
 export async function audit(
   event: AuditEvent,

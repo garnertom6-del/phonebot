@@ -22,3 +22,10 @@ export function readFile(relPath: string): Buffer {
 export function fileExists(relPath: string): boolean {
   return fs.existsSync(path.join(ROOT, relPath));
 }
+
+export function deleteFile(relPath: string): void {
+  const full = path.resolve(ROOT, relPath);
+  const root = `${path.resolve(ROOT)}${path.sep}`;
+  if (!full.startsWith(root)) throw new Error("Refusing to delete a file outside storage.");
+  if (fs.existsSync(full)) fs.rmSync(full, { force: true });
+}
