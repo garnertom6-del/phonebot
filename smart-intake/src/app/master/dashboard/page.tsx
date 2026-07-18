@@ -1023,8 +1023,20 @@ export default function MasterDashboard() {
                   Open mapper
                 </Link>
                 {isMaster && selectedTemplate.mappingStatus !== "APPROVED" && (
-                  <button className="btn-ghost px-3 py-1.5 text-xs" disabled={!aiConfigured || aiMapBusy || selectedTemplate.mappingStatus === "MAPPING"} onClick={() => void runAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
-                    {aiMapBusy || selectedTemplate.mappingStatus === "MAPPING" ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI not configured"}
+                  <button
+                    type="button"
+                    className="btn-ghost px-3 py-1.5 text-xs"
+                    disabled={aiMapBusy || selectedTemplate.mappingStatus === "MAPPING"}
+                    title={aiConfigured ? "Run AI mapping again" : "System AI is not connected yet."}
+                    onClick={() => {
+                      if (!aiConfigured) {
+                        setError("System AI is not connected yet. Add the ANTHROPIC_API_KEY in the app environment, then refresh this page.");
+                        return;
+                      }
+                      void runAiPacketMapping(selectedProvider.id, selectedTemplate.id);
+                    }}
+                  >
+                    {aiMapBusy || selectedTemplate.mappingStatus === "MAPPING" ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI setup needed"}
                   </button>
                 )}
                 {isMaster && (aiMapBusy || selectedTemplate.mappingStatus === "MAPPING") && (

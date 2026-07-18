@@ -63,6 +63,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [health, setHealth] = useState<MappingHealth | null>(null);
   const [aiSuggestions, setAiSuggestions] = useState<Field[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+  const [statusError, setStatusError] = useState("");
   const [replaceMappingOnSave, setReplaceMappingOnSave] = useState(false);
   const pdfRef = useRef<unknown>(null);
   const dragRef = useRef<{ key: string; startX: number; startY: number; ox: number; oy: number; resize: boolean } | null>(null);
@@ -75,6 +76,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setDeletedFields([]);
     setHealth(null);
     setAiSuggestions([]);
+    setStatusError("");
     setReplaceMappingOnSave(false);
     fetch(`/api/mapping${qs}`).then(async (r) => {
       const d = await r.json();
@@ -87,7 +89,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setMappingStatus(d.mappingStatus || "APPROVED");
     }).catch((err) => {
       setFields([]);
-      setNote(err instanceof Error ? err.message : "Mapping could not be loaded");
+      setStatusError(err instanceof Error ? err.message : "Mapping could not be loaded");
     });
   }, [qs]);
 
@@ -181,6 +183,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       if (!confirmed) return;
     }
     setAiBusy(true);
+    setStatusError("");
     setNote("AI is reviewing the packet layout and saving a review draft...");
     try {
       const r = await fetch(`/api/mapping/ai-suggest${qs}`, {
@@ -190,7 +193,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setNote(body.error || "AI mapping could not be completed.");
+        setStatusError(body.error || "AI mapping could not be completed.");
         return;
       }
       let result = body as { mappingStatus?: string; mappingIssues?: { error?: string }; appliedCount?: number };
@@ -217,8 +220,25 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setAiSuggestions([]);
       setHealth(null);
       setNote(`AI saved ${result.appliedCount || 0} mapping suggestions as a draft. Review the packet, then run the quality check and approve it.`);
-    } catch {
-      setNote("AI mapping could not finish. Check the system AI setup or return to the master dashboard to try again.");
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "AI mapping could not finish. Check the system AI setup or return to the master dashboard to try again.");
+    } finally {
+      setAiBusy(false);
+    }
+  }
+
+  async function stopAiMapping() {
+    setAiBusy(true);
+    setStatusError("");
+    setNote("Stopping AI mapping and keeping this packet as a review draft...");
+    try {
+      const r = await fetch(`/api/mapping/ai-suggest${qs}`, { method: "DELETE" });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) throw new Error(body.error || "AI mapping could not be stopped.");
+      setMappingStatus(body.mappingStatus || "DRAFT");
+      setNote("AI mapping stopped. You can run it again when the system AI connection is ready.");
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "AI mapping could not be stopped.");
     } finally {
       setAiBusy(false);
     }
@@ -327,9 +347,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           {providerSpecific && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${mappingStatus === "APPROVED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{mappingStatus}</span>}
         </div>
         <div className="mb-2 flex flex-wrap items-center gap-2">
-          <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>Prev</button>
+          <button type="button" className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>Prev</button>
           <span className="text-sm font-semibold">Page {pageNum} / {pageCount}</span>
-          <button className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.min(pageCount, p + 1))}>Next</button>
+           <button type="button" className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.min(pageCount, p + 1))}>Next</button>
           <select className="input w-auto py-1" value={pageNum} onChange={(e) => setPageNum(Number(e.target.value))}>
             {Array.from({ length: pageCount }, (_, i) => <option key={i + 1} value={i + 1}>Page {i + 1}</option>)}
           </select>
@@ -345,11 +365,12 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
               Approve packet
             </button>
           )}
-          {providerSpecific && <button className="btn-ghost px-3 py-1" disabled={aiBusy || mappingStatus === "MAPPING"} onClick={runAiMapping}>{aiBusy || mappingStatus === "MAPPING" ? "AI mapping..." : "Run AI mapping"}</button>}
+          {providerSpecific && <button type="button" className="btn-ghost px-3 py-1" disabled={aiBusy || mappingStatus === "MAPPING"} onClick={() => void runAiMapping}>{aiBusy || mappingStatus === "MAPPING" ? "AI mapping..." : "Run AI mapping"}</button>}
+          {providerSpecific && mappingStatus === "MAPPING" && <button type="button" className="btn-ghost border-red-300 px-3 py-1 text-red-700 hover:bg-red-50" disabled={aiBusy} onClick={() => void stopAiMapping}>Stop AI mapping</button>}
           {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={loadMooreDraft}>Load Moore draft</button>}
           <button className="btn-ghost px-3 py-1" onClick={clearMap}>Clear map</button>
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
-          <span className="text-sm text-emerald-600">{note}</span>
+          {(statusError || note) && <span role={statusError ? "alert" : "status"} className={`text-sm ${statusError ? "text-red-700" : "text-emerald-600"}`}>{statusError || note}</span>}
         </div>
         <p className="mb-2 text-xs text-slate-500">Click empty space to add a field. Drag a box to move. Drag the corner dot to resize. Click a box to edit its properties.</p>
         {health && (
