@@ -706,8 +706,9 @@ export default function MasterDashboard() {
                   <input className="input" value={form.contactName} onChange={(event) => updateField("contactName", event.target.value)} />
                 </label>
                 <label>
-                  <span className="label">Provider email</span>
-                  <input className="input" type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} />
+                  <span className="label">Provider contact email</span>
+                  <input className="input" name="providerContactEmail" autoComplete="off" inputMode="email" type="email" placeholder="provider@example.com" value={form.email} onChange={(event) => updateField("email", event.target.value)} />
+                  <span className="mt-1 block text-xs text-slate-500">Use the provider&apos;s contact email, not your master login.</span>
                 </label>
                 <label>
                   <span className="label">Admin name</span>
@@ -715,11 +716,11 @@ export default function MasterDashboard() {
                 </label>
                 <label>
                   <span className="label">Admin email *</span>
-                  <input className="input" type="email" value={form.adminEmail} onChange={(event) => updateField("adminEmail", event.target.value)} />
+                  <input className="input" name="newProviderAdminEmail" autoComplete="new-username" inputMode="email" type="email" placeholder="provider-admin@example.com" value={form.adminEmail} onChange={(event) => updateField("adminEmail", event.target.value)} />
                 </label>
                 <label>
                   <span className="label">Admin password *</span>
-                  <input className="input" type="password" value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
+                  <input className="input" name="newProviderAdminPassword" autoComplete="new-password" type="password" value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
                 </label>
                 <div className="flex items-end">
                   <button className="btn-primary w-full" disabled={busy}>{busy ? "Creating..." : "Create provider"}</button>
