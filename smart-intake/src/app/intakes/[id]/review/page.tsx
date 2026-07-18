@@ -13,6 +13,7 @@ import SignaturePad from "@/components/SignaturePad";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
+type SignatureRecord = { role: string; printedName: string; signedDate: string };
 
 const SIGNER_OPTIONS: { role: StaffSignatureRole; label: string; padLabel: string }[] = [
   { role: "staff", label: "QP / Qualified Professional", padLabel: "QP / Qualified Professional signature" },
@@ -28,6 +29,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
   const [selectedSignerRoles, setSelectedSignerRoles] = useState<StaffSignatureRole[]>([]);
+  const [signatures, setSignatures] = useState<SignatureRecord[]>([]);
+  const [sameSignatureForSelected, setSameSignatureForSelected] = useState(true);
   const [activeSignerIndex, setActiveSignerIndex] = useState(0);
   const [isSigning, setIsSigning] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -46,7 +49,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         return;
       }
       const d = await r.json();
-      setAnswers(d.answers); setClientName(d.intake.client.fullName); setLoaded(true);
+      setAnswers(d.answers);
+      setClientName(d.intake.client.fullName);
+      setSignatures(Array.isArray(d.intake.signatures) ? d.intake.signatures : []);
+      setLoaded(true);
     });
   }, [params.id]);
   useEffect(load, [load]);
@@ -111,6 +117,11 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     if (!isSigning) setSelectedSignerRoles(CARE_TEAM_ROLES);
   }
 
+  function selectMissingStaffSignatures() {
+    if (isSigning) return;
+    setSelectedSignerRoles(CARE_TEAM_ROLES.filter((role) => !signatures.some((signature) => signature.role === role)));
+  }
+
   function startSigning() {
     if (!selectedSignerRoles.length) {
       setNote("Select at least one staff role before starting signatures.");
@@ -123,18 +134,26 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   async function captureStaffSig(role: StaffSignatureRole, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
     const config = SIGNER_OPTIONS.find((option) => option.role === role);
-    const response = await fetch(`/api/intakes/${params.id}/signature`, {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role, ...d }),
-    });
-    const body = await response.json().catch(() => ({} as { error?: string }));
-    if (!response.ok) {
-      setNote(body.error || `${config?.label || "Staff"} signature failed. Please try again.`);
-      return;
+    const rolesToSave = sameSignatureForSelected ? selectedSignerRoles.slice(activeSignerIndex) : [role];
+    for (const roleToSave of rolesToSave) {
+      const response = await fetch(`/api/intakes/${params.id}/signature`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: roleToSave, ...d }),
+      });
+      const body = await response.json().catch(() => ({} as { error?: string }));
+      if (!response.ok) {
+        setNote(body.error || `${config?.label || "Staff"} signature failed. Please try again.`);
+        load();
+        return;
+      }
     }
 
-    const nextIndex = activeSignerIndex + 1;
-    if (nextIndex < selectedSignerRoles.length) {
+    setSignatures((current) => [
+      ...current.filter((signature) => !rolesToSave.includes(signature.role as StaffSignatureRole)),
+      ...rolesToSave.map((savedRole) => ({ role: savedRole, printedName: d.printedName, signedDate: d.signedDate })),
+    ]);
+    if (!sameSignatureForSelected && activeSignerIndex + 1 < selectedSignerRoles.length) {
+      const nextIndex = activeSignerIndex + 1;
       setActiveSignerIndex(nextIndex);
       const nextRole = selectedSignerRoles[nextIndex];
       setNote(`${config?.label || "Staff"} signature saved. Next: ${SIGNER_OPTIONS.find((option) => option.role === nextRole)?.label || "staff signer"}.`);
@@ -142,7 +161,16 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       setIsSigning(false);
       setSelectedSignerRoles([]);
       setActiveSignerIndex(0);
-      setNote(`Saved ${selectedSignerRoles.length} staff signature${selectedSignerRoles.length === 1 ? "" : "s"} separately. Review the intake before generating the packet.`);
+      setNote(`Saved ${rolesToSave.length} staff signature${rolesToSave.length === 1 ? "" : "s"}. Review the intake before generating the packet.`);
+    }
+    if (role === "clinician" || rolesToSave.includes("clinician")) {
+      setAnswers((current) => ({
+        ...current,
+        clinician_name: d.printedName,
+        c_clinician: d.printedName,
+        cca_provider_credentials: current.cca_provider_credentials || d.printedName,
+        dis_prepared_by: current.dis_prepared_by || d.printedName,
+      }));
     }
     load();
   }
@@ -177,8 +205,32 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       <div id="staff-signatures" className="card mt-3 scroll-mt-4">
         <h3 className="font-bold">Staff-side signatures</h3>
         <p className="mb-2 text-xs text-slate-500">
-          Select every role that must sign. We will collect each signature separately so names and roles stay accurate in the packet.
+          The client or guardian signs through the secure client link. Use this section to add or replace staff signatures before the packet is generated.
         </p>
+        <div className="mb-3 grid gap-2 sm:grid-cols-2">
+          {[
+            { role: "client", label: "Client / guardian", note: "Signs from the secure client link." },
+            { role: "staff", label: "QP / Qualified Professional", note: "Staff review signature." },
+            { role: "clinician", label: "Clinician", note: "Printed name is copied to the CCA." },
+            { role: "witness", label: "Witness", note: "Use only when the form requires it." },
+            { role: "medicalDirector", label: "Medical Director", note: "Use only when the form requires it." },
+          ].map((item) => {
+            const found = signatures.find((signature) => signature.role === item.role || (item.role === "client" && signature.role === "guardian"));
+            return (
+              <div key={item.role} className={`rounded-lg border p-2 text-sm ${found ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+                <div className="flex items-center justify-between gap-2">
+                  <b>{item.label}</b>
+                  <span className={`text-xs font-semibold ${found ? "text-emerald-700" : "text-amber-700"}`}>{found ? "Captured" : "Missing"}</span>
+                </div>
+                <p className="mt-1 text-xs text-slate-600">{found ? `${found.printedName} (${found.signedDate})` : item.note}</p>
+              </div>
+            );
+          })}
+        </div>
+        <label className="mb-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
+          <input type="checkbox" className="mt-0.5 h-4 w-4" checked={sameSignatureForSelected} onChange={(event) => setSameSignatureForSelected(event.target.checked)} disabled={isSigning} />
+          <span><b>Same person and same signature for selected roles</b><br /><span className="text-xs text-slate-600">Use this when the QP, witness, and clinician are the same person. Each role is still recorded separately.</span></span>
+        </label>
         <div className="flex flex-wrap gap-2">
           {SIGNER_OPTIONS.map((option) => (
             <button key={option.role} type="button" aria-pressed={selectedSignerRoles.includes(option.role)} disabled={isSigning}
@@ -189,6 +241,9 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           ))}
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
+          <button type="button" className="btn-secondary px-3 py-1.5 text-sm" disabled={isSigning} onClick={selectMissingStaffSignatures}>
+            Select missing staff signatures
+          </button>
           <button type="button" className="btn-ghost px-3 py-1.5 text-sm" disabled={isSigning} onClick={selectCareTeam}>
             Select QP + clinician + witness
           </button>
@@ -209,6 +264,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
               key={`${selectedSignerRoles[activeSignerIndex]}-${activeSignerIndex}`}
               roleLabel={SIGNER_OPTIONS.find((option) => option.role === selectedSignerRoles[activeSignerIndex])?.padLabel}
               expectedRole={selectedSignerRoles[activeSignerIndex]}
+              defaultName={String(answers.clinician_name || answers.c_clinician || answers.staff_receiving_intake || "")}
               onCapture={(d) => { void captureStaffSig(selectedSignerRoles[activeSignerIndex], d); }}
             />
           </div>
