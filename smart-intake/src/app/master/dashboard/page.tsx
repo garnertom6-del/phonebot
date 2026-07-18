@@ -699,7 +699,7 @@ export default function MasterDashboard() {
                 </label>
                 <label>
                   <span className="label">Provider phone</span>
-                  <input className="input" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
+                  <input className="input" name="providerPhone" type="tel" inputMode="tel" autoComplete="tel" placeholder="(555) 555-5555" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
                 </label>
                 <label>
                   <span className="label">Contact name</span>
