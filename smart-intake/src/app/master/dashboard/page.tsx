@@ -701,9 +701,24 @@ export default function MasterDashboard() {
                   <span className="label">Slug</span>
                   <input className="input" value={form.slug} onChange={(event) => updateField("slug", event.target.value)} placeholder="provider-name" />
                 </label>
-                <label>
+                <label htmlFor="provider-phone">
                   <span className="label">Provider phone</span>
-                  <input className="input" name="providerPhone" type="tel" inputMode="tel" autoComplete="tel" placeholder="(555) 555-5555" value={form.phone} onChange={(event) => updateField("phone", event.target.value)} />
+                  <input
+                    id="provider-phone"
+                    className="input"
+                    name="providerPhone"
+                    type="text"
+                    inputMode="tel"
+                    autoComplete="off"
+                    placeholder="(555) 555-5555"
+                    value={form.phone}
+                    onFocus={(event) => {
+                      window.requestAnimationFrame(() => {
+                        event.currentTarget.scrollIntoView({ behavior: "auto", block: "center" });
+                      });
+                    }}
+                    onChange={(event) => updateField("phone", event.target.value)}
+                  />
                 </label>
                 <label>
                   <span className="label">Contact name</span>
