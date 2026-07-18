@@ -146,6 +146,10 @@ export default function MasterDashboard() {
       if (!response.ok) throw new Error(body.error || "Provider could not be created.");
       setForm(EMPTY_FORM);
       setNote(`Created ${body.provider?.name || "provider dashboard"}.`);
+      if (body.provider?.id) {
+        setSelectedProviderId(body.provider.id);
+        window.setTimeout(() => document.getElementById("provider-packet-setup")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+      }
       await load();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Provider could not be created.");
@@ -682,7 +686,8 @@ export default function MasterDashboard() {
         <div className="space-y-5">
           {isMaster && (
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-              <h2 className="mb-4 text-lg font-bold">Create Provider Dashboard</h2>
+              <h2 className="mb-4 text-lg font-bold">Step 1: Create Provider Dashboard</h2>
+              <p className="mb-4 text-sm text-slate-500">Create the provider first. This creates the provider workspace, login, and place where its client intakes will belong.</p>
               <form onSubmit={createProvider} className="grid grid-cols-1 gap-4 lg:grid-cols-4">
                 <label className="lg:col-span-2">
                   <span className="label">Provider name *</span>
@@ -897,11 +902,11 @@ export default function MasterDashboard() {
           </section>
         </div>
 
-        <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section id="provider-packet-setup" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold">Provider Packet Setup</h2>
-              <p className="text-sm text-slate-500">Upload the intake packet PDF each provider uses for preview, download, and DocuSign.</p>
+              <h2 className="text-lg font-bold">Step 2: Upload the Provider Packet</h2>
+              <p className="text-sm text-slate-500">Select the provider, then upload its blank intake packet PDF for mapping, review, signatures, previews, and DocuSign.</p>
             </div>
             {selectedProvider && <span className="badge bg-slate-100 text-slate-700">{selectedProvider.name}</span>}
           </div>
@@ -935,6 +940,12 @@ export default function MasterDashboard() {
               {packetBusy ? "Uploading..." : aiMapBusy ? "AI mapping..." : selectedProviderId ? "Upload packet and start AI mapping" : "Select provider first"}
             </button>
           </form>
+
+          <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
+            <p className="font-semibold">What comes next</p>
+            <p className="mt-1">After upload, AI maps the packet and signature locations. Review and approve the packet, then open the provider&apos;s intake workspace to create client intakes.</p>
+            <p className="mt-1">A CCA is uploaded later inside the specific client intake. It is not attached to the provider packet.</p>
+          </div>
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
             {selectedProvider ? (
