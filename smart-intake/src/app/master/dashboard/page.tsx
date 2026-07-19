@@ -303,8 +303,9 @@ export default function MasterDashboard() {
       }
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI mapping could not be completed.");
+      const message = err instanceof Error ? err.message : "AI mapping could not be completed.";
       await load();
+      setError(message);
     } finally {
       setAiMapBusy(false);
     }
@@ -321,8 +322,9 @@ export default function MasterDashboard() {
       setNote("AI mapping stopped. The packet remains a review draft and can be mapped again when you are ready.");
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "AI mapping could not be stopped.");
+      const message = err instanceof Error ? err.message : "AI mapping could not be stopped.";
       await load();
+      setError(message);
     } finally {
       setAiMapBusy(false);
     }

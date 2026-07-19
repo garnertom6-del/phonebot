@@ -24,6 +24,10 @@ services:
       # stops working once this is set (takes effect on the next deploy).
       - key: ADMIN_PASSWORD
         sync: false
+      # Required for AI packet mapping, CCA reading, and AI preflight.
+      # Enter the secret value in Render; never put the key in this file.
+      - key: ANTHROPIC_API_KEY
+        sync: false
       # Keep demo clients (Angela Demo / Jayden Sample) out of the live site.
       - key: SEED_DEMO_DATA
         value: "false"
