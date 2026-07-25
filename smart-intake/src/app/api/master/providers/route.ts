@@ -76,23 +76,36 @@ export async function GET() {
   });
 
   const intakeStatusRows = await prisma.intake.groupBy({
-    by: ["providerId", "status"],
+    by: ["providerId", "status", "archived"],
     where: isMaster ? { providerId: { not: null } } : { providerId: provider!.id },
     _count: { _all: true },
   });
   const intakeSummaryByProvider = new Map<string, Record<string, number>>();
+  const archivedIntakeCountByProvider = new Map<string, number>();
   for (const row of intakeStatusRows) {
     if (!row.providerId) continue;
+    if (row.archived) {
+      archivedIntakeCountByProvider.set(
+        row.providerId,
+        (archivedIntakeCountByProvider.get(row.providerId) || 0) + row._count._all,
+      );
+      continue;
+    }
     const summary = intakeSummaryByProvider.get(row.providerId) || {};
     summary[row.status] = row._count._all;
     intakeSummaryByProvider.set(row.providerId, summary);
   }
 
   return NextResponse.json({
-    providers: providers.map((item) => ({
-      ...item,
-      intakeSummary: intakeSummaryByProvider.get(item.id) || {},
-    })),
+    providers: providers.map((item) => {
+      const intakeSummary = intakeSummaryByProvider.get(item.id) || {};
+      return {
+        ...item,
+        intakeSummary,
+        currentIntakeCount: Object.values(intakeSummary).reduce((sum, count) => sum + count, 0),
+        archivedIntakeCount: archivedIntakeCountByProvider.get(item.id) || 0,
+      };
+    }),
     isMaster,
     // Only expose availability, never the key itself. Provider staff use the
     // shared system service through their normal portal login.
