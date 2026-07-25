@@ -22,7 +22,7 @@ function stringValue(value: unknown): string {
 
 export async function GET(req: NextRequest) {
   try {
-    const { user, provider, deny } = await requireStaff();
+    const { user, provider, membership, deny } = await requireStaff();
     if (deny) return deny;
     const showArchived = new URL(req.url).searchParams.get("archived") === "1";
     // Lean list query: no signature image blobs, no per-row follow-up queries.
@@ -78,6 +78,7 @@ export async function GET(req: NextRequest) {
       intakes: rows,
       provider: { id: provider!.id, name: provider!.name, slug: provider!.slug },
       isMaster: isMasterUser(user!),
+      canManageProvider: isMasterUser(user!) || membership?.role === "PROVIDER_ADMIN",
     });
   } catch (error) {
     console.error("GET /api/intakes failed", error);

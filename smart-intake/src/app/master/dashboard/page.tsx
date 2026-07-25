@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 type ProviderRow = {
@@ -106,6 +106,7 @@ function packetStatus(template: ProviderRow["pdfTemplates"][number]) {
 
 export default function MasterDashboard() {
   const router = useRouter();
+  const pathname = usePathname();
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [isMaster, setIsMaster] = useState<boolean | null>(null);
   const [aiConfigured, setAiConfigured] = useState(false);
@@ -150,6 +151,10 @@ export default function MasterDashboard() {
       }
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || `Provider load failed (${response.status})`);
+      if (!body.isMaster && pathname.startsWith("/master")) {
+        router.replace("/master");
+        return;
+      }
       const loadedProviders = body.providers || [];
       setProviders(loadedProviders);
       setIsMaster(!!body.isMaster);
@@ -168,7 +173,7 @@ export default function MasterDashboard() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [pathname, router]);
 
   useEffect(() => { void load(); }, [load]);
 

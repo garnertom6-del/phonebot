@@ -120,6 +120,7 @@ export default function Dashboard() {
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
+  const [canManageProvider, setCanManageProvider] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async (activeTab: string = "all") => {
@@ -136,6 +137,7 @@ export default function Dashboard() {
       setRows(body.intakes ?? []);
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
+      setCanManageProvider(!!body.canManageProvider);
       setNote("");
     } catch (err) {
       setNoticeKind("error");
@@ -305,6 +307,7 @@ export default function Dashboard() {
           </div>
           <div className="flex flex-wrap gap-2">
             {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master intake setup</Link>}
+            {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider packet settings</Link>}
             {isMaster && <a href="/api/admin/backup" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Download backup</a>}
             {isMaster && <Link href="/admin/pdf-mapping" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">PDF mapping</Link>}
             <Link href="/admin/users" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Staff logins</Link>
