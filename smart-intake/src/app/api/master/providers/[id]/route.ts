@@ -2,15 +2,21 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { prisma } from "@/lib/prisma";
-import { requireMaster } from "@/lib/staffGuard";
+import { isMasterUser, requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { deleteFile } from "@/lib/storage";
+
+const nullableProviderEmailSchema = z.union([
+  z.string().trim().email("Enter a valid provider contact email"),
+  z.literal(""),
+  z.null(),
+]).optional();
 
 const updateProviderSchema = z.object({
   name: z.string().trim().min(2).optional(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
   contactName: z.string().trim().optional().nullable(),
-  email: z.string().trim().optional().nullable(),
+  email: nullableProviderEmailSchema,
   phone: z.string().trim().optional().nullable(),
   adminName: z.string().trim().optional(),
   adminEmail: z.string().trim().email().optional(),
@@ -42,6 +48,28 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   const data = parsed.data;
   const exists = await prisma.provider.findUnique({ where: { id: params.id }, select: { id: true } });
   if (!exists) return NextResponse.json({ error: "Provider not found" }, { status: 404 });
+  if (data.adminEmail) {
+    const adminEmail = data.adminEmail.toLowerCase();
+    const existingAdmin = await prisma.user.findUnique({
+      where: { email: adminEmail },
+      select: {
+        role: true,
+        memberships: { select: { providerId: true } },
+      },
+    });
+    if (existingAdmin && isMasterUser(existingAdmin)) {
+      return NextResponse.json(
+        { error: "Use a different provider administrator email. A master login cannot be reused or have its password changed here." },
+        { status: 409 },
+      );
+    }
+    if (existingAdmin?.memberships.some((membership) => membership.providerId !== params.id)) {
+      return NextResponse.json(
+        { error: "That email already belongs to another provider account. Use a unique administrator email for this provider." },
+        { status: 409 },
+      );
+    }
+  }
   const passwordHash = data.adminPassword ? await bcrypt.hash(data.adminPassword, 10) : null;
   const provider = await prisma.$transaction(async (tx) => {
     const updated = await tx.provider.update({
@@ -80,6 +108,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       providerId: provider.id,
       userId: user!.id,
       detail: `${provider.name}: ${data.status}`,
+    });
+  }
+  if (data.adminEmail) {
+    await audit("provider_admin_updated", {
+      providerId: provider.id,
+      userId: user!.id,
+      detail: `${provider.name}: administrator ${data.adminEmail.toLowerCase()}`,
     });
   }
 

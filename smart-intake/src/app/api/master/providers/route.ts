@@ -3,12 +3,18 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { isMasterUser, requireMaster, requireProviderAdmin } from "@/lib/staffGuard";
+import { audit } from "@/lib/auditLog";
+
+const optionalEmailSchema = z.union([
+  z.string().trim().email("Enter a valid provider contact email"),
+  z.literal(""),
+]).optional();
 
 const createProviderSchema = z.object({
   name: z.string().trim().min(2, "Provider name is required"),
   slug: z.string().trim().optional(),
   contactName: z.string().trim().optional(),
-  email: z.string().trim().optional(),
+  email: optionalEmailSchema,
   phone: z.string().trim().optional(),
   adminName: z.string().trim().optional(),
   adminEmail: z.string().trim().email("Provider admin email is required"),
@@ -39,6 +45,24 @@ async function availableSlug(input: string) {
   return slug;
 }
 
+async function providerAdminConflict(email: string) {
+  const existing = await prisma.user.findUnique({
+    where: { email },
+    select: {
+      role: true,
+      memberships: { select: { providerId: true } },
+    },
+  });
+  if (!existing) return null;
+  if (isMasterUser(existing)) {
+    return "Use a different provider administrator email. A master login cannot be reused or have its password changed here.";
+  }
+  if (existing.memberships.length > 0) {
+    return "That email already belongs to another provider account. Use a unique administrator email for this provider.";
+  }
+  return null;
+}
+
 export async function GET() {
   const { user, provider, deny } = await requireProviderAdmin();
   if (deny) return deny;
@@ -53,8 +77,8 @@ export async function GET() {
         orderBy: { createdAt: "asc" },
       },
       pdfTemplates: {
-        orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-        take: 5,
+        orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
+        take: 10,
         select: {
           id: true,
           name: true,
@@ -114,7 +138,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const { deny } = await requireMaster();
+  const { user: masterUser, deny } = await requireMaster();
   if (deny) return deny;
 
   const parsed = createProviderSchema.safeParse(await req.json());
@@ -124,6 +148,10 @@ export async function POST(req: NextRequest) {
 
   const data = parsed.data;
   const adminEmail = data.adminEmail.toLowerCase();
+  const adminConflict = await providerAdminConflict(adminEmail);
+  if (adminConflict) {
+    return NextResponse.json({ error: adminConflict }, { status: 409 });
+  }
   const passwordHash = await bcrypt.hash(data.adminPassword, 10);
   const slug = await availableSlug(data.slug || data.name);
 
@@ -157,6 +185,12 @@ export async function POST(req: NextRequest) {
       update: { role: "PROVIDER_ADMIN", active: true },
     });
     return { provider, user: { id: user.id, email: user.email, name: user.name, role: user.role }, membership };
+  });
+
+  await audit("provider_created", {
+    providerId: result.provider.id,
+    userId: masterUser!.id,
+    detail: `${result.provider.name}: administrator ${result.user.email}`,
   });
 
   return NextResponse.json(result, { status: 201 });

@@ -64,9 +64,22 @@ export async function requireMaster() {
 }
 
 export async function requireProviderAdmin() {
+  const user = await currentUser();
+  if (!user) {
+    return {
+      user: null,
+      provider: null,
+      membership: null,
+      deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }),
+    };
+  }
+  if (isMasterUser(user)) {
+    return { user, provider: null, membership: null, deny: null };
+  }
+
   const ctx = await requireStaff();
   if (ctx.deny) return ctx;
-  if (isMasterUser(ctx.user!) || ctx.membership?.role === "PROVIDER_ADMIN") {
+  if (ctx.membership?.role === "PROVIDER_ADMIN") {
     return { ...ctx, deny: null };
   }
   return {

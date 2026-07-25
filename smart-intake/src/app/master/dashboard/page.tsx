@@ -74,6 +74,17 @@ function activeMembershipCount(provider: ProviderRow) {
   return provider.memberships.filter((membership) => membership.active).length;
 }
 
+function activePacketFor(provider: ProviderRow) {
+  return provider.pdfTemplates.find((template) => template.isActive) || null;
+}
+
+function latestPacketFor(provider: ProviderRow) {
+  return provider.pdfTemplates.reduce<ProviderRow["pdfTemplates"][number] | null>((latest, template) => {
+    if (!latest) return template;
+    return new Date(template.updatedAt).getTime() > new Date(latest.updatedAt).getTime() ? template : latest;
+  }, null);
+}
+
 function packetStatus(template: ProviderRow["pdfTemplates"][number]) {
   if (template.isActive && (template.mappingStatus !== "APPROVED" || template.mappingScore == null)) {
     return {
@@ -96,13 +107,14 @@ function packetStatus(template: ProviderRow["pdfTemplates"][number]) {
 export default function MasterDashboard() {
   const router = useRouter();
   const [providers, setProviders] = useState<ProviderRow[]>([]);
-  const [isMaster, setIsMaster] = useState(false);
+  const [isMaster, setIsMaster] = useState<boolean | null>(null);
   const [aiConfigured, setAiConfigured] = useState(false);
   const [form, setForm] = useState(EMPTY_FORM);
   const [note, setNote] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadFailed, setLoadFailed] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
   const [selectedProviderId, setSelectedProviderId] = useState("");
@@ -124,6 +136,7 @@ export default function MasterDashboard() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    setLoadFailed(false);
     setError("");
     try {
       const response = await fetch("/api/master/providers");
@@ -150,6 +163,7 @@ export default function MasterDashboard() {
         return loadedProviders.length === 1 ? loadedProviders[0].id : "";
       });
     } catch (err) {
+      setLoadFailed(true);
       setError(err instanceof Error ? err.message : "Could not load providers.");
     } finally {
       setLoading(false);
@@ -247,9 +261,12 @@ export default function MasterDashboard() {
       setPacketFile(null);
       setFileInputKey((current) => current + 1);
       const templateId = body.template?.id;
-      if (templateId && aiConfigured) {
+      if (templateId && isMaster && aiConfigured) {
         setNote(`${provider.name} packet uploaded. AI is mapping fields and signature locations now...`);
         await runAiPacketMapping(provider.id, templateId);
+      } else if (!isMaster) {
+        setNote(`${provider.name} packet uploaded for master review. The current approved packet stays active until the master maps, checks, and approves this upload.`);
+        await load();
       } else {
         setNote(`${provider.name} packet uploaded as a review draft: ${body.template?.originalFileName || "uploaded PDF"}. AI mapping is unavailable until system AI is configured.`);
         await load();
@@ -496,7 +513,7 @@ export default function MasterDashboard() {
 
   function providerActions(provider: ProviderRow, mobile = false) {
     const active = provider.status === "ACTIVE";
-    const packet = provider.pdfTemplates?.[0] || null;
+    const packet = latestPacketFor(provider);
     const buttonClass = mobile ? "w-full justify-center px-3 py-2 text-xs" : "px-3 py-1.5 text-xs";
 
     return (
@@ -575,8 +592,9 @@ export default function MasterDashboard() {
   }
 
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null;
-  const selectedTemplate = selectedProvider?.pdfTemplates?.[0] || null;
-  const selectedPacketState = selectedTemplate ? packetStatus(selectedTemplate) : null;
+  const selectedLatestTemplate = selectedProvider ? latestPacketFor(selectedProvider) : null;
+  const selectedActiveTemplate = selectedProvider ? activePacketFor(selectedProvider) : null;
+  const selectedLatestPacketState = selectedLatestTemplate ? packetStatus(selectedLatestTemplate) : null;
   const trimmedSearch = search.trim().toLowerCase();
   const filteredProviders = providers.filter((provider) => {
     const matchesSearch = !trimmedSearch || providerSearchText(provider).includes(trimmedSearch);
@@ -624,6 +642,29 @@ export default function MasterDashboard() {
               ? "Staff users by provider"
               : "AI preflight status";
 
+  if (isMaster === null) {
+    return (
+      <main className="mx-auto max-w-3xl p-4 sm:p-6">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <p className="text-xs font-semibold uppercase text-slate-500">Secure provider access</p>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">Opening your dashboard</h1>
+          {loadFailed ? (
+            <div role="alert" className="mt-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+              <p className="font-semibold">{error || "The dashboard could not be loaded."}</p>
+              <button type="button" className="btn-primary mt-3 px-4 py-2 text-sm" onClick={() => void load()}>
+                Try again
+              </button>
+            </div>
+          ) : (
+            <p role="status" aria-live="polite" className="mt-3 text-sm text-slate-600">
+              {loading ? "Checking your access and loading current provider information..." : "Taking you to the correct dashboard..."}
+            </p>
+          )}
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="mx-auto min-w-0 max-w-7xl p-4 sm:p-6">
       <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-brand-dark to-brand px-6 py-7 text-white shadow-xl">
@@ -670,11 +711,16 @@ export default function MasterDashboard() {
           </div>
         </div>
 
-        <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-7">
-          <StatCard label="Providers" value={loading ? "-" : providers.length} active={openSummary === "providers"} onClick={() => toggleSummary("providers")} />
-          <StatCard label="Active" value={loading ? "-" : activeCount} active={openSummary === "active"} onClick={() => toggleSummary("active")} />
-          <StatCard label="Inactive" value={loading ? "-" : inactiveCount} active={openSummary === "inactive"} onClick={() => toggleSummary("inactive")} />
-          <StatCard label="Custom packets" value={loading ? "-" : customPacketCount} active={openSummary === "packets"} onClick={() => toggleSummary("packets")} />
+        <div className={`mt-6 grid grid-cols-2 gap-3 ${isMaster ? "md:grid-cols-3 xl:grid-cols-7" : "md:grid-cols-4"}`}>
+          {isMaster && <StatCard label="Providers" value={loading ? "-" : providers.length} active={openSummary === "providers"} onClick={() => toggleSummary("providers")} />}
+          {isMaster && <StatCard label="Active" value={loading ? "-" : activeCount} active={openSummary === "active"} onClick={() => toggleSummary("active")} />}
+          {isMaster && <StatCard label="Inactive" value={loading ? "-" : inactiveCount} active={openSummary === "inactive"} onClick={() => toggleSummary("inactive")} />}
+          <StatCard
+            label={isMaster ? "Custom packets" : "Packet"}
+            value={loading ? "-" : isMaster ? customPacketCount : customPacketCount > 0 ? "CUSTOM" : "DEFAULT"}
+            active={openSummary === "packets"}
+            onClick={() => toggleSummary("packets")}
+          />
           <StatCard
             label="Current intakes"
             value={loading ? "-" : currentIntakes}
@@ -738,7 +784,7 @@ export default function MasterDashboard() {
             ) : (
               <div className="mt-3 grid gap-2 md:grid-cols-2">
                 {summaryProviders.map((provider) => {
-                  const packet = provider.pdfTemplates?.[0] || null;
+                  const packet = activePacketFor(provider) || latestPacketFor(provider);
                   const packetState = packet ? packetStatus(packet) : null;
                   return (
                     <div key={provider.id} className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
@@ -789,43 +835,56 @@ export default function MasterDashboard() {
         </section>
       )}
 
-      {note && <p className="mt-4 rounded-xl bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700">{note}</p>}
-      {error && <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm font-semibold text-red-700">{error}</p>}
+      {note && <p role="status" aria-live="polite" className="sticky top-2 z-20 mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">{note}</p>}
+      {error && (
+        <div role="alert" className="sticky top-2 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
+          <span>{error}</span>
+          {loadFailed && (
+            <button type="button" className="btn-ghost border-red-300 px-3 py-1.5 text-xs text-red-800 hover:bg-red-100" onClick={() => void load()}>
+              Try again
+            </button>
+          )}
+        </div>
+      )}
 
-      <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-lg font-bold text-slate-900">Find and manage providers</h2>
-            <p className="text-sm text-slate-500">Search by provider name, slug, contact details, admin email, or packet file name.</p>
+      {isMaster && (
+        <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold text-slate-900">Find and manage providers</h2>
+              <p className="text-sm text-slate-500">Search by provider name, slug, contact details, admin email, or packet file name.</p>
+            </div>
+            <p className="text-sm text-slate-500">
+              Showing <span className="font-semibold text-slate-700">{filteredProviders.length}</span> of{" "}
+              <span className="font-semibold text-slate-700">{providers.length}</span>
+            </p>
           </div>
-          <p className="text-sm text-slate-500">
-            Showing <span className="font-semibold text-slate-700">{filteredProviders.length}</span> of{" "}
-            <span className="font-semibold text-slate-700">{providers.length}</span>
-          </p>
-        </div>
-        <input
-          className="input mt-4"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search provider, slug, contact, admin email, or packet name"
-        />
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <label className="text-sm font-semibold text-slate-600" htmlFor="provider-status-filter">Show</label>
-          <select
-            id="provider-status-filter"
-            className="input max-w-[190px]"
-            value={statusFilter}
-            onChange={(event) => setStatusFilter(event.target.value as "ALL" | "ACTIVE" | "INACTIVE")}
-          >
-            <option value="ALL">All providers</option>
-            <option value="ACTIVE">Active only</option>
-            <option value="INACTIVE">Inactive only</option>
-          </select>
-          {isMaster && <span className="text-xs text-slate-500">Deactivate pauses access without deleting provider records.</span>}
-        </div>
-      </section>
+          <label className="sr-only" htmlFor="provider-search">Search providers</label>
+          <input
+            id="provider-search"
+            className="input mt-4"
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder="Search provider, slug, contact, admin email, or packet name"
+          />
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <label className="text-sm font-semibold text-slate-600" htmlFor="provider-status-filter">Show</label>
+            <select
+              id="provider-status-filter"
+              className="input max-w-[190px]"
+              value={statusFilter}
+              onChange={(event) => setStatusFilter(event.target.value as "ALL" | "ACTIVE" | "INACTIVE")}
+            >
+              <option value="ALL">All providers</option>
+              <option value="ACTIVE">Active only</option>
+              <option value="INACTIVE">Inactive only</option>
+            </select>
+            <span className="text-xs text-slate-500">Deactivate pauses access without deleting provider records.</span>
+          </div>
+        </section>
+      )}
 
-      <section className="mt-5 grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(0,0.8fr)]">
+      <section className="mt-5 grid min-w-0 gap-5">
         <div className="min-w-0 space-y-5">
           {isMaster && (
             <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
@@ -834,7 +893,7 @@ export default function MasterDashboard() {
               <form onSubmit={createProvider} className="grid grid-cols-1 gap-4 lg:grid-cols-4">
                 <label className="lg:col-span-2">
                   <span className="label">Provider name *</span>
-                  <input className="input" value={form.name} onChange={(event) => updateField("name", event.target.value)} />
+                  <input className="input" required minLength={2} value={form.name} onChange={(event) => updateField("name", event.target.value)} />
                 </label>
                 <label>
                   <span className="label">Slug</span>
@@ -874,12 +933,12 @@ export default function MasterDashboard() {
                 </label>
                 <label>
                   <span className="label">Admin email *</span>
-                  <input className="input" name="newProviderAdminEmail" autoComplete="new-username" inputMode="email" type="email" placeholder="provider-admin@example.com" value={form.adminEmail} onChange={(event) => updateField("adminEmail", event.target.value)} />
+                  <input className="input" name="newProviderAdminEmail" autoComplete="new-username" inputMode="email" type="email" required placeholder="provider-admin@example.com" value={form.adminEmail} onChange={(event) => updateField("adminEmail", event.target.value)} />
                 </label>
                 <label>
                   <span className="label">Admin password *</span>
                   <div className="relative">
-                    <input className="input pr-16" name="newProviderAdminPassword" autoComplete="new-password" type={showProviderAdminPassword ? "text" : "password"} value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
+                    <input className="input pr-16" name="newProviderAdminPassword" autoComplete="new-password" type={showProviderAdminPassword ? "text" : "password"} required minLength={8} value={form.adminPassword} onChange={(event) => updateField("adminPassword", event.target.value)} />
                     <button
                       type="button"
                       className="absolute inset-y-1 right-1 px-2 text-xs font-semibold text-slate-600 hover:text-slate-900"
@@ -916,13 +975,13 @@ export default function MasterDashboard() {
                 </label>
                 <label>
                   <span className="label">Administrator email *</span>
-                  <input className="input" type="email" required value={adminForm.email}
+                  <input className="input" name="resetProviderAdminEmail" autoComplete="new-username" type="email" required value={adminForm.email}
                     onChange={(event) => setAdminForm((current) => ({ ...current, email: event.target.value }))} />
                 </label>
                 <label>
                   <span className="label">New password *</span>
                   <div className="relative">
-                    <input className="input pr-16" type={showResetPassword ? "text" : "password"} required minLength={8} value={adminForm.password}
+                    <input className="input pr-16" name="resetProviderAdminPassword" autoComplete="new-password" type={showResetPassword ? "text" : "password"} required minLength={8} value={adminForm.password}
                       onChange={(event) => setAdminForm((current) => ({ ...current, password: event.target.value }))} />
                     <button
                       type="button"
@@ -943,7 +1002,7 @@ export default function MasterDashboard() {
 
           <section id="provider-list" className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
             <div className="border-b border-slate-200 px-5 py-4">
-              <h2 className="text-lg font-bold">Provider list</h2>
+              <h2 className="text-lg font-bold">{isMaster ? "Provider list" : "Your provider workspace"}</h2>
               <p className="text-sm text-slate-500">
                 {isMaster
                   ? "Open a provider's intake workspace, control access, and manage its packet. Delete permanently removes the provider profile and its records."
@@ -955,7 +1014,7 @@ export default function MasterDashboard() {
               {!loading && !error && filteredProviders.length === 0 && <p className="p-6 text-center text-sm text-slate-400">{emptyProviderMessage}</p>}
               {filteredProviders.map((provider) => {
                 const active = provider.status === "ACTIVE";
-                const packet = provider.pdfTemplates?.[0] || null;
+                const packet = activePacketFor(provider) || latestPacketFor(provider);
                 const packetState = packet ? packetStatus(packet) : null;
                 const openWork = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED"]
                   .reduce((total, key) => total + (provider.intakeSummary?.[key] || 0), 0);
@@ -1021,7 +1080,7 @@ export default function MasterDashboard() {
                       .filter((membership) => membership.active && membership.role === "PROVIDER_ADMIN")
                       .map((membership) => membership.user.email);
                     const active = provider.status === "ACTIVE";
-                    const packet = provider.pdfTemplates?.[0] || null;
+                    const packet = activePacketFor(provider) || latestPacketFor(provider);
                     const packetState = packet ? packetStatus(packet) : null;
                     const activeStaff = activeMembershipCount(provider);
 
@@ -1078,8 +1137,12 @@ export default function MasterDashboard() {
         <section id="provider-packet-setup" className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold">Step 2: Upload the Provider Packet</h2>
-              <p className="text-sm text-slate-500">Select the provider, then upload its blank intake packet PDF for mapping, review, signatures, previews, and DocuSign.</p>
+              <h2 className="text-lg font-bold">{isMaster ? "Step 2: Upload the Provider Packet" : "Provider Packet Upload"}</h2>
+              <p className="text-sm text-slate-500">
+                {isMaster
+                  ? "Select the provider, then upload its blank intake packet PDF for mapping, review, signatures, previews, and DocuSign."
+                  : "Upload a replacement packet for master mapping and approval. The current packet remains active while the new upload is reviewed."}
+              </p>
             </div>
             {selectedProvider && <span className="badge bg-slate-100 text-slate-700">{selectedProvider.name}</span>}
           </div>
@@ -1094,7 +1157,11 @@ export default function MasterDashboard() {
                 ))}
               </select>
               <span className="mt-1 block text-xs text-slate-500">
-                {selectedProvider ? `Packet will be assigned to ${selectedProvider.name}.` : "Select a provider before uploading. AI mapping starts after upload."}
+                {selectedProvider
+                  ? `Packet will be assigned to ${selectedProvider.name}.`
+                  : isMaster
+                    ? "Select a provider before uploading. AI mapping starts after upload."
+                    : "Your provider workspace is loading."}
               </span>
             </label>
 
@@ -1105,27 +1172,43 @@ export default function MasterDashboard() {
                 className="input"
                 type="file"
                 accept="application/pdf,.pdf"
+                required
                 onChange={(event) => setPacketFile(event.target.files?.[0] || null)}
               />
             </label>
 
-            <button className="btn-primary w-full" disabled={packetBusy || aiMapBusy || !selectedProviderId}>
-              {packetBusy ? "Uploading..." : aiMapBusy ? "AI mapping..." : selectedProviderId ? "Upload packet and start AI mapping" : "Select provider first"}
+            <button className="btn-primary w-full" disabled={packetBusy || aiMapBusy || !selectedProviderId || !packetFile}>
+              {packetBusy
+                ? "Uploading..."
+                : aiMapBusy
+                  ? "AI mapping..."
+                  : !selectedProviderId
+                    ? "Select provider first"
+                    : !packetFile
+                      ? "Choose a PDF first"
+                      : isMaster
+                        ? "Upload packet and start AI mapping"
+                        : "Upload packet for master review"}
             </button>
           </form>
 
           <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4 text-sm text-sky-900">
             <p className="font-semibold">What comes next</p>
-            <p className="mt-1">After upload, AI maps the packet and signature locations. Review and approve the packet, then open the provider&apos;s intake workspace to create client intakes.</p>
+            <p className="mt-1">
+              {isMaster
+                ? "After upload, AI maps the packet and signature locations. Review and approve the packet, then open the provider's intake workspace to create client intakes."
+                : "After upload, the master administrator maps and verifies the fields and signature locations. You can keep using the current approved packet during that review."}
+            </p>
             <p className="mt-1">A CCA is uploaded later inside the specific client intake. It is not attached to the provider packet.</p>
           </div>
 
           <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm text-slate-600">
             {selectedProvider ? (
-              selectedTemplate ? (
+              selectedActiveTemplate ? (
                 <div>
-                  <p className="font-semibold text-slate-800">{selectedTemplate.originalFileName || selectedTemplate.name}</p>
-                  <p className="mt-1">{selectedTemplate.pageCount} pages • updated {new Date(selectedTemplate.updatedAt).toLocaleDateString()}</p>
+                  <p className="text-xs font-semibold uppercase text-slate-500">Active packet used for new intakes</p>
+                  <p className="mt-1 font-semibold text-slate-800">{selectedActiveTemplate.originalFileName || selectedActiveTemplate.name}</p>
+                  <p className="mt-1">{selectedActiveTemplate.pageCount} pages • updated {new Date(selectedActiveTemplate.updatedAt).toLocaleDateString()}</p>
                 </div>
               ) : (
                 <p>Active packet: shared default intake packet.</p>
@@ -1134,24 +1217,24 @@ export default function MasterDashboard() {
               <p>Select a provider to view packet status.</p>
             )}
           </div>
-          {selectedProvider && selectedTemplate && (
+          {selectedProvider && selectedLatestTemplate && (
             <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
-              <p className="font-semibold">Latest upload: {selectedTemplate.originalFileName || selectedTemplate.name}</p>
-              <p className="mt-1 text-xs">{selectedTemplate.pageCount} pages. {selectedPacketState?.label}.</p>
+              <p className="font-semibold">Latest upload: {selectedLatestTemplate.originalFileName || selectedLatestTemplate.name}</p>
+              <p className="mt-1 text-xs">{selectedLatestTemplate.pageCount} pages. {selectedLatestPacketState?.label}.</p>
               <p className="mt-2 text-xs font-semibold">
-                {selectedTemplate.mappingStatus === "MAPPING"
+                {selectedLatestTemplate.mappingStatus === "MAPPING"
                   ? "AI is mapping this packet in the background. This draft is not active yet."
-                  : selectedTemplate.mappingScore == null
-                    ? selectedTemplate.isActive
+                  : selectedLatestTemplate.mappingScore == null
+                    ? selectedLatestTemplate.isActive
                       ? "This packet is in use, but its fields and signature locations have not been verified. A master administrator should map it before DocuSign is used."
                       : "AI mapping has not been run yet."
-                  : selectedTemplate.mappingStatus === "APPROVED"
-                    ? `Signature-ready packet approved (${selectedTemplate.mappingScore}/100).`
-                    : `Mapping quality score: ${selectedTemplate.mappingScore}/100. Review before approval.`}
+                  : selectedLatestTemplate.mappingStatus === "APPROVED"
+                    ? `Signature-ready packet approved (${selectedLatestTemplate.mappingScore}/100).`
+                    : `Mapping quality score: ${selectedLatestTemplate.mappingScore}/100. Review before approval.`}
               </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {isMaster ? (
-                  <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${selectedProvider.id}&templateId=${selectedTemplate.id}`}>
+                  <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${selectedProvider.id}&templateId=${selectedLatestTemplate.id}`}>
                     Open mapper
                   </Link>
                 ) : (
@@ -1159,31 +1242,31 @@ export default function MasterDashboard() {
                     Packet mapping and approval are managed by the master administrator.
                   </span>
                 )}
-                {isMaster && selectedTemplate.mappingStatus !== "APPROVED" && (
+                {isMaster && selectedLatestTemplate.mappingStatus !== "APPROVED" && (
                   <button
                     type="button"
                     className="btn-ghost px-3 py-1.5 text-xs"
-                    disabled={aiMapBusy || selectedTemplate.mappingStatus === "MAPPING"}
+                    disabled={aiMapBusy || selectedLatestTemplate.mappingStatus === "MAPPING"}
                     title={aiConfigured ? "Run AI mapping again" : "System AI is not connected yet."}
                     onClick={() => {
                       if (!aiConfigured) {
                         setError("System AI is not connected yet. Add the ANTHROPIC_API_KEY in the app environment, then refresh this page.");
                         return;
                       }
-                      void runAiPacketMapping(selectedProvider.id, selectedTemplate.id);
+                      void runAiPacketMapping(selectedProvider.id, selectedLatestTemplate.id);
                     }}
                   >
-                    {aiMapBusy || selectedTemplate.mappingStatus === "MAPPING" ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI setup needed"}
+                    {aiMapBusy || selectedLatestTemplate.mappingStatus === "MAPPING" ? "AI mapping..." : aiConfigured ? "Run AI mapping again" : "AI setup needed"}
                   </button>
                 )}
-                {isMaster && (aiMapBusy || selectedTemplate.mappingStatus === "MAPPING") && (
-                  <button className="btn-ghost border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50" onClick={() => void stopAiPacketMapping(selectedProvider.id, selectedTemplate.id)}>
+                {isMaster && (aiMapBusy || selectedLatestTemplate.mappingStatus === "MAPPING") && (
+                  <button className="btn-ghost border-red-300 px-3 py-1.5 text-xs text-red-700 hover:bg-red-50" onClick={() => void stopAiPacketMapping(selectedProvider.id, selectedLatestTemplate.id)}>
                     Stop AI mapping
                   </button>
                 )}
-                {isMaster && selectedTemplate.mappingStatus === "DRAFT" && (
-                  <button className="btn-primary px-3 py-1.5 text-xs" disabled={packetActionBusy === selectedTemplate.id} onClick={() => void approvePacket(selectedTemplate.id)}>
-                    {packetActionBusy === selectedTemplate.id ? "Checking..." : "Approve after review"}
+                {isMaster && selectedLatestTemplate.mappingStatus === "DRAFT" && (
+                  <button className="btn-primary px-3 py-1.5 text-xs" disabled={packetActionBusy === selectedLatestTemplate.id} onClick={() => void approvePacket(selectedLatestTemplate.id)}>
+                    {packetActionBusy === selectedLatestTemplate.id ? "Checking..." : "Approve after review"}
                   </button>
                 )}
               </div>
@@ -1231,6 +1314,7 @@ function StatCard({
     <button
       type="button"
       aria-pressed={active}
+      aria-expanded={active}
       onClick={onClick}
       className={`min-h-[92px] rounded-2xl border px-4 py-3 text-left transition hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white ${active ? "border-white/50 bg-white/25" : "border-white/10 bg-white/10"}`}
     >
