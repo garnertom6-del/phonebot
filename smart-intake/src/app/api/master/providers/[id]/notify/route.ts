@@ -17,7 +17,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const recipient = channel === "email" ? provider.email : provider.phone;
   if (!recipient) return NextResponse.json({ error: `This provider has no ${channel} contact saved.` }, { status: 400 });
 
-  const link = `${appBaseUrl(req)}/login`;
+  const link = `${appBaseUrl(req)}/provider`;
   const result = channel === "email"
     ? await sendProviderPortalEmail(recipient, provider.name, link)
     : await sendProviderPortalSms(recipient, provider.name, link);
