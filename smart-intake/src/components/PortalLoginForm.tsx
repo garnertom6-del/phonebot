@@ -18,18 +18,18 @@ const PORTAL_COPY: Record<Portal, {
   provider: {
     eyebrow: "Provider portal",
     title: "Provider / Staff Sign In",
-    description: "For company administrators, qualified professionals, clinicians, and staff.",
-    button: "Open provider dashboard",
+    description: "For working with client intakes, signatures, CCAs, and completed packets.",
+    button: "Open provider / staff dashboard",
     otherHref: "/master",
-    otherLabel: "Master Administrator Sign In",
+    otherLabel: "Master Intake Setup Sign In",
   },
   master: {
-    eyebrow: "Master controls",
-    title: "Master Administrator Sign In",
-    description: "For managing provider companies, access, intake packets, and system settings.",
-    button: "Open master dashboard",
+    eyebrow: "Master intake setup",
+    title: "Master Intake Setup Sign In",
+    description: "For creating provider companies and uploading, mapping, and approving each provider's intake packet.",
+    button: "Open master intake setup",
     otherHref: "/provider",
-    otherLabel: "Provider / Staff Sign In",
+    otherLabel: "Provider / Staff Dashboard Sign In",
   },
 };
 

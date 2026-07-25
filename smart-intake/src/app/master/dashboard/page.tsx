@@ -141,7 +141,7 @@ export default function MasterDashboard() {
     try {
       const response = await fetch("/api/master/providers");
       if (response.status === 401) {
-        router.push("/login");
+        router.push("/master");
         return;
       }
       if (response.status === 403) {
@@ -670,11 +670,11 @@ export default function MasterDashboard() {
       <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-brand-dark to-brand px-6 py-7 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
-            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-light/90">{isMaster ? "Master Controls" : "Provider Settings"}</p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight">{isMaster ? "Provider Master Dashboard" : "Provider Packet Dashboard"}</h1>
+            <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-light/90">{isMaster ? "Master Intake Setup" : "Provider Settings"}</p>
+            <h1 className="mt-3 text-3xl font-bold tracking-tight">{isMaster ? "Create Providers & Map Intake Packets" : "Provider Packet Dashboard"}</h1>
             <p className="mt-2 text-sm text-slate-200">
               {isMaster
-                ? "Create provider workspaces, control who is active, and manage the packet PDF each provider uses for previews, downloads, and DocuSign."
+                ? "Create provider workspaces, set up administrator access, and upload, map, and approve the intake packet each provider uses."
                 : "Manage the intake packet PDF your provider uses for previews, downloads, and DocuSign."}
             </p>
           </div>
@@ -703,7 +703,7 @@ export default function MasterDashboard() {
               className="btn-secondary bg-white/15 text-white hover:bg-white/25"
               onClick={async () => {
                 await fetch("/api/auth/logout", { method: "POST" });
-                router.push("/login");
+                router.push("/master");
               }}
             >
               Sign out

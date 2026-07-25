@@ -22,7 +22,7 @@ export default function PdfMappingPage({
 
   return (
     <main className="mx-auto max-w-[1400px] p-6">
-      <Link href={dashboardHref} className="text-sm text-brand hover:underline">{providerMode ? "Back to Master dashboard" : "Dashboard"}</Link>
+      <Link href={dashboardHref} className="text-sm text-brand hover:underline">{providerMode ? "Back to Master intake setup" : "Dashboard"}</Link>
       <h1 className="mb-1 mt-1 text-2xl font-bold">
         PDF Field Mapping{providerMode ? " - Provider Packet" : " - Moore Divine Care Client Intake Package"}
       </h1>
