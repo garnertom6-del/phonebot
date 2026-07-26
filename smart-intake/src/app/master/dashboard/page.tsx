@@ -74,6 +74,15 @@ function activeMembershipCount(provider: ProviderRow) {
   return provider.memberships.filter((membership) => membership.active).length;
 }
 
+function providerReviewQueueCount(provider: ProviderRow) {
+  return (provider.intakeSummary?.NEEDS_REVIEW || 0) + (provider.intakeSummary?.SIGNED || 0);
+}
+
+function providerOpenWorkCount(provider: ProviderRow) {
+  return ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED"]
+    .reduce((total, key) => total + (provider.intakeSummary?.[key] || 0), 0);
+}
+
 function activePacketFor(provider: ProviderRow) {
   return provider.pdfTemplates.find((template) => template.isActive) || null;
 }
@@ -1021,8 +1030,8 @@ export default function MasterDashboard() {
                 const active = provider.status === "ACTIVE";
                 const packet = activePacketFor(provider) || latestPacketFor(provider);
                 const packetState = packet ? packetStatus(packet) : null;
-                const openWork = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED"]
-                  .reduce((total, key) => total + (provider.intakeSummary?.[key] || 0), 0);
+                const reviewQueue = providerReviewQueueCount(provider);
+                const openWork = providerOpenWorkCount(provider);
 
                 return (
                   <article key={provider.id} className={selectedProviderId === provider.id ? "bg-brand-light/20 p-4" : "p-4"}>
@@ -1059,7 +1068,7 @@ export default function MasterDashboard() {
                       <p className="mt-1 text-slate-500">
                         {packet ? `${packet.pageCount} pages · ${packetState?.label}` : "No custom packet uploaded"}
                       </p>
-                      <p className="mt-1 text-slate-500">Needs review: {provider.intakeSummary?.NEEDS_REVIEW || 0} · Open work: {openWork}</p>
+                      <p className="mt-1 text-slate-500">Staff review: {reviewQueue} · Open work: {openWork}</p>
                     </div>
 
                     <div className="mt-3">{providerActions(provider, true)}</div>
@@ -1098,10 +1107,8 @@ export default function MasterDashboard() {
                             <div className="mt-1 text-xs text-slate-500">{[provider.email, provider.phone].filter(Boolean).join(" • ")}</div>
                           )}
                           <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-semibold">
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Needs review {provider.intakeSummary?.NEEDS_REVIEW || 0}</span>
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">Open work {[
-                              "NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED",
-                            ].reduce((total, key) => total + (provider.intakeSummary?.[key] || 0), 0)}</span>
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Staff review {providerReviewQueueCount(provider)}</span>
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">Open work {providerOpenWorkCount(provider)}</span>
                           </div>
                         </td>
                         <td className="px-4 py-3">
