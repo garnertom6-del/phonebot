@@ -11,12 +11,20 @@ import {
   copiesMailtoHref,
   copiesShareMessage,
   copiesSmsHref,
+  followUpMailtoHref,
+  followUpShareMessage,
+  followUpSmsHref,
   intakeMailtoHref,
   intakeShareMessage,
   intakeSmsHref,
 } from "@/lib/shareLinks";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
-import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
+import {
+  clientDeliveryContacts,
+  clientDeliveryContactsForRole,
+  clientFollowUpDeliveryContacts,
+} from "@/lib/clientDeliveryContacts";
+import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
 
 type PreflightFinding = {
   key: string;
@@ -67,9 +75,32 @@ type SignatureAudit = {
   skippedSignatureFields: string[];
 };
 
+type FollowUpDeliveryResult = {
+  link: string;
+  deliveryOk: boolean;
+  deliveryState: "sent" | "partial" | "failed";
+  recipientRole: "client" | "guardian";
+  sent: string[];
+  failed: string[];
+  expiresAt: string;
+  fields: { key: string; label: string }[];
+};
+
+function maskedPhone(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits.length >= 4 ? `ending ${digits.slice(-4)}` : "saved number";
+}
+
+function maskedEmail(value: string): string {
+  const [local, domain] = value.split("@");
+  if (!local || !domain) return "saved email";
+  return `${local.slice(0, 1)}***@${domain}`;
+}
+
 interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
+    submittedAt?: string | null;
     docusignEnvelopeId?: string | null;
     provider?: { name: string; phone?: string | null } | null;
     client: {
@@ -86,6 +117,19 @@ interface Detail {
     uploadedDocuments: { id: string; docType: string; fileName: string; createdAt?: string; ccaReview?: CcaReview | null }[];
     generatedPdfs: { id: string; createdAt: string }[];
     auditLogs: { id: string; event: string; detail?: string; createdAt: string }[];
+    followUps: {
+      status: "OPEN" | "PROCESSING" | "COMPLETED" | "SUPERSEDED";
+      recipientRole: "client" | "guardian";
+      fieldKeys: string[];
+      link: string;
+      tokenExpiresAt: string;
+      sentAt?: string | null;
+      completedAt?: string | null;
+      attestedAt?: string | null;
+      skippedKeys: string[];
+      savedCount: number;
+      createdAt: string;
+    }[];
   };
   answers: Record<string, unknown>;
   clientLink: string; percentComplete: number;
@@ -155,23 +199,37 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [lastSignatureAudit, setLastSignatureAudit] = useState<SignatureAudit | null>(null);
   const [signatureReminderBusy, setSignatureReminderBusy] = useState(false);
   const [clientLinkBusy, setClientLinkBusy] = useState(false);
+  const [followUpBusy, setFollowUpBusy] = useState(false);
+  const [followUpRefreshBusy, setFollowUpRefreshBusy] = useState(false);
+  const [followUpResult, setFollowUpResult] = useState<FollowUpDeliveryResult | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
   const [ncTracksUploadBusy, setNcTracksUploadBusy] = useState(false);
   const [ncTracksResult, setNcTracksResult] = useState("");
 
-  const load = useCallback(() => {
-    fetch(`/api/intakes/${params.id}`).then(async (r) => {
+  const load = useCallback(async () => {
+    try {
+      const r = await fetch(`/api/intakes/${params.id}`, { cache: "no-store" });
       if (r.status === 401) {
         window.location.href = "/login";
-        return;
+        return null;
       }
-      if (r.ok) setD(await r.json());
-      else setNote("Could not load this intake. Please refresh or sign in again.");
-    });
+      if (r.ok) {
+        const body = await r.json() as Detail;
+        setD(body);
+        if (body.intake.followUps?.[0]?.status === "COMPLETED") setFollowUpResult(null);
+        return body;
+      } else {
+        setNote("Could not load this intake. Please refresh or sign in again.");
+        return null;
+      }
+    } catch {
+      setNote("Could not load this intake. Check your connection and try again.");
+      return null;
+    }
   }, [params.id]);
-  useEffect(load, [load]);
+  useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
     try {
@@ -234,7 +292,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
   const deliveryContacts = clientDeliveryContacts(i.client);
+  const defaultFollowUpDeliveryContacts = clientFollowUpDeliveryContacts(
+    i.client,
+    d.answers,
+    i.signatures,
+  );
   const hasClientContact = !!(deliveryContacts.phone || deliveryContacts.email);
+  const originalClientIntakeFinished = hasClientSignature && (
+    i.status === "SIGNED"
+    || i.status === "COMPLETED"
+    || !!i.submittedAt
+  );
   const lastLinkOpened = i.auditLogs.find((entry) => entry.event === "link_opened");
   const openedCurrentDelivery = !!lastLinkOpened && (
     !i.linkSentAt || Date.parse(lastLinkOpened.createdAt) >= Date.parse(i.linkSentAt)
@@ -258,6 +326,48 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
   const preflightCorrectedCount = preflight?.findings.filter((finding) => finding.resolved === "corrected").length ?? 0;
   const preflightIsClear = !!preflight && preflightBlockingCount === 0;
+  const missingClientFieldKeys = [...new Set([
+    ...d.missingRequired.map((field) => field.key),
+    ...d.missingOptional.map((field) => field.key),
+  ])];
+  const allFollowUpQuestions = clientFollowUpQuestions(missingClientFieldKeys, d.answers);
+  const deferredFollowUpKeys = new Set(i.followUps
+    .filter((followUp) => followUp.status === "COMPLETED")
+    .flatMap((followUp) => followUp.skippedKeys));
+  const deferredFollowUpQuestions = allFollowUpQuestions.filter((question) => (
+    deferredFollowUpKeys.has(question.key)
+  ));
+  const followUpQuestions = allFollowUpQuestions.filter((question) => (
+    !deferredFollowUpKeys.has(question.key)
+  ));
+  const latestFollowUp = i.followUps?.[0] || null;
+  const latestFollowUpQuestions = latestFollowUp
+    ? clientFollowUpQuestions(latestFollowUp.fieldKeys, d.answers, { missingOnly: false })
+    : [];
+  const latestFollowUpExpired = !!latestFollowUp && Date.parse(latestFollowUp.tokenExpiresAt) <= Date.now();
+  const activeFollowUp = !!latestFollowUp
+    && latestFollowUp.status === "OPEN"
+    && !latestFollowUpExpired;
+  const processingFollowUp = latestFollowUp?.status === "PROCESSING";
+  const followUpInProgress = activeFollowUp || processingFollowUp;
+  const followUpLink = followUpResult?.link || (activeFollowUp ? latestFollowUp?.link || "" : "");
+  const followUpFields = followUpResult?.fields || (activeFollowUp
+    ? latestFollowUpQuestions.map((question) => ({ key: question.key, label: question.label }))
+    : []);
+  const followUpMessage = followUpLink
+    ? followUpShareMessage(followUpLink, providerName, providerPhone)
+    : "";
+  const followUpRecipientRole = followUpResult?.recipientRole
+    || (followUpInProgress ? latestFollowUp?.recipientRole : null)
+    || defaultFollowUpDeliveryContacts.role;
+  const followUpDeliveryContacts = clientDeliveryContactsForRole(
+    i.client,
+    followUpRecipientRole,
+  );
+  const followUpRecipientSummary = [
+    followUpDeliveryContacts.phone ? `SMS ${maskedPhone(followUpDeliveryContacts.phone.value)}` : "",
+    followUpDeliveryContacts.email ? `email ${maskedEmail(followUpDeliveryContacts.email.value)}` : "",
+  ].filter(Boolean).join(" and ");
 
   function deliveryStatus(body: Record<string, unknown>, fallback: string): string {
     const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -407,6 +517,62 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     } finally {
       setClientLinkBusy(false);
     }
+  }
+
+  async function sendClientFollowUp(
+    questionsToSend: typeof followUpQuestions = followUpQuestions,
+  ) {
+    if (!questionsToSend.length) {
+      setNote("No missing client-safe questions are available to send. Use staff review or an override for the remaining items.");
+      return;
+    }
+    setFollowUpBusy(true);
+    setFollowUpResult(null);
+    setNote(`Creating a private follow-up for ${questionsToSend.length} missing answer${questionsToSend.length === 1 ? "" : "s"}...`);
+    try {
+      const r = await fetch(`/api/intakes/${i.id}/follow-up`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fieldKeys: questionsToSend.map((question) => question.key) }),
+      });
+      const body = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setNote(body.error || "The client follow-up could not be created.");
+        return;
+      }
+      setFollowUpResult(body as FollowUpDeliveryResult);
+      setNote(`Private follow-up created. ${deliveryStatus(body, "Use the manual SMS or email buttons to send the link.")}`);
+      void load();
+    } catch {
+      setNote("The client follow-up could not connect. Check your connection and try again.");
+    } finally {
+      setFollowUpBusy(false);
+    }
+  }
+
+  async function refreshClientFollowUp() {
+    setFollowUpRefreshBusy(true);
+    setNote("Refreshing the chart for new client answers...");
+    const refreshed = await load();
+    const refreshedFollowUp = refreshed?.intake.followUps?.[0];
+    if (refreshedFollowUp?.status === "COMPLETED") {
+      const saved = refreshedFollowUp.savedCount;
+      const deferred = refreshedFollowUp.skippedKeys.length;
+      setNote(
+        saved
+          ? `Chart refreshed. ${saved} client answer${saved === 1 ? " is" : "s are"} now in the intake${deferred ? `; ${deferred} item${deferred === 1 ? " needs" : "s need"} staff follow-up.` : "."}`
+          : deferred
+            ? `Chart refreshed. The client deferred ${deferred} item${deferred === 1 ? "" : "s"} for staff to confirm.`
+            : "Chart refreshed. The latest client follow-up is complete.",
+      );
+    } else if (refreshedFollowUp?.status === "PROCESSING") {
+      setNote("The client response is still being saved. Refresh again in a moment.");
+    } else if (refreshedFollowUp?.status === "OPEN") {
+      setNote("Chart refreshed. The client follow-up is still open.");
+    } else if (refreshed) {
+      setNote("Chart refreshed. No active client follow-up was found.");
+    }
+    setFollowUpRefreshBusy(false);
   }
 
   async function renewClientLink() {
@@ -957,6 +1123,227 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               }}
             />
           )}
+        </div>
+        <div className="card md:col-span-2 border-sky-200 bg-sky-50/50">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="max-w-3xl">
+              <h3 className="font-bold text-sky-950">Ask client for missing answers</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Send a separate private link containing only unanswered client questions. It does not reopen the signed
+                intake and cannot change consent, signatures, or staff-only clinical fields.
+              </p>
+              <p className="mt-2 text-xs font-semibold text-sky-900">
+                {followUpRecipientSummary
+                  ? `Automatic recipient: ${followUpDeliveryContacts.role} by ${followUpRecipientSummary}.`
+                  : `No saved ${followUpDeliveryContacts.role} contact. The link will still be available to copy and send manually.`}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {!!followUpQuestions.length
+                && !followUpInProgress
+                && i.status !== "COMPLETED"
+                && originalClientIntakeFinished
+                && !i.docusignEnvelopeId && (
+                <button
+                  className="btn-primary px-4 py-2 text-sm disabled:cursor-wait disabled:opacity-60"
+                  type="button"
+                  disabled={followUpBusy || followUpRefreshBusy}
+                  onClick={() => { void sendClientFollowUp(); }}
+                >
+                  {followUpBusy
+                    ? "Creating secure link..."
+                    : `Send ${followUpQuestions.length} missing answer${followUpQuestions.length === 1 ? "" : "s"}`}
+                </button>
+              )}
+              {latestFollowUp && (
+                <button
+                  className="btn-ghost px-4 py-2 text-sm disabled:cursor-wait disabled:opacity-60"
+                  type="button"
+                  disabled={followUpBusy || followUpRefreshBusy}
+                  onClick={() => { void refreshClientFollowUp(); }}
+                >
+                  {followUpRefreshBusy ? "Refreshing..." : "Refresh client answers"}
+                </button>
+              )}
+              {!!(followUpQuestions.length || deferredFollowUpQuestions.length) && (
+                <button
+                  className="btn-ghost px-4 py-2 text-sm"
+                  type="button"
+                  disabled={preflightBusy}
+                  onClick={() => {
+                    void runPreflight();
+                    window.setTimeout(() => document.getElementById("preflight-review")?.scrollIntoView({
+                      behavior: "smooth",
+                      block: "start",
+                    }), 80);
+                  }}
+                >
+                  Review / override blanks
+                </button>
+              )}
+            </div>
+          </div>
+
+          {!!followUpQuestions.length && !originalClientIntakeFinished && (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+              Finish and sign the original client intake first. Then this button can send only the remaining safe questions.
+            </p>
+          )}
+          {!!followUpQuestions.length && !!i.docusignEnvelopeId && (
+            <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+              This chart already has a DocuSign envelope. Make corrections in staff review, then create a new envelope so the signed packet stays accurate.
+            </p>
+          )}
+
+          {!!followUpQuestions.length ? (
+            <div className="mt-4 rounded-lg border border-sky-200 bg-white p-3">
+              <p className="text-sm font-semibold text-slate-800">Questions ready for the client:</p>
+              <ul className="mt-2 grid gap-1 text-sm text-slate-700 sm:grid-cols-2">
+                {followUpQuestions.slice(0, 12).map((question) => (
+                  <li key={question.key}>- {question.label}</li>
+                ))}
+              </ul>
+              {followUpQuestions.length > 12 && (
+                <p className="mt-2 text-xs text-slate-500">Plus {followUpQuestions.length - 12} more client-safe question{followUpQuestions.length - 12 === 1 ? "" : "s"}.</p>
+              )}
+            </div>
+          ) : (
+            <p className={`mt-4 rounded-lg p-3 text-sm font-semibold ${
+              deferredFollowUpQuestions.length
+                ? "bg-amber-50 text-amber-900"
+                : "bg-emerald-50 text-emerald-800"
+            }`}>
+              {deferredFollowUpQuestions.length
+                ? "No new client questions remain. The items below were deferred to staff."
+                : "No unanswered client-safe questions remain. Any other checklist items must be confirmed by staff."}
+            </p>
+          )}
+
+          {!!deferredFollowUpQuestions.length && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+              <p className="font-bold">Staff must confirm</p>
+              <p className="mt-1 text-sm">
+                The client selected “I don&apos;t know” for these items. They will not be placed into another SMS automatically.
+              </p>
+              <ul className="mt-2 grid gap-1 text-sm sm:grid-cols-2">
+                {deferredFollowUpQuestions.map((question) => (
+                  <li key={question.key}>- {question.label}</li>
+                ))}
+              </ul>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link
+                  className="btn-ghost bg-white px-3 py-2 text-sm"
+                  href={`/intakes/${i.id}/review?focus=${encodeURIComponent(deferredFollowUpQuestions[0].key)}&return=preflight`}
+                >
+                  Review / edit deferred items
+                </Link>
+                {!followUpInProgress
+                  && i.status !== "COMPLETED"
+                  && originalClientIntakeFinished
+                  && !i.docusignEnvelopeId && (
+                  <button
+                    className="btn-ghost bg-white px-3 py-2 text-sm disabled:cursor-wait disabled:opacity-60"
+                    type="button"
+                    disabled={followUpBusy || followUpRefreshBusy}
+                    onClick={() => { void sendClientFollowUp(deferredFollowUpQuestions); }}
+                  >
+                    Ask client again
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
+
+          {latestFollowUp && !followUpResult && (
+            <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
+              latestFollowUp.status === "COMPLETED"
+                ? "bg-emerald-100 text-emerald-900"
+                : activeFollowUp
+                  ? "bg-blue-100 text-blue-900"
+                  : "bg-slate-100 text-slate-700"
+            }`}>
+              {latestFollowUp.status === "COMPLETED"
+                ? `Latest client follow-up completed ${latestFollowUp.completedAt ? new Date(latestFollowUp.completedAt).toLocaleString() : ""}.` +
+                  `${latestFollowUp.attestedAt && latestFollowUp.savedCount
+                    ? ` Client confirmed ${latestFollowUp.savedCount} answer${latestFollowUp.savedCount === 1 ? "" : "s"}.`
+                    : latestFollowUp.attestedAt && latestFollowUp.skippedKeys.length
+                      ? " Client responded and asked staff to confirm the items."
+                      : ""}` +
+                  `${latestFollowUp.skippedKeys.length ? ` ${latestFollowUp.skippedKeys.length} item${latestFollowUp.skippedKeys.length === 1 ? " was" : "s were"} left for staff to confirm.` : ""}`
+                : activeFollowUp
+                  ? `A private follow-up is active for ${latestFollowUpQuestions.length} question${latestFollowUpQuestions.length === 1 ? "" : "s"}. It expires ${new Date(latestFollowUp.tokenExpiresAt).toLocaleString()}.`
+                  : processingFollowUp
+                    ? "The client submitted the follow-up and the answers are being saved. Refresh in a moment."
+                  : latestFollowUpExpired
+                    ? "The latest follow-up link expired. Create a new one for any questions still missing."
+                    : "The latest follow-up link was replaced by a newer request."}
+            </p>
+          )}
+
+          {followUpResult && (
+            <div className={`mt-3 rounded-lg border p-3 text-sm ${
+              followUpResult.deliveryState === "sent"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-900"
+                : "border-amber-200 bg-amber-50 text-amber-900"
+            }`} role="status">
+              <p className="font-bold">
+                {followUpResult.deliveryState === "sent"
+                  ? `Delivery accepted or queued for the ${followUpResult.recipientRole}`
+                  : followUpResult.deliveryState === "partial"
+                    ? `Some delivery channels were accepted for the ${followUpResult.recipientRole}`
+                    : "Follow-up link created; automatic delivery was not accepted"}
+              </p>
+              {!!followUpResult.sent?.length && <p className="mt-1">{followUpResult.sent.join("; ")}</p>}
+              {!!followUpResult.failed?.length && <p className="mt-1">{followUpResult.failed.join("; ")}</p>}
+            </div>
+          )}
+
+          {followUpLink && (
+            <details
+              className="mt-3 border-t border-sky-200 pt-3 [&>summary::-webkit-details-marker]:hidden"
+              open={!!followUpResult?.failed.length}
+            >
+              <summary className="cursor-pointer text-sm font-semibold text-brand">Follow-up link and manual sending</summary>
+              <p className="mt-2 break-all rounded-lg bg-white p-3 font-mono text-xs text-slate-700">{followUpLink}</p>
+              {!!followUpFields.length && (
+                <p className="mt-2 text-xs text-slate-600">
+                  Includes: {followUpFields.map((field) => field.label).join(", ")}.
+                </p>
+              )}
+              <p className="mt-2 whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{followUpMessage}</p>
+              <p className="mt-2 text-xs text-slate-500">The message contains no client name, diagnosis, or answer details.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="btn-ghost px-3 py-2 text-sm"
+                  type="button"
+                  onClick={async () => { await navigator.clipboard.writeText(followUpLink); setNote("Follow-up link copied."); }}
+                >
+                  Copy follow-up link
+                </button>
+                <button
+                  className="btn-ghost px-3 py-2 text-sm"
+                  type="button"
+                  onClick={async () => { await navigator.clipboard.writeText(followUpMessage); setNote("Follow-up SMS message copied."); }}
+                >
+                  Copy SMS message
+                </button>
+                {followUpDeliveryContacts.phone && (
+                  <a className="btn-ghost px-3 py-2 text-sm" href={followUpSmsHref(followUpDeliveryContacts.phone.value, followUpLink, providerName, providerPhone)}>
+                    Open SMS on this computer
+                  </a>
+                )}
+                {followUpDeliveryContacts.email && (
+                  <a className="btn-ghost px-3 py-2 text-sm" href={followUpMailtoHref(followUpDeliveryContacts.email.value, followUpLink, providerName, providerPhone)}>
+                    Open email
+                  </a>
+                )}
+              </div>
+            </details>
+          )}
+
+          <p className="mt-3 text-xs text-slate-600">
+            If a blank is intentional, run the preflight review below and use <b>Override and continue</b>. The reason is recorded in the audit log.
+          </p>
         </div>
         <div id="preflight-review" className={`card md:col-span-2 ${preflightIsClear ? "border-emerald-500 bg-emerald-100" : "border-emerald-200 bg-emerald-50/40"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">

@@ -41,3 +41,30 @@ export function clientUpdateFromAnswers(current: ClientContactLike, answers: Ans
     guardianPhone: answered.guardianPhone || current.guardianPhone,
   };
 }
+
+export function clientRecordPatchFromAnswerPatch(
+  answers: Answers,
+  changedKeys: Iterable<string>,
+): Partial<ClientContactLike> {
+  const changed = new Set(changedKeys);
+  const patch: Partial<ClientContactLike> = {};
+  const copy = (answerKey: string, recordKey: keyof ClientContactLike) => {
+    if (!changed.has(answerKey)) return;
+    const value = clean(answers[answerKey]);
+    if (value) patch[recordKey] = value;
+  };
+
+  copy("client_full_name", "fullName");
+  copy("mid_number", "midNumber");
+  copy("record_number", "recordNumber");
+  copy("client_email", "email");
+  copy("guardian_name", "guardianName");
+  copy("guardian_email", "guardianEmail");
+  copy("guardian_phone", "guardianPhone");
+
+  if (changed.has("client_phone_cell") || changed.has("client_phone_home")) {
+    const phone = clean(answers.client_phone_cell) || clean(answers.client_phone_home);
+    if (phone) patch.phone = phone;
+  }
+  return patch;
+}

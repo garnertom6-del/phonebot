@@ -5,7 +5,7 @@
  */
 import { intakeProcessExplanation, providerDisplayName, providerPhone } from "./providerBranding";
 import { intakeOrientationAudioLine } from "./intakeOrientation";
-import { intakeShareMessage, signatureShareMessage } from "./shareLinks";
+import { followUpShareMessage, intakeShareMessage, signatureShareMessage } from "./shareLinks";
 
 export interface NotifyResult {
   channel: "email" | "sms";
@@ -178,6 +178,72 @@ export async function sendClientLinkSms(
     method: "POST",
     headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ To: normalizeUsPhone(to), From: normalizeUsPhone(from), Body: body }),
+  });
+  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
+  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
+}
+
+export async function sendFollowUpEmail(
+  to: string,
+  recipientName: string,
+  link: string,
+  questionCount: number,
+  providerName?: string | null,
+  supportPhone?: string | null,
+): Promise<NotifyResult> {
+  const key = process.env.SENDGRID_API_KEY;
+  const provider = providerDisplayName(providerName);
+  const subject = `${provider} - A few more intake details`;
+  const body =
+    `Hello ${recipientName},\n\nWe need ${questionCount} more ${questionCount === 1 ? "answer" : "answers"} ` +
+    `to finish your intake. This link shows only the requested questions:\n\n${link}\n\n` +
+    `The private link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days and closes after you submit it. ` +
+    `Please do not forward it.\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
+  if (!key || !process.env.EMAIL_FROM) {
+    console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
+    return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
+  }
+  const res = await fetch("https://api.sendgrid.com/v3/mail/send", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      personalizations: [{ to: [{ email: to }] }],
+      from: { email: process.env.EMAIL_FROM as string },
+      subject,
+      content: [{ type: "text/plain", value: body }],
+    }),
+  });
+  return {
+    channel: "email",
+    to,
+    ok: res.ok,
+    demo: false,
+    detail: res.ok ? "accepted by SendGrid" : await responseText(res),
+  };
+}
+
+export async function sendFollowUpSms(
+  to: string,
+  link: string,
+  providerName?: string | null,
+  supportPhone?: string | null,
+): Promise<NotifyResult> {
+  const sid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_NUMBER;
+  if (!sid || !token || !from) {
+    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
+    return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
+  }
+  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
+  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
+    method: "POST",
+    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      To: normalizeUsPhone(to),
+      From: normalizeUsPhone(from),
+      Body: followUpShareMessage(link, providerName, supportPhone),
+    }),
   });
   const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
   return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };

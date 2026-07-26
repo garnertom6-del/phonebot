@@ -107,8 +107,31 @@ model Intake {
   medications       Medication[]
   substanceUseRows  SubstanceUseRow[]
   treatmentPlanRows TreatmentPlanSignatureRow[]
+  followUps         IntakeFollowUp[]
 
   @@index([providerId])
+}
+
+model IntakeFollowUp {
+  id             String    @id @default(uuid())
+  intakeId       String
+  intake         Intake    @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  token          String    @unique
+  fieldKeys      String // JSON string[] of client-answerable question keys
+  status         String    @default("OPEN") // OPEN | PROCESSING | COMPLETED | SUPERSEDED
+  tokenExpiresAt DateTime
+  recipientRole  String    @default("client") // client | guardian
+  sentAt         DateTime?
+  completedAt    DateTime?
+  attestedAt     DateTime?
+  skippedKeys    String? // JSON string[] of requested items deferred back to staff
+  savedCount     Int       @default(0)
+  attestationJson String?
+  attestationSha256 String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([intakeId, status])
 }
 
 model IntakeAnswer {

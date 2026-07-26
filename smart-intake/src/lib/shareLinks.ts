@@ -28,6 +28,15 @@ export function copiesShareMessage(link: string, providerName?: string | null): 
   return `${providerDisplayName(providerName)}: here are your copies from your visit (Your Rights, How Our Program Works, Consent for Treatment, and our Welcome Letter): ${link}`;
 }
 
+export function followUpShareMessage(
+  link: string,
+  providerName?: string | null,
+  supportPhone?: string | null,
+): string {
+  const provider = providerDisplayName(providerName);
+  return `${provider}: We need a few more details to finish your intake. Use this private one-time link: ${link}${smsHelpLine(supportPhone, providerName)} STOP to opt out.`;
+}
+
 function smsRecipient(phone?: string | null): string {
   const text = (phone || "").trim();
   if (!text) return "";
@@ -75,5 +84,29 @@ export function copiesMailtoHref(
   const provider = providerDisplayName(providerName);
   const subject = encodeURIComponent(`${provider} intake copies`);
   const body = encodeURIComponent(`${copiesShareMessage(link, provider)}\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`);
+  return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
+}
+
+export function followUpSmsHref(
+  phone: string | null | undefined,
+  link: string,
+  providerName?: string | null,
+  supportPhone?: string | null,
+): string {
+  return `sms:${smsRecipient(phone)}?body=${encodeURIComponent(followUpShareMessage(link, providerName, supportPhone))}`;
+}
+
+export function followUpMailtoHref(
+  email: string | null | undefined,
+  link: string,
+  providerName?: string | null,
+  supportPhone?: string | null,
+): string {
+  const provider = providerDisplayName(providerName);
+  const subject = encodeURIComponent(`${provider} - a few more intake details`);
+  const body = encodeURIComponent(
+    `We need a few more details to finish your intake. Open this private one-time link:\n\n${link}\n\n` +
+    `Please do not forward this link. Questions? Call ${providerPhone(supportPhone, providerName)}.`,
+  );
   return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
 }

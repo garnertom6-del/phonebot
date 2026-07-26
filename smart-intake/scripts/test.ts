@@ -16,7 +16,7 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
-import { consentsFromAnswers, loadAnswers, loadSignatures } from "../src/lib/intakeData";
+import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
@@ -30,8 +30,12 @@ import {
   clientLinkMessagingFinished,
   reminderCooldownSeconds,
 } from "../src/lib/clientLinkState";
-import { intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
-import { clientDeliveryContacts } from "../src/lib/clientDeliveryContacts";
+import { followUpShareMessage, intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
+import {
+  clientDeliveryContacts,
+  clientFollowUpDeliveryContacts,
+} from "../src/lib/clientDeliveryContacts";
+import { clientFollowUpQuestions, validateFollowUpSubmission } from "../src/lib/clientFollowUp";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
 import { deliveryDashboardFlash } from "../src/lib/dashboardFlash";
 import {
@@ -41,8 +45,15 @@ import {
 } from "../src/lib/intakePreflight";
 import {
   GET as getClientIntakeByToken,
+  PATCH as saveClientIntakeByToken,
   POST as submitClientIntakeByToken,
 } from "../src/app/api/intake/[token]/route";
+import {
+  GET as getClientFollowUp,
+  POST as submitClientFollowUp,
+} from "../src/app/api/follow-up/[token]/route";
+import { POST as uploadClientDocumentByToken } from "../src/app/api/intake/[token]/upload/route";
+import { POST as saveClientSignatureByToken } from "../src/app/api/intake/[token]/signature/route";
 
 const prisma = new PrismaClient();
 
@@ -376,6 +387,76 @@ async function main() {
   }
   assert(intakeMessage.includes("Save and return"), "intake SMS must explain save-and-return");
   assert(signatureMessage.includes("answers are saved"), "signature reminder must reassure the client");
+  const followUpLink = "https://example.test/follow-up/random-token";
+  const followUpMessage = followUpShareMessage(followUpLink, "Test Provider", "336-555-0100");
+  assert(followUpMessage.includes(followUpLink), "follow-up SMS must include its private link");
+  assert(followUpMessage.includes("STOP to opt out"), "follow-up SMS must include opt-out wording");
+  assert(!/height|weight|hospital|diagnos|medicat/i.test(followUpMessage), "follow-up SMS must not name missing or health fields");
+  assert(!followUpMessage.includes(`${followUpLink}.`), "punctuation must not be attached to the follow-up URL");
+
+  const safeFollowUpQuestions = clientFollowUpQuestions(
+    ["height", "weight", "consent_hipaa", "staff_receiving_intake"],
+    { height: "", weight: "" },
+  );
+  assert.deepEqual(
+    safeFollowUpQuestions.map((question) => question.key),
+    ["height", "weight"],
+    "follow-up must exclude consent and staff-only fields",
+  );
+  assert.deepEqual(
+    clientFollowUpQuestions(["height", "weight"], { height: "5 ft 8 in", weight: "" })
+      .map((question) => question.key),
+    ["weight"],
+    "follow-up must omit answers already present",
+  );
+  assert.deepEqual(
+    clientFollowUpQuestions(
+      ["hipaa_understood", "diagnosis_list", "guardian_name", "height"],
+      { is_minor_or_incompetent: "No" },
+    ).map((question) => question.key),
+    ["height"],
+    "follow-up must exclude signed acknowledgments and inapplicable conditional questions",
+  );
+  assert.deepEqual(
+    clientFollowUpQuestions(
+      ["guardian_name", "height"],
+      { is_minor_or_incompetent: "Yes" },
+    ).map((question) => question.key),
+    ["guardian_name", "height"],
+    "follow-up may ask a conditional question when its prerequisite applies",
+  );
+  assert.equal(
+    validateFollowUpSubmission(safeFollowUpQuestions, {
+      height: "5 ft 8 in",
+      weight: "160 lb",
+      consent_hipaa: "Yes",
+    }).ok,
+    false,
+    "follow-up must reject fields outside the request",
+  );
+  assert.equal(
+    validateFollowUpSubmission(safeFollowUpQuestions, {
+      height: "5 ft 8 in",
+      weight: "160 lb",
+    }).ok,
+    true,
+    "follow-up must accept valid requested answers",
+  );
+  const deferredFollowUp = validateFollowUpSubmission(
+    safeFollowUpQuestions,
+    { height: "5 ft 8 in" },
+    { skippedKeys: ["weight"] },
+  );
+  assert.equal(deferredFollowUp.ok, true, "client may defer an unknown requested answer to staff");
+  assert.equal(
+    validateFollowUpSubmission(
+      safeFollowUpQuestions,
+      { height: "5 ft 8 in" },
+      { skippedKeys: ["diagnosis_list"] },
+    ).ok,
+    false,
+    "client may not defer a field outside the follow-up request",
+  );
   const guardianOnlyContacts = clientDeliveryContacts({
     guardianPhone: "336-555-0101",
     guardianEmail: "guardian@example.com",
@@ -387,7 +468,226 @@ async function main() {
     guardianPhone: "336-555-0103",
   });
   assert.equal(clientPreferredContacts.phone?.value, "336-555-0102");
-  ok("client link status, cooldown, and privacy-safe SMS wording");
+  const adultFollowUpContacts = clientFollowUpDeliveryContacts({
+    phone: "336-555-0104",
+    guardianEmail: "guardian@example.com",
+  });
+  assert.equal(adultFollowUpContacts.role, "client");
+  assert.equal(adultFollowUpContacts.phone?.value, "336-555-0104");
+  assert.equal(adultFollowUpContacts.email, null, "follow-up must not mix client phone with guardian email");
+  const minorFollowUpContacts = clientFollowUpDeliveryContacts({
+    phone: "336-555-0105",
+    guardianEmail: "guardian@example.com",
+  }, { is_minor_or_incompetent: "Yes" });
+  assert.equal(minorFollowUpContacts.role, "guardian");
+  assert.equal(minorFollowUpContacts.phone, null);
+  assert.equal(minorFollowUpContacts.email?.value, "guardian@example.com");
+  const clientSignerContacts = clientFollowUpDeliveryContacts({
+    guardianEmail: "guardian@example.com",
+  }, {}, [{ role: "client" }]);
+  assert.equal(clientSignerContacts.role, "client");
+  assert.equal(
+    clientSignerContacts.email,
+    null,
+    "a client-signed intake must not fall back to an unconfirmed guardian contact",
+  );
+  const guardianSignerContacts = clientFollowUpDeliveryContacts({
+    phone: "336-555-0105",
+    guardianEmail: "guardian@example.com",
+  }, {}, [{ role: "guardian" }]);
+  assert.equal(guardianSignerContacts.role, "guardian");
+  assert.equal(guardianSignerContacts.email?.value, "guardian@example.com");
+  ok("client links, follow-up safeguards, cooldown, and privacy-safe SMS wording");
+
+  const followUpClient = await prisma.client.create({
+    data: {
+      fullName: "Follow Up Test",
+      dob: "1990-01-01",
+      email: "follow-up@example.test",
+      phone: "3365550109",
+    },
+  });
+  const followUpIntake = await prisma.intake.create({
+    data: {
+      clientId: followUpClient.id,
+      status: "SIGNED",
+      token: newIntakeToken(),
+      tokenExpiresAt: tokenExpiry(),
+      intakeDate: "2026-07-26",
+      submittedAt: new Date(),
+    },
+  });
+  const secureFollowUpToken = newIntakeToken();
+  try {
+    await saveAnswers(followUpIntake.id, {
+      client_full_name: followUpClient.fullName,
+      dob: followUpClient.dob,
+      presenting_problem: "Keep this existing answer",
+    });
+    await prisma.signature.create({
+      data: {
+        intakeId: followUpIntake.id,
+        role: "client",
+        imageData: "data:image/png;base64,iVBORw0KGgo=",
+        printedName: followUpClient.fullName,
+        relationship: "client",
+        signedDate: "07/26/2026",
+      },
+    });
+    const followUpRow = await prisma.intakeFollowUp.create({
+      data: {
+        intakeId: followUpIntake.id,
+        token: secureFollowUpToken,
+        fieldKeys: JSON.stringify([
+          "height",
+          "weight",
+          "preferred_emergency_facility",
+          "consent_hipaa",
+          "staff_receiving_intake",
+        ]),
+        tokenExpiresAt: tokenExpiry(),
+      },
+    });
+    const followUpGetRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`);
+    const followUpGet = await getClientFollowUp(followUpGetRequest, { params: { token: secureFollowUpToken } });
+    const followUpGetBody = await followUpGet.json() as {
+      questions?: Array<{ key: string }>;
+    };
+    assert.equal(followUpGet.status, 200);
+    assert.equal(followUpGet.headers.get("cache-control"), "private, no-store, max-age=0");
+    assert.deepEqual(
+      followUpGetBody.questions?.map((question) => question.key),
+      ["height", "weight", "preferred_emergency_facility"],
+      "public follow-up route must expose only safe requested questions",
+    );
+
+    const forbiddenFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        answers: { height: "5 ft 8 in", weight: "160 lb", consent_hipaa: "Yes" },
+        attested: true,
+      }),
+    });
+    const forbiddenFollowUp = await submitClientFollowUp(forbiddenFollowUpRequest, {
+      params: { token: secureFollowUpToken },
+    });
+    assert.equal(forbiddenFollowUp.status, 400, "follow-up must reject unrequested consent changes");
+    assert.equal(
+      (await prisma.intakeFollowUp.findUnique({ where: { id: followUpRow.id } }))?.status,
+      "OPEN",
+      "invalid follow-up must stay open for correction",
+    );
+
+    await saveAnswers(followUpIntake.id, {
+      weight: "170 lb",
+      presenting_problem: "Staff edit made after the client opened the follow-up",
+    });
+    const validFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        answers: { height: "5 ft 8 in", weight: "160 lb" },
+        skippedKeys: ["preferred_emergency_facility"],
+        attested: true,
+      }),
+    });
+    const validFollowUp = await submitClientFollowUp(validFollowUpRequest, {
+      params: { token: secureFollowUpToken },
+    });
+    assert.equal(validFollowUp.status, 200, "valid follow-up answers must save");
+    const savedFollowUpAnswers = await loadAnswers(followUpIntake.id);
+    assert.equal(savedFollowUpAnswers.height, "5 ft 8 in");
+    assert.equal(savedFollowUpAnswers.weight, "170 lb", "follow-up must not overwrite a newer staff answer");
+    assert.equal(
+      savedFollowUpAnswers.presenting_problem,
+      "Staff edit made after the client opened the follow-up",
+      "follow-up must preserve unrelated concurrent staff edits",
+    );
+    assert.equal(savedFollowUpAnswers.consent_hipaa, undefined, "follow-up must not alter consent");
+    const completedFollowUp = await prisma.intakeFollowUp.findUnique({ where: { id: followUpRow.id } });
+    assert.equal(completedFollowUp?.status, "COMPLETED");
+    assert(completedFollowUp?.completedAt, "completed follow-up needs a completion time");
+    assert(completedFollowUp?.attestedAt, "completed follow-up needs client attestation time");
+    assert.equal(completedFollowUp?.savedCount, 1);
+    assert(completedFollowUp?.attestationJson, "attestation must preserve the exact answer snapshot");
+    assert.match(completedFollowUp?.attestationSha256 || "", /^[a-f0-9]{64}$/);
+    assert.equal(
+      JSON.parse(completedFollowUp?.attestationJson || "{}").answers.height,
+      "5 ft 8 in",
+    );
+    assert.deepEqual(
+      JSON.parse(completedFollowUp?.skippedKeys || "[]"),
+      ["preferred_emergency_facility"],
+    );
+    assert.equal(
+      (await prisma.intake.findUnique({ where: { id: followUpIntake.id } }))?.status,
+      "SIGNED",
+      "client follow-up must preserve signed status so the original intake stays closed",
+    );
+    const originalLinkAfterFollowUp = await getClientIntakeByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(originalLinkAfterFollowUp.status, 409, "follow-up must not reopen the original signed intake");
+    const autosaveAfterSubmit = await saveClientIntakeByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ answers: { weight: "999 lb" } }),
+      }),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(autosaveAfterSubmit.status, 409, "submitted client token must not autosave answers");
+    const signatureAfterSubmit = await saveClientSignatureByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({}),
+      }),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(signatureAfterSubmit.status, 409, "submitted client token must not replace a signature");
+    const uploadAfterSubmit = await uploadClientDocumentByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/upload`, {
+        method: "POST",
+      }),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(uploadAfterSubmit.status, 409, "submitted client token must not upload new documents");
+    await prisma.intake.update({
+      where: { id: followUpIntake.id },
+      data: { status: "NEEDS_REVIEW" },
+    });
+    const originalLinkAfterStaffStatusChange = await getClientIntakeByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(
+      originalLinkAfterStaffStatusChange.status,
+      409,
+      "submitted signature must keep the original client link closed after a staff status change",
+    );
+
+    const replayFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        answers: { height: "6 ft", weight: "200 lb" },
+        attested: true,
+      }),
+    });
+    const replayFollowUp = await submitClientFollowUp(replayFollowUpRequest, {
+      params: { token: secureFollowUpToken },
+    });
+    assert.equal(replayFollowUp.status, 409, "completed follow-up links must reject replay");
+    assert.equal((await loadAnswers(followUpIntake.id)).height, "5 ft 8 in", "replay must not overwrite saved answers");
+    ok("one-time client follow-up securely merges answers and rejects replay");
+  } finally {
+    await prisma.auditLog.deleteMany({ where: { intakeId: followUpIntake.id } });
+    await prisma.intake.delete({ where: { id: followUpIntake.id } });
+    await prisma.client.delete({ where: { id: followUpClient.id } });
+  }
 
   // 3. actual template
   const template = loadTemplateBytes();

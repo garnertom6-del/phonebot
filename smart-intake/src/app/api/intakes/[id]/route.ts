@@ -13,6 +13,7 @@ import { parseCcaReview } from "@/lib/ccaReview";
 import { completionReadinessForIntake } from "@/lib/completionReadiness";
 import { clientLinkRenewalData } from "@/lib/tokens";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "@/lib/clientDetails";
+import { parseFollowUpFieldKeys } from "@/lib/clientFollowUp";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -27,6 +28,23 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       uploadedDocuments: { select: { id: true, docType: true, fileName: true, createdAt: true, reviewJson: true } },
       generatedPdfs: { orderBy: { createdAt: "desc" }, select: { id: true, createdAt: true, sha256: true } },
       auditLogs: { orderBy: { createdAt: "desc" }, take: 50, select: { id: true, event: true, detail: true, createdAt: true } },
+      followUps: {
+        orderBy: { createdAt: "desc" },
+        take: 20,
+        select: {
+          token: true,
+          fieldKeys: true,
+          status: true,
+          recipientRole: true,
+          tokenExpiresAt: true,
+          sentAt: true,
+          completedAt: true,
+          attestedAt: true,
+          skippedKeys: true,
+          savedCount: true,
+          createdAt: true,
+        },
+      },
     },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
@@ -40,8 +58,21 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     createdAt: document.createdAt,
     ccaReview: parseCcaReview(document.reviewJson),
   }));
+  const followUps = intake.followUps.map((followUp) => ({
+    status: followUp.status,
+    recipientRole: followUp.recipientRole,
+    fieldKeys: parseFollowUpFieldKeys(followUp.fieldKeys),
+    link: `${base}/follow-up/${followUp.token}`,
+    tokenExpiresAt: followUp.tokenExpiresAt,
+    sentAt: followUp.sentAt,
+    completedAt: followUp.completedAt,
+    attestedAt: followUp.attestedAt,
+    skippedKeys: parseFollowUpFieldKeys(followUp.skippedKeys || "[]"),
+    savedCount: followUp.savedCount,
+    createdAt: followUp.createdAt,
+  }));
   return NextResponse.json({
-    intake: { ...intake, uploadedDocuments },
+    intake: { ...intake, uploadedDocuments, followUps },
     answers,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),

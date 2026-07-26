@@ -1,3 +1,4 @@
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./prisma";
 import type { Answers } from "./fillPdf";
 import { ALL_CONSENT_KEYS } from "@/config/mooreDivineQuestions";
@@ -6,6 +7,10 @@ import { applyOperationalDefaults } from "./answerDefaults";
 
 export async function loadAnswers(intakeId: string): Promise<Answers> {
   const rows = await prisma.intakeAnswer.findMany({ where: { intakeId } });
+  return decodeAnswerRows(rows);
+}
+
+export function decodeAnswerRows(rows: Array<{ key: string; value: string }>): Answers {
   const out: Answers = {};
   for (const r of rows) {
     try { out[r.key] = JSON.parse(r.value); } catch { out[r.key] = r.value; }
@@ -13,16 +18,25 @@ export async function loadAnswers(intakeId: string): Promise<Answers> {
   return out;
 }
 
-export async function saveAnswers(intakeId: string, answers: Answers): Promise<void> {
-  const ops = Object.entries(answers).map(([key, v]) =>
-    prisma.intakeAnswer.upsert({
+export async function saveAnswersInTransaction(
+  db: Prisma.TransactionClient,
+  intakeId: string,
+  answers: Answers,
+): Promise<void> {
+  for (const [key, value] of Object.entries(answers)) {
+    await db.intakeAnswer.upsert({
       where: { intakeId_key: { intakeId, key } },
-      create: { intakeId, key, value: JSON.stringify(v) },
-      update: { value: JSON.stringify(v) },
-    }),
-  );
-  await prisma.$transaction(ops);
-  await prisma.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
+      create: { intakeId, key, value: JSON.stringify(value) },
+      update: { value: JSON.stringify(value) },
+    });
+  }
+}
+
+export async function saveAnswers(intakeId: string, answers: Answers): Promise<void> {
+  await prisma.$transaction(async (db) => {
+    await saveAnswersInTransaction(db, intakeId, answers);
+    await db.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
+  });
 }
 
 export async function loadSignatures(intakeId: string): Promise<Record<string, SignatureRecord>> {
@@ -53,20 +67,22 @@ export function consentsFromAnswers(answers: Answers): Record<string, boolean> {
  * reports can query structured rows (release consents, referrals, emergency
  * contacts, medications, substances, treatment-plan rows).
  */
-export async function syncStructuredRows(intakeId: string, a: Answers): Promise<void> {
+export async function syncStructuredRowsInTransaction(
+  db: Prisma.TransactionClient,
+  intakeId: string,
+  a: Answers,
+): Promise<void> {
   const s = (k: string) => (a[k] == null ? "" : String(a[k]));
-  await prisma.$transaction([
-    prisma.releaseConsent.deleteMany({ where: { intakeId } }),
-    prisma.referral.deleteMany({ where: { intakeId } }),
-    prisma.emergencyContact.deleteMany({ where: { intakeId } }),
-    prisma.medication.deleteMany({ where: { intakeId } }),
-    prisma.substanceUseRow.deleteMany({ where: { intakeId } }),
-    prisma.treatmentPlanSignatureRow.deleteMany({ where: { intakeId } }),
-  ]);
+  await db.releaseConsent.deleteMany({ where: { intakeId } });
+  await db.referral.deleteMany({ where: { intakeId } });
+  await db.emergencyContact.deleteMany({ where: { intakeId } });
+  await db.medication.deleteMany({ where: { intakeId } });
+  await db.substanceUseRow.deleteMany({ where: { intakeId } });
+  await db.treatmentPlanSignatureRow.deleteMany({ where: { intakeId } });
   const creates = [];
   for (const i of [1, 2, 3]) {
     if (s(`roi${i}_recipient`)) {
-      creates.push(prisma.releaseConsent.create({
+      creates.push(db.releaseConsent.create({
         data: {
           intakeId, slot: i, recipient: s(`roi${i}_recipient`),
           items: JSON.stringify(a[`roi${i}_items`] ?? []),
@@ -78,14 +94,14 @@ export async function syncStructuredRows(intakeId: string, a: Answers): Promise<
   }
   for (let i = 1; i <= 10; i++) {
     if (s(`ref${i}_name`)) {
-      creates.push(prisma.referral.create({
+      creates.push(db.referral.create({
         data: { intakeId, slot: i, name: s(`ref${i}_name`), phone: s(`ref${i}_phone`) },
       }));
     }
   }
   for (const i of [1, 2]) {
     if (s(`ec${i}_name`)) {
-      creates.push(prisma.emergencyContact.create({
+      creates.push(db.emergencyContact.create({
         data: {
           intakeId, slot: i, name: s(`ec${i}_name`), street: s(`ec${i}_street`),
           city: s(`ec${i}_city`), state: s(`ec${i}_state`), homePhone: s(`ec${i}_home_phone`),
@@ -98,7 +114,7 @@ export async function syncStructuredRows(intakeId: string, a: Answers): Promise<
     // split on ; or newline only - "Strattera, 40mg" is ONE medication with a dose
     for (const entry of s(key).split(/[\n;]+/).map((x) => x.trim()).filter(Boolean)) {
       const m = /^([^,]+),\s*(.+)$/.exec(entry);
-      creates.push(prisma.medication.create({
+      creates.push(db.medication.create({
         data: m
           ? { intakeId, name: m[1].trim(), dosage: m[2].trim(), kind }
           : { intakeId, name: entry, kind },
@@ -107,7 +123,7 @@ export async function syncStructuredRows(intakeId: string, a: Answers): Promise<
   }
   for (let i = 1; i <= 5; i++) {
     if (s(`sub${i}_name`)) {
-      creates.push(prisma.substanceUseRow.create({
+      creates.push(db.substanceUseRow.create({
         data: {
           intakeId, slot: i, name: s(`sub${i}_name`), ageFirst: s(`sub${i}_age_first`),
           frequency: s(`sub${i}_freq`), route: s(`sub${i}_route`),
@@ -118,12 +134,18 @@ export async function syncStructuredRows(intakeId: string, a: Answers): Promise<
   }
   for (const i of [1, 2, 3]) {
     if (s(`otp_row${i}_staff_date`) || s(`otp_row${i}_client_date`)) {
-      creates.push(prisma.treatmentPlanSignatureRow.create({
+      creates.push(db.treatmentPlanSignatureRow.create({
         data: { intakeId, slot: i, staffDate: s(`otp_row${i}_staff_date`), clientDate: s(`otp_row${i}_client_date`) },
       }));
     }
   }
-  if (creates.length) await prisma.$transaction(creates);
+  if (creates.length) await Promise.all(creates);
+}
+
+export async function syncStructuredRows(intakeId: string, a: Answers): Promise<void> {
+  await prisma.$transaction(async (db) => {
+    await syncStructuredRowsInTransaction(db, intakeId, a);
+  });
 }
 
 export async function mappingOverrides() {

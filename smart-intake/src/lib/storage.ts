@@ -29,3 +29,14 @@ export function deleteFile(relPath: string): void {
   if (!full.startsWith(root)) throw new Error("Refusing to delete a file outside storage.");
   if (fs.existsSync(full)) fs.rmSync(full, { force: true });
 }
+
+export function moveFile(fromRelPath: string, toRelPath: string): void {
+  const root = `${path.resolve(ROOT)}${path.sep}`;
+  const from = path.resolve(ROOT, fromRelPath);
+  const to = path.resolve(ROOT, toRelPath);
+  if (!from.startsWith(root) || !to.startsWith(root)) {
+    throw new Error("Refusing to move a file outside storage.");
+  }
+  fs.mkdirSync(path.dirname(to), { recursive: true });
+  fs.renameSync(from, to);
+}
