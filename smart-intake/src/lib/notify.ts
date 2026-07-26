@@ -4,6 +4,8 @@
  * until env vars are set - see COWORKER_HANDOFF.md.
  */
 import { intakeProcessExplanation, providerDisplayName, providerPhone } from "./providerBranding";
+import { intakeOrientationAudioLine } from "./intakeOrientation";
+import { intakeShareMessage, signatureShareMessage } from "./shareLinks";
 
 export interface NotifyResult {
   channel: "email" | "sms";
@@ -11,6 +13,24 @@ export interface NotifyResult {
   ok: boolean;
   demo: boolean;
   detail: string;
+}
+
+export async function captureNotifyResult(
+  channel: NotifyResult["channel"],
+  to: string,
+  send: () => Promise<NotifyResult>,
+): Promise<NotifyResult> {
+  try {
+    return await send();
+  } catch {
+    return {
+      channel,
+      to,
+      ok: false,
+      demo: false,
+      detail: "The delivery provider could not be reached. Try again shortly.",
+    };
+  }
 }
 
 type TwilioMessage = {
@@ -104,10 +124,15 @@ export async function sendClientLinkEmail(
     ? `${provider} - Signature needed to finish your intake`
     : `${provider} - Your new-client questions`;
   const body = signatureReminder
-    ? `Hello ${clientName},\n\nYour intake answers are saved, but we still need your signature or guardian signature to finish the intake. Open the same secure link below, review your answers, and sign at the end:\n\n${link}\n\nThis secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days. If you already signed, no action is needed. Questions? Call ${providerPhone(supportPhone, providerName)}.`
+    ? `Hello ${clientName},\n\nYour answers are saved, but we still need the client or guardian signature. ` +
+      `Open the same secure link below, review the saved answers, and sign at the end:\n\n${link}\n\n` +
+      `This private link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days. Please do not forward it. ` +
+      `If you already signed, no action is needed.\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`
     : `Hello ${clientName},\n\n${intakeProcessExplanation(providerName)} ` +
-      `This secure link works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days:\n\n${link}\n\n` +
-      `You can answer by typing or speaking, and sign right on your phone.\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
+      `Most people can complete the secure form on a phone. Your progress saves as you go, so you can leave and return before submitting.\n\n` +
+      `Open your private link (works for ${process.env.CLIENT_LINK_EXPIRY_DAYS || 7} days):\n${link}\n\n` +
+      `You can type or speak your answers and sign on your phone. Please do not forward this link.` +
+      `${intakeOrientationAudioLine()}\n\nQuestions? Call ${providerPhone(supportPhone, providerName)}.`;
   if (!key || !process.env.EMAIL_FROM) {
     console.log(`[DEMO EMAIL to ${to}]\nSubject: ${subject}`);
     return { channel: "email", to, ok: false, demo: true, detail: "Email is not configured in Render" };
@@ -142,8 +167,8 @@ export async function sendClientLinkSms(
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
   const body = purpose === "signature"
-    ? `${providerDisplayName(providerName)}: your intake answers are saved, but we still need your signature or guardian signature. Review and sign at the end of this secure link: ${link} Questions? Call ${providerPhone(supportPhone, providerName)}.`
-    : `${intakeProcessExplanation(providerName)} Secure link: ${link}`;
+    ? signatureShareMessage(link, providerName, supportPhone)
+    : intakeShareMessage(link, providerName, supportPhone);
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
@@ -246,7 +271,7 @@ export async function sendCopiesLinkSms(
   const sid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  const body = `${providerDisplayName(providerName)}: your completed intake copies are ready. View or save them here: ${link}`;
+  const body = `${providerDisplayName(providerName)}: your completed intake copies are ready. View or save them here: ${link}\nSTOP to opt out.`;
   if (!sid || !token || !from) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };

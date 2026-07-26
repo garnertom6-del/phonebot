@@ -1,8 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
+import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 
@@ -42,7 +42,6 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 }
 
 export default function NewIntake() {
-  const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
   const [recordPanel, setRecordPanel] = useState("");
   const [referralSource, setReferralSource] = useState("");
@@ -57,7 +56,8 @@ export default function NewIntake() {
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
-  const [redirectingAfterSend, setRedirectingAfterSend] = useState(false);
+  const [sendStatusKind, setSendStatusKind] = useState<"success" | "error" | "info">("info");
+  const [sendBusy, setSendBusy] = useState(false);
   const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("notes");
   const [helperNotes, setHelperNotes] = useState("");
   const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
@@ -196,33 +196,48 @@ export default function NewIntake() {
 
   async function sendWithApp() {
     if (!result) return;
+    setSendBusy(true);
+    setSendStatusKind("info");
     setSendStatus("Sending...");
-    const res = await fetch(`/api/intakes/${result.id}/remind`, { method: "POST" });
-    const body = await res.json().catch(() => ({}));
-    if (res.ok) {
-      const sent = Array.isArray(body.sent) ? body.sent : [];
-      const failed = Array.isArray(body.failed) ? body.failed : [];
-      const parts = [
-        sent.length ? `Sent: ${sent.join(", ")}` : "",
-        failed.length ? `Not sent: ${failed.join("; ")}` : "",
-      ].filter(Boolean);
-      const smsSent = sent.some((item: unknown) => /^sms\b/i.test(String(item)));
-      if (smsSent) {
-        setRedirectingAfterSend(true);
-        setSendStatus(`${parts.join(" | ")} Returning to the provider portal...`);
-        window.setTimeout(() => router.push("/dashboard"), 1500);
+    try {
+      const res = await fetch(`/api/intakes/${result.id}/remind`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok && body.ok) {
+        const sent = Array.isArray(body.sent) ? body.sent : [];
+        const failed = Array.isArray(body.failed) ? body.failed : [];
+        const parts = [
+          sent.length ? `Delivery result: ${sent.join("; ")}` : "",
+          failed.length ? `Not accepted: ${failed.join("; ")}` : "",
+        ].filter(Boolean);
+        setSendStatusKind(failed.length ? "info" : "success");
+        setSendStatus(parts.length ? parts.join(" | ") : "No delivery result was returned.");
       } else {
-        setSendStatus(parts.length ? parts.join(" | ") : "No phone or email saved for this client.");
+        setSendStatusKind("error");
+        setSendStatus(`Send failed: ${body.error || body.failed?.join("; ") || res.status}`);
       }
-    } else {
-      setSendStatus(`Send failed: ${body.error || res.status}`);
+    } catch {
+      setSendStatusKind("error");
+      setSendStatus("Send failed. Check your connection and try again.");
+    } finally {
+      setSendBusy(false);
     }
   }
 
   if (result) {
-    const phone = form.phone || form.guardianPhone || "";
-    const email = form.email || form.guardianEmail || "";
-    const message = intakeShareMessage(result.clientLink, providerName);
+    const deliveryContacts = clientDeliveryContacts({
+      phone: form.phone,
+      email: form.email,
+      guardianPhone: form.guardianPhone,
+      guardianEmail: form.guardianEmail,
+    });
+    const phone = deliveryContacts.phone?.value || "";
+    const email = deliveryContacts.email?.value || "";
+    const message = intakeShareMessage(result.clientLink, providerName, providerPhone);
+    const hasContact = !!(phone || email);
+    const recipientSummary = [
+      deliveryContacts.phone ? `SMS to ${deliveryContacts.phone.role} at ${deliveryContacts.phone.value}` : "",
+      deliveryContacts.email ? `email to ${deliveryContacts.email.role} at ${deliveryContacts.email.value}` : "",
+    ].filter(Boolean).join("; ");
     return (
       <main className="mx-auto max-w-xl p-6">
         <div className="card">
@@ -235,34 +250,82 @@ export default function NewIntake() {
             Record#: {result.recordNumber || "Generated"}{result.providerChoicePlan ? ` (${result.providerChoicePlan})` : ""}
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
+          {hasContact && (
+            <p className="mt-3 break-words rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+              <span className="font-bold">Send to:</span> {recipientSummary}
+            </p>
+          )}
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <button className="btn-primary" onClick={async () => {
-              await navigator.clipboard.writeText(result.clientLink); setCopied(true);
-            }}>{copied ? "Copied" : "Copy client link"}</button>
-            <a className="btn-primary text-center" href={intakeSmsHref(phone, result.clientLink, providerName)}>
-              Open SMS on this computer
-            </a>
-            <button className="btn-ghost" disabled={redirectingAfterSend} onClick={() => { void sendWithApp(); }}>
-              {redirectingAfterSend ? "Returning to portal..." : "Send SMS/email now"}
+            <button
+              className="btn-primary"
+              disabled={sendBusy || !hasContact}
+              onClick={() => { void sendWithApp(); }}
+            >
+              {sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
             </button>
-            <a className="btn-ghost text-center" href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}>
-              Open email
-            </a>
-            <button className="btn-ghost" onClick={async () => {
-              await navigator.clipboard.writeText(message); setMessageCopied(true);
-            }}>{messageCopied ? "Message copied" : "Copy text message"}</button>
-            <Link href={`/intakes/${result.id}`} className="btn-secondary">Open intake & staff setup</Link>
+            <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
+              Open intake &amp; staff setup
+            </Link>
           </div>
+          {!hasContact && (
+            <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+              Add a client or guardian phone number or email on the intake page before sending.
+            </p>
+          )}
+          <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+            <summary className="cursor-pointer font-semibold text-slate-800">
+              Manual sending &amp; message preview
+            </summary>
+            <p className="mt-3 break-all whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{message}</p>
+            <p className="mt-2 text-xs text-slate-500">
+              The message contains a secure link and no client name or health details. Confirm the recipient before sending.
+            </p>
+            <div className="mt-3 grid gap-2 sm:grid-cols-2">
+              <button className="btn-ghost" onClick={async () => {
+                await navigator.clipboard.writeText(result.clientLink); setCopied(true);
+              }}>{copied ? "Link copied" : "Copy client link"}</button>
+              <button className="btn-ghost" onClick={async () => {
+                await navigator.clipboard.writeText(message); setMessageCopied(true);
+              }}>{messageCopied ? "Message copied" : "Copy SMS message"}</button>
+              {phone && (
+                <a
+                  className="btn-ghost text-center"
+                  href={intakeSmsHref(phone, result.clientLink, providerName, providerPhone)}
+                >
+                  Open SMS on this computer
+                </a>
+              )}
+              {email && (
+                <a
+                  className="btn-ghost text-center"
+                  href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}
+                >
+                  Open email
+                </a>
+              )}
+            </div>
+          </details>
           {setupStatus && (
             <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
               setupStatusKind === "success" ? "bg-emerald-50 text-emerald-700" :
               setupStatusKind === "error" ? "bg-red-50 text-red-700" :
               "bg-slate-50 text-slate-700"
-            }`}>
+            }`} role={setupStatusKind === "error" ? "alert" : "status"} aria-live="polite">
               {setupStatus}
             </p>
           )}
-          {sendStatus && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{sendStatus}</p>}
+          {sendStatus && (
+            <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
+              sendStatusKind === "success" ? "bg-emerald-50 text-emerald-700" :
+              sendStatusKind === "error" ? "bg-red-50 text-red-700" :
+              "bg-brand-light text-brand"
+            }`}
+            role={sendStatusKind === "error" ? "alert" : "status"}
+            aria-live="polite"
+            >
+              {sendStatus}
+            </p>
+          )}
         </div>
       </main>
     );

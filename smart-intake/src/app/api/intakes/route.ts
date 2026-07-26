@@ -47,7 +47,12 @@ export async function GET(req: NextRequest) {
         auditLogs: {
           where: {
             event: {
-              in: ["cca_imported", "copies_link_sent", "provider_packet_email_sent", "docusign_completed"],
+              in: [
+                "cca_imported",
+                "copies_link_sent",
+                "provider_packet_email_sent",
+                "docusign_completed",
+              ],
             },
           },
           orderBy: { createdAt: "desc" },
@@ -58,7 +63,7 @@ export async function GET(req: NextRequest) {
       orderBy: { updatedAt: "desc" },
     });
     const ids = intakes.map((i) => i.id);
-    const [answerRows, signatureAuditRows] = await Promise.all([
+    const [answerRows, signatureAuditRows, linkOpenedGroups, reminderGroups] = await Promise.all([
       prisma.intakeAnswer.findMany({
         where: { intakeId: { in: ids } },
         select: { intakeId: true, key: true, value: true, updatedAt: true },
@@ -67,6 +72,20 @@ export async function GET(req: NextRequest) {
         where: { intakeId: { in: ids }, event: "signature_captured" },
         orderBy: { createdAt: "desc" },
         select: { intakeId: true, createdAt: true },
+      }),
+      prisma.auditLog.groupBy({
+        by: ["intakeId"],
+        where: { intakeId: { in: ids }, event: "link_opened" },
+        _max: { createdAt: true },
+      }),
+      prisma.auditLog.groupBy({
+        by: ["intakeId"],
+        where: {
+          intakeId: { in: ids },
+          event: { in: ["link_reminder_sent", "signature_reminder_sent"] },
+          detail: { contains: "sent " },
+        },
+        _count: { _all: true },
       }),
     ]);
     const answersByIntake = new Map<string, Record<string, unknown>>();
@@ -87,6 +106,16 @@ export async function GET(req: NextRequest) {
         latestSignatureAt.set(row.intakeId, row.createdAt);
       }
     }
+    const lastLinkOpenedAt = new Map(
+      linkOpenedGroups
+        .filter((row): row is typeof row & { intakeId: string } => !!row.intakeId)
+        .map((row) => [row.intakeId, row._max.createdAt || null] as const),
+    );
+    const reminderCountByIntake = new Map(
+      reminderGroups
+        .filter((row): row is typeof row & { intakeId: string } => !!row.intakeId)
+        .map((row) => [row.intakeId, row._count._all] as const),
+    );
     const rows = intakes.map((i) => {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
       const signed = i.auditLogs.some((a) => a.event === "docusign_completed")
@@ -115,6 +144,8 @@ export async function GET(req: NextRequest) {
       return {
         id: i.id, status: i.status, archived: i.archived, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
         client: i.client, linkSentAt: i.linkSentAt, lastActivityAt: i.lastActivityAt,
+        lastLinkOpenedAt: lastLinkOpenedAt.get(i.id) || null,
+        reminderCount: reminderCountByIntake.get(i.id) || 0,
         submittedAt: i.submittedAt, createdAt: i.createdAt,
         percentComplete: percentComplete(answers),
         missingRequired: required,

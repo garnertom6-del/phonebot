@@ -13,7 +13,11 @@ function IntakeInner({ token }: { token: string }) {
   const searchParams = useSearchParams();
   const fullMode = searchParams.get("mode") === "full";
   const [state, setState] = useState<"loading" | "error" | "ready">("loading");
-  const [error, setError] = useState("");
+  const [problem, setProblem] = useState<{
+    message: string;
+    code?: string;
+    provider?: { name?: string | null; phone?: string | null } | null;
+  }>({ message: "" });
   const [data, setData] = useState<{ clientName: string; status: string; quick?: boolean;
     provider?: { name?: string | null; phone?: string | null };
     answers: Record<string, string | boolean | number | string[]>;
@@ -21,14 +25,24 @@ function IntakeInner({ token }: { token: string }) {
 
   const load = useCallback(() => {
     setState("loading");
-    setError("");
-    fetch(`/api/intake/${token}`)
+    setProblem({ message: "" });
+    fetch(`/api/intake/${token}`, { cache: "no-store" })
       .then(async (r) => {
         const body = await r.json();
-        if (!r.ok) { setError(body.error || "This link is not valid."); setState("error"); }
+        if (!r.ok) {
+          setProblem({
+            message: body.error || "This link is not valid.",
+            code: body.code,
+            provider: body.provider,
+          });
+          setState("error");
+        }
         else { setData(body); setState("ready"); }
       })
-      .catch(() => { setError("Could not load - check your connection."); setState("error"); });
+      .catch(() => {
+        setProblem({ message: "We could not open the secure form. Check your connection and try again." });
+        setState("error");
+      });
   }, [token]);
 
   useEffect(load, [load]);
@@ -37,11 +51,40 @@ function IntakeInner({ token }: { token: string }) {
     <>
       {state === "loading" && <p className="mt-10 text-center text-slate-500">Loading your questions...</p>}
       {state === "error" && (
-        <div className="card mx-auto max-w-md text-center">
-          <p className="text-lg font-bold text-red-600">Link problem</p>
-          <p className="mt-2 text-slate-600">{error}</p>
-          <button type="button" className="btn-primary mt-4 w-full" onClick={load}>Try again</button>
-          <p className="mt-3 text-sm text-slate-500">Need help? Please contact your provider.</p>
+        <div className="card mx-auto max-w-md text-center" role="alert">
+          <h2 className="text-xl font-bold text-slate-900">
+            {problem.code === "LINK_EXPIRED"
+              ? "This link has expired"
+              : problem.code === "INTAKE_FINISHED"
+                ? "Your intake was already submitted"
+                : "We could not open this link"}
+          </h2>
+          <p className="mt-2 text-slate-600">{problem.message}</p>
+          {problem.code === "LINK_EXPIRED" && (
+            <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+              Your saved answers are still there. Ask {problem.provider?.name || "your provider"} to send you a new secure link.
+            </p>
+          )}
+          {problem.code === "INTAKE_FINISHED" && (
+            <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+              Your saved answers and signature are protected. No further action is needed unless your provider contacts you.
+            </p>
+          )}
+          <div className="mt-4 grid gap-2">
+            {problem.provider?.phone && (
+              <a className="btn-primary w-full" href={`tel:${problem.provider.phone.replace(/[^\d+]/g, "")}`}>
+                Call {problem.provider.name || "your provider"} at {problem.provider.phone}
+              </a>
+            )}
+            {!["LINK_EXPIRED", "INTAKE_FINISHED"].includes(problem.code || "") && (
+              <button type="button" className="btn-ghost w-full" onClick={load}>
+                Try this link again
+              </button>
+            )}
+          </div>
+          {!problem.provider?.phone && (
+            <p className="mt-3 text-sm text-slate-500">Please contact your provider for help with the link.</p>
+          )}
         </div>
       )}
       {state === "ready" && data && (fullMode ? (

@@ -11,6 +11,7 @@ import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { parseCcaReview } from "@/lib/ccaReview";
 import { completionReadinessForIntake } from "@/lib/completionReadiness";
+import { clientLinkRenewalData } from "@/lib/tokens";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -112,10 +113,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     }
   }
   if (body.extendToken) {
-    const days = parseInt(process.env.CLIENT_LINK_EXPIRY_DAYS || "7", 10);
     await prisma.intake.update({
       where: { id: intake.id },
-      data: { tokenExpiresAt: new Date(Date.now() + days * 86400000) },
+      data: clientLinkRenewalData(intake.tokenExpiresAt),
     });
   }
   if (body.archive !== undefined) {

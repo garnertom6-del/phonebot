@@ -12,3 +12,14 @@ export function tokenExpiryDays(): number {
 export function tokenExpiry(): Date {
   return new Date(Date.now() + tokenExpiryDays() * 24 * 60 * 60 * 1000);
 }
+
+export function clientLinkRenewalData(
+  currentExpiry: string | Date,
+  now = Date.now(),
+): { tokenExpiresAt: Date; token?: string } {
+  const expiresAt = currentExpiry instanceof Date ? currentExpiry.getTime() : Date.parse(currentExpiry);
+  return {
+    tokenExpiresAt: new Date(now + tokenExpiryDays() * 24 * 60 * 60 * 1000),
+    ...(Number.isFinite(expiresAt) && expiresAt <= now ? { token: newIntakeToken() } : {}),
+  };
+}

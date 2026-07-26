@@ -3,12 +3,24 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { sendClientLinkEmail, sendClientLinkSms, type NotifyResult } from "@/lib/notify";
-import { tokenExpiry } from "@/lib/tokens";
+import {
+  captureNotifyResult,
+  sendClientLinkEmail,
+  sendClientLinkSms,
+  type NotifyResult,
+} from "@/lib/notify";
+import { clientLinkRenewalData } from "@/lib/tokens";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
+import {
+  CLIENT_LINK_REMINDER_COOLDOWN_MS,
+  clientLinkExpired,
+  clientLinkMessagingFinished,
+  reminderCooldownSeconds,
+} from "@/lib/clientLinkState";
+import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 
 function sentLabel(result: NotifyResult): string {
-  return `${result.channel} to ${result.to}`;
+  return `${result.channel.toUpperCase()} to ${result.to}: ${result.detail}`;
 }
 
 function failedLabel(result: NotifyResult): string {
@@ -27,6 +39,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (clientLinkMessagingFinished(intake.status)) {
+    return NextResponse.json({
+      error: "This intake is already signed or completed. No signature reminder was sent.",
+    }, { status: 409 });
+  }
 
   const statuses = buildSignatureStatuses(intake.signatures);
   const clientStatus = statuses.find((status) => status.key === "client_guardian");
@@ -38,12 +55,63 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       message: "The client or guardian signature is already saved. No reminder was sent.",
     });
   }
+  const contacts = clientDeliveryContacts(intake.client);
+  if (!contacts.phone && !contacts.email) {
+    await audit("signature_reminder_failed", {
+      providerId: provider!.id,
+      intakeId: intake.id,
+      userId: user!.id,
+      detail: "client/guardian signature missing; no phone or email saved",
+    });
+    return NextResponse.json({
+      ok: false,
+      alreadySigned: false,
+      missing: [clientStatus?.label || "Client / guardian"],
+      error: "No client or guardian phone or email is saved. Add a contact method before sending a signature reminder.",
+      sent: [],
+      failed: [],
+      renewed: false,
+      expiresAt: intake.tokenExpiresAt,
+    }, { status: 422 });
+  }
 
-  // Renew the same secure link before sending so a client never receives an expired reminder.
-  if (intake.tokenExpiresAt < new Date()) {
+  const retryAfterSeconds = reminderCooldownSeconds(intake.linkSentAt);
+  if (retryAfterSeconds > 0) {
+    return NextResponse.json({
+      error: `A secure link was just sent. Wait ${retryAfterSeconds} second${retryAfterSeconds === 1 ? "" : "s"} before sending another reminder.`,
+      retryAfterSeconds,
+    }, {
+      status: 429,
+      headers: { "Retry-After": String(retryAfterSeconds) },
+    });
+  }
+  const previousLinkSentAt = intake.linkSentAt;
+  const attemptStartedAt = new Date();
+  const reserved = await prisma.intake.updateMany({
+    where: {
+      id: intake.id,
+      OR: [
+        { linkSentAt: null },
+        { linkSentAt: { lte: new Date(attemptStartedAt.getTime() - CLIENT_LINK_REMINDER_COOLDOWN_MS) } },
+      ],
+    },
+    data: { linkSentAt: attemptStartedAt },
+  });
+  if (reserved.count !== 1) {
+    return NextResponse.json({
+      error: "Another secure-link delivery is already in progress. Wait one minute before trying again.",
+      retryAfterSeconds: 60,
+    }, {
+      status: 429,
+      headers: { "Retry-After": "60" },
+    });
+  }
+
+  const renewed = clientLinkExpired(intake.tokenExpiresAt);
+  if (renewed) {
     intake = await prisma.intake.update({
       where: { id: intake.id },
-      data: { tokenExpiresAt: tokenExpiry() },
+      data: clientLinkRenewalData(intake.tokenExpiresAt),
       include: {
         client: true,
         signatures: { select: { role: true, printedName: true, signedDate: true } },
@@ -53,32 +121,42 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const link = `${appBaseUrl(req)}/intake/${intake.token}`;
   const attempts: NotifyResult[] = [];
-  if (intake.client.email) {
-    attempts.push(await sendClientLinkEmail(
-      intake.client.email,
-      intake.client.fullName,
-      link,
-      provider!.name,
-      provider!.phone,
-      "signature",
-    ));
+  if (contacts.email) {
+    const recipientName = contacts.email.role === "guardian"
+      ? intake.client.guardianName || "Parent or guardian"
+      : intake.client.fullName;
+    attempts.push(await captureNotifyResult("email", contacts.email.value, () => (
+      sendClientLinkEmail(
+        contacts.email!.value,
+        recipientName,
+        link,
+        provider!.name,
+        provider!.phone,
+        "signature",
+      )
+    )));
   }
-  if (intake.client.phone) {
-    attempts.push(await sendClientLinkSms(
-      intake.client.phone,
-      link,
-      provider!.name,
-      provider!.phone,
-      "signature",
-    ));
+  if (contacts.phone) {
+    attempts.push(await captureNotifyResult("sms", contacts.phone.value, () => (
+      sendClientLinkSms(
+        contacts.phone!.value,
+        link,
+        provider!.name,
+        provider!.phone,
+        "signature",
+      )
+    )));
   }
 
   const sent = attempts.filter((result) => result.ok).map(sentLabel);
   const failed = attempts.filter((result) => !result.ok).map(failedLabel);
-  if (sent.length) {
-    await prisma.intake.update({ where: { id: intake.id }, data: { linkSentAt: new Date() } });
+  if (!sent.length) {
+    await prisma.intake.updateMany({
+      where: { id: intake.id, linkSentAt: attemptStartedAt },
+      data: { linkSentAt: previousLinkSentAt },
+    });
   }
-  await audit("signature_reminder_sent", {
+  await audit(sent.length ? "signature_reminder_sent" : "signature_reminder_failed", {
     providerId: provider!.id,
     intakeId: intake.id,
     userId: user!.id,
@@ -97,7 +175,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       sent,
       failed,
       demo: attempts.some((result) => result.demo),
+      renewed,
+      expiresAt: intake.tokenExpiresAt,
+      error: sent.length ? undefined : "No delivery channel accepted the signature reminder. Review the channel details and try again.",
     },
-    { status: sent.length || !attempts.length ? 200 : 502 },
+    { status: sent.length ? 200 : 502 },
   );
 }

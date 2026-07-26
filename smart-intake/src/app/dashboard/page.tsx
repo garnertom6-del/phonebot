@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
+import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
+import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 
 interface Row {
   id: string;
@@ -33,9 +35,13 @@ interface Row {
     phone?: string;
     email?: string;
     guardianName?: string;
+    guardianEmail?: string;
+    guardianPhone?: string;
   };
   missingRequired: { key: string; label: string }[];
   linkSentAt?: string;
+  lastLinkOpenedAt?: string | null;
+  reminderCount?: number;
   lastActivityAt?: string;
   submittedAt?: string;
   createdAt: string;
@@ -142,7 +148,7 @@ export default function Dashboard() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
-  const [noticeKind, setNoticeKind] = useState<"success" | "error">("success");
+  const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
   const [tab, setTab] = useState("action");
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
@@ -179,7 +185,7 @@ export default function Dashboard() {
 
   useEffect(() => { load(tab); }, [load, tab]);
 
-  function showNote(message: string, timeout = 4500, kind: "success" | "error" = "success") {
+  function showNote(message: string, timeout = 4500, kind: "success" | "warning" | "error" = "success") {
     setNoticeKind(kind);
     setNote(message);
     window.setTimeout(() => setNote(""), timeout);
@@ -204,6 +210,14 @@ export default function Dashboard() {
   }
 
   async function copyLink(row: Row) {
+    if (clientLinkMessagingFinished(row.status)) {
+      showNote("This intake is already signed. Use the client-copies link instead of the intake link.", 6500, "error");
+      return;
+    }
+    if (clientLinkExpired(row.tokenExpiresAt)) {
+      showNote("This secure link expired. Open the intake and renew it before copying or sending it.", 6500, "error");
+      return;
+    }
     const link = `${window.location.origin}/intake/${row.token}`;
     await navigator.clipboard.writeText(link);
     showNote(`Intake link copied for ${row.client.fullName}`, 2500);
@@ -223,9 +237,10 @@ export default function Dashboard() {
     const response = await fetch(`/api/intakes/${row.id}/remind`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
     if (response.ok && body.ok) {
-      const sent = body.sent?.length ? body.sent.join(", ") : "No phone or email saved for this client.";
-      const failed = body.failed?.length ? ` Not sent: ${body.failed.join("; ")}` : "";
-      showNote(`Reminder queued: ${sent}${failed}`, 6000);
+      const sent = body.sent?.length ? body.sent.join("; ") : "No phone or email saved for this client.";
+      const failed = body.failed?.length ? ` Not accepted: ${body.failed.join("; ")}` : "";
+      const renewed = body.renewed ? "Expired link renewed. " : "";
+      showNote(`${renewed}Delivery result: ${sent}${failed}`, 7500, body.failed?.length ? "warning" : "success");
       await load(tab, true);
     } else {
       showNote(`Reminder failed: ${body.error || body.failed?.join("; ") || "No message was sent. Add a client phone or email."}`, 6000, "error");
@@ -480,8 +495,12 @@ export default function Dashboard() {
 
       {note && (
         <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold ${
-          noticeKind === "error" ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"
-        }`} role="status">
+          noticeKind === "error"
+            ? "bg-red-50 text-red-700"
+            : noticeKind === "warning"
+              ? "bg-amber-50 text-amber-800"
+              : "bg-emerald-50 text-emerald-700"
+        }`} role={noticeKind === "error" ? "alert" : "status"} aria-live="polite">
           <span>{note}</span>
           {noticeKind === "error" && <button className="btn-ghost px-3 py-1.5 text-xs" onClick={() => void load(tab)}>Try again</button>}
         </div>
@@ -576,6 +595,33 @@ export default function Dashboard() {
             : "Everything required is in.";
           const statusLabel = STATUS_LABELS[row.status] || row.status.replaceAll("_", " ");
           const rowBusy = busyRowIds.has(row.id);
+          const linkExpired = clientLinkExpired(row.tokenExpiresAt);
+          const linkFinished = clientLinkMessagingFinished(row.status);
+          const deliveryContacts = clientDeliveryContacts(row.client);
+          const hasSavedContact = !!(deliveryContacts.phone || deliveryContacts.email);
+          const openedCurrentDelivery = !!row.lastLinkOpenedAt && (
+            !row.linkSentAt || Date.parse(row.lastLinkOpenedAt) >= Date.parse(row.linkSentAt)
+          );
+          const linkState = linkFinished
+            ? "Finished"
+            : linkExpired
+              ? "Expired"
+              : openedCurrentDelivery
+                ? "Opened"
+                : row.linkSentAt
+                  ? "Sent"
+                  : "Not sent";
+          const linkDetail = linkFinished
+            ? "Client intake messaging is closed"
+            : linkExpired
+              ? "Open the intake to renew the secure link"
+              : openedCurrentDelivery
+                ? `Last opened ${displayDateTime(row.lastLinkOpenedAt)}`
+                : row.linkSentAt
+                  ? `Last accepted ${displayDateTime(row.linkSentAt)}${row.reminderCount ? ` - ${row.reminderCount} accepted reminder${row.reminderCount === 1 ? "" : "s"}` : ""}`
+                  : hasSavedContact
+                    ? "Ready to send to the saved contact"
+                    : "Add a phone or email before sending";
 
           return (
             <article key={row.id} aria-busy={rowBusy} className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
@@ -628,6 +674,12 @@ export default function Dashboard() {
                       : row.packetState === "stale"
                         ? "Answers or signatures changed; generate the packet again"
                         : "Generate packet after review"}
+                  />
+                  <StatusTile
+                    label="Client link"
+                    state={linkState}
+                    tone={linkFinished || openedCurrentDelivery ? "good" : linkExpired ? "warn" : "neutral"}
+                    detail={linkDetail}
                   />
                   <StatusTile
                     label="Client copies"
@@ -688,9 +740,26 @@ export default function Dashboard() {
                     <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
                     {!row.archived && (
                       <>
-                    <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>Copy intake link</button>
-                    <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
-                      onClick={() => void runRowAction(row.id, () => remind(row))}>Send reminder</button>
+                    {!linkFinished && !linkExpired && (
+                      <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>
+                        Copy intake link
+                      </button>
+                    )}
+                    {!linkFinished && linkExpired && (
+                      <Link className="btn-ghost px-3 py-2 text-sm" href={`/intakes/${row.id}`}>
+                        Open intake to renew link
+                      </Link>
+                    )}
+                    {!linkFinished && (
+                      <button
+                        className="btn-ghost px-3 py-2 text-sm"
+                        disabled={rowBusy || !hasSavedContact}
+                        title={hasSavedContact ? "Send the secure link to the saved phone and email" : "Add a client phone or email first"}
+                        onClick={() => void runRowAction(row.id, () => remind(row))}
+                      >
+                        {linkExpired ? "Renew & send link" : "Send intake reminder"}
+                      </button>
+                    )}
                     {["SIGNED", "COMPLETED"].includes(row.status) && (
                       <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                         onClick={() => void runRowAction(row.id, () => sendCopies(row))}>Send client copies</button>

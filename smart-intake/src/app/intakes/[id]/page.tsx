@@ -15,6 +15,8 @@ import {
   intakeShareMessage,
   intakeSmsHref,
 } from "@/lib/shareLinks";
+import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
+import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 
 type PreflightFinding = {
   key: string;
@@ -54,10 +56,19 @@ type SignatureAudit = {
 
 interface Detail {
   intake: {
-    id: string; status: string; tokenExpiresAt: string; intakeDate?: string;
+    id: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
     docusignEnvelopeId?: string | null;
     provider?: { name: string; phone?: string | null } | null;
-    client: { fullName: string; dob: string; midNumber?: string; email?: string; phone?: string; guardianName?: string };
+    client: {
+      fullName: string;
+      dob: string;
+      midNumber?: string;
+      email?: string;
+      phone?: string;
+      guardianName?: string;
+      guardianEmail?: string;
+      guardianPhone?: string;
+    };
     signatures: { role: string; printedName: string; signedDate: string }[];
     uploadedDocuments: { id: string; docType: string; fileName: string; createdAt?: string; ccaReview?: CcaReview | null }[];
     generatedPdfs: { id: string; createdAt: string }[];
@@ -130,6 +141,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
   const [lastSignatureAudit, setLastSignatureAudit] = useState<SignatureAudit | null>(null);
   const [signatureReminderBusy, setSignatureReminderBusy] = useState(false);
+  const [clientLinkBusy, setClientLinkBusy] = useState(false);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
@@ -196,7 +208,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const i = d.intake;
   const providerName = i.provider?.name || "Moore Divine Care";
   const providerPhone = i.provider?.phone || "";
-  const clientMessage = intakeShareMessage(d.clientLink, providerName);
+  const clientMessage = intakeShareMessage(d.clientLink, providerName, providerPhone);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
   const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
   const ccaDocuments = i.uploadedDocuments
@@ -206,6 +218,28 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const hasCca = ccaDocuments.length > 0;
   const ccaReview = latestCca?.ccaReview || null;
   const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
+  const linkExpired = clientLinkExpired(i.tokenExpiresAt);
+  const linkFinished = clientLinkMessagingFinished(i.status);
+  const deliveryContacts = clientDeliveryContacts(i.client);
+  const hasClientContact = !!(deliveryContacts.phone || deliveryContacts.email);
+  const lastLinkOpened = i.auditLogs.find((entry) => entry.event === "link_opened");
+  const openedCurrentDelivery = !!lastLinkOpened && (
+    !i.linkSentAt || Date.parse(lastLinkOpened.createdAt) >= Date.parse(i.linkSentAt)
+  );
+  const lastLinkReminder = i.auditLogs.find((entry) => (
+    entry.event === "link_reminder_sent" || entry.event === "signature_reminder_sent"
+  ) && /(^|;\s*)sent\s/i.test(entry.detail || ""));
+  const reminderCount = i.auditLogs.filter((entry) => (
+    entry.event === "link_reminder_sent" || entry.event === "signature_reminder_sent"
+  ) && /(^|;\s*)sent\s/i.test(entry.detail || "")).length;
+  const contactSummary = [
+    deliveryContacts.phone
+      ? `SMS to ${deliveryContacts.phone.role} at ${deliveryContacts.phone.value}`
+      : "",
+    deliveryContacts.email
+      ? `email to ${deliveryContacts.email.role} at ${deliveryContacts.email.value}`
+      : "",
+  ].filter(Boolean).join(" and ");
   const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
@@ -216,18 +250,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const sent = Array.isArray(body.sent) ? body.sent : [];
     const failed = Array.isArray(body.failed) ? body.failed : [];
     if (sent.length) {
-      return `Sent successfully: ${sent.join(", ")}${failed.length ? `. Not sent: ${failed.join("; ")}` : "."}`;
+      return `Delivery result: ${sent.join("; ")}${failed.length ? `. Not accepted: ${failed.join("; ")}` : "."}`;
     }
-    return failed.length ? `Not sent: ${failed.join("; ")}` : fallback;
-  }
-
-  function smsWasSent(body: Record<string, unknown>): boolean {
-    return Array.isArray(body.sent) && body.sent.some((item) => /^sms\b/i.test(String(item)));
-  }
-
-  function returnHomeAfterSms() {
-    setNote("SMS sent successfully. Returning to the provider portal...");
-    window.setTimeout(() => window.location.assign("/dashboard"), 900);
+    return failed.length ? `Delivery was not accepted: ${failed.join("; ")}` : fallback;
   }
 
   function signatureRoleLabel(role: string): string {
@@ -290,9 +315,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     if (label === "Generate Completed Packet") setLastSignatureAudit(null);
     const r = await fn();
     const b = await r.json().catch(() => ({}));
-    if (label === "Reminder") {
-      setNote(r.ok ? deliveryStatus(b, "No phone or email saved for this client.") : deliveryStatus(b, `${label} failed: ${b.error || r.status}`));
-    } else if (label === "Generate Completed Packet") {
+    if (label === "Generate Completed Packet") {
       if (!r.ok && b.code === "IDENTITY_MISMATCH") {
         setIdentityMismatch({ recordName: String(b.recordName || "client record"), answerName: String(b.answerName || "intake answer") });
         setNote("Packet generation paused. Confirm the client name or review and correct it before generating.");
@@ -311,10 +334,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     } else {
       setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
     }
-    if (r.ok && smsWasSent(b)) {
-      returnHomeAfterSms();
-      return;
-    }
     load();
   }
 
@@ -330,10 +349,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       } else {
         setCopiesLink(b.link || "");
         setNote(deliveryStatus(b, `Client-copy delivery failed: ${b.error || r.status}`));
-      }
-      if (r.ok && smsWasSent(b)) {
-        returnHomeAfterSms();
-        return;
       }
     } finally {
       setCopiesBusy(false);
@@ -362,6 +377,46 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     setNote(r.ok ? `Completed packet emailed to ${b.to || "the provider"}.` : `Provider packet email failed: ${b.reason || b.detail || b.error || r.status}`);
   }
 
+  async function sendIntakeLink() {
+    setClientLinkBusy(true);
+    setNote(linkExpired ? "Renewing the secure link and contacting the client..." : "Sending the secure link to the saved contacts...");
+    try {
+      const r = await fetch(`/api/intakes/${i.id}/remind`, { method: "POST" });
+      const b = await r.json().catch(() => ({}));
+      if (r.ok && b.ok) {
+        setNote(`${b.renewed ? "Expired link renewed. " : ""}${deliveryStatus(b, "No delivery result was returned.")}`);
+      } else {
+        setNote(b.error || deliveryStatus(b, "The secure link was not sent."));
+      }
+      load();
+    } catch {
+      setNote("The secure link could not be sent. Check your connection and try again.");
+    } finally {
+      setClientLinkBusy(false);
+    }
+  }
+
+  async function renewClientLink() {
+    setClientLinkBusy(true);
+    setNote("Renewing the secure client link...");
+    try {
+      const r = await fetch(`/api/intakes/${i.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ extendToken: true }),
+      });
+      const b = await r.json().catch(() => ({}));
+      setNote(r.ok
+        ? "Secure link renewed. The manual SMS, email, and copy options are ready."
+        : b.error || "The secure link could not be renewed.");
+      if (r.ok) load();
+    } catch {
+      setNote("The secure link could not be renewed. Check your connection and try again.");
+    } finally {
+      setClientLinkBusy(false);
+    }
+  }
+
   async function sendSignatureReminder() {
     setSignatureReminderBusy(true);
     setNote("Checking the client signature and sending a secure reminder...");
@@ -371,11 +426,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       if (b.alreadySigned) {
         setNote(b.message || "The client or guardian signature is already saved.");
       } else if (r.ok) {
-        const sent = Array.isArray(b.sent) ? b.sent.join(", ") : "the saved contact";
-        setNote(`Signature reminder sent to ${sent}. The client can reopen the same link, review saved answers, and sign at the end.`);
+        setNote(`${b.renewed ? "Expired link renewed. " : ""}${deliveryStatus(b, "The signature reminder was accepted.")} The client can reopen the same link, review saved answers, and sign at the end.`);
       } else {
-        const failed = Array.isArray(b.failed) && b.failed.length ? ` ${b.failed.join(" ")}` : "";
-        setNote(`Signature reminder could not be sent.${failed} Check the client's phone or email, then try again.`);
+        setNote(b.error || deliveryStatus(b, "Signature reminder could not be sent. Check the client's phone or email, then try again."));
       }
       load();
     } catch {
@@ -664,7 +717,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       <WorkflowSteps d={d} />
       <MoodPanel answers={d.answers} />
       <CoveragePanel intakeId={i.id} />
-      {note && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{note}</p>}
+      {note && (
+        <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand" role="status" aria-live="polite">
+          {note}
+        </p>
+      )}
       {copiesLink && (
         <div className="mt-3 rounded-lg border border-brand/30 bg-white p-3 text-sm">
           <p className="font-semibold text-brand">Secure client copies</p>
@@ -730,29 +787,110 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       )}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className="card">
-          <h3 className="mb-2 font-bold">Secure client link</h3>
-          <div className="break-all rounded bg-slate-100 p-2 font-mono text-xs">{d.clientLink}</div>
-          <p className="mt-1 text-xs text-slate-400">Expires {new Date(i.tokenExpiresAt).toLocaleString()}</p>
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Link copied"); }}>Copy</button>
-            <a className="btn-primary px-3 py-1.5 text-sm" href={intakeSmsHref(i.client.phone, d.clientLink, providerName)}>
-              Open SMS on this computer
-            </a>
-            <a className="btn-ghost px-3 py-1.5 text-sm" href={intakeMailtoHref(i.client.email, d.clientLink, providerName, providerPhone)}>
-              Open email
-            </a>
-            <button className="btn-ghost px-3 py-1.5 text-sm" onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Text message copied"); }}>Copy text message</button>
-            <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Reminder", () => fetch(`/api/intakes/${i.id}/remind`, { method: "POST" }))}>Send reminder</button>
-            <button
-              className="btn-primary px-3 py-1.5 text-sm"
-              disabled={signatureReminderBusy || hasClientSignature}
-              onClick={sendSignatureReminder}
-            >
-              {hasClientSignature ? "Client signature saved" : signatureReminderBusy ? "Sending signature reminder..." : "Send signature reminder"}
-            </button>
-            <button className="btn-ghost px-3 py-1.5 text-sm" onClick={() => act("Extend link", () => fetch(`/api/intakes/${i.id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ extendToken: true }) }))}>Extend</button>
+        <div className={`card ${linkExpired && !linkFinished ? "border-amber-300 bg-amber-50/40" : ""}`}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h3 className="font-bold">Secure client link</h3>
+            <span className={`badge ${
+              linkFinished
+                ? "bg-emerald-100 text-emerald-800"
+                : linkExpired
+                  ? "bg-amber-100 text-amber-900"
+                  : openedCurrentDelivery
+                    ? "bg-emerald-100 text-emerald-800"
+                    : "bg-blue-100 text-blue-800"
+            }`}>
+              {linkFinished ? "Intake signed" : linkExpired ? "Expired" : openedCurrentDelivery ? "Client opened" : "Active"}
+            </span>
           </div>
+
+          <div className="mt-3 break-all rounded bg-slate-100 p-2 font-mono text-xs">{d.clientLink}</div>
+          <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
+            <p><span className="font-semibold text-slate-800">Expires:</span> {new Date(i.tokenExpiresAt).toLocaleString()}</p>
+            <p className="min-w-0 break-words"><span className="font-semibold text-slate-800">Recipients:</span> {contactSummary || "No phone or email saved"}</p>
+            <p><span className="font-semibold text-slate-800">Last delivery accepted:</span> {i.linkSentAt ? new Date(i.linkSentAt).toLocaleString() : "Not sent yet"}</p>
+            <p><span className="font-semibold text-slate-800">Client activity:</span> {lastLinkOpened ? `Opened ${new Date(lastLinkOpened.createdAt).toLocaleString()}` : "Not opened yet"}</p>
+            {lastLinkReminder && (
+              <p className="sm:col-span-2">
+                <span className="font-semibold text-slate-800">Accepted reminder history:</span> {reminderCount} recent reminder{reminderCount === 1 ? "" : "s"}; latest {new Date(lastLinkReminder.createdAt).toLocaleString()}
+              </p>
+            )}
+          </div>
+
+          {linkExpired && !linkFinished && (
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
+              Manual SMS, email, and copy are paused so an expired link is not sent. Renew it first, or use Renew &amp; send to update the link and contact the client in one step.
+            </p>
+          )}
+          {linkFinished && (
+            <p className="mt-3 rounded-lg bg-emerald-50 p-3 text-sm font-semibold text-emerald-800">
+              The client or guardian has signed. Intake reminders are closed; use the client-copies delivery after staff review is complete.
+            </p>
+          )}
+          {!hasClientContact && !linkFinished && (
+            <p className="mt-3 rounded-lg border border-rose-200 bg-rose-50 p-3 text-sm text-rose-800">
+              Add a client or guardian phone number or email before using automatic delivery.
+            </p>
+          )}
+
+          {!linkFinished && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button
+                className="btn-primary px-3 py-2 text-sm"
+                disabled={clientLinkBusy || signatureReminderBusy || !hasClientContact}
+                onClick={() => { void sendIntakeLink(); }}
+              >
+                {clientLinkBusy ? "Working..." : linkExpired ? "Renew & send link" : "Send link to saved contacts"}
+              </button>
+              <button
+                className="btn-ghost px-3 py-2 text-sm"
+                disabled={clientLinkBusy || signatureReminderBusy}
+                onClick={() => { void renewClientLink(); }}
+              >
+                {linkExpired ? "Renew link for 7 days" : "Extend link 7 days"}
+              </button>
+              <button
+                className="btn-ghost px-3 py-2 text-sm"
+                disabled={signatureReminderBusy || clientLinkBusy || hasClientSignature || !hasClientContact}
+                onClick={sendSignatureReminder}
+              >
+                {hasClientSignature ? "Client signature saved" : signatureReminderBusy ? "Sending signature reminder..." : "Send signature-only reminder"}
+              </button>
+            </div>
+          )}
+
+          {!linkFinished && (
+            <details className="mt-3 border-t border-slate-200 pt-3 [&>summary::-webkit-details-marker]:hidden">
+              <summary className="cursor-pointer text-sm font-semibold text-brand">Manual sending &amp; message preview</summary>
+              <p className="mt-2 break-all whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{clientMessage}</p>
+              <p className="mt-2 text-xs text-slate-500">This preview contains no client name, diagnosis, or intake answers.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button
+                  className="btn-ghost px-3 py-2 text-sm"
+                  disabled={linkExpired}
+                  onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Secure link copied"); }}
+                >
+                  Copy secure link
+                </button>
+                <button
+                  className="btn-ghost px-3 py-2 text-sm"
+                  disabled={linkExpired}
+                  onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Client SMS message copied"); }}
+                >
+                  Copy SMS message
+                </button>
+                {deliveryContacts.phone && !linkExpired && (
+                  <a className="btn-ghost px-3 py-2 text-sm" href={intakeSmsHref(deliveryContacts.phone.value, d.clientLink, providerName, providerPhone)}>
+                    Open SMS on this computer
+                  </a>
+                )}
+                {deliveryContacts.email && !linkExpired && (
+                  <a className="btn-ghost px-3 py-2 text-sm" href={intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone)}>
+                    Open email
+                  </a>
+                )}
+              </div>
+            </details>
+          )}
         </div>
         <div className="card border-brand/40 bg-brand-light/40">
           <h3 className="mb-1 font-bold">Add CCA - auto-fill from the clinician&apos;s assessment</h3>

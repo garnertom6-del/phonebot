@@ -8,24 +8,65 @@ import { CLIENT_ANSWER_KEYS } from "@/config/mooreDivineQuestions";
 import { providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 
+const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store, max-age=0" };
+
 async function findByToken(token: string) {
   const intake = await prisma.intake.findUnique({ where: { token }, include: { client: true, provider: true } });
-  if (!intake) return { error: "This link is not valid.", intake: null };
-  if (intake.provider && intake.provider.status !== "ACTIVE") {
-    return { error: "This link is not valid. Please contact the provider for a new intake link.", intake: null };
-  }
-  if (intake.tokenExpiresAt < new Date()) {
+  if (!intake) {
     return {
-      error: `This link has expired. Please ask ${providerDisplayName(intake.provider?.name)} for a new one (${providerPhone(intake.provider?.phone, intake.provider?.name)}).`,
+      error: "This link is not valid.",
+      code: "INVALID_LINK",
+      provider: null,
       intake: null,
     };
   }
-  return { error: null, intake };
+  const supportPhone = providerPhone(intake.provider?.phone, intake.provider?.name);
+  const provider = {
+    name: providerDisplayName(intake.provider?.name),
+    phone: supportPhone.replace(/\D/g, "").length >= 7 ? supportPhone : null,
+  };
+  if (intake.provider && intake.provider.status !== "ACTIVE") {
+    return {
+      error: "This provider workspace is temporarily unavailable.",
+      code: "PROVIDER_INACTIVE",
+      provider,
+      intake: null,
+    };
+  }
+  if (intake.status === "SIGNED" || intake.status === "COMPLETED") {
+    return {
+      error: "This intake has already been submitted.",
+      code: "INTAKE_FINISHED",
+      provider,
+      intake: null,
+    };
+  }
+  if (intake.tokenExpiresAt < new Date()) {
+    return {
+      error: "This secure link has expired.",
+      code: "LINK_EXPIRED",
+      provider,
+      intake: null,
+    };
+  }
+  return { error: null, code: null, provider, intake };
+}
+
+function lookupStatus(code: string | null): number {
+  if (code === "LINK_EXPIRED") return 410;
+  if (code === "INTAKE_FINISHED") return 409;
+  if (code === "PROVIDER_INACTIVE") return 403;
+  return 404;
 }
 
 export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
-  const { error, intake } = await findByToken(params.token);
-  if (error || !intake) return NextResponse.json({ error }, { status: 404 });
+  const { error, code, provider, intake } = await findByToken(params.token);
+  if (error || !intake) {
+    return NextResponse.json(
+      { error, code, provider },
+      { status: lookupStatus(code), headers: PRIVATE_NO_STORE },
+    );
+  }
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const sigs = await loadSignatures(intake.id);
   if (intake.status === "NOT_STARTED") {
@@ -36,24 +77,29 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     intakeId: intake.id, ip: req.headers.get("x-forwarded-for") ?? undefined,
   });
   const sections = await prisma.intakeSection.findMany({ where: { intakeId: intake.id } });
-  return NextResponse.json({
-    clientName: intake.client.fullName,
-    provider: {
-      name: intake.provider?.name || null,
-      phone: intake.provider?.phone || null,
+  return NextResponse.json(
+    {
+      clientName: intake.client.fullName,
+      provider: {
+        name: intake.provider?.name || null,
+        phone: intake.provider?.phone || null,
+      },
+      status: intake.status,
+      quick: intake.expectCca,
+      answers,
+      sectionStatus: Object.fromEntries(sections.map((s) => [s.sectionKey, s.status])),
+      signatures: Object.fromEntries(Object.entries(sigs).map(([r, s]) => [r, { printedName: s.printedName, signedDate: s.signedDate }])),
+      percentComplete: percentComplete(answers),
     },
-    status: intake.status,
-    quick: intake.expectCca,
-    answers,
-    sectionStatus: Object.fromEntries(sections.map((s) => [s.sectionKey, s.status])),
-    signatures: Object.fromEntries(Object.entries(sigs).map(([r, s]) => [r, { printedName: s.printedName, signedDate: s.signedDate }])),
-    percentComplete: percentComplete(answers),
-  });
+    { headers: PRIVATE_NO_STORE },
+  );
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { token: string } }) {
-  const { error, intake } = await findByToken(params.token);
-  if (error || !intake) return NextResponse.json({ error }, { status: 404 });
+  const { error, code, provider, intake } = await findByToken(params.token);
+  if (error || !intake) {
+    return NextResponse.json({ error, code, provider }, { status: lookupStatus(code) });
+  }
   if (["SIGNED", "COMPLETED"].includes(intake.status)) {
     return NextResponse.json({ error: "This intake was already submitted." }, { status: 400 });
   }
@@ -92,8 +138,10 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
 
 export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
   // final submit
-  const { error, intake } = await findByToken(params.token);
-  if (error || !intake) return NextResponse.json({ error }, { status: 404 });
+  const { error, code, provider, intake } = await findByToken(params.token);
+  if (error || !intake) {
+    return NextResponse.json({ error, code, provider }, { status: lookupStatus(code) });
+  }
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const sigs = await loadSignatures(intake.id);
   const missing = missingRequired(answers, !!(sigs.client || sigs.guardian));

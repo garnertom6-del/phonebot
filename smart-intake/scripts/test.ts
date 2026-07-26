@@ -14,16 +14,28 @@ import fs from "fs";
 import path from "path";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
+import { NextRequest } from "next/server";
 import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
-import { newIntakeToken, tokenExpiry } from "../src/lib/tokens";
+import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
 import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardWorkflow";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
 import { buildSignatureStatuses } from "../src/lib/signatureStatus";
+import {
+  clientLinkExpired,
+  clientLinkMessagingFinished,
+  reminderCooldownSeconds,
+} from "../src/lib/clientLinkState";
+import { intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
+import { clientDeliveryContacts } from "../src/lib/clientDeliveryContacts";
+import {
+  GET as getClientIntakeByToken,
+  POST as submitClientIntakeByToken,
+} from "../src/app/api/intake/[token]/route";
 
 const prisma = new PrismaClient();
 
@@ -202,7 +214,45 @@ async function main() {
   assert(t1 !== t2 && t1.length >= 32, "tokens not random/long enough");
   const exp = tokenExpiry().getTime() - Date.now();
   assert(exp > 6.5 * 86400000 && exp < 7.5 * 86400000, "token expiry not ~7 days");
+  const renewalNow = new Date("2026-07-25T12:00:00.000Z").getTime();
+  const expiredRenewal = clientLinkRenewalData("2026-07-24T12:00:00.000Z", renewalNow);
+  const activeRenewal = clientLinkRenewalData("2026-07-26T12:00:00.000Z", renewalNow);
+  assert(expiredRenewal.token && expiredRenewal.token !== t1, "expired links must rotate to a new token");
+  assert.equal(activeRenewal.token, undefined, "extending an active link must preserve its current URL");
   ok("secure client tokens (random, 7-day expiry)");
+
+  const now = new Date("2026-07-25T12:00:00.000Z").getTime();
+  assert(clientLinkExpired("2026-07-25T11:59:59.000Z", now), "past links must be expired");
+  assert(!clientLinkExpired("2026-07-25T12:00:01.000Z", now), "future links must stay active");
+  assert(clientLinkMessagingFinished("SIGNED"), "signed intakes must stop intake reminders");
+  assert(clientLinkMessagingFinished("COMPLETED"), "completed intakes must stop intake reminders");
+  assert(!clientLinkMessagingFinished("IN_PROGRESS"), "active intakes must allow reminders");
+  assert.equal(reminderCooldownSeconds(new Date(now - 1_000), now), 59);
+  assert.equal(reminderCooldownSeconds(new Date(now - 60_000), now), 0);
+
+  const clientLink = "https://example.test/intake/random-token";
+  const intakeMessage = intakeShareMessage(clientLink, "Test Provider", "336-555-0100");
+  const signatureMessage = signatureShareMessage(clientLink, "Test Provider", "336-555-0100");
+  for (const message of [intakeMessage, signatureMessage]) {
+    assert(message.includes(clientLink), "client message must include the secure link");
+    assert(message.includes("STOP to opt out"), "client SMS must include opt-out wording");
+    assert(!/diagnos|medicat|mental health|substance/i.test(message), "client SMS must avoid health details");
+    assert(!message.includes(`${clientLink}.`), "punctuation must not be attached to the secure URL");
+  }
+  assert(intakeMessage.includes("Save and return"), "intake SMS must explain save-and-return");
+  assert(signatureMessage.includes("answers are saved"), "signature reminder must reassure the client");
+  const guardianOnlyContacts = clientDeliveryContacts({
+    guardianPhone: "336-555-0101",
+    guardianEmail: "guardian@example.com",
+  });
+  assert.equal(guardianOnlyContacts.phone?.role, "guardian");
+  assert.equal(guardianOnlyContacts.email?.value, "guardian@example.com");
+  const clientPreferredContacts = clientDeliveryContacts({
+    phone: "336-555-0102",
+    guardianPhone: "336-555-0103",
+  });
+  assert.equal(clientPreferredContacts.phone?.value, "336-555-0102");
+  ok("client link status, cooldown, and privacy-safe SMS wording");
 
   // 3. actual template
   const template = loadTemplateBytes();
@@ -215,6 +265,20 @@ async function main() {
   });
   assert(client?.intakes[0], "Angela Demo not seeded");
   const intake = client!.intakes[0];
+  assert(["SIGNED", "COMPLETED"].includes(intake.status), "Angela must be a finished intake for token replay checks");
+  const clientRequest = new NextRequest(`http://localhost/api/intake/${intake.token}`);
+  const closedGet = await getClientIntakeByToken(clientRequest, { params: { token: intake.token } });
+  const closedGetBody = await closedGet.json() as Record<string, unknown>;
+  assert.equal(closedGet.status, 409, "finished client links must be closed");
+  assert.equal(closedGet.headers.get("cache-control"), "private, no-store, max-age=0");
+  assert.equal(closedGetBody.code, "INTAKE_FINISHED");
+  assert(!("answers" in closedGetBody), "finished client links must not return saved answers");
+  const replaySubmit = await submitClientIntakeByToken(clientRequest, { params: { token: intake.token } });
+  assert.equal(replaySubmit.status, 409, "finished client links must reject replayed submission");
+  const unchangedIntake = await prisma.intake.findUnique({ where: { id: intake.id }, select: { status: true } });
+  assert.equal(unchangedIntake?.status, intake.status, "replayed submission must not downgrade intake status");
+  ok("finished client links hide answers and reject replayed submission");
+
   const answers = await loadAnswers(intake.id);
   const signatures = await loadSignatures(intake.id);
   assert(signatures.client?.imageData.startsWith("data:image/png"), "client signature missing");

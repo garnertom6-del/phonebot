@@ -28,7 +28,8 @@ export function providerPhone(phone?: string | null, name?: string | null): stri
 
 export function intakeProcessExplanation(name?: string | null): string {
   const provider = providerDisplayName(name);
-  return `You are completing your intake for services with ${provider}. After this intake, a clinical assessor will follow up with you to complete an assessment. That assessment helps determine what type of services and support you will receive.`;
+  const providerSentence = /[.!?]$/.test(provider) ? provider : `${provider}.`;
+  return `You are completing your intake for services with ${providerSentence} After this intake, a clinical assessor will follow up with you to complete an assessment. That assessment helps determine what type of services and support you will receive.`;
 }
 
 export function brandText(text: string | null | undefined, branding?: ProviderBranding): string {
