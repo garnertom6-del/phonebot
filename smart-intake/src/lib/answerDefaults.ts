@@ -41,6 +41,22 @@ function addOneYear(v: string): string {
   return `${dt.getFullYear()}-${mm}-${dd}`;
 }
 
+function isDiagnosisPlaceholder(value: string): boolean {
+  const normalized = value.toLowerCase().replace(/[.,;:_-]+/g, " ").replace(/\s+/g, " ").trim();
+  return [
+    "not reported",
+    "not reported by client",
+    "none",
+    "none reported",
+    "none reported by client",
+    "unknown",
+    "n a",
+    "no diagnosis",
+    "no diagnosis reported",
+    "no current diagnosis",
+  ].includes(normalized);
+}
+
 function diagnosisList(a: Answers): string[] {
   const raw = [
     s(a.sa_primary_diagnosis),
@@ -52,7 +68,12 @@ function diagnosisList(a: Answers): string[] {
   return raw
     .split(/[;\n]+/)
     .map((x) => x.trim())
-    .filter((x) => x && !seen.has(x) && seen.add(x))
+    .filter((x) => {
+      const normalized = x.toLowerCase();
+      if (!x || isDiagnosisPlaceholder(x) || seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    })
     .slice(0, 5);
 }
 
@@ -60,9 +81,31 @@ function splitDiagnosis(value: unknown): { code: string; description: string } {
   // Some CCA exports render codes such as F33,.1. Normalize that punctuation
   // before splitting the code from the diagnosis description.
   const text = s(value).replace(/^([A-Z]\d{2})[, ]+\.?([0-9]+)/i, "$1.$2");
+  const trailingCode = /^(.*?)\s*\(([A-Z]\d{2}(?:\.\d+)?)\)\s*$/i.exec(text);
+  if (trailingCode) {
+    return { code: trailingCode[2].toUpperCase(), description: trailingCode[1].trim() };
+  }
   const match = /^([A-Z]\d{2}(?:\.\d+)?)\s*[-:)]?\s*(.*)$/i.exec(text);
   if (!match) return { code: "", description: text };
   return { code: match[1].toUpperCase(), description: match[2].trim() };
+}
+
+function splitDiagnosisGroup(value: unknown): { codes: string; descriptions: string } {
+  const parsed = s(value)
+    .split(/[;\n]+/)
+    .map((entry) => splitDiagnosis(entry))
+    .filter((entry) => entry.code || entry.description);
+  return {
+    codes: parsed.map((entry) => entry.code).filter(Boolean).join("; "),
+    descriptions: parsed.map((entry) => entry.description).filter(Boolean).join("; "),
+  };
+}
+
+function clearAxis(a: Answers, axis: number) {
+  for (const suffix of ["", "_code", "_description", "_axis", "_code_number"]) {
+    delete a[`c_axis${axis}${suffix}`];
+  }
+  delete a[`dis_adm_axis${axis}`];
 }
 
 function clearLegacyPresentingProblemFromAxis4(a: Answers) {
@@ -85,22 +128,43 @@ function applyDiagnosisDefaults(a: Answers) {
   if (dx.length) {
     setDefault(a, "sa_primary_diagnosis", dx[0]);
     setDefault(a, "sa_secondary_diagnosis", dx[1]);
-    setDefault(a, "c_axis1", dx[0]);
-    setDefault(a, "c_axis2", dx[1]);
+    const axis1 = [...s(a.c_axis1).split(/[;\n]+/), ...dx]
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry, index, entries) =>
+        entries.findIndex((candidate) => candidate.toLowerCase() === entry.toLowerCase()) === index,
+      );
+    if (axis1.length) a.c_axis1 = axis1.join("; ");
+
+    // Older builds copied the second ordinary clinical diagnosis into Axis II
+    // and sometimes copied a diagnosis into Axis V. Remove only those exact
+    // derived values when their ICD code cannot represent an Axis-II condition.
+    const axis2 = s(a.c_axis2);
+    const axis2Code = splitDiagnosis(axis2).code;
+    if (
+      axis2 &&
+      dx.some((entry) => entry.toLowerCase() === axis2.toLowerCase()) &&
+      axis2Code &&
+      !/^F(?:6\d|7\d)(?:\.|$)/i.test(axis2Code)
+    ) clearAxis(a, 2);
+    const axis5 = s(a.c_axis5);
+    if (
+      axis5 &&
+      dx.some((entry) => entry.toLowerCase() === axis5.toLowerCase()) &&
+      !!splitDiagnosis(axis5).code
+    ) clearAxis(a, 5);
   }
   setDefault(a, "c_axis3", s(a.medical_diagnoses));
   setDefault(a, "c_axis4", s(a.social_family_medical_history));
+  const roman = ["I", "II", "III", "IV", "V"];
   for (let i = 1; i <= 5; i++) {
-    const { code, description } = splitDiagnosis(a[`c_axis${i}`]);
-    setDefault(a, `c_axis${i}_code`, code);
-    setDefault(a, `c_axis${i}_description`, description);
-    // The Prayers of Care Axis table has separate columns for the diagnosis
-    // letter and numeric code (for example: F | 33.1 | Major depression).
-    const normalizedCode = s(a[`c_axis${i}_code`]).toUpperCase();
-    const axisMatch = /^([A-Z])(\d{2}(?:\.\d+)?)$/.exec(normalizedCode);
-    setDefault(a, `c_axis${i}_axis`, axisMatch?.[1] || "");
-    setDefault(a, `c_axis${i}_code_number`, axisMatch?.[2] || "");
-    setDefault(a, `dis_adm_axis${i}`, dx[i - 1] || "");
+    const axisValue = s(a[`c_axis${i}`]);
+    const { codes, descriptions } = splitDiagnosisGroup(axisValue);
+    setDefault(a, `c_axis${i}_code`, codes);
+    setDefault(a, `c_axis${i}_description`, descriptions);
+    setDefault(a, `c_axis${i}_axis`, axisValue ? roman[i - 1] : "");
+    setDefault(a, `c_axis${i}_code_number`, codes);
+    setDefault(a, `dis_adm_axis${i}`, axisValue);
   }
 }
 

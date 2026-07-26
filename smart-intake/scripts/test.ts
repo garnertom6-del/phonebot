@@ -16,6 +16,11 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
+import {
+  packetFieldsForTemplate,
+  WELLIANCE_PACKET_SHA256,
+} from "../src/lib/providerPacketTemplates";
+import { signatureForRole } from "../src/lib/signaturePlacement";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
@@ -77,6 +82,93 @@ async function main() {
   const ok = (name: string) => { console.log(`✓ ${name}`); passed++; };
 
   ok("presenting problem stays out of Axis IV");
+
+  const diagnosisDefaults = applyOperationalDefaults({
+    current_diagnosis_known: "Not reported",
+    diagnosis_list: "Cocaine Use Disorder, Severe (F14.20); Major Depressive Disorder, Recurrent, Moderate (F33.1)",
+    c_axis2: "Major Depressive Disorder, Recurrent, Moderate (F33.1)",
+    c_axis5: "Cocaine Use Disorder, Severe (F14.20)",
+  });
+  assert.equal(diagnosisDefaults.c_axis1_code, "F14.20; F33.1");
+  assert.equal(
+    diagnosisDefaults.c_axis1_description,
+    "Cocaine Use Disorder, Severe; Major Depressive Disorder, Recurrent, Moderate",
+  );
+  assert.equal(diagnosisDefaults.c_axis1_axis, "I");
+  assert.equal(diagnosisDefaults.c_axis2, undefined);
+  assert.equal(diagnosisDefaults.c_axis5, undefined);
+  assert.equal(
+    diagnosisDefaults.dis_adm_axis1,
+    "Cocaine Use Disorder, Severe (F14.20); Major Depressive Disorder, Recurrent, Moderate (F33.1)",
+  );
+  assert.equal(diagnosisDefaults.dis_adm_axis2, undefined);
+  assert.notEqual(diagnosisDefaults.c_axis1, "Not reported");
+  const explicitAxis2 = applyOperationalDefaults({
+    diagnosis_list: "Major Depressive Disorder (F33.1)",
+    c_axis2: "Borderline Personality Disorder (F60.3)",
+  });
+  assert.equal(explicitAxis2.c_axis2, "Borderline Personality Disorder (F60.3)");
+  assert.equal(explicitAxis2.c_axis2_code, "F60.3");
+  ok("diagnosis defaults keep clinical diagnoses on Axis I and preserve a real Axis II");
+
+  const staffOnlySignature = {
+    signatures: {
+      staff: { role: "staff", imageData: "", printedName: "QP Example", signedDate: "07/26/2026" },
+    },
+    consents: {},
+    embedded: new Map(),
+  };
+  assert(signatureForRole(staffOnlySignature, "staff"));
+  assert.equal(signatureForRole(staffOnlySignature, "clinician"), null);
+  assert.equal(signatureForRole(staffOnlySignature, "witness"), null);
+  ok("staff signatures never substitute for clinician or witness roles");
+
+  const wellianceFields = packetFieldsForTemplate({
+    name: "Welliance Care Intake Packet",
+    originalFileName: "WELLIANCE CARE INTAKE FORM.pdf",
+    pageCount: 36,
+    providerSpecific: true,
+    sha256: WELLIANCE_PACKET_SHA256,
+  });
+  const welliancePage1Headers = wellianceFields
+    .filter((field) => field.page === 1 && field.fieldKey.startsWith("well_hdr_"))
+    .sort((a, b) => a.x - b.x);
+  assert.deepEqual(
+    welliancePage1Headers.map((field) => field.source),
+    ["client_full_name", "dob", "location", "mid_number", "record_number", "intake_date"],
+  );
+  assert(wellianceFields.some((field) => field.fieldKey === "well_axis1_code_p4"));
+  assert(wellianceFields.some((field) =>
+    field.page === 34 && field.fieldKey === "cca_client_sig" && field.role === "client",
+  ));
+  assert(wellianceFields.some((field) =>
+    field.page === 34 && field.fieldKey === "cca_clinician_sig" && field.role === "clinician",
+  ));
+  assert(!wellianceFields.some((field) => field.page === 29 && field.source === "pcp_name"));
+  assert.equal(
+    wellianceFields.filter((field) => field.page === 36 && field.fieldKey.startsWith("well_plan_")).length,
+    13,
+  );
+  assert.deepEqual(
+    packetFieldsForTemplate({
+      name: "Welliance Care Intake Packet",
+      originalFileName: "revised-welliance-form.pdf",
+      pageCount: 36,
+      providerSpecific: true,
+      sha256: "different-layout",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    packetFieldsForTemplate({
+      name: "Unknown Provider",
+      originalFileName: "different-form.pdf",
+      pageCount: 12,
+      providerSpecific: true,
+    }),
+    [],
+  );
+  ok("provider packets use verified template-specific coordinates");
 
   const preflightInput = {
     answers: {
@@ -181,22 +273,22 @@ async function main() {
   ok("automatic identity checks suppress duplicate AI findings");
 
   const correctedClient = clientDetailsSchema.parse({
-    fullName: "Sheryl Barber",
-    dob: "1962-03-03",
-    midNumber: "9469188590",
-    recordNumber: "CC-76976",
-    email: "sheryl@example.com",
-    phone: "(704) 576-2541",
+    fullName: "Example Client",
+    dob: "1980-01-15",
+    midNumber: "TEST-MID-0001",
+    recordNumber: "TEST-REC-001",
+    email: "client@example.com",
+    phone: "(336) 555-0100",
     guardianName: "",
     guardianEmail: "",
     guardianPhone: "",
   });
   const correctedAnswers = clientDetailsAnswerPatch(correctedClient);
   const correctedRecord = clientDetailsRecordPatch(correctedClient);
-  assert.equal(correctedAnswers.client_phone_cell, "(704) 576-2541");
-  assert.equal(correctedAnswers.client_phone_home, "(704) 576-2541");
+  assert.equal(correctedAnswers.client_phone_cell, "(336) 555-0100");
+  assert.equal(correctedAnswers.client_phone_home, "(336) 555-0100");
   assert.equal(correctedRecord.guardianName, null);
-  assert.equal(correctedRecord.email, "sheryl@example.com");
+  assert.equal(correctedRecord.email, "client@example.com");
   assert(!clientDetailsSchema.safeParse({ ...correctedClient, phone: "123" }).success);
   ok("dashboard client corrections stay in sync with packet answers");
 

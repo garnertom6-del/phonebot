@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
-import { loadTemplateFile } from "@/lib/providerPacketTemplates";
+import {
+  isWelliancePacket,
+  loadTemplateFile,
+  packetFieldsForTemplate,
+  packetTemplateSha256,
+} from "@/lib/providerPacketTemplates";
 import { mappingAiConfigured, suggestPacketMappings } from "@/lib/mappingAi";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
-import { mergedMap } from "@/lib/fillPdf";
 import { assessMapping } from "@/lib/mappingHealth";
 import { audit } from "@/lib/auditLog";
 
@@ -89,13 +93,19 @@ async function applyPacketMapping(templateId: string, userId: string, controller
     });
 
     const overrides = [...existing.filter((field) => !result.suggestions.some((suggestion) => suggestion.fieldKey === field.fieldKey)), ...result.suggestions];
-    const fields = mergedMap(overrides);
+    const fields = packetFieldsForTemplate({
+      name: template.name,
+      originalFileName: template.originalFileName,
+      pageCount: template.pageCount,
+      providerSpecific: !!template.providerId,
+      sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+    }, overrides);
     const health = assessMapping(
       fields,
       template.pageCount,
       template.pageWidth || PACKET_MAP.pageWidth,
       template.pageHeight || PACKET_MAP.pageHeight,
-      overrides.length,
+      fields.length,
     );
     if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
     await prisma.pdfTemplate.update({
@@ -163,12 +173,24 @@ export async function DELETE(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { user, deny } = await requireMaster();
   if (deny) return deny;
-  if (!mappingAiConfigured()) return NextResponse.json({ error: "System AI is not configured." }, { status: 503 });
   const body = await req.json().catch(() => ({}));
   const apply = body?.apply === true;
   const background = body?.background === true;
   const template = await findTemplate(req, apply && !background);
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
+  const templateIdentity = {
+    name: template.name,
+    originalFileName: template.originalFileName,
+    pageCount: template.pageCount,
+    providerSpecific: !!template.providerId,
+    sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+  };
+  if (isWelliancePacket(templateIdentity)) {
+    return NextResponse.json({
+      error: "This exact Welliance packet uses a verified locked map. Review or adjust its existing fields in the mapping editor; AI remapping is disabled so legal fields cannot move silently.",
+    }, { status: 409 });
+  }
+  if (!mappingAiConfigured()) return NextResponse.json({ error: "System AI is not configured." }, { status: 503 });
 
   if (apply && background) {
     if (template.mappingStatus === "MAPPING") return NextResponse.json({ ...mappingStatusResponse(template), queued: true });
@@ -203,7 +225,20 @@ export async function POST(req: NextRequest) {
       }
     });
     const overrides = [...existing.filter((field) => !result.suggestions.some((suggestion) => suggestion.fieldKey === field.fieldKey)), ...result.suggestions];
-    const health = assessMapping(mergedMap(overrides), template.pageCount, template.pageWidth || PACKET_MAP.pageWidth, template.pageHeight || PACKET_MAP.pageHeight, overrides.length);
+    const fields = packetFieldsForTemplate({
+      name: template.name,
+      originalFileName: template.originalFileName,
+      pageCount: template.pageCount,
+      providerSpecific: !!template.providerId,
+      sha256: templateIdentity.sha256,
+    }, overrides);
+    const health = assessMapping(
+      fields,
+      template.pageCount,
+      template.pageWidth || PACKET_MAP.pageWidth,
+      template.pageHeight || PACKET_MAP.pageHeight,
+      fields.length,
+    );
     await prisma.pdfTemplate.update({ where: { id: template.id }, data: { mappingStatus: "DRAFT", mappingScore: health.score, mappingIssues: JSON.stringify({ status: "COMPLETE", appliedCount: result.suggestions.length, blockingIssues: health.blockingIssues, warnings: health.warnings }) } });
     await audit("provider_packet_ai_mapped", { providerId: template.providerId || undefined, userId: user!.id, detail: `${template.originalFileName || template.name}: ${result.suggestions.length} AI field suggestion(s); score ${health.score}` });
     return NextResponse.json({ ...result, templateId: template.id, appliedCount: result.suggestions.length, health, warning: "AI mappings were saved as a draft. Review the packet visually before approval or signatures." });

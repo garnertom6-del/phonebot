@@ -99,8 +99,7 @@ export async function completionReadinessForIntake(
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const hasClientSignature = intake.auditLogs.length > 0 || intake.signatures.some((signature) =>
     signature.role === "client" || signature.role === "guardian");
-  const hasStaffSignature = intake.signatures.some((signature) =>
-    signature.role === "staff" || signature.role === "clinician");
+  const hasStaffSignature = intake.signatures.some((signature) => signature.role === "staff");
   const packet = await packetFreshnessForIntake(intake.id);
   const readiness = buildCompletionReadiness({
     archived: intake.archived,

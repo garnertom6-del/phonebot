@@ -3,8 +3,12 @@ import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
-import { mergedMap } from "@/lib/fillPdf";
 import { assessMapping } from "@/lib/mappingHealth";
+import {
+  loadTemplateFile,
+  packetFieldsForTemplate,
+  packetTemplateSha256,
+} from "@/lib/providerPacketTemplates";
 
 function parseMappings(rows: Array<{ fieldKey: string; page: number; data: string }>): FieldMapping[] {
   return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
@@ -24,8 +28,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
 
   const overrides = parseMappings(template.fieldMappings);
-  const fields = mergedMap(overrides);
-  const health = assessMapping(fields, template.pageCount, template.pageWidth || PACKET_MAP.pageWidth, template.pageHeight || PACKET_MAP.pageHeight, overrides.length);
+  const fields = packetFieldsForTemplate({
+    name: template.name,
+    originalFileName: template.originalFileName,
+    pageCount: template.pageCount,
+    providerSpecific: true,
+    sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+  }, overrides);
+  const health = assessMapping(
+    fields,
+    template.pageCount,
+    template.pageWidth || PACKET_MAP.pageWidth,
+    template.pageHeight || PACKET_MAP.pageHeight,
+    fields.length,
+  );
   if (!health.ready) {
     return NextResponse.json({
       error: "This packet is not ready for approval. Fix the blocking mapping items first.",

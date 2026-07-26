@@ -1,6 +1,8 @@
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import { PACKET_MAP, TEMPLATE_FILE, type FieldMapping } from "@/config/mooreDivinePacketMap";
+import { welliancePacketFields } from "@/config/welliancePacketMap";
 import { loadTemplateBytes, mergedMap } from "./fillPdf";
 import { prisma } from "./prisma";
 import { readFile } from "./storage";
@@ -39,6 +41,21 @@ export type PacketTemplateSelection = {
   overrides: FieldMapping[];
 };
 
+export type PacketTemplateIdentity = {
+  name?: string | null;
+  originalFileName?: string | null;
+  pageCount: number;
+  providerSpecific: boolean;
+  sha256?: string | null;
+};
+
+export const WELLIANCE_PACKET_SHA256 =
+  "c8034d405c28865d3018e7a85785ab57143cffd8465d45a06409b3c64f7242ec";
+
+export function packetTemplateSha256(bytes: Buffer | Uint8Array): string {
+  return createHash("sha256").update(bytes).digest("hex");
+}
+
 function assertRelativePath(filePath: string) {
   if (path.isAbsolute(filePath) || filePath.split(/[\\/]+/).includes("..")) {
     throw new Error("Unsafe template path");
@@ -70,6 +87,67 @@ function parseMappings(rows: MappingRow[]): FieldMapping[] {
     page: m.page,
     ...JSON.parse(m.data),
   }));
+}
+
+function normalizedTemplateLabel(identity: Pick<PacketTemplateIdentity, "name" | "originalFileName">): string {
+  return `${identity.name || ""} ${identity.originalFileName || ""}`.toLowerCase();
+}
+
+export function isWelliancePacket(identity: PacketTemplateIdentity): boolean {
+  return identity.pageCount === 36 &&
+    normalizedTemplateLabel(identity).includes("welliance") &&
+    identity.sha256?.toLowerCase() === WELLIANCE_PACKET_SHA256;
+}
+
+function isPrayersOfCarePacket(identity: PacketTemplateIdentity): boolean {
+  const label = normalizedTemplateLabel(identity);
+  return identity.pageCount === 39 && (label.includes("prayer") || label.includes("poc"));
+}
+
+function mergeKnownPacketMap(base: FieldMapping[], overrides: FieldMapping[]): FieldMapping[] {
+  const byKey = new Map(base.map((candidate) => [candidate.fieldKey, candidate]));
+  for (const override of overrides) {
+    if ((override as FieldMapping & { deleted?: boolean }).deleted) {
+      byKey.delete(override.fieldKey);
+    } else if (byKey.has(override.fieldKey)) {
+      byKey.set(override.fieldKey, { ...byKey.get(override.fieldKey), ...override });
+    }
+  }
+  return [...byKey.values()];
+}
+
+/**
+ * Resolve the coordinate family for one exact packet. Provider uploads no
+ * longer inherit Moore Divine coordinates merely because they are PDFs.
+ */
+export function packetFieldsForTemplate(
+  identity: PacketTemplateIdentity,
+  overrides: FieldMapping[] = [],
+): FieldMapping[] {
+  if (isWelliancePacket(identity)) {
+    // Older Welliance uploads were saved with inherited Moore coordinates.
+    // Accept only overrides that originated from the verified Welliance map.
+    const verifiedOverrides = overrides.filter((candidate) =>
+      candidate.fieldKey.startsWith("well_") ||
+      candidate.notes?.includes("Verified Welliance Care packet placement"),
+    );
+    return mergeKnownPacketMap(welliancePacketFields(), verifiedOverrides)
+      .filter((candidate) => candidate.page <= identity.pageCount);
+  }
+
+  if (isPrayersOfCarePacket(identity)) {
+    return repairKnownPacketPlacements(mergedMap(overrides), identity.pageCount);
+  }
+
+  if (identity.providerSpecific) {
+    // Unknown provider forms require their own reviewed map. Drawing the
+    // shared 43-page coordinates onto an unrelated legal form is unsafe.
+    return overrides.filter((candidate) =>
+      candidate.page >= 1 && candidate.page <= identity.pageCount,
+    );
+  }
+
+  return repairKnownPacketPlacements(mergedMap(overrides), identity.pageCount);
 }
 
 /**
@@ -295,19 +373,27 @@ export async function packetTemplateForProvider(providerId?: string | null): Pro
   const overrides = template ? parseMappings(template.fieldMappings) : [];
 
   const pageCount = template?.pageCount ?? PACKET_MAP.pageCount;
-  const fields = repairKnownPacketPlacements(mergedMap(overrides), pageCount);
+  const providerSpecific = !!approvedProviderTemplate;
+  const name = template?.name ?? DEFAULT_PACKET_TEMPLATE_NAME;
+  const originalFileName = template?.originalFileName ?? TEMPLATE_FILE;
+  const bytes = template ? loadTemplateFile(template.filePath) : loadTemplateBytes();
+  const fields = packetFieldsForTemplate({
+    name,
+    originalFileName,
+    pageCount,
+    providerSpecific,
+    sha256: packetTemplateSha256(bytes),
+  }, overrides);
   return {
     templateId: template?.id ?? null,
-    name: template?.name ?? DEFAULT_PACKET_TEMPLATE_NAME,
+    name,
     filePath: template?.filePath ?? null,
-    originalFileName: template?.originalFileName ?? TEMPLATE_FILE,
+    originalFileName,
     pageCount,
     pageWidth: template?.pageWidth ?? PACKET_MAP.pageWidth,
     pageHeight: template?.pageHeight ?? PACKET_MAP.pageHeight,
-    providerSpecific: !!providerTemplate,
-    bytes: template ? loadTemplateFile(template.filePath) : loadTemplateBytes(),
-    // Provider packets inherit the base packet map unless a provider-specific
-    // override replaces or deletes individual placements.
+    providerSpecific,
+    bytes,
     fields,
     overrides,
   };

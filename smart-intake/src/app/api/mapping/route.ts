@@ -3,8 +3,13 @@ import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { mappingOverrides } from "@/lib/intakeData";
-import { mergedMap } from "@/lib/fillPdf";
-import { DEFAULT_PACKET_TEMPLATE_NAME } from "@/lib/providerPacketTemplates";
+import {
+  DEFAULT_PACKET_TEMPLATE_NAME,
+  isWelliancePacket,
+  loadTemplateFile,
+  packetFieldsForTemplate,
+  packetTemplateSha256,
+} from "@/lib/providerPacketTemplates";
 
 type MappingRow = {
   fieldKey: string;
@@ -56,15 +61,27 @@ export async function GET(req: NextRequest) {
   const overrides = target.providerSpecific
     ? parseMappings(target.template?.fieldMappings ?? [])
     : await mappingOverrides();
-  const fields = mergedMap(overrides);
+  const pageCount = target.template?.pageCount ?? PACKET_MAP.pageCount;
+  const templateName = target.template?.name ?? DEFAULT_PACKET_TEMPLATE_NAME;
+  const originalFileName = target.template?.originalFileName ?? "MooreDivineCare_Intake_Packet-1.pdf";
+  const sha256 = target.template
+    ? packetTemplateSha256(loadTemplateFile(target.template.filePath))
+    : null;
+  const fields = packetFieldsForTemplate({
+    name: templateName,
+    originalFileName,
+    pageCount,
+    providerSpecific: target.providerSpecific,
+    sha256,
+  }, overrides);
 
   return NextResponse.json({
     templateId: target.template?.id ?? null,
-    templateName: target.template?.name ?? DEFAULT_PACKET_TEMPLATE_NAME,
-    originalFileName: target.template?.originalFileName ?? "MooreDivineCare_Intake_Packet-1.pdf",
+    templateName,
+    originalFileName,
     providerId: target.template?.providerId ?? target.requestedProvider,
     providerSpecific: target.providerSpecific,
-    pageCount: target.template?.pageCount ?? PACKET_MAP.pageCount,
+    pageCount,
     pageWidth: target.template?.pageWidth ?? PACKET_MAP.pageWidth,
     pageHeight: target.template?.pageHeight ?? PACKET_MAP.pageHeight,
     mappingStatus: target.template?.mappingStatus ?? "APPROVED",
@@ -98,6 +115,25 @@ export async function PUT(req: NextRequest) {
     },
     update: {},
   });
+
+  const identity = {
+    name: template.name,
+    originalFileName: template.originalFileName,
+    pageCount: template.pageCount,
+    providerSpecific: !!template.providerId,
+    sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+  };
+  if (isWelliancePacket(identity)) {
+    const allowed = new Set(packetFieldsForTemplate(identity).map((field) => field.fieldKey));
+    const unknown = body.fields
+      .map((field: { fieldKey?: unknown }) => typeof field.fieldKey === "string" ? field.fieldKey : "")
+      .filter((fieldKey: string) => fieldKey && !allowed.has(fieldKey));
+    if (unknown.length) {
+      return NextResponse.json({
+        error: `The verified Welliance map does not accept new field keys: ${unknown.slice(0, 5).join(", ")}.`,
+      }, { status: 400 });
+    }
+  }
 
   if (body.replace === true && target.providerSpecific) {
     await prisma.pdfFieldMapping.deleteMany({ where: { templateId: template.id } });

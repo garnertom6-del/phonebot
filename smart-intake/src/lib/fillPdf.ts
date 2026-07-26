@@ -133,7 +133,12 @@ function drawCenteredInitials(page: PDFPage, f: FieldMapping, initials: string, 
 }
 
 function missingClientPlaceholder(f: FieldMapping): string {
-  if (/height|weight|hair/i.test(f.source)) return "N/A";
+  // Do not invent structured identity/contact values or squeeze placeholder
+  // text into short boxes. Narrative unknowns can still be marked clearly.
+  if (
+    f.width < 80 ||
+    /(^|_)(email|phone|fax|state|city|zip|date|mid|record|policy|address)(_|$)/i.test(f.source)
+  ) return "";
   return "Not reported";
 }
 
@@ -195,20 +200,11 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
     input.signatures.client?.signedDate || input.signatures.guardian?.signedDate ||
     formatDate(str(answers.intake_date)) || new Date().toLocaleDateString("en-US");
   answers.staff_sign_date ||=
-    input.signatures.staff?.signedDate ||
-    input.signatures.clinician?.signedDate ||
-    input.signatures.witness?.signedDate ||
-    "";
+    input.signatures.staff?.signedDate || "";
   answers.clinician_sign_date ||=
-    input.signatures.clinician?.signedDate ||
-    input.signatures.staff?.signedDate ||
-    input.signatures.witness?.signedDate ||
-    "";
+    input.signatures.clinician?.signedDate || "";
   answers.witness_sign_date ||=
-    input.signatures.witness?.signedDate ||
-    input.signatures.staff?.signedDate ||
-    input.signatures.clinician?.signedDate ||
-    "";
+    input.signatures.witness?.signedDate || "";
   answers.medical_director_sign_date ||= input.signatures.medicalDirector?.signedDate || "";
   answers.intake_date ||= new Date().toLocaleDateString("en-US");
   answers.referral_date ||= answers.intake_date;

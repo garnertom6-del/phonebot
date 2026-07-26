@@ -120,7 +120,7 @@ export async function GET(req: NextRequest) {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
       const signed = i.auditLogs.some((a) => a.event === "docusign_completed")
         || i.signatures.some((s) => s.role === "client" || s.role === "guardian");
-      const hasStaffSignature = i.signatures.some((s) => s.role === "staff" || s.role === "clinician");
+      const hasStaffSignature = i.signatures.some((s) => s.role === "staff");
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
       const providerPacketLog = i.auditLogs.find((a) => a.event === "provider_packet_email_sent");
