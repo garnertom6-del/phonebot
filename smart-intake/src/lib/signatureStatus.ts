@@ -57,7 +57,7 @@ export function buildSignatureStatuses(signatures: SignatureSummary[]): Signatur
     capturedStatus(
       "staff_qp",
       "Staff / QP",
-      false,
+      true,
       firstSignature(signatures, ["staff", "clinician"]),
       "Not collected by SMS; staff adds this signature on the review screen.",
     ),

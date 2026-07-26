@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
 
 interface Row {
   id: string;
@@ -10,13 +11,17 @@ interface Row {
   archived?: boolean;
   percentComplete: number;
   hasPdf: boolean;
+  packetState: "missing" | "current" | "stale";
+  packetGeneratedAt?: string | null;
   hasCca: boolean;
   ccaDetail?: string;
   copiesSentAt?: string | null;
   autoSendCopies?: boolean;
   autoEmailProviderPacket?: boolean;
   providerPacketEmailedAt?: string | null;
-  readiness?: { state: string; tone: "good" | "warn" | "brand"; issues: string[] };
+  readiness: DashboardReadiness;
+  completionReady: boolean;
+  completionBlockers: Array<{ code: string; message: string }>;
   docusignEnvelopeId?: string | null;
   insuranceSummary?: string;
   presentingProblem?: string;
@@ -33,8 +38,9 @@ interface Row {
   linkSentAt?: string;
   lastActivityAt?: string;
   submittedAt?: string;
-  createdAt?: string;
+  createdAt: string;
   token: string;
+  tokenExpiresAt: string;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -51,7 +57,7 @@ const STATUS_LABELS: Record<string, string> = {
   IN_PROGRESS: "In progress",
   SUBMITTED: "Submitted",
   NEEDS_REVIEW: "Needs review",
-  SIGNED: "Signed",
+  SIGNED: "Client signed - staff review",
   COMPLETED: "Completed",
 };
 
@@ -63,13 +69,18 @@ type DashboardTab = {
 };
 
 const TABS: DashboardTab[] = [
-  { key: "action", label: "Needs action", statuses: ["SUBMITTED", "NEEDS_REVIEW"] },
+  { key: "action", label: "Needs staff action", statuses: [], matches: (row) => rowNeedsStaffAction(row) },
   { key: "waiting", label: "Waiting on client", statuses: ["NOT_STARTED", "IN_PROGRESS"] },
   { key: "signed", label: "Signed", statuses: ["SIGNED"] },
   { key: "done", label: "Completed", statuses: ["COMPLETED"] },
-  { key: "packet", label: "Packet ready", statuses: [], matches: (row) => row.hasPdf },
+  {
+    key: "packet",
+    label: "Ready to complete",
+    statuses: [],
+    matches: (row) => row.status !== "COMPLETED" && row.completionReady,
+  },
   { key: "cca", label: "CCA uploaded", statuses: [], matches: (row) => row.hasCca },
-  { key: "copies", label: "Client records", statuses: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"] },
+  { key: "copies", label: "Client copies", statuses: ["SIGNED", "COMPLETED"] },
   { key: "all", label: "All intakes", statuses: [] as string[] },
   { key: "archived", label: "Archived", statuses: [] as string[] },
 ];
@@ -90,6 +101,7 @@ function displayDateTime(value?: string | null): string {
 function rowMatchesTab(row: Row, tab: string) {
   const tabDef = TABS.find((item) => item.key === tab);
   if (tab === "archived") return !!row.archived;
+  if (row.archived) return false;
   if (!tabDef || tab === "all") return true;
   if (tabDef.matches) return tabDef.matches(row);
   return tabDef.statuses.includes(row.status);
@@ -111,6 +123,21 @@ function rowSearchText(row: Row) {
   ].join(" ").toLowerCase();
 }
 
+function rowNeedsStaffAction(row: Row): boolean {
+  return needsStaffAction(row.status) || (row.status === "COMPLETED" && row.readiness.tone === "warn");
+}
+
+function csvCell(value: unknown): string {
+  let text = value == null ? "" : String(value);
+  if (/^[=+\-@]/.test(text)) text = `'${text}`;
+  return `"${text.replaceAll('"', '""')}"`;
+}
+
+function reportFileName(providerName: string): string {
+  const safeName = providerName.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "provider";
+  return `${safeName}-intake-workflow-${new Date().toISOString().slice(0, 10)}.csv`;
+}
+
 export default function Dashboard() {
   const router = useRouter();
   const [rows, setRows] = useState<Row[] | null>(null);
@@ -122,13 +149,15 @@ export default function Dashboard() {
   const [isMaster, setIsMaster] = useState(false);
   const [canManageProvider, setCanManageProvider] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const busyRowIdsRef = useRef(new Set<string>());
+  const [busyRowIds, setBusyRowIds] = useState<Set<string>>(() => new Set());
 
-  const load = useCallback(async (activeTab: string = "all") => {
+  const load = useCallback(async (_activeTab: string = "all", preserveNotice = false) => {
     setRefreshing(true);
     try {
-      const response = await fetch(`/api/intakes${activeTab === "archived" ? "?archived=1" : ""}`);
+      const response = await fetch("/api/intakes");
       if (response.status === 401) {
-        router.push("/login");
+        router.push("/provider");
         return;
       }
       const text = await response.text();
@@ -138,7 +167,7 @@ export default function Dashboard() {
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
       setCanManageProvider(!!body.canManageProvider);
-      setNote("");
+      if (!preserveNotice) setNote("");
     } catch (err) {
       setNoticeKind("error");
       setNote(err instanceof Error ? err.message : "Couldn't load the intake list right now.");
@@ -156,6 +185,18 @@ export default function Dashboard() {
     window.setTimeout(() => setNote(""), timeout);
   }
 
+  async function runRowAction(rowId: string, action: () => Promise<void>) {
+    if (busyRowIdsRef.current.has(rowId)) return;
+    busyRowIdsRef.current.add(rowId);
+    setBusyRowIds(new Set(busyRowIdsRef.current));
+    try {
+      await action();
+    } finally {
+      busyRowIdsRef.current.delete(rowId);
+      setBusyRowIds(new Set(busyRowIdsRef.current));
+    }
+  }
+
   function selectDashboardTab(nextTab: string) {
     setSearch("");
     setTab(nextTab);
@@ -169,33 +210,38 @@ export default function Dashboard() {
   }
 
   async function copyCompletedLink(row: Row) {
+    if (new Date(row.tokenExpiresAt).getTime() < Date.now()) {
+      showNote("This secure link expired. Open the intake and extend it before sending client copies.", 6500, "error");
+      return;
+    }
     const link = `${window.location.origin}/copies/${row.token}`;
     await navigator.clipboard.writeText(link);
-    showNote(`Client records link copied for ${row.client.fullName}`, 2500);
+    showNote(`Client-copies link copied for ${row.client.fullName}`, 2500);
   }
 
   async function remind(row: Row) {
     const response = await fetch(`/api/intakes/${row.id}/remind`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
-    if (response.ok) {
+    if (response.ok && body.ok) {
       const sent = body.sent?.length ? body.sent.join(", ") : "No phone or email saved for this client.";
       const failed = body.failed?.length ? ` Not sent: ${body.failed.join("; ")}` : "";
       showNote(`Reminder queued: ${sent}${failed}`, 6000);
+      await load(tab, true);
     } else {
-      showNote(`Reminder failed: ${body.error || response.status}`, 6000, "error");
+      showNote(`Reminder failed: ${body.error || body.failed?.join("; ") || "No message was sent. Add a client phone or email."}`, 6000, "error");
     }
   }
 
   async function sendCopies(row: Row) {
     const response = await fetch(`/api/intakes/${row.id}/copies`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
-    if (response.ok) {
+    if (response.ok && body.ok) {
       const sent = body.sent?.length ? body.sent.join(", ") : "No phone or email saved for this client.";
       const failed = body.failed?.length ? ` Not sent: ${body.failed.join("; ")}` : "";
-      showNote(`Completed intake + client records queued: ${sent}${failed}`, 6000);
-      load(tab);
+      showNote(`Client copies queued: ${sent}${failed}`, 6000);
+      await load(tab, true);
     } else {
-      showNote(`Completed intake + client records failed: ${body.error || response.status}`, 6000, "error");
+      showNote(`Client-copy delivery failed: ${body.error || body.failed?.join("; ") || "No message was sent. Add a client phone or email."}`, 6000, "error");
     }
   }
 
@@ -207,8 +253,8 @@ export default function Dashboard() {
     });
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
-      showNote(`Auto-send completed intake + client records ${autoSend ? "on" : "off"} for ${row.client.fullName}`);
-      load(tab);
+      showNote(`Automatic client-copy delivery ${autoSend ? "on" : "off"} for ${row.client.fullName}`);
+      await load(tab, true);
     } else {
       showNote(`Auto-send update failed: ${body.error || response.status}`, 6000, "error");
     }
@@ -223,7 +269,7 @@ export default function Dashboard() {
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
       showNote(`Automatic completed-packet email ${enabled ? "on" : "off"} for ${row.client.fullName}`);
-      load(tab);
+      await load(tab, true);
     } else {
       showNote(`Provider packet email update failed: ${body.error || response.status}`, 6000, "error");
     }
@@ -232,8 +278,12 @@ export default function Dashboard() {
   async function sendProviderPacket(row: Row) {
     const response = await fetch(`/api/intakes/${row.id}/copies/provider`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
-    if (response.ok) showNote(`Completed packet emailed to ${body.to || "the provider"}.`, 6000);
-    else showNote(`Provider packet email failed: ${body.reason || body.detail || body.error || response.status}`, 6000, "error");
+    if (response.ok) {
+      showNote(`Completed packet emailed to ${body.to || "the provider"}.`, 6000);
+      await load(tab, true);
+    } else {
+      showNote(`Provider packet email failed: ${body.reason || body.detail || body.error || response.status}`, 6000, "error");
+    }
   }
 
   async function markCompleted(row: Row) {
@@ -242,12 +292,31 @@ export default function Dashboard() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ status: "COMPLETED" }),
     });
+    const body = await response.json().catch(() => ({}));
     if (response.ok) {
-      showNote(`${row.client.fullName} marked completed.`);
-      load(tab);
+      const warnings: string[] = [];
+      const delivery = body.completionDelivery || {};
+      if (delivery.error) warnings.push(delivery.error);
+      if (delivery.clientCopies?.body && delivery.clientCopies.body.ok === false) {
+        warnings.push(delivery.clientCopies.body.error || delivery.clientCopies.body.failed?.join("; ") || "Client copies were not sent.");
+      }
+      if (
+        delivery.providerPacket?.skipped
+        && delivery.providerPacket.reason
+        && !String(delivery.providerPacket.reason).toLowerCase().includes("off")
+      ) {
+        warnings.push(delivery.providerPacket.reason);
+      }
+      const message = warnings.length
+        ? `${row.client.fullName} was marked completed, but delivery needs attention: ${warnings.join(" ")}`
+        : `${row.client.fullName} marked completed. Automatic delivery settings were processed.`;
+      showNote(message, 7000, warnings.length ? "error" : "success");
+      await load(tab, true);
     } else {
-      const body = await response.json().catch(() => ({}));
-      showNote(`Could not mark completed: ${body.error || response.status}`, 6000, "error");
+      const blockers = body.blockers?.length
+        ? ` ${body.blockers.map((item: { message?: string }) => item.message).filter(Boolean).join(" ")}`
+        : "";
+      showNote(`Could not mark completed: ${body.error || response.status}.${blockers}`, 7000, "error");
     }
   }
 
@@ -259,7 +328,7 @@ export default function Dashboard() {
     });
     if (response.ok) {
       showNote(`${row.client.fullName} ${archived ? "archived" : "restored"}.`);
-      load(tab);
+      await load(tab, true);
     } else {
       const body = await response.json().catch(() => ({}));
       showNote(`Archive update failed: ${body.error || response.status}`, 6000, "error");
@@ -277,7 +346,7 @@ export default function Dashboard() {
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
       showNote(body.message || `DocuSign processed for ${row.client.fullName}. Envelope ${body.envelopeId || "created"}.`, 6000);
-      load(tab);
+      await load(tab, true);
     } else {
       showNote(`DocuSign failed: ${body.error || response.status}`, 6000, "error");
     }
@@ -286,51 +355,125 @@ export default function Dashboard() {
   const trimmedSearch = search.trim().toLowerCase();
   const filteredRows = rows?.filter((row) => rowMatchesTab(row, tab) && (!trimmedSearch || rowSearchText(row).includes(trimmedSearch))) ?? null;
 
-  const totalCount = rows?.length ?? 0;
-  const needsActionCount = rows?.filter((row) => ["SUBMITTED", "NEEDS_REVIEW"].includes(row.status)).length ?? 0;
-  const waitingCount = rows?.filter((row) => ["NOT_STARTED", "IN_PROGRESS"].includes(row.status)).length ?? 0;
-  const completedCount = rows?.filter((row) => row.status === "COMPLETED").length ?? 0;
-  const packetReadyCount = rows?.filter((row) => row.hasPdf).length ?? 0;
-  const ccaCount = rows?.filter((row) => row.hasCca).length ?? 0;
+  const activeRows = rows?.filter((row) => !row.archived) ?? [];
+  const totalCount = activeRows.length;
+  const archivedCount = rows?.filter((row) => row.archived).length ?? 0;
+  const needsActionCount = activeRows.filter(rowNeedsStaffAction).length;
+  const waitingCount = activeRows.filter((row) => ["NOT_STARTED", "IN_PROGRESS"].includes(row.status)).length;
+  const completedCount = activeRows.filter((row) => row.status === "COMPLETED").length;
+  const readyToCompleteCount = activeRows.filter((row) => row.status !== "COMPLETED" && row.completionReady).length;
+  const ccaCount = activeRows.filter((row) => row.hasCca).length;
   const tabCount = (key: string) => rows?.filter((row) => rowMatchesTab(row, key)).length ?? 0;
+  const viewTotalCount = tab === "archived" ? archivedCount : totalCount;
+
+  function downloadWorkflowReport() {
+    if (!filteredRows?.length) {
+      showNote("There are no intakes in this view to include in a report.", 4500, "error");
+      return;
+    }
+    const reportRows = filteredRows.map((row) => {
+      const latestTouch = row.lastActivityAt || row.submittedAt || row.createdAt;
+      return [
+        row.client.fullName,
+        STATUS_LABELS[row.status] || row.status.replaceAll("_", " "),
+        row.readiness.state,
+        row.readiness.issues.join(" "),
+        displayDateTime(latestTouch),
+        Number.isNaN(new Date(latestTouch).getTime())
+          ? ""
+          : Math.max(0, Math.floor((Date.now() - new Date(latestTouch).getTime()) / 86400000)),
+        `${row.percentComplete}%`,
+        row.client.recordNumber || "",
+        row.client.midNumber || "",
+        displayDateTime(row.tokenExpiresAt),
+        row.hasCca ? "Uploaded" : "Not uploaded",
+        row.ccaDetail || "",
+        row.packetState === "current" ? "Current" : row.packetState === "stale" ? "Outdated" : "Not generated",
+        row.missingRequired.length,
+        row.missingRequired.map((item) => item.label).join("; "),
+        row.completionBlockers.map((item) => item.message).join("; "),
+        row.copiesSentAt ? displayDateTime(row.copiesSentAt) : "Not sent",
+        row.autoSendCopies ? "On" : "Off",
+        row.autoEmailProviderPacket ? "On" : "Off",
+        row.providerPacketEmailedAt ? displayDateTime(row.providerPacketEmailedAt) : "Not sent",
+      ];
+    });
+    const headers = [
+      "Client",
+      "Status",
+      "Next step",
+      "Next step details",
+      "Last activity",
+      "Days since activity",
+      "Client answer coverage",
+      "Record #",
+      "MID #",
+      "Secure link expires",
+      "CCA",
+      "CCA result",
+      "Packet status",
+      "Missing required count",
+      "Missing required items",
+      "Completion blockers",
+      "Client copies sent",
+      "Auto-send records",
+      "Provider packet email",
+      "Provider packet last sent",
+    ];
+    const csv = [headers, ...reportRows].map((row) => row.map(csvCell).join(",")).join("\r\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = reportFileName(providerName);
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    showNote(`Downloaded a workflow report with ${filteredRows.length} intake${filteredRows.length === 1 ? "" : "s"}.`);
+  }
 
   return (
-    <main className="mx-auto max-w-7xl p-6">
-      <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-brand via-brand-dark to-slate-900 px-6 py-7 text-white shadow-xl">
+    <main className="mx-auto max-w-7xl p-4 sm:p-6">
+      <section className="rounded-2xl bg-gradient-to-br from-brand via-brand-dark to-slate-900 px-5 py-6 text-white shadow-xl sm:px-6 sm:py-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-light/90">Staff Workspace</p>
-            <h1 className="mt-3 text-3xl font-bold tracking-tight">{providerName} Intake Dashboard</h1>
+            <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">{providerName} Intake Dashboard</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-200">
               Review where each intake stands, spot missing information faster, and handle reminders, copies, packets, and signatures from one place.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master intake setup</Link>}
-            {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider packet settings</Link>}
-            {isMaster && <a href="/api/admin/backup" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Download backup</a>}
-            {isMaster && <Link href="/admin/pdf-mapping" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">PDF mapping</Link>}
-            <Link href="/admin/users" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Staff logins</Link>
-            <Link href="/intakes/new-many" className="btn-secondary bg-white/15 text-white hover:bg-white/25">+ Create Many</Link>
             <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>
-            <button
-              className="btn-secondary bg-white/15 text-white hover:bg-white/25"
-              onClick={async () => {
-                await fetch("/api/auth/logout", { method: "POST" });
-                router.push("/login");
-              }}
-            >
-              Sign out
-            </button>
+            {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master: providers &amp; packets</Link>}
+            {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider: packet settings</Link>}
+            <details className="relative [&>summary::-webkit-details-marker]:hidden">
+              <summary className="btn-secondary cursor-pointer list-none bg-white/15 text-white hover:bg-white/25">More tools</summary>
+              <div className="absolute right-0 z-30 mt-2 grid min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-xl">
+                <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>
+                {(isMaster || canManageProvider) && <Link href="/admin/users" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Staff logins</Link>}
+                {isMaster && <Link href="/admin/pdf-mapping" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">PDF mapping</Link>}
+                {isMaster && <a href="/api/admin/backup" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Download backup</a>}
+                <button
+                  className="rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100"
+                  onClick={async () => {
+                    await fetch("/api/auth/logout", { method: "POST" });
+                    router.push(isMaster ? "/master" : "/provider");
+                  }}
+                >
+                  Sign out
+                </button>
+              </div>
+            </details>
           </div>
         </div>
 
-        <div className="mt-6 grid gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <StatCard label={tab === "archived" ? "Archived" : "All intakes"} value={totalCount} active={tab === "all" || tab === "archived"} onClick={() => selectDashboardTab(tab === "archived" ? "archived" : "all")} />
-          <StatCard label="Needs action" value={needsActionCount} active={tab === "action"} onClick={() => selectDashboardTab("action")} />
+        <div className="mt-6 grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
+          <StatCard label="All intakes" value={totalCount} active={tab === "all"} onClick={() => selectDashboardTab("all")} />
+          <StatCard label="Needs staff action" value={needsActionCount} active={tab === "action"} onClick={() => selectDashboardTab("action")} />
           <StatCard label="Waiting on client" value={waitingCount} active={tab === "waiting"} onClick={() => selectDashboardTab("waiting")} />
           <StatCard label="Completed" value={completedCount} active={tab === "done"} onClick={() => selectDashboardTab("done")} />
-          <StatCard label="Packets ready" value={packetReadyCount} active={tab === "packet"} onClick={() => selectDashboardTab("packet")} />
+          <StatCard label="Ready to complete" value={readyToCompleteCount} active={tab === "packet"} onClick={() => selectDashboardTab("packet")} />
           <StatCard label="CCA uploaded" value={ccaCount} active={tab === "cca"} onClick={() => selectDashboardTab("cca")} />
         </div>
       </section>
@@ -352,11 +495,11 @@ export default function Dashboard() {
           </div>
           <p className="text-sm text-slate-500">
             Showing <span className="font-semibold text-slate-700">{filteredRows?.length ?? 0}</span> of{" "}
-            <span className="font-semibold text-slate-700">{rows?.length ?? 0}</span>
+            <span className="font-semibold text-slate-700">{viewTotalCount}</span>
           </p>
         </div>
 
-        <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="mt-4 space-y-3">
           <input
             className="input"
             value={search}
@@ -367,17 +510,33 @@ export default function Dashboard() {
             {TABS.map((item) => (
               <button
                 key={item.key}
-                className={item.key === tab ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
-                onClick={() => setTab(item.key)}
+                type="button"
+                aria-pressed={item.key === tab}
+                className={item.key === tab ? "btn-primary min-h-11 px-3 py-2 text-sm" : "btn-ghost min-h-11 px-3 py-2 text-sm"}
+                onClick={() => selectDashboardTab(item.key)}
               >
                 {item.label} ({tabCount(item.key)})
               </button>
             ))}
-            <button className="btn-ghost px-3 py-2 text-sm" disabled={refreshing} onClick={() => void load(tab)}>
+            {trimmedSearch && (
+              <button type="button" className="btn-ghost min-h-11 px-3 py-2 text-sm" onClick={() => setSearch("")}>
+                Clear search
+              </button>
+            )}
+            <button className="btn-ghost min-h-11 px-3 py-2 text-sm" disabled={refreshing} onClick={() => void load(tab)}>
               {refreshing ? "Refreshing..." : "Refresh"}
+            </button>
+            <button
+              className="btn-ghost min-h-11 px-3 py-2 text-sm"
+              disabled={!filteredRows?.length}
+              onClick={downloadWorkflowReport}
+              title="Download the intakes in the current tab and search as a CSV file"
+            >
+              Download workflow report
             </button>
           </div>
         </div>
+        <p className="mt-3 text-xs text-slate-500">The downloaded report contains client information. Store and share it securely.</p>
       </section>
 
       <section id="intake-results" className="mt-5 scroll-mt-4 space-y-4">
@@ -390,7 +549,23 @@ export default function Dashboard() {
         {filteredRows?.length === 0 && (
           <div className="rounded-2xl border border-slate-200 bg-white px-6 py-12 text-center shadow-sm">
             <h3 className="text-xl font-bold text-slate-800">No intakes match this view</h3>
-            <p className="mt-2 text-sm text-slate-500">Try a different tab or clear the search to see more clients.</p>
+            <p className="mt-2 text-sm text-slate-500">
+              {tab === "action" && totalCount
+                ? "Nothing needs staff action right now. You can still view every intake."
+                : trimmedSearch
+                  ? "No intake matched that search. Clear it or try a different name, MID, email, phone, or Record#."
+                  : "Try a different tab to see more clients."}
+            </p>
+            {trimmedSearch && (
+              <button className="btn-ghost mt-4 min-h-11 px-4 py-2 text-sm" onClick={() => setSearch("")}>
+                Clear search
+              </button>
+            )}
+            {tab !== "all" && totalCount > 0 && (
+              <button className="btn-primary mt-4 min-h-11 px-4 py-2 text-sm" onClick={() => selectDashboardTab("all")}>
+                View all intakes
+              </button>
+            )}
           </div>
         )}
 
@@ -400,17 +575,19 @@ export default function Dashboard() {
             ? row.missingRequired.slice(0, 3).map((item) => item.label).join(", ")
             : "Everything required is in.";
           const statusLabel = STATUS_LABELS[row.status] || row.status.replaceAll("_", " ");
+          const rowBusy = busyRowIds.has(row.id);
 
           return (
-            <article key={row.id} className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <article key={row.id} aria-busy={rowBusy} className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Link href={`/intakes/${row.id}`} className="text-2xl font-bold tracking-tight text-brand hover:underline">
+                    <Link href={`/intakes/${row.id}`} className="inline-flex min-h-11 items-center text-2xl font-bold tracking-tight text-brand hover:underline">
                       {row.client.fullName}
                     </Link>
                     <span className={`badge ${STATUS_COLORS[row.status] || "bg-slate-200 text-slate-700"}`}>{statusLabel}</span>
                     {row.docusignEnvelopeId && <span className="badge bg-emerald-50 text-emerald-700">DocuSign sent</span>}
+                    {rowBusy && <span className="badge bg-slate-100 text-slate-700">Updating...</span>}
                   </div>
                   <p className="mt-2 text-sm text-slate-500">
                     Last activity {displayDateTime(latestTouch)}
@@ -418,7 +595,7 @@ export default function Dashboard() {
                   </p>
                 </div>
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-right">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Completion</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Client answer coverage</p>
                   <p className="mt-1 text-2xl font-bold text-slate-900">{row.percentComplete}%</p>
                 </div>
               </div>
@@ -444,21 +621,25 @@ export default function Dashboard() {
                   />
                   <StatusTile
                     label="Packet"
-                    state={row.hasPdf ? "Generated" : "Pending"}
-                    tone={row.hasPdf ? "good" : "warn"}
-                    detail={row.hasPdf ? "Completed packet is ready" : "Generate packet after review"}
+                    state={row.packetState === "current" ? "Current" : row.packetState === "stale" ? "Outdated" : "Pending"}
+                    tone={row.packetState === "current" ? "good" : "warn"}
+                    detail={row.packetState === "current"
+                      ? "Completed packet matches the latest answers and signatures"
+                      : row.packetState === "stale"
+                        ? "Answers or signatures changed; generate the packet again"
+                        : "Generate packet after review"}
                   />
                   <StatusTile
-                    label="Client records"
+                    label="Client copies"
                     state={row.copiesSentAt ? "Sent" : "Not sent"}
                     tone={row.copiesSentAt ? "good" : "neutral"}
-                    detail={row.copiesSentAt ? displayDateTime(row.copiesSentAt) : "No completed intake delivery logged yet"}
+                    detail={row.copiesSentAt ? displayDateTime(row.copiesSentAt) : "No completed client-copy delivery logged yet"}
                   />
                   <StatusTile
                     label="Auto-send"
                     state={row.autoSendCopies ? "On" : "Off"}
                     tone={row.autoSendCopies ? "brand" : "neutral"}
-                    detail={row.autoSendCopies ? "Completed intake + client records send automatically" : "Staff sends client records manually"}
+                    detail={row.autoSendCopies ? "Client copies send automatically after staff marks the intake completed" : "Staff sends client copies manually"}
                   />
                   <StatusTile
                     label="Provider email"
@@ -469,7 +650,7 @@ export default function Dashboard() {
                 </div>
               </div>
 
-              <CcaAiPanel row={row} />
+              <CcaAiPanel row={row} onImported={() => load(tab, true)} />
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Missing required items</p>
@@ -477,46 +658,85 @@ export default function Dashboard() {
                   {missingPreview}
                   {row.missingRequired.length > 3 ? ` + ${row.missingRequired.length - 3} more` : ""}
                 </p>
-                <p className={`mt-2 text-xs font-semibold ${row.readiness?.tone === "warn" ? "text-amber-800" : row.readiness?.tone === "brand" ? "text-brand" : "text-emerald-700"}`}>
-                  Readiness: {row.readiness?.state || "Review needed"}
-                  {row.readiness?.issues?.length ? ` - ${row.readiness.issues.join(", ")}` : ""}
-                </p>
+                <div className={`mt-3 rounded-lg border px-3 py-2 ${
+                  row.readiness.tone === "warn"
+                    ? "border-amber-200 bg-amber-50 text-amber-900"
+                    : row.readiness.tone === "brand"
+                      ? "border-brand/20 bg-brand-light/40 text-brand"
+                      : "border-emerald-200 bg-emerald-50 text-emerald-800"
+                }`}>
+                  <p className="text-xs font-semibold uppercase tracking-[0.14em]">Next step</p>
+                  <p className="mt-1 text-sm font-bold">{row.readiness.state}</p>
+                  {row.readiness.issues.length > 0 && <p className="mt-1 text-xs leading-5">{row.readiness.issues.join(" ")}</p>}
+                </div>
               </div>
 
-              <div className="mt-4 flex flex-wrap gap-2">
+              <div className="mt-4 flex flex-wrap gap-2 [&>a]:min-h-11 [&>button]:min-h-11">
                 <Link href={`/intakes/${row.id}`} className="btn-primary px-3 py-2 text-sm">Open intake</Link>
                 <Link href={`/intakes/${row.id}/review`} className="btn-ghost px-3 py-2 text-sm">Review / edit</Link>
-                <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>Copy intake link</button>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => remind(row)}>Send reminder</button>
-                {row.hasPdf && ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(row.status) && (
-                  <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendCopies(row)}>Send client records</button>
-                )}
-                {row.hasPdf && <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy records link</button>}
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setAutoCopies(row, !row.autoSendCopies)}>
-                  Auto-send records {row.autoSendCopies ? "off" : "on"}
-                </button>
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setProviderPacketEmail(row, !row.autoEmailProviderPacket)}>
-                  Email provider packet {row.autoEmailProviderPacket ? "off" : "on"}
-                </button>
-                {row.hasPdf && ["SIGNED", "COMPLETED"].includes(row.status) && (
-                  <button className="btn-ghost px-3 py-2 text-sm" onClick={() => sendProviderPacket(row)}>
-                    Email provider now
-                  </button>
-                )}
-                {!row.docusignEnvelopeId && (
-                  <button className="btn-ghost px-3 py-2 text-sm" title="Send only the missing signature fields through DocuSign" onClick={() => sendDocuSign(row)}>
-                    Send missing signatures
-                  </button>
-                )}
-                {row.status !== "COMPLETED" && (
-                  <button className="btn-ghost px-3 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50" disabled={!row.hasPdf || row.missingRequired.length > 0} title={row.hasPdf && !row.missingRequired.length ? "Mark this intake completed" : "Generate the packet and finish required items first"} onClick={() => markCompleted(row)}>
+                {!row.archived && row.status !== "COMPLETED" && row.completionReady && (
+                  <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
+                    onClick={() => void runRowAction(row.id, () => markCompleted(row))}>
                     Mark completed
                   </button>
                 )}
-                <button className="btn-ghost px-3 py-2 text-sm" onClick={() => setArchived(row, tab !== "archived")}>
-                  {tab === "archived" ? "Restore" : "Archive"}
-                </button>
+                <details className="w-full [&>summary::-webkit-details-marker]:hidden">
+                  <summary className="btn-ghost inline-flex min-h-11 cursor-pointer list-none px-3 py-2 text-sm">
+                    More actions
+                  </summary>
+                  <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 [&>a]:min-h-11 [&>button]:min-h-11">
+                    <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
+                    {!row.archived && (
+                      <>
+                    <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>Copy intake link</button>
+                    <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
+                      onClick={() => void runRowAction(row.id, () => remind(row))}>Send reminder</button>
+                    {["SIGNED", "COMPLETED"].includes(row.status) && (
+                      <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
+                        onClick={() => void runRowAction(row.id, () => sendCopies(row))}>Send client copies</button>
+                    )}
+                    {["SIGNED", "COMPLETED"].includes(row.status) && (
+                      <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy client-copies link</button>
+                    )}
+                    <button
+                      className={row.autoSendCopies ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
+                      aria-pressed={!!row.autoSendCopies}
+                      disabled={rowBusy}
+                      title="Turn automatic delivery of completed client copies on or off"
+                      onClick={() => void runRowAction(row.id, () => setAutoCopies(row, !row.autoSendCopies))}
+                    >
+                      Auto-send copies: {row.autoSendCopies ? "On" : "Off"}
+                    </button>
+                    <button
+                      className={row.autoEmailProviderPacket ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
+                      aria-pressed={!!row.autoEmailProviderPacket}
+                      disabled={rowBusy}
+                      title="Turn automatic delivery of the completed PDF to the provider on or off"
+                      onClick={() => void runRowAction(row.id, () => setProviderPacketEmail(row, !row.autoEmailProviderPacket))}
+                    >
+                      Provider packet email: {row.autoEmailProviderPacket ? "On" : "Off"}
+                    </button>
+                    {row.packetState === "current" && row.status === "COMPLETED" && (
+                      <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
+                        onClick={() => void runRowAction(row.id, () => sendProviderPacket(row))}>
+                        Email provider now
+                      </button>
+                    )}
+                    {!row.docusignEnvelopeId && ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(row.status) && (
+                      <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
+                        title="Send only the missing signature fields through DocuSign"
+                        onClick={() => void runRowAction(row.id, () => sendDocuSign(row))}>
+                        Send missing signatures
+                      </button>
+                    )}
+                      </>
+                    )}
+                    <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
+                      onClick={() => void runRowAction(row.id, () => setArchived(row, tab !== "archived"))}>
+                      {tab === "archived" ? "Restore" : "Archive"}
+                    </button>
+                  </div>
+                </details>
               </div>
             </article>
           );
@@ -530,7 +750,7 @@ export default function Dashboard() {
   );
 }
 
-function CcaAiPanel({ row }: { row: Row }) {
+function CcaAiPanel({ row, onImported }: { row: Row; onImported: () => Promise<void> | void }) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [overwrite, setOverwrite] = useState(false);
@@ -561,6 +781,7 @@ function CcaAiPanel({ row }: { row: Row }) {
       setResult(`CCA uploaded and AI filled ${filled} intake question${filled === 1 ? "" : "s"}` +
         (extracted && extracted !== filled ? ` (${extracted} found${skipped ? `, ${skipped} existing answers kept` : ""})` : "") +
         ". Review the answers before generating the packet.");
+      await onImported();
     } catch {
       setResultKind("error");
       setResult("Connection problem. The CCA was not uploaded.");
@@ -573,7 +794,7 @@ function CcaAiPanel({ row }: { row: Row }) {
   return (
     <div className="mt-4">
       <button type="button" onClick={() => setOpen((current) => !current)}
-        className={`rounded-full px-4 py-2 text-sm font-bold ${open ? "bg-brand text-white" : "bg-brand-light text-brand hover:bg-brand/10"}`}>
+        className={`min-h-11 rounded-full px-4 py-2 text-sm font-bold ${open ? "bg-brand text-white" : "bg-brand-light text-brand hover:bg-brand/10"}`}>
         {open ? "Hide CCA & AI" : "CCA & AI - Upload assessment"}
       </button>
       {open && (
@@ -640,9 +861,9 @@ function StatCard({ label, value, active, onClick }: { label: string; value: num
 
 function MetaCard({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
+    <div className="min-w-0 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
       <p className="text-xs font-semibold uppercase tracking-[0.14em] text-slate-500">{label}</p>
-      <p className="mt-2 text-sm font-semibold leading-6 text-slate-800">{value}</p>
+      <p className="mt-2 break-words text-sm font-semibold leading-6 text-slate-800">{value}</p>
     </div>
   );
 }

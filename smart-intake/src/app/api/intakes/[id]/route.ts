@@ -10,6 +10,7 @@ import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { parseCcaReview } from "@/lib/ccaReview";
+import { completionReadinessForIntake } from "@/lib/completionReadiness";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -57,6 +58,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     include: { client: true },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  let completionDelivery: Record<string, unknown> | null = null;
   if (body.answers) {
     // Older intakes may contain JSON nulls for untouched fields. Treat those
     // as blanks while keeping the strict value validation for real answers.
@@ -84,10 +86,20 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   if (body.status) {
     const allowed = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];
     if (!allowed.includes(body.status)) return NextResponse.json({ error: "Bad status" }, { status: 400 });
+    if (body.status === "COMPLETED") {
+      const readiness = await completionReadinessForIntake(intake.id, provider!.id);
+      if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      if (!readiness.ready) {
+        return NextResponse.json({
+          error: "This intake is not ready to complete.",
+          blockers: readiness.blockers,
+        }, { status: 409 });
+      }
+    }
     await prisma.intake.update({ where: { id: intake.id }, data: { status: body.status } });
     if (body.status === "COMPLETED") {
       try {
-        await autoSendCompletedCopiesIfEnabled({
+        completionDelivery = await autoSendCompletedCopiesIfEnabled({
           intakeId: intake.id,
           providerId: provider!.id,
           userId: user!.id,
@@ -95,6 +107,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         });
       } catch (e) {
         console.error("auto-send completed copies failed", e);
+        completionDelivery = { error: "The intake was completed, but automatic delivery failed." };
       }
     }
   }
@@ -109,5 +122,5 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     // real archiving: hide from the dashboard list without changing status
     await prisma.intake.update({ where: { id: intake.id }, data: { archived: !!body.archive } });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, completionDelivery });
 }

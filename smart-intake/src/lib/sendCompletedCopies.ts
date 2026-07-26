@@ -13,6 +13,7 @@ import {
 import { sendCompletedPacketEmail, sendCopiesLinkEmail, sendCopiesLinkSms, type NotifyResult } from "./notify";
 import { answeredClientFields } from "./clientAnswerSync";
 import { fileExists, readFile } from "./storage";
+import { packetFreshnessForIntake } from "./packetFreshness";
 
 function sentLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}`;
@@ -38,22 +39,42 @@ export interface SendCompletedCopiesOptions {
   providerId: string;
   userId?: string;
   req?: Request;
+  allowResend?: boolean;
 }
 
 export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) {
   const intake = await prisma.intake.findFirst({
     where: { id: opts.intakeId, providerId: opts.providerId },
-    include: { client: true },
+    include: {
+      client: true,
+      provider: { select: { name: true, phone: true, status: true } },
+    },
   });
   if (!intake) {
     return { status: 404, body: { ok: false, error: "Not found", sent: [], failed: [] } };
   }
-  if (!COPY_ALLOWED_STATUSES.includes(intake.status)) {
+  if (intake.tokenExpiresAt < new Date()) {
+    return {
+      status: 410,
+      body: {
+        ok: false,
+        error: "The secure link expired. Extend it before sending client copies.",
+        sent: [],
+        failed: [],
+      },
+    };
+  }
+  if (
+    intake.archived
+    || !intake.submittedAt
+    || intake.provider?.status !== "ACTIVE"
+    || !COPY_ALLOWED_STATUSES.includes(intake.status)
+  ) {
     return {
       status: 400,
       body: {
         ok: false,
-        error: "The intake must be submitted, signed, or completed before sending completed copies.",
+        error: "The intake must be active, submitted, and signed before sending client copies.",
         sent: [],
         failed: [],
       },
@@ -67,15 +88,11 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   const clientName = intake.client.fullName || answeredClient.fullName;
   const email = intake.client.email || answeredClient.email;
   const phone = intake.client.phone || answeredClient.phone;
-  const provider = await prisma.provider.findUnique({
-    where: { id: opts.providerId },
-    select: { name: true, phone: true },
-  });
   if (email) {
-    attempts.push(await sendCopiesLinkEmail(email, clientName, link, provider?.name, provider?.phone));
+    attempts.push(await sendCopiesLinkEmail(email, clientName, link, intake.provider?.name, intake.provider?.phone));
   }
   if (phone) {
-    attempts.push(await sendCopiesLinkSms(phone, link, provider?.name, provider?.phone));
+    attempts.push(await sendCopiesLinkSms(phone, link, intake.provider?.name, intake.provider?.phone));
   }
 
   const sent = attempts.filter((r) => r.ok).map(sentLabel);
@@ -94,7 +111,7 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   });
 
   return {
-    status: sent.length || !attempts.length ? 200 : 502,
+    status: sent.length ? 200 : attempts.length ? 502 : 422,
     body: { ok: sent.length > 0, link, sent, failed, demo: attempts.some((r) => r.demo) },
   };
 }
@@ -150,22 +167,28 @@ export async function sendCompletedPacketToProvider(opts: SendCompletedCopiesOpt
     include: {
       client: true,
       provider: { select: { name: true, email: true } },
-      generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 },
     },
   });
   if (!intake) return { skipped: true, reason: "Intake not found" };
-  if (!["SIGNED", "COMPLETED"].includes(intake.status)) {
-    return { skipped: true, reason: "Provider packet email waits for client/guardian signature" };
+  if (intake.archived || intake.status !== "COMPLETED") {
+    return { skipped: true, reason: "Provider packet email waits until the intake is marked completed" };
   }
   if (!intake.provider?.email) return { skipped: true, reason: "Provider email is not configured" };
-  const latest = intake.generatedPdfs[0];
-  if (!latest || !fileExists(latest.filePath)) {
-    return { skipped: true, reason: "Completed packet file is not available yet" };
+  const packet = await packetFreshnessForIntake(intake.id);
+  if (packet.state !== "current" || !packet.pdfId || !packet.filePath || !fileExists(packet.filePath)) {
+    return { skipped: true, reason: "The packet is outdated. Generate it again before emailing it." };
   }
-  const alreadySent = await prisma.auditLog.findFirst({
-    where: { providerId: opts.providerId, intakeId: opts.intakeId, event: "provider_packet_email_sent" },
-  });
-  if (alreadySent) return { skipped: true, reason: "Provider packet email was already sent" };
+  if (!opts.allowResend) {
+    const alreadySent = await prisma.auditLog.findFirst({
+      where: {
+        providerId: opts.providerId,
+        intakeId: opts.intakeId,
+        event: "provider_packet_email_sent",
+        detail: { startsWith: `pdfId:${packet.pdfId};` },
+      },
+    });
+    if (alreadySent) return { skipped: true, reason: "This version of the provider packet was already sent" };
+  }
 
   const fileName = `${intake.provider.name}-${intake.client.fullName}-completed-intake.pdf`
     .replace(/[^a-z0-9._-]+/gi, "-");
@@ -173,7 +196,7 @@ export async function sendCompletedPacketToProvider(opts: SendCompletedCopiesOpt
     intake.provider.email,
     intake.client.fullName,
     intake.provider.name,
-    readFile(latest.filePath),
+    readFile(packet.filePath),
     fileName,
   );
   if (result.ok) {
@@ -181,7 +204,7 @@ export async function sendCompletedPacketToProvider(opts: SendCompletedCopiesOpt
       providerId: opts.providerId,
       intakeId: opts.intakeId,
       userId: opts.userId,
-      detail: `sent to ${intake.provider.email}: ${result.detail}`,
+      detail: `pdfId:${packet.pdfId}; sent to ${intake.provider.email}: ${result.detail}`,
     });
   }
   return { sent: result.ok, to: intake.provider.email, demo: result.demo, detail: result.detail };

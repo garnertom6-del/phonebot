@@ -18,7 +18,12 @@ import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { newIntakeToken, tokenExpiry } from "../src/lib/tokens";
-import { missingRequired, percentComplete } from "../src/lib/validation";
+import { missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
+import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardWorkflow";
+import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
+import { buildCompletionReadiness } from "../src/lib/completionReadiness";
+import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
+import { buildSignatureStatuses } from "../src/lib/signatureStatus";
 
 const prisma = new PrismaClient();
 
@@ -42,6 +47,149 @@ async function main() {
   const ok = (name: string) => { console.log(`✓ ${name}`); passed++; };
 
   ok("presenting problem stays out of Axis IV");
+
+  assert(needsStaffAction("SIGNED"), "signed intakes must remain in the staff action queue");
+  assert(needsStaffAction("SUBMITTED"), "submitted intakes must remain in the staff action queue");
+  assert(!needsStaffAction("IN_PROGRESS"), "in-progress intakes belong in the waiting-on-client queue");
+  assert(!needsStaffAction("COMPLETED"), "completed intakes must leave the staff action queue");
+  assert.equal(
+    buildDashboardReadiness({
+      status: "SIGNED",
+      missingRequiredCount: 0,
+      packetState: "missing",
+      hasCca: false,
+      expectCca: true,
+      hasStaffSignature: false,
+    }).state,
+    "Upload the CCA",
+  );
+  assert.equal(
+    buildDashboardReadiness({
+      status: "SIGNED",
+      missingRequiredCount: 2,
+      packetState: "missing",
+      hasCca: true,
+      expectCca: true,
+      hasStaffSignature: false,
+    }).state,
+    "Complete required information",
+  );
+  assert.equal(
+    buildDashboardReadiness({
+      status: "SIGNED",
+      missingRequiredCount: 0,
+      packetState: "missing",
+      hasCca: true,
+      expectCca: true,
+      hasStaffSignature: true,
+    }).state,
+    "Generate the completed packet",
+  );
+  assert.equal(
+    buildDashboardReadiness({
+      status: "SIGNED",
+      missingRequiredCount: 0,
+      packetState: "current",
+      hasCca: true,
+      expectCca: true,
+      hasStaffSignature: true,
+    }).state,
+    "Ready for final staff review",
+  );
+  assert.equal(
+    newIntakeSchema.parse({
+      fullName: "Workflow Test",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-1",
+      autoEmailProviderPacket: true,
+    }).autoEmailProviderPacket,
+    true,
+    "new-intake validation must retain provider packet email choice",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Future Client",
+      dob: "2999-01-01",
+      recordNumber: "WORKFLOW-2",
+    }).success,
+    false,
+    "future DOBs must be rejected",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Invalid Date",
+      dob: "02/30/2000",
+      recordNumber: "WORKFLOW-3",
+    }).success,
+    false,
+    "impossible DOBs must be rejected",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Invalid Phone",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-4",
+      phone: "12345",
+    }).success,
+    false,
+    "short phone numbers must be rejected",
+  );
+  assert.equal(
+    buildDashboardReadiness({
+      status: "SIGNED",
+      missingRequiredCount: 0,
+      packetState: "stale",
+      hasCca: true,
+      expectCca: true,
+      hasStaffSignature: true,
+    }).state,
+    "Regenerate the updated packet",
+  );
+  const packetCreatedAt = new Date("2026-07-25T12:00:00.000Z");
+  assert.equal(evaluatePacketFreshness({ latestPdf: null }).state, "missing");
+  assert.equal(
+    evaluatePacketFreshness({
+      latestPdf: { id: "pdf-1", createdAt: packetCreatedAt },
+      latestAnswerUpdatedAt: new Date("2026-07-25T11:59:00.000Z"),
+    }).state,
+    "current",
+  );
+  assert.equal(
+    evaluatePacketFreshness({
+      latestPdf: { id: "pdf-1", createdAt: packetCreatedAt },
+      latestSignatureUpdatedAt: new Date("2026-07-25T12:01:00.000Z"),
+    }).state,
+    "stale",
+  );
+  const blockedCompletion = buildCompletionReadiness({
+    archived: false,
+    submittedAt: packetCreatedAt,
+    missingRequired: [],
+    expectCca: true,
+    hasCca: true,
+    hasStaffSignature: false,
+    packetState: "current",
+  });
+  assert.equal(blockedCompletion.ready, false);
+  assert(blockedCompletion.blockers.some((blocker) => blocker.code === "staff_signature_missing"));
+  assert.equal(
+    buildCompletionReadiness({
+      archived: false,
+      submittedAt: packetCreatedAt,
+      missingRequired: [],
+      expectCca: true,
+      hasCca: true,
+      hasStaffSignature: true,
+      packetState: "current",
+    }).ready,
+    true,
+  );
+  assert.deepEqual(COPY_ALLOWED_STATUSES, ["SIGNED", "COMPLETED"]);
+  assert.equal(
+    buildSignatureStatuses([]).find((status) => status.key === "staff_qp")?.required,
+    true,
+  );
+  ok("provider dashboard workflow and delivery settings");
 
   // 1. staff login
   const user = await prisma.user.findUnique({ where: { email: "admin@mooredivinecare.local" } });

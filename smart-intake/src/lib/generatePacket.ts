@@ -5,14 +5,12 @@ import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeDa
 import { saveFile } from "@/lib/storage";
 import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
-import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
 import { brandText } from "@/lib/providerBranding";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { extractPdfText } from "@/lib/pdfText";
 
 export interface GeneratePacketOptions {
-  skipAutoCompletedCopies?: boolean;
   allowNameMismatch?: boolean;
 }
 
@@ -188,17 +186,5 @@ export async function generatePacketForIntake(
     userId,
     detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`,
   });
-  if (signed && intake.providerId && !options.skipAutoCompletedCopies) {
-    try {
-      await autoSendCompletedCopiesIfEnabled({
-        intakeId: intake.id,
-        providerId: intake.providerId,
-        userId,
-      });
-    } catch (e) {
-      console.error("auto-send completed copies failed", e);
-    }
-  }
-
   return { filled: result.filled, skipped: result.skipped.length, signatureAudit };
 }

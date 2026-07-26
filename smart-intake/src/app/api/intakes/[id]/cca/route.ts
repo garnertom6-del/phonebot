@@ -82,7 +82,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       },
     });
   }
-  await prisma.intake.update({ where: { id: intake.id }, data: { status: "NEEDS_REVIEW" } });
+  await prisma.intake.update({
+    where: { id: intake.id },
+    data: {
+      status: intake.status === "SUBMITTED" ? "NEEDS_REVIEW" : intake.status,
+      lastActivityAt: new Date(),
+    },
+  });
   await audit("cca_imported", {
     providerId: provider!.id,
     intakeId: intake.id, userId: user!.id,

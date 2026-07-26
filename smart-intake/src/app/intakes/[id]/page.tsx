@@ -326,10 +326,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       const b = await r.json().catch(() => ({}));
       if (r.ok) {
         setCopiesLink(b.link || "");
-        setNote(deliveryStatus(b, "No email or phone is saved, so the completed intake and client records were not sent. A records link was created below."));
+        setNote(deliveryStatus(b, "No email or phone is saved, so the client copies were not sent. A secure copies link was created below."));
       } else {
         setCopiesLink(b.link || "");
-        setNote(deliveryStatus(b, `Client records send failed: ${b.error || r.status}`));
+        setNote(deliveryStatus(b, `Client-copy delivery failed: ${b.error || r.status}`));
       }
       if (r.ok && smsWasSent(b)) {
         returnHomeAfterSms();
@@ -625,13 +625,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             Generate Completed Packet
           </button>
           <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
-          <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
-            {copiesBusy ? "Sending Client Records..." : "Send completed intake + client records"}
-          </button>
+          {["SIGNED", "COMPLETED"].includes(i.status) && (
+            <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
+              {copiesBusy ? "Sending client copies..." : "Send client copies"}
+            </button>
+          )}
           <button className="btn-ghost" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
             Email completed PDF to provider {providerPacketEmailEnabled ? "off" : "on"}
           </button>
-          {i.generatedPdfs.length > 0 && ["SIGNED", "COMPLETED"].includes(i.status) && (
+          {i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
             <button className="btn-ghost" onClick={() => { void sendProviderPacketNow(); }}>
               Email provider now
             </button>
@@ -665,10 +667,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       {note && <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand">{note}</p>}
       {copiesLink && (
         <div className="mt-3 rounded-lg border border-brand/30 bg-white p-3 text-sm">
-          <p className="font-semibold text-brand">Completed intake + client records</p>
+          <p className="font-semibold text-brand">Secure client copies</p>
           <p className="mt-1 break-all font-mono text-xs">{copiesLink}</p>
           <div className="mt-2 flex flex-wrap gap-2">
-            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesLink); setNote("Client records link copied"); }}>
+            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesLink); setNote("Client-copies link copied"); }}>
               Copy records link
             </button>
             <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesMessage); setNote("Client records text message copied"); }}>

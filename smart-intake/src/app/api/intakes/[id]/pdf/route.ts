@@ -6,6 +6,7 @@ import { fillPacket } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { readFile, fileExists } from "@/lib/storage";
 import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 
 function fileSafe(value: string) {
   return value.replace(/\W+/g, "-").replace(/^-+|-+$/g, "") || "Intake";
@@ -22,7 +23,14 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   const fresh = req.nextUrl.searchParams.get("fresh") === "1";
   let bytes: Buffer;
   const latest = intake.generatedPdfs[0];
-  if (!fresh && latest && fileExists(latest.filePath)) {
+  const packet = await packetFreshnessForIntake(intake.id);
+  if (
+    !fresh
+    && packet.state === "current"
+    && latest
+    && packet.pdfId === latest.id
+    && fileExists(latest.filePath)
+  ) {
     bytes = readFile(latest.filePath);
   } else {
     const answers = await loadAnswers(intake.id);

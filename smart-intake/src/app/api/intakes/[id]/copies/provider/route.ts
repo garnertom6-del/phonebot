@@ -11,6 +11,7 @@ export async function POST(req: Request, { params }: { params: { id: string } })
     providerId: provider!.id,
     userId: user!.id,
     req,
+    allowResend: true,
   });
   if (result.skipped) return NextResponse.json({ ok: false, ...result }, { status: 400 });
   return NextResponse.json({ ok: result.sent === true, ...result }, { status: result.sent ? 200 : 502 });

@@ -5,6 +5,7 @@ import { audit } from "@/lib/auditLog";
 import { checkDocuSignStatus, downloadDocuSignDocument, docusignConfigured } from "@/lib/docusign";
 import { saveFile } from "@/lib/storage";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { completionReadinessForIntake } from "@/lib/completionReadiness";
 
 const FRIENDLY: Record<string, string> = {
   sent: "Sent - waiting for the client to open it.",
@@ -29,25 +30,56 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   try {
     const status = await checkDocuSignStatus(intake.docusignEnvelopeId);
     if (status === "completed") {
-      const signedPdf = await downloadDocuSignDocument(intake.docusignEnvelopeId);
-      const rel = `generated/${intake.id}/${Date.now()}-docusign-signed.pdf`;
-      saveFile(rel, signedPdf);
-      await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel } });
-      await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
-      try {
-        await autoSendCompletedCopiesIfEnabled({
-          intakeId: intake.id,
+      const alreadySaved = await prisma.auditLog.findFirst({
+        where: {
           providerId: provider!.id,
+          intakeId: intake.id,
+          event: "docusign_completed",
+          detail: intake.docusignEnvelopeId,
+        },
+        select: { id: true },
+      });
+      if (!alreadySaved) {
+        const signedPdf = await downloadDocuSignDocument(intake.docusignEnvelopeId);
+        const rel = `generated/${intake.id}/${Date.now()}-docusign-signed.pdf`;
+        saveFile(rel, signedPdf);
+        await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel } });
+        await audit("docusign_completed", {
+          providerId: provider!.id,
+          intakeId: intake.id,
           userId: user!.id,
+          detail: intake.docusignEnvelopeId,
         });
-      } catch (error) {
-        console.error("auto-send completed copies failed", error);
       }
-      await audit("docusign_completed", {
-        providerId: provider!.id,
+
+      const readiness = await completionReadinessForIntake(intake.id, provider!.id);
+      if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });
+      if (!readiness.ready) {
+        if (intake.status !== "COMPLETED") {
+          await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
+        }
+        return NextResponse.json({
+          ok: true,
+          status,
+          message: "DocuSign is complete and the signed PDF was saved. Staff review is still required.",
+          blockers: readiness.blockers,
+        });
+      }
+
+      await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
+      const delivery = await autoSendCompletedCopiesIfEnabled({
         intakeId: intake.id,
+        providerId: provider!.id,
         userId: user!.id,
-        detail: intake.docusignEnvelopeId,
+      }).catch((error) => {
+        console.error("auto-send completed copies failed", error);
+        return { error: "Automatic delivery failed after DocuSign completion." };
+      });
+      return NextResponse.json({
+        ok: true,
+        status,
+        message: FRIENDLY.completed,
+        delivery,
       });
     }
     return NextResponse.json({ ok: true, status, message: FRIENDLY[status] || `DocuSign status: ${status}` });

@@ -3,7 +3,7 @@ import { appBaseUrl } from "@/lib/baseUrl";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
-import { AUTO_SEND_COMPLETED_COPIES_KEY } from "@/lib/completedCopies";
+import { AUTO_EMAIL_PROVIDER_PACKET_KEY, AUTO_SEND_COMPLETED_COPIES_KEY } from "@/lib/completedCopies";
 import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
 import { newIntakeSchema } from "@/lib/validation";
 import { newIntakeToken, tokenExpiry, tokenExpiryDays } from "@/lib/tokens";
@@ -87,6 +87,7 @@ export async function createStaffIntake(
       guardian_phone: data.guardianPhone,
       is_minor_or_incompetent: data.guardianName ? "Yes" : undefined,
       [AUTO_SEND_COMPLETED_COPIES_KEY]: true,
+      [AUTO_EMAIL_PROVIDER_PACKET_KEY]: data.autoEmailProviderPacket === true,
       ...(staffPrefilled.length ? { [STAFF_PREFILLED_CLIENT_FIELDS_KEY]: staffPrefilled } : {}),
     });
     const entries = Object.entries(prefill).filter(([, value]) => value !== undefined && value !== "");

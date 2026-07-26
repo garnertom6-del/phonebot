@@ -6,8 +6,15 @@ import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
-import { autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
+import { autoEmailProviderPacketEnabled, autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
 import { canGenerateRecordNumber, insuranceSummary, recordNumberPrefix } from "@/lib/insurancePlans";
+import { buildDashboardReadiness } from "@/lib/dashboardWorkflow";
+import {
+  evaluatePacketFreshness,
+  packetFreshnessIgnoredAnswerKeys,
+} from "@/lib/packetFreshness";
+import { buildCompletionReadiness } from "@/lib/completionReadiness";
+import { fileExists } from "@/lib/storage";
 
 function generatedRecordNumber(panel?: string): string {
   const prefix = recordNumberPrefix(panel || "") || "TEMP";
@@ -24,51 +31,112 @@ export async function GET(req: NextRequest) {
   try {
     const { user, provider, membership, deny } = await requireStaff();
     if (deny) return deny;
-    const showArchived = new URL(req.url).searchParams.get("archived") === "1";
     // Lean list query: no signature image blobs, no per-row follow-up queries.
-    // Everything the dashboard needs comes back in four batched queries total.
+    // Active and archived rows are returned together so every count stays accurate.
     const intakes = await prisma.intake.findMany({
-      where: { archived: showArchived, providerId: provider!.id },
+      where: { providerId: provider!.id },
       include: {
         client: true,
         signatures: { select: { role: true } },
         uploadedDocuments: { where: { docType: "CCA" }, select: { id: true }, take: 1 },
-        generatedPdfs: { select: { id: true }, take: 1 },
+        generatedPdfs: {
+          orderBy: { createdAt: "desc" },
+          select: { id: true, filePath: true, createdAt: true },
+          take: 5,
+        },
         auditLogs: {
-          where: { event: { in: ["cca_imported", "copies_link_sent"] } },
+          where: {
+            event: {
+              in: ["cca_imported", "copies_link_sent", "provider_packet_email_sent", "docusign_completed"],
+            },
+          },
           orderBy: { createdAt: "desc" },
           select: { event: true, detail: true, createdAt: true },
-          take: 10,
+          take: 25,
         },
       },
       orderBy: { updatedAt: "desc" },
     });
     const ids = intakes.map((i) => i.id);
-    const answerRows = await prisma.intakeAnswer.findMany({
-      where: { intakeId: { in: ids } }, select: { intakeId: true, key: true, value: true },
-    });
+    const [answerRows, signatureAuditRows] = await Promise.all([
+      prisma.intakeAnswer.findMany({
+        where: { intakeId: { in: ids } },
+        select: { intakeId: true, key: true, value: true, updatedAt: true },
+      }),
+      prisma.auditLog.findMany({
+        where: { intakeId: { in: ids }, event: "signature_captured" },
+        orderBy: { createdAt: "desc" },
+        select: { intakeId: true, createdAt: true },
+      }),
+    ]);
     const answersByIntake = new Map<string, Record<string, unknown>>();
+    const latestPacketAnswerAt = new Map<string, Date>();
+    const ignoredFreshnessKeys = new Set(packetFreshnessIgnoredAnswerKeys());
     for (const r of answerRows) {
       let bucket = answersByIntake.get(r.intakeId);
       if (!bucket) { bucket = {}; answersByIntake.set(r.intakeId, bucket); }
       try { bucket[r.key] = JSON.parse(r.value); } catch { bucket[r.key] = r.value; }
+      if (!ignoredFreshnessKeys.has(r.key)) {
+        const current = latestPacketAnswerAt.get(r.intakeId);
+        if (!current || r.updatedAt > current) latestPacketAnswerAt.set(r.intakeId, r.updatedAt);
+      }
+    }
+    const latestSignatureAt = new Map<string, Date>();
+    for (const row of signatureAuditRows) {
+      if (row.intakeId && !latestSignatureAt.has(row.intakeId)) {
+        latestSignatureAt.set(row.intakeId, row.createdAt);
+      }
     }
     const rows = intakes.map((i) => {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
-      const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
+      const signed = i.auditLogs.some((a) => a.event === "docusign_completed")
+        || i.signatures.some((s) => s.role === "client" || s.role === "guardian");
+      const hasStaffSignature = i.signatures.some((s) => s.role === "staff" || s.role === "clinician");
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
+      const providerPacketLog = i.auditLogs.find((a) => a.event === "provider_packet_email_sent");
+      const required = missingRequired(answers, signed);
+      const hasCca = i.uploadedDocuments.length > 0;
+      const storedPdf = i.generatedPdfs.find((pdf) => fileExists(pdf.filePath)) || null;
+      const packet = evaluatePacketFreshness({
+        latestPdf: storedPdf,
+        latestAnswerUpdatedAt: latestPacketAnswerAt.get(i.id),
+        latestSignatureUpdatedAt: latestSignatureAt.get(i.id),
+      });
+      const completion = buildCompletionReadiness({
+        archived: i.archived,
+        submittedAt: i.submittedAt,
+        missingRequired: required,
+        expectCca: i.expectCca,
+        hasCca,
+        hasStaffSignature,
+        packetState: packet.state,
+      });
       return {
         id: i.id, status: i.status, archived: i.archived, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
         client: i.client, linkSentAt: i.linkSentAt, lastActivityAt: i.lastActivityAt,
         submittedAt: i.submittedAt, createdAt: i.createdAt,
         percentComplete: percentComplete(answers),
-        missingRequired: missingRequired(answers, signed),
-        hasPdf: i.generatedPdfs.length > 0,
-        hasCca: i.uploadedDocuments.length > 0,
+        missingRequired: required,
+        hasPdf: packet.state !== "missing",
+        packetState: packet.state,
+        packetGeneratedAt: packet.generatedAt,
+        hasCca,
         ccaDetail: ccaLog?.detail || "",
         copiesSentAt: copiesLog?.createdAt || null,
         autoSendCopies: autoSendCompletedCopiesEnabled(answers),
+        autoEmailProviderPacket: autoEmailProviderPacketEnabled(answers),
+        providerPacketEmailedAt: providerPacketLog?.createdAt || null,
+        readiness: buildDashboardReadiness({
+          status: i.status,
+          missingRequiredCount: required.length,
+          packetState: packet.state,
+          hasCca,
+          expectCca: i.expectCca,
+          hasStaffSignature,
+        }),
+        completionReady: completion.ready,
+        completionBlockers: completion.blockers,
         docusignEnvelopeId: i.docusignEnvelopeId,
         insuranceSummary: insuranceSummary(answers),
         presentingProblem: stringValue(answers.presenting_problem) || stringValue(answers.mh_history) || "No main concern recorded yet.",

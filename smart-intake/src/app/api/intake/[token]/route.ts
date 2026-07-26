@@ -6,7 +6,6 @@ import { answersSchema, missingRequired, percentComplete } from "@/lib/validatio
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { CLIENT_ANSWER_KEYS } from "@/config/mooreDivineQuestions";
 import { providerDisplayName, providerPhone } from "@/lib/providerBranding";
-import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 
 async function findByToken(token: string) {
@@ -115,16 +114,5 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     providerId: intake.providerId || undefined,
     intakeId: intake.id, ip: req.headers.get("x-forwarded-for") ?? undefined,
   });
-  if (intake.providerId && (sigs.client || sigs.guardian)) {
-    try {
-      await autoSendCompletedCopiesIfEnabled({
-        intakeId: intake.id,
-        providerId: intake.providerId,
-        req,
-      });
-    } catch (sendError) {
-      console.error("auto-send completed copies failed", sendError);
-    }
-  }
   return NextResponse.json({ ok: true });
 }

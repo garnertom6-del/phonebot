@@ -3,7 +3,7 @@ import type { Answers } from "./fillPdf";
 
 export const AUTO_SEND_COMPLETED_COPIES_KEY = "auto_send_completed_copies";
 export const AUTO_EMAIL_PROVIDER_PACKET_KEY = "auto_email_provider_packet";
-export const COPY_ALLOWED_STATUSES = ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];
+export const COPY_ALLOWED_STATUSES = ["SIGNED", "COMPLETED"];
 export const COPY_RECEIPT_ANSWER_DEFAULTS = {
   hipaa_copy: "Yes",
   welcome_letter_ack: "Yes",

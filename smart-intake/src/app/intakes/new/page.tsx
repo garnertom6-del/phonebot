@@ -279,8 +279,10 @@ export default function NewIntake() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {FIELDS.filter(([key]) => !["recordNumber", "addressStreet", "addressCity", "addressState", "livingArrangement"].includes(key)).map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
-              <label className="label">{label}</label>
-              <input className="input" name={key} type={type} value={form[key] || ""}
+              <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
+              <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
+                required={key === "fullName" || key === "dob"}
+                max={key === "dob" ? new Date().toISOString().slice(0, 10) : undefined}
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
             </div>
           ))}

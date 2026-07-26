@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/staffGuard";
 import { generatePacketForIntake, PacketIdentityMismatchError } from "@/lib/generatePacket";
-import { autoEmailProviderPacketIfEnabled, autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
-import { sendIntakeToDocuSign } from "@/lib/sendDocuSign";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, provider, deny } = await requireStaff();
@@ -11,7 +9,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   let result: Awaited<ReturnType<typeof generatePacketForIntake>>;
   try {
     result = await generatePacketForIntake(params.id, user!.id, provider!.id, {
-      skipAutoCompletedCopies: true,
       allowNameMismatch: body.allowIdentityMismatch === true,
     });
   } catch (error) {
@@ -30,34 +27,5 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   }
   if (!result) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const docusign = await sendIntakeToDocuSign({
-    intakeId: params.id,
-    providerId: provider!.id,
-    userId: user!.id,
-  });
-
-  if (["not_configured", "missing_email", "failed"].includes(docusign.status)) {
-    try {
-      await autoSendCompletedCopiesIfEnabled({
-        intakeId: params.id,
-        providerId: provider!.id,
-        userId: user!.id,
-      });
-    } catch (error) {
-      console.error("auto-send completed copies failed", error);
-    }
-  }
-
-  try {
-    await autoEmailProviderPacketIfEnabled({
-      intakeId: params.id,
-      providerId: provider!.id,
-      userId: user!.id,
-      req,
-    });
-  } catch (error) {
-    console.error("auto-email provider packet failed", error);
-  }
-
-  return NextResponse.json({ ok: true, ...result, docusign });
+  return NextResponse.json({ ok: true, ...result });
 }

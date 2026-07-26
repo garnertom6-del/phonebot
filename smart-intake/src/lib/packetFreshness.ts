@@ -1,0 +1,88 @@
+import { prisma } from "@/lib/prisma";
+import { ELIGIBILITY_KEYS } from "@/lib/eligibilityState";
+import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
+import { fileExists } from "@/lib/storage";
+
+export type PacketFreshnessState = "missing" | "current" | "stale";
+
+export type PacketFreshness = {
+  state: PacketFreshnessState;
+  pdfId: string | null;
+  filePath: string | null;
+  generatedAt: Date | null;
+  sourceUpdatedAt: Date | null;
+};
+
+const IGNORED_ANSWER_KEYS = [
+  "auto_send_completed_copies",
+  "auto_email_provider_packet",
+  "hipaa_copy",
+  "welcome_letter_ack",
+  ...Object.values(ELIGIBILITY_KEYS),
+  STAFF_PREFILLED_CLIENT_FIELDS_KEY,
+];
+
+export function evaluatePacketFreshness(input: {
+  latestPdf?: { id: string; filePath?: string | null; createdAt: Date } | null;
+  latestAnswerUpdatedAt?: Date | null;
+  latestSignatureUpdatedAt?: Date | null;
+}): PacketFreshness {
+  const latestPdf = input.latestPdf || null;
+  const sourceDates = [input.latestAnswerUpdatedAt, input.latestSignatureUpdatedAt]
+    .filter((value): value is Date => value instanceof Date);
+  const sourceUpdatedAt = sourceDates.length
+    ? new Date(Math.max(...sourceDates.map((value) => value.getTime())))
+    : null;
+
+  if (!latestPdf) {
+    return {
+      state: "missing",
+      pdfId: null,
+      filePath: null,
+      generatedAt: null,
+      sourceUpdatedAt,
+    };
+  }
+
+  return {
+    state: sourceUpdatedAt && sourceUpdatedAt.getTime() > latestPdf.createdAt.getTime()
+      ? "stale"
+      : "current",
+    pdfId: latestPdf.id,
+    filePath: latestPdf.filePath || null,
+    generatedAt: latestPdf.createdAt,
+    sourceUpdatedAt,
+  };
+}
+
+export async function packetFreshnessForIntake(intakeId: string): Promise<PacketFreshness> {
+  const [pdfCandidates, latestAnswer, latestSignatureAudit] = await Promise.all([
+    prisma.generatedPdf.findMany({
+      where: { intakeId },
+      orderBy: { createdAt: "desc" },
+      select: { id: true, filePath: true, createdAt: true },
+      take: 5,
+    }),
+    prisma.intakeAnswer.findFirst({
+      where: { intakeId, key: { notIn: IGNORED_ANSWER_KEYS } },
+      orderBy: { updatedAt: "desc" },
+      select: { updatedAt: true },
+    }),
+    prisma.auditLog.findFirst({
+      where: { intakeId, event: "signature_captured" },
+      orderBy: { createdAt: "desc" },
+      select: { createdAt: true },
+    }),
+  ]);
+  const latestPdf = pdfCandidates.find((candidate) => fileExists(candidate.filePath)) || null;
+
+  return evaluatePacketFreshness({
+    latestPdf,
+    latestAnswerUpdatedAt: latestAnswer?.updatedAt,
+    latestSignatureUpdatedAt: latestSignatureAudit?.createdAt,
+  });
+}
+
+export function packetFreshnessIgnoredAnswerKeys(): string[] {
+  return [...IGNORED_ANSWER_KEYS];
+}

@@ -7,11 +7,38 @@ export const loginSchema = z.object({
   password: z.string().min(1),
 });
 
+function validCalendarDate(value: string): Date | null {
+  const trimmed = value.trim();
+  const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(trimmed);
+  const us = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(trimmed);
+  const year = Number(iso?.[1] || us?.[3]);
+  const month = Number(iso?.[2] || us?.[1]);
+  const day = Number(iso?.[3] || us?.[2]);
+  if (!year || !month || !day) return null;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year
+    && date.getUTCMonth() === month - 1
+    && date.getUTCDate() === day
+    ? date
+    : null;
+}
+
+const optionalPhone = z.string().trim().optional().default("").refine(
+  (value) => !value || /^\d{10,15}$/.test(value.replace(/\D/g, "")),
+  "Enter a valid phone number with at least 10 digits",
+);
+
 export const newIntakeSchema = z.object({
-  fullName: z.string().min(1, "Client full name is required"),
-  dob: z.string().min(1, "DOB is required"),
-  midNumber: z.string().optional().default(""),
-  recordNumber: z.string().min(1, "Record # is required"),
+  fullName: z.string().trim().min(2, "Enter the client's full name"),
+  dob: z.string().trim().min(1, "DOB is required").refine((value) => {
+    const date = validCalendarDate(value);
+    if (!date) return false;
+    const today = new Date();
+    const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    return date.getTime() <= todayUtc;
+  }, "Enter a valid date of birth that is not in the future"),
+  midNumber: z.string().trim().optional().default(""),
+  recordNumber: z.string().trim().min(1, "Record # is required"),
   intakeDate: z.string().optional().default(""),
   location: z.string().optional().default(""),
   providerChoicePlan: z.string().optional().default(""),
@@ -21,11 +48,12 @@ export const newIntakeSchema = z.object({
   addressState: z.string().optional().default(""),
   livingArrangement: z.string().optional().default(""),
   email: z.string().email().optional().or(z.literal("")),
-  phone: z.string().optional().default(""),
+  phone: optionalPhone,
   guardianName: z.string().optional().default(""),
   guardianEmail: z.string().email().optional().or(z.literal("")),
-  guardianPhone: z.string().optional().default(""),
+  guardianPhone: optionalPhone,
   expectCca: z.boolean().optional(),
+  autoEmailProviderPacket: z.boolean().optional(),
 });
 
 export const batchIntakesSchema = z.object({
