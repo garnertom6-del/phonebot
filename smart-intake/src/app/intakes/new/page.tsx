@@ -1,10 +1,12 @@
 "use client";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
+import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -42,6 +44,7 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 }
 
 export default function NewIntake() {
+  const router = useRouter();
   const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
   const [recordPanel, setRecordPanel] = useState("");
   const [referralSource, setReferralSource] = useState("");
@@ -56,8 +59,9 @@ export default function NewIntake() {
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
-  const [sendStatusKind, setSendStatusKind] = useState<"success" | "error" | "info">("info");
+  const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
   const [sendBusy, setSendBusy] = useState(false);
+  const [redirecting, setRedirecting] = useState(false);
   const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("notes");
   const [helperNotes, setHelperNotes] = useState("");
   const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
@@ -209,8 +213,17 @@ export default function NewIntake() {
           sent.length ? `Delivery result: ${sent.join("; ")}` : "",
           failed.length ? `Not accepted: ${failed.join("; ")}` : "",
         ].filter(Boolean);
-        setSendStatusKind(failed.length ? "info" : "success");
-        setSendStatus(parts.length ? parts.join(" | ") : "No delivery result was returned.");
+        const flash = deliveryDashboardFlash(sent, failed);
+        if (flash) {
+          setSendStatusKind(flash.kind);
+          setSendStatus(`${parts.join(" | ")} Returning to the dashboard...`);
+          storeDashboardFlash(flash);
+          setRedirecting(true);
+          window.setTimeout(() => router.replace("/dashboard"), 700);
+        } else {
+          setSendStatusKind("error");
+          setSendStatus(parts.length ? parts.join(" | ") : "No message was accepted. Check the saved phone number or email and try again.");
+        }
       } else {
         setSendStatusKind("error");
         setSendStatus(`Send failed: ${body.error || body.failed?.join("; ") || res.status}`);
@@ -258,10 +271,10 @@ export default function NewIntake() {
           <div className="mt-4 grid gap-2 sm:grid-cols-2">
             <button
               className="btn-primary"
-              disabled={sendBusy || !hasContact}
+              disabled={sendBusy || redirecting || !hasContact}
               onClick={() => { void sendWithApp(); }}
             >
-              {sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
+              {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
             </button>
             <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
               Open intake &amp; staff setup
@@ -317,6 +330,7 @@ export default function NewIntake() {
           {sendStatus && (
             <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
               sendStatusKind === "success" ? "bg-emerald-50 text-emerald-700" :
+              sendStatusKind === "warning" ? "bg-amber-50 text-amber-800" :
               sendStatusKind === "error" ? "bg-red-50 text-red-700" :
               "bg-brand-light text-brand"
             }`}

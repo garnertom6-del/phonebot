@@ -33,6 +33,7 @@ import {
 import { intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
 import { clientDeliveryContacts } from "../src/lib/clientDeliveryContacts";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
+import { deliveryDashboardFlash } from "../src/lib/dashboardFlash";
 import {
   GET as getClientIntakeByToken,
   POST as submitClientIntakeByToken,
@@ -80,6 +81,12 @@ async function main() {
   assert.equal(correctedRecord.email, "sheryl@example.com");
   assert(!clientDetailsSchema.safeParse({ ...correctedClient, phone: "123" }).success);
   ok("dashboard client corrections stay in sync with packet answers");
+
+  assert.equal(deliveryDashboardFlash([], ["sms failed"]), null);
+  assert.equal(deliveryDashboardFlash(["email accepted"], [])?.kind, "success");
+  assert.equal(deliveryDashboardFlash(["email accepted"], ["sms failed"])?.kind, "warning");
+  assert(!deliveryDashboardFlash(["email accepted"], ["sms failed"])?.message.includes("email accepted"));
+  ok("successful delivery returns to the dashboard without storing contact details");
 
   assert(needsStaffAction("SIGNED"), "signed intakes must remain in the staff action queue");
   assert(needsStaffAction("SUBMITTED"), "submitted intakes must remain in the staff action queue");

@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
+import { consumeDashboardFlash } from "@/lib/dashboardFlash";
 
 interface Row {
   id: string;
@@ -207,7 +208,17 @@ export default function Dashboard() {
     }
   }, [router]);
 
-  useEffect(() => { load(tab); }, [load, tab]);
+  useEffect(() => {
+    let active = true;
+    void load(tab).then(() => {
+      if (!active) return;
+      const flash = consumeDashboardFlash();
+      if (!flash) return;
+      setNoticeKind(flash.kind);
+      setNote(flash.message);
+    });
+    return () => { active = false; };
+  }, [load, tab]);
 
   function showNote(message: string, timeout = 4500, kind: "success" | "warning" | "error" = "success") {
     setNoticeKind(kind);
