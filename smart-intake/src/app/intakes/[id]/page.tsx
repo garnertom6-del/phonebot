@@ -29,6 +29,19 @@ type PreflightFinding = {
   overridden?: boolean;
   pendingRecheck?: boolean;
   resolved?: "corrected" | "overridden";
+  correctionOptions?: Array<{
+    id: string;
+    label: string;
+    detail: string;
+    updates: Array<{
+      key: string;
+      fieldLabel: string;
+      sourceKey: string;
+      sourceLabel: string;
+      expectedCurrent: string;
+      proposedValue: string;
+    }>;
+  }>;
 };
 
 type PreflightResult = {
@@ -520,6 +533,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   async function runPreflight() {
     setPreflightBusy(true);
     setPreflight(null);
+    setQuickFixChoice({});
     setNote("Running intake preflight review...");
     try {
       const r = await fetch(`/api/intakes/${params.id}/preflight`, { method: "POST" });
@@ -572,18 +586,28 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   }
 
   async function applyQuickFix(finding: PreflightFinding) {
-    if (quickFixChoice[finding.key] !== "record") {
-      setNote("Choose “Use the intake record value” before applying this quick fix.");
+    const option = finding.correctionOptions?.find((item) => item.id === quickFixChoice[finding.key]);
+    if (!option) {
+      setNote("Choose a suggested correction before applying it.");
       return;
     }
-    const answerKey = finding.key === "identity_name" ? "client_full_name" : "dob";
-    const answerValue = finding.key === "identity_name" ? i.client.fullName : i.client.dob;
     setQuickFixBusyKey(finding.key);
     try {
-      const r = await fetch(`/api/intakes/${i.id}`, {
-        method: "PATCH",
+      const r = await fetch(`/api/intakes/${i.id}/preflight/correct`, {
+        method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: { ...(d?.answers || {}), [answerKey]: answerValue }, status: "NEEDS_REVIEW" }),
+        body: JSON.stringify({
+          findingKey: finding.key,
+          title: finding.title,
+          optionId: option.id,
+          optionLabel: option.label,
+          updates: option.updates.map((update) => ({
+            key: update.key,
+            sourceKey: update.sourceKey,
+            expectedCurrent: update.expectedCurrent,
+            proposedValue: update.proposedValue,
+          })),
+        }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
@@ -598,7 +622,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       } : null;
       setPreflight(next);
       if (next) sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
-      setNote("Correction saved. The preflight checklist is still open; fix the next issue, then rerun the review when you are ready.");
+      setQuickFixChoice((current) => ({ ...current, [finding.key]: "" }));
+      setNote(`Correction applied: ${option.label}. Rerun preflight after reviewing the remaining items.`);
       load();
     } catch {
       setNote("The correction could not be saved. Check the connection and try again.");
@@ -996,22 +1021,57 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                       </button>
                     )}
                   </div>
-                  {(finding.key === "identity_name" || finding.key === "identity_dob") && !finding.overridden && (
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <select className="input max-w-sm py-1.5 text-sm" value={quickFixChoice[finding.key] || ""}
-                        onChange={(event) => setQuickFixChoice((current) => ({ ...current, [finding.key]: event.target.value }))}>
+                  {!!finding.correctionOptions?.length && !finding.overridden && !finding.resolved && (
+                    <div className="mt-3 border-t border-current/15 pt-3">
+                      <label className="block text-xs font-bold uppercase tracking-wide" htmlFor={`preflight-correction-${index}`}>
+                        Choose a suggested correction
+                      </label>
+                      <select
+                        id={`preflight-correction-${index}`}
+                        className="input mt-1 max-w-2xl py-2 text-sm"
+                        value={quickFixChoice[finding.key] || ""}
+                        onChange={(event) => setQuickFixChoice((current) => ({ ...current, [finding.key]: event.target.value }))}
+                      >
                         <option value="">Choose a correction option</option>
-                        <option value="record">Use the intake record value</option>
-                        <option value="manual">Open the form and review manually</option>
+                        {finding.correctionOptions.map((option) => (
+                          <option key={option.id} value={option.id}>{option.label}</option>
+                        ))}
                       </select>
-                      {quickFixChoice[finding.key] === "record" && (
-                        <button className="btn-secondary px-3 py-1.5 text-sm disabled:opacity-50" type="button"
-                          disabled={quickFixBusyKey === finding.key} onClick={() => { void applyQuickFix(finding); }}>
-                          {quickFixBusyKey === finding.key ? "Applying..." : "Apply correction"}
-                        </button>
-                      )}
-                      <span className="text-xs text-slate-500">Identity changes should be confirmed by staff.</span>
+                      {(() => {
+                        const option = finding.correctionOptions?.find((item) => item.id === quickFixChoice[finding.key]);
+                        if (!option) return null;
+                        return (
+                          <div className="mt-3">
+                            <p className="text-sm font-semibold">{option.detail}</p>
+                            <ul className="mt-2 space-y-1 text-xs">
+                              {option.updates.map((update) => (
+                                <li key={update.key}>
+                                  <span className="font-bold">{update.fieldLabel}:</span>{" "}
+                                  <span>{update.expectedCurrent || "Blank"}</span>{" → "}
+                                  <span className="font-semibold">{update.proposedValue || "Clear this field"}</span>
+                                </li>
+                              ))}
+                            </ul>
+                            <button
+                              className="btn-secondary mt-3 px-3 py-2 text-sm disabled:opacity-50"
+                              type="button"
+                              disabled={quickFixBusyKey === finding.key}
+                              onClick={() => { void applyQuickFix(finding); }}
+                            >
+                              {quickFixBusyKey === finding.key ? "Applying..." : "Apply selected correction"}
+                            </button>
+                            <p className="mt-2 text-xs opacity-80">
+                              This correction only reuses values already recorded in the intake or client record. Staff must confirm it before applying.
+                            </p>
+                          </div>
+                        );
+                      })()}
                     </div>
+                  )}
+                  {!finding.correctionOptions?.length && !finding.overridden && !finding.resolved && finding.severity !== "info" && (
+                    <p className="mt-3 border-t border-current/15 pt-3 text-xs font-semibold opacity-80">
+                      No safe automatic correction is available because this item needs a confirmed answer. Use the linked field above to enter it.
+                    </p>
                   )}
                 </div>
               ))}

@@ -35,6 +35,11 @@ import { clientDeliveryContacts } from "../src/lib/clientDeliveryContacts";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
 import { deliveryDashboardFlash } from "../src/lib/dashboardFlash";
 import {
+  buildRulePreflight,
+  groundedCorrectionOptionsFromAi,
+  mergePreflightFindings,
+} from "../src/lib/intakePreflight";
+import {
   GET as getClientIntakeByToken,
   POST as submitClientIntakeByToken,
 } from "../src/app/api/intake/[token]/route";
@@ -61,6 +66,108 @@ async function main() {
   const ok = (name: string) => { console.log(`✓ ${name}`); passed++; };
 
   ok("presenting problem stays out of Axis IV");
+
+  const preflightInput = {
+    answers: {
+      client_full_name: "Test Client",
+      dob: "1990-01-01",
+      intake_date: "2026-07-26",
+      screening_date: "2026-07-25",
+      initial_assessment_date: "2026-07-24",
+      cca_assessment_date: "2026-07-20",
+    },
+    client: { fullName: "Test Client", dob: "1991-02-02" },
+    missingRequired: [],
+    missingOptional: [],
+    hasClientSignature: true,
+    hasCca: true,
+    expectCca: true,
+  };
+  const rulePreflight = buildRulePreflight(preflightInput);
+  const dobFinding = rulePreflight.find((finding) => finding.key === "identity_dob");
+  assert.equal(dobFinding?.correctionOptions?.[0]?.updates[0]?.sourceKey, "@client.dob");
+  assert.equal(dobFinding?.correctionOptions?.[0]?.updates[0]?.proposedValue, "1991-02-02");
+  const dateFinding = rulePreflight.find((finding) => finding.key === "assessment_dates");
+  assert.deepEqual(
+    dateFinding?.correctionOptions?.[0]?.updates.map((update) => [update.key, update.sourceKey]),
+    [
+      ["screening_date", "intake_date"],
+      ["initial_assessment_date", "intake_date"],
+    ],
+  );
+  ok("rule preflight corrections are grounded in intake-record values");
+
+  const axisAnswers = {
+    c_axis1: "",
+    c_axis2: "Major Depressive Disorder (F33.1)",
+    consent_hipaa: "Yes",
+  };
+  const groundedAxisOptions = groundedCorrectionOptionsFromAi([{
+    id: "move-axis",
+    label: "Move the recorded diagnosis to Axis I",
+    detail: "Move the existing Axis II value to Axis I and clear Axis II.",
+    updates: [
+      { key: "c_axis1", sourceKey: "c_axis2" },
+      { key: "c_axis2", sourceKey: "@clear" },
+    ],
+  }], {
+    answers: axisAnswers,
+    client: { fullName: "Test Client", dob: "1991-02-02" },
+  });
+  assert.equal(groundedAxisOptions.length, 1);
+  assert.equal(groundedAxisOptions[0].updates[0].proposedValue, "Major Depressive Disorder (F33.1)");
+  assert.equal(groundedAxisOptions[0].updates[1].proposedValue, "");
+
+  const unsafeOptions = groundedCorrectionOptionsFromAi([
+    {
+      id: "invent-height",
+      label: "Fill height",
+      detail: "Use an unsupported source.",
+      updates: [{ key: "height", sourceKey: "ai_generated_height" }],
+    },
+    {
+      id: "change-consent",
+      label: "Change consent",
+      detail: "Consent fields cannot be changed by preflight.",
+      updates: [{ key: "consent_hipaa", sourceKey: "@clear" }],
+    },
+    {
+      id: "duplicate-target",
+      label: "Duplicate target",
+      detail: "A correction cannot update one field twice.",
+      updates: [
+        { key: "c_axis1", sourceKey: "c_axis2" },
+        { key: "c_axis1", sourceKey: "@clear" },
+      ],
+    },
+  ], {
+    answers: axisAnswers,
+    client: { fullName: "Test Client", dob: "1991-02-02" },
+  });
+  assert.deepEqual(unsafeOptions, []);
+  ok("AI corrections reject invented sources, protected fields, and duplicate targets");
+
+  const mergedPreflight = mergePreflightFindings(rulePreflight, [
+    {
+      key: "ai_dob_conflict",
+      severity: "error",
+      title: "Duplicate DOB conflict",
+      detail: "The AI also found the DOB mismatch.",
+      fieldKeys: ["dob"],
+      source: "ai",
+    },
+    {
+      key: "ai_guardian_email",
+      severity: "info",
+      title: "Guardian email should be reviewed",
+      detail: "This finding is not covered by the automatic identity check.",
+      fieldKeys: ["guardian_email"],
+      source: "ai",
+    },
+  ]);
+  assert(!mergedPreflight.some((finding) => finding.key === "ai_dob_conflict"));
+  assert(mergedPreflight.some((finding) => finding.key === "ai_guardian_email"));
+  ok("automatic identity checks suppress duplicate AI findings");
 
   const correctedClient = clientDetailsSchema.parse({
     fullName: "Sheryl Barber",

@@ -8,6 +8,7 @@ export type AuditEvent =
   | "provider_packet_email_sent"
   | "preflight_reviewed"
   | "preflight_overridden"
+  | "preflight_corrected"
   | "cca_rescrubbed"
   | "signature_audited"
   | "signature_reminder_sent" | "signature_reminder_failed"

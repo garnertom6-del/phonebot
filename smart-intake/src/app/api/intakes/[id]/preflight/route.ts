@@ -4,7 +4,13 @@ import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
-import { buildRulePreflight, aiPreflightConfigured, runAiPreflight, type PreflightFinding } from "@/lib/intakePreflight";
+import {
+  buildRulePreflight,
+  aiPreflightConfigured,
+  mergePreflightFindings,
+  runAiPreflight,
+  type PreflightFinding,
+} from "@/lib/intakePreflight";
 import { missingRequired, missingOptional } from "@/lib/validation";
 
 export const maxDuration = 90;
@@ -37,14 +43,15 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     hasCca: intake.uploadedDocuments.some((document) => document.docType.toUpperCase() === "CCA"),
     expectCca: intake.expectCca,
   };
-  const findings: PreflightFinding[] = buildRulePreflight(input);
+  const ruleFindings: PreflightFinding[] = buildRulePreflight(input);
+  let findings = ruleFindings;
   let aiUsed = false;
   let aiMessage = aiPreflightConfigured()
     ? "AI review completed alongside the automatic checks."
     : "Automatic checks completed. AI review is not configured on the server yet.";
   if (aiPreflightConfigured()) {
     try {
-      findings.push(...await runAiPreflight(input));
+      findings = mergePreflightFindings(ruleFindings, await runAiPreflight(input));
       aiUsed = true;
     } catch (error) {
       aiMessage = error instanceof Error ? `Automatic checks completed; AI review was unavailable: ${error.message}` : "Automatic checks completed; AI review was unavailable.";

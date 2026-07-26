@@ -5,6 +5,22 @@ import type { MissingField } from "./validation";
 
 export type PreflightSeverity = "error" | "warning" | "info";
 
+export type PreflightCorrectionUpdate = {
+  key: string;
+  fieldLabel: string;
+  sourceKey: string;
+  sourceLabel: string;
+  expectedCurrent: string;
+  proposedValue: string;
+};
+
+export type PreflightCorrectionOption = {
+  id: string;
+  label: string;
+  detail: string;
+  updates: PreflightCorrectionUpdate[];
+};
+
 export type PreflightFinding = {
   key: string;
   severity: PreflightSeverity;
@@ -13,7 +29,10 @@ export type PreflightFinding = {
   fieldKeys?: string[];
   fieldLabels?: string[];
   source: "rules" | "ai";
+  correctionOptions?: PreflightCorrectionOption[];
 };
+
+const authoritativeRuleKeys = new Set(["identity_name", "identity_dob", "assessment_dates", "active_services"]);
 
 type IntakeIdentity = { fullName: string; dob: string };
 
@@ -35,6 +54,54 @@ function clean(value: unknown): string {
 
 function unique(values: string[]): string[] {
   return [...new Set(values.filter(Boolean))];
+}
+
+function fieldLabel(key: string): string {
+  return questionByKey(key)?.label || key.replaceAll("_", " ");
+}
+
+function correctionUpdate(
+  input: Pick<RuleInput, "answers" | "client">,
+  key: string,
+  sourceKey: string,
+): PreflightCorrectionUpdate | null {
+  const expectedCurrent = clean(input.answers[key]);
+  let proposedValue = "";
+  let sourceLabel = "";
+  if (sourceKey === "@client.fullName") {
+    proposedValue = clean(input.client.fullName);
+    sourceLabel = "intake record name";
+  } else if (sourceKey === "@client.dob") {
+    proposedValue = clean(input.client.dob);
+    sourceLabel = "intake record date of birth";
+  } else if (sourceKey === "@clear") {
+    sourceLabel = "clear this field";
+  } else {
+    proposedValue = clean(input.answers[sourceKey]);
+    sourceLabel = fieldLabel(sourceKey);
+  }
+  if (proposedValue === expectedCurrent || (sourceKey !== "@clear" && !proposedValue)) return null;
+  return {
+    key,
+    fieldLabel: fieldLabel(key),
+    sourceKey,
+    sourceLabel,
+    expectedCurrent,
+    proposedValue,
+  };
+}
+
+function correctionOption(
+  input: Pick<RuleInput, "answers" | "client">,
+  id: string,
+  label: string,
+  detail: string,
+  updates: Array<{ key: string; sourceKey: string }>,
+): PreflightCorrectionOption | null {
+  const resolved = updates
+    .map((update) => correctionUpdate(input, update.key, update.sourceKey))
+    .filter((update): update is PreflightCorrectionUpdate => !!update);
+  return resolved.length ? { id, label, detail, updates: resolved } : null;
 }
 
 function missingFinding(key: string, fields: MissingField[], severity: PreflightSeverity, title: string): PreflightFinding | null {
@@ -85,6 +152,13 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
 
   const answerName = clean(input.answers.client_full_name);
   if (answerName && input.client.fullName && answerName.toLowerCase() !== input.client.fullName.toLowerCase()) {
+    const useRecordName = correctionOption(
+      input,
+      "use_intake_record_name",
+      `Use intake record name: ${input.client.fullName}`,
+      "Replace the packet answer with the name already stored on the intake record. Confirm the record is correct before applying.",
+      [{ key: "client_full_name", sourceKey: "@client.fullName" }],
+    );
     findings.push({
       key: "identity_name",
       severity: "error",
@@ -92,11 +166,19 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
       detail: `The answer says “${answerName},” while the intake record says “${input.client.fullName}.” Review the identity before generating the packet.`,
       fieldKeys: ["client_full_name"],
       source: "rules",
+      correctionOptions: useRecordName ? [useRecordName] : [],
     });
   }
 
   const answerDob = clean(input.answers.dob);
   if (answerDob && input.client.dob && answerDob !== input.client.dob) {
+    const useRecordDob = correctionOption(
+      input,
+      "use_intake_record_dob",
+      `Use intake record DOB: ${input.client.dob}`,
+      "Replace the packet answer with the date of birth already stored on the intake record. Confirm the record is correct before applying.",
+      [{ key: "dob", sourceKey: "@client.dob" }],
+    );
     findings.push({
       key: "identity_dob",
       severity: "error",
@@ -104,12 +186,26 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
       detail: "The DOB in the answers differs from the DOB on the client record. Review the identity fields before proceeding.",
       fieldKeys: ["dob"],
       source: "rules",
+      correctionOptions: useRecordDob ? [useRecordDob] : [],
     });
   }
 
   const dateKeys = ["intake_date", "screening_date", "initial_assessment_date", "cca_assessment_date"];
   const dateValues = unique(dateKeys.map((key) => clean(input.answers[key])));
   if (dateValues.length > 1) {
+    const intakeDate = clean(input.answers.intake_date);
+    const alignIntakeDates = intakeDate
+      ? correctionOption(
+        input,
+        "align_screening_and_initial_assessment_to_intake",
+        `Use intake date (${intakeDate}) for screening and initial assessment`,
+        "Apply only when screening and the initial assessment actually occurred on the intake date. The CCA assessment date remains unchanged.",
+        [
+          { key: "screening_date", sourceKey: "intake_date" },
+          { key: "initial_assessment_date", sourceKey: "intake_date" },
+        ],
+      )
+      : null;
     findings.push({
       key: "assessment_dates",
       severity: "warning",
@@ -117,6 +213,7 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
       detail: "The intake, screening, assessment, or CCA dates are not all the same. Confirm that each date reflects the actual event.",
       fieldKeys: dateKeys.filter((key) => clean(input.answers[key])),
       source: "rules",
+      correctionOptions: alignIntakeDates ? [alignIntakeDates] : [],
     });
   }
 
@@ -174,8 +271,33 @@ function aiSchema() {
             title: { type: "string" },
             detail: { type: "string" },
             fieldKeys: { type: "array", items: { type: "string" } },
+            correctionOptions: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  label: { type: "string" },
+                  detail: { type: "string" },
+                  updates: {
+                    type: "array",
+                    items: {
+                      type: "object",
+                      properties: {
+                        key: { type: "string" },
+                        sourceKey: { type: "string" },
+                      },
+                      required: ["key", "sourceKey"],
+                      additionalProperties: false,
+                    },
+                  },
+                },
+                required: ["id", "label", "detail", "updates"],
+                additionalProperties: false,
+              },
+            },
           },
-          required: ["severity", "key", "title", "detail", "fieldKeys"],
+          required: ["severity", "key", "title", "detail", "fieldKeys", "correctionOptions"],
           additionalProperties: false,
         },
       },
@@ -183,6 +305,73 @@ function aiSchema() {
     required: ["findings"],
     additionalProperties: false,
   } as const;
+}
+
+function correctionTargetAllowed(key: string, answers: Answers): boolean {
+  if (!key || (!questionByKey(key) && !(key in answers))) return false;
+  return !(
+    /^consent_/i.test(key)
+    || /_agreed$/i.test(key)
+    || /signature|(^|_)sig($|_)/i.test(key)
+  );
+}
+
+export function groundedCorrectionOptionsFromAi(
+  rawOptions: unknown,
+  input: Pick<RuleInput, "answers" | "client">,
+): PreflightCorrectionOption[] {
+  if (!Array.isArray(rawOptions)) return [];
+  const options: PreflightCorrectionOption[] = [];
+  for (const raw of rawOptions.slice(0, 3)) {
+    if (!raw || typeof raw !== "object") continue;
+    const item = raw as Record<string, unknown>;
+    const id = clean(item.id).toLowerCase().replace(/[^a-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").slice(0, 70);
+    const label = clean(item.label).slice(0, 140);
+    const detail = clean(item.detail).slice(0, 280);
+    if (!id || !label || !detail || !Array.isArray(item.updates) || !item.updates.length) continue;
+    const updateSpecs: Array<{ key: string; sourceKey: string }> = [];
+    const targetKeys = new Set<string>();
+    let invalid = false;
+    for (const rawUpdate of item.updates.slice(0, 8)) {
+      if (!rawUpdate || typeof rawUpdate !== "object") {
+        invalid = true;
+        break;
+      }
+      const update = rawUpdate as Record<string, unknown>;
+      const key = clean(update.key);
+      const sourceKey = clean(update.sourceKey);
+      const specialSource = sourceKey === "@client.fullName" || sourceKey === "@client.dob" || sourceKey === "@clear";
+      if (
+        !correctionTargetAllowed(key, input.answers)
+        || targetKeys.has(key)
+        || (!specialSource && (!(sourceKey in input.answers) || !clean(input.answers[sourceKey])))
+      ) {
+        invalid = true;
+        break;
+      }
+      targetKeys.add(key);
+      updateSpecs.push({ key, sourceKey });
+    }
+    if (invalid) continue;
+    const option = correctionOption(input, id, label, detail, updateSpecs);
+    if (option) options.push(option);
+  }
+  return options;
+}
+
+export function mergePreflightFindings(
+  ruleFindings: PreflightFinding[],
+  aiFindings: PreflightFinding[],
+): PreflightFinding[] {
+  const authoritativeFields = new Set(
+    ruleFindings
+      .filter((finding) => authoritativeRuleKeys.has(finding.key))
+      .flatMap((finding) => finding.fieldKeys || []),
+  );
+  return [
+    ...ruleFindings,
+    ...aiFindings.filter((finding) => !(finding.fieldKeys || []).some((key) => authoritativeFields.has(key))),
+  ];
 }
 
 export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding[]> {
@@ -198,7 +387,10 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
       "Do not flag transition/discharge fields (dis_*), future treatment-plan signature rows (otp_*), or other information that is only completed when a client leaves the program. " +
       "Return only concerns supported by the supplied data. If a field is not present, say it is missing or leave it to the rule checks. " +
       "Give each concern a short stable key using lowercase letters and underscores so staff can override that exact concern. " +
-      "Every finding must be a short, actionable suggestion for a human reviewer. Keep each detail under 280 characters.",
+      "Every finding must be a short, actionable suggestion for a human reviewer. Keep each detail under 280 characters. " +
+      "For correctionOptions, suggest only changes that copy or move an exact value already present in another answer, copy @client.fullName or @client.dob, or clear a field with @clear. " +
+      "Each update must contain the target key and one sourceKey. Never type a proposed value yourself. Never invent, infer, calculate, reformat, or supply a new diagnosis, date, contact, height, weight, treatment, provider, or clinical fact. " +
+      "Use an empty correctionOptions array when no grounded correction is possible. Staff must explicitly choose and apply every option.",
     messages: [{
       role: "user",
       content:
@@ -232,6 +424,7 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
     const fieldKeys = Array.isArray(item.fieldKeys)
       ? item.fieldKeys.map(String).filter((key) => knownKeys.has(key)).slice(0, 8)
       : [];
-    return [{ key: `ai_${rawKey}`, severity, title, detail, fieldKeys, source: "ai" }];
+    const correctionOptions = groundedCorrectionOptionsFromAi(item.correctionOptions, input);
+    return [{ key: `ai_${rawKey}`, severity, title, detail, fieldKeys, source: "ai", correctionOptions }];
   });
 }
