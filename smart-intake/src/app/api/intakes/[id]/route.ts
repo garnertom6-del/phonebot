@@ -4,7 +4,7 @@ import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
-import { answersSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
+import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
@@ -12,6 +12,7 @@ import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { parseCcaReview } from "@/lib/ccaReview";
 import { completionReadinessForIntake } from "@/lib/completionReadiness";
 import { clientLinkRenewalData } from "@/lib/tokens";
+import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "@/lib/clientDetails";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -60,6 +61,35 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   let completionDelivery: Record<string, unknown> | null = null;
+  if (body.clientDetails) {
+    const parsed = clientDetailsSchema.safeParse(body.clientDetails);
+    if (!parsed.success) {
+      const message = parsed.error.issues[0]?.message || "Check the client details and try again.";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+    const answerPatch = clientDetailsAnswerPatch(parsed.data);
+    await prisma.$transaction([
+      prisma.client.update({
+        where: { id: intake.clientId },
+        data: clientDetailsRecordPatch(parsed.data),
+      }),
+      ...Object.entries(answerPatch).map(([key, value]) => prisma.intakeAnswer.upsert({
+        where: { intakeId_key: { intakeId: intake.id, key } },
+        create: { intakeId: intake.id, key, value: JSON.stringify(value) },
+        update: { value: JSON.stringify(value) },
+      })),
+      prisma.intake.update({
+        where: { id: intake.id },
+        data: { lastActivityAt: new Date() },
+      }),
+    ]);
+    await audit("answers_updated", {
+      providerId: provider!.id,
+      intakeId: intake.id,
+      userId: user!.id,
+      detail: "client details updated from dashboard",
+    });
+  }
   if (body.answers) {
     // Older intakes may contain JSON nulls for untouched fields. Treat those
     // as blanks while keeping the strict value validation for real answers.

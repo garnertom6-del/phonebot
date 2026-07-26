@@ -49,6 +49,18 @@ interface Row {
   tokenExpiresAt: string;
 }
 
+interface ClientDetailsDraft {
+  fullName: string;
+  dob: string;
+  midNumber: string;
+  recordNumber: string;
+  phone: string;
+  email: string;
+  guardianName: string;
+  guardianPhone: string;
+  guardianEmail: string;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   NOT_STARTED: "bg-slate-200 text-slate-700",
   IN_PROGRESS: "bg-amber-100 text-amber-800",
@@ -95,6 +107,15 @@ function displayDate(value?: string): string {
   if (!value) return "-";
   const match = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
   return match ? `${match[2]}/${match[3]}/${match[1]}` : value;
+}
+
+function dateInputValue(value?: string): string {
+  if (!value) return "";
+  const iso = /^(\d{4})-(\d{2})-(\d{2})/.exec(value);
+  if (iso) return `${iso[1]}-${iso[2]}-${iso[3]}`;
+  const us = /^(\d{1,2})[/-](\d{1,2})[/-](\d{4})$/.exec(value);
+  if (!us) return "";
+  return `${us[3]}-${us[1].padStart(2, "0")}-${us[2].padStart(2, "0")}`;
 }
 
 function displayDateTime(value?: string | null): string {
@@ -155,6 +176,9 @@ export default function Dashboard() {
   const [isMaster, setIsMaster] = useState(false);
   const [canManageProvider, setCanManageProvider] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [editingClientId, setEditingClientId] = useState<string | null>(null);
+  const [clientDraft, setClientDraft] = useState<ClientDetailsDraft | null>(null);
+  const [clientEditError, setClientEditError] = useState("");
   const busyRowIdsRef = useRef(new Set<string>());
   const [busyRowIds, setBusyRowIds] = useState<Set<string>>(() => new Set());
 
@@ -189,6 +213,51 @@ export default function Dashboard() {
     setNoticeKind(kind);
     setNote(message);
     window.setTimeout(() => setNote(""), timeout);
+  }
+
+  function beginClientEdit(row: Row) {
+    setEditingClientId(row.id);
+    setClientEditError("");
+    setClientDraft({
+      fullName: row.client.fullName || "",
+      dob: dateInputValue(row.client.dob),
+      midNumber: row.client.midNumber || "",
+      recordNumber: row.client.recordNumber || "",
+      phone: row.client.phone || "",
+      email: row.client.email || "",
+      guardianName: row.client.guardianName || "",
+      guardianPhone: row.client.guardianPhone || "",
+      guardianEmail: row.client.guardianEmail || "",
+    });
+  }
+
+  function closeClientEdit() {
+    setEditingClientId(null);
+    setClientDraft(null);
+    setClientEditError("");
+  }
+
+  function updateClientDraft(field: keyof ClientDetailsDraft, value: string) {
+    setClientDraft((current) => current ? { ...current, [field]: value } : current);
+  }
+
+  async function saveClientDetails(row: Row) {
+    if (!clientDraft) return;
+    setClientEditError("");
+    const response = await fetch(`/api/intakes/${row.id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ clientDetails: clientDraft }),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      setClientEditError(body.error || "The client details could not be saved.");
+      return;
+    }
+    const updatedName = clientDraft.fullName;
+    closeClientEdit();
+    showNote(`${updatedName}'s details were updated. Regenerate the packet if one was already created.`, 6500);
+    await load(tab, true);
   }
 
   async function runRowAction(rowId: string, action: () => Promise<void>) {
@@ -336,13 +405,19 @@ export default function Dashboard() {
   }
 
   async function setArchived(row: Row, archived: boolean) {
+    if (archived) {
+      const confirmed = window.confirm(
+        `Archive ${row.client.fullName}? This removes the intake from the active dashboard but preserves the healthcare record. You can restore it from the Archived tab.`,
+      );
+      if (!confirmed) return;
+    }
     const response = await fetch(`/api/intakes/${row.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ archive: archived }),
     });
     if (response.ok) {
-      showNote(`${row.client.fullName} ${archived ? "archived" : "restored"}.`);
+      showNote(`${row.client.fullName} ${archived ? "was removed from the active dashboard and archived" : "was restored"}.`);
       await load(tab, true);
     } else {
       const body = await response.json().catch(() => ({}));
@@ -725,7 +800,17 @@ export default function Dashboard() {
 
               <div className="mt-4 flex flex-wrap gap-2 [&>a]:min-h-11 [&>button]:min-h-11">
                 <Link href={`/intakes/${row.id}`} className="btn-primary px-3 py-2 text-sm">Open intake</Link>
-                <Link href={`/intakes/${row.id}/review`} className="btn-ghost px-3 py-2 text-sm">Review / edit</Link>
+                <button
+                  type="button"
+                  className="btn-ghost px-3 py-2 text-sm"
+                  aria-expanded={editingClientId === row.id}
+                  aria-controls={`client-details-${row.id}`}
+                  disabled={rowBusy}
+                  onClick={() => editingClientId === row.id ? closeClientEdit() : beginClientEdit(row)}
+                >
+                  {editingClientId === row.id ? "Close client details" : "Edit client details"}
+                </button>
+                <Link href={`/intakes/${row.id}/review`} className="btn-ghost px-3 py-2 text-sm">Review packet answers</Link>
                 {!row.archived && row.status !== "COMPLETED" && row.completionReady && (
                   <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                     onClick={() => void runRowAction(row.id, () => markCompleted(row))}>
@@ -802,11 +887,142 @@ export default function Dashboard() {
                     )}
                     <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                       onClick={() => void runRowAction(row.id, () => setArchived(row, tab !== "archived"))}>
-                      {tab === "archived" ? "Restore" : "Archive"}
+                      {tab === "archived" ? "Restore to active dashboard" : "Archive / remove from dashboard"}
                     </button>
+                    {tab !== "archived" && (
+                      <p className="w-full text-xs leading-5 text-slate-500">
+                        Archiving hides this intake without permanently deleting the healthcare record.
+                      </p>
+                    )}
                   </div>
                 </details>
               </div>
+
+              {editingClientId === row.id && clientDraft && (
+                <form
+                  id={`client-details-${row.id}`}
+                  className="mt-5 border-t border-slate-200 pt-5"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void runRowAction(row.id, () => saveClientDetails(row));
+                  }}
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <h3 className="text-lg font-bold text-slate-900">Edit client details</h3>
+                      <p className="mt-1 text-sm text-slate-500">
+                        These corrections update the dashboard and the matching answers used in the intake packet.
+                      </p>
+                    </div>
+                    <button type="button" className="btn-ghost min-h-11 px-3 py-2 text-sm" onClick={closeClientEdit}>
+                      Cancel
+                    </button>
+                  </div>
+
+                  <div className="mt-4 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Client full name
+                      <input
+                        className="input mt-1"
+                        autoFocus
+                        required
+                        value={clientDraft.fullName}
+                        onChange={(event) => updateClientDraft("fullName", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Date of birth
+                      <input
+                        className="input mt-1"
+                        type="date"
+                        required
+                        value={clientDraft.dob}
+                        onChange={(event) => updateClientDraft("dob", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Record #
+                      <input
+                        className="input mt-1"
+                        required
+                        value={clientDraft.recordNumber}
+                        onChange={(event) => updateClientDraft("recordNumber", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      MID #
+                      <input
+                        className="input mt-1"
+                        value={clientDraft.midNumber}
+                        onChange={(event) => updateClientDraft("midNumber", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Client phone
+                      <input
+                        className="input mt-1"
+                        type="tel"
+                        inputMode="tel"
+                        value={clientDraft.phone}
+                        onChange={(event) => updateClientDraft("phone", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Client email
+                      <input
+                        className="input mt-1"
+                        type="email"
+                        inputMode="email"
+                        value={clientDraft.email}
+                        onChange={(event) => updateClientDraft("email", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Guardian name
+                      <input
+                        className="input mt-1"
+                        value={clientDraft.guardianName}
+                        onChange={(event) => updateClientDraft("guardianName", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Guardian phone
+                      <input
+                        className="input mt-1"
+                        type="tel"
+                        inputMode="tel"
+                        value={clientDraft.guardianPhone}
+                        onChange={(event) => updateClientDraft("guardianPhone", event.target.value)}
+                      />
+                    </label>
+                    <label className="block text-sm font-semibold text-slate-700">
+                      Guardian email
+                      <input
+                        className="input mt-1"
+                        type="email"
+                        inputMode="email"
+                        value={clientDraft.guardianEmail}
+                        onChange={(event) => updateClientDraft("guardianEmail", event.target.value)}
+                      />
+                    </label>
+                  </div>
+
+                  {clientEditError && (
+                    <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" role="alert">
+                      {clientEditError}
+                    </p>
+                  )}
+
+                  <div className="mt-4 flex flex-wrap gap-2">
+                    <button className="btn-primary min-h-11 px-4 py-2 text-sm" type="submit" disabled={rowBusy}>
+                      {rowBusy ? "Saving..." : "Save client details"}
+                    </button>
+                    <button className="btn-ghost min-h-11 px-4 py-2 text-sm" type="button" onClick={closeClientEdit}>
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              )}
             </article>
           );
         })}

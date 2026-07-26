@@ -19,7 +19,7 @@ import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
-import { missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
+import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
 import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardWorkflow";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
@@ -32,6 +32,7 @@ import {
 } from "../src/lib/clientLinkState";
 import { intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
 import { clientDeliveryContacts } from "../src/lib/clientDeliveryContacts";
+import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
 import {
   GET as getClientIntakeByToken,
   POST as submitClientIntakeByToken,
@@ -59,6 +60,26 @@ async function main() {
   const ok = (name: string) => { console.log(`✓ ${name}`); passed++; };
 
   ok("presenting problem stays out of Axis IV");
+
+  const correctedClient = clientDetailsSchema.parse({
+    fullName: "Sheryl Barber",
+    dob: "1962-03-03",
+    midNumber: "9469188590",
+    recordNumber: "CC-76976",
+    email: "sheryl@example.com",
+    phone: "(704) 576-2541",
+    guardianName: "",
+    guardianEmail: "",
+    guardianPhone: "",
+  });
+  const correctedAnswers = clientDetailsAnswerPatch(correctedClient);
+  const correctedRecord = clientDetailsRecordPatch(correctedClient);
+  assert.equal(correctedAnswers.client_phone_cell, "(704) 576-2541");
+  assert.equal(correctedAnswers.client_phone_home, "(704) 576-2541");
+  assert.equal(correctedRecord.guardianName, null);
+  assert.equal(correctedRecord.email, "sheryl@example.com");
+  assert(!clientDetailsSchema.safeParse({ ...correctedClient, phone: "123" }).success);
+  ok("dashboard client corrections stay in sync with packet answers");
 
   assert(needsStaffAction("SIGNED"), "signed intakes must remain in the staff action queue");
   assert(needsStaffAction("SUBMITTED"), "submitted intakes must remain in the staff action queue");

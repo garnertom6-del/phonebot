@@ -56,6 +56,18 @@ export const newIntakeSchema = z.object({
   autoEmailProviderPacket: z.boolean().optional(),
 });
 
+export const clientDetailsSchema = newIntakeSchema.pick({
+  fullName: true,
+  dob: true,
+  midNumber: true,
+  recordNumber: true,
+  email: true,
+  phone: true,
+  guardianName: true,
+  guardianEmail: true,
+  guardianPhone: true,
+});
+
 export const batchIntakesSchema = z.object({
   expectCca: z.boolean().optional(),
   generateDraftPackets: z.boolean().optional(),
