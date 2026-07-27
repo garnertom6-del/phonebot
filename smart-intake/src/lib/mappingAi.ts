@@ -15,12 +15,12 @@ function mappingAiModel(): string {
 
 function mappingAiMaxTokens(): number {
   const configured = Number(process.env.ANTHROPIC_MAPPING_MAX_TOKENS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 18000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 32000;
 }
 
 function mappingAiTimeoutMs(): number {
   const configured = Number(process.env.ANTHROPIC_MAPPING_TIMEOUT_MS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 180000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 300000;
 }
 
 const SPECIAL_SOURCES = [
@@ -146,32 +146,39 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
     const response = await client.messages.create({
       model: mappingAiModel(),
       max_tokens: mappingAiMaxTokens(),
-    system:
-      "You are a cautious PDF intake-form mapping assistant. Suggest coordinate mappings only; never claim that a suggestion is approved. " +
-      "Use only labels and blank areas visibly supported by the packet. Never invent a field that is not present or obvious. " +
-      "Coordinates use PDF points with origin at the bottom-left. A text field's rectangle must cover the blank answer line or box, not the printed label. " +
-      "A checkbox rectangle must cover the printed checkbox. A signature rectangle must cover the printed signature line. " +
-      "Return only suggestions with confidence at least 0.55. Prefer fewer accurate suggestions over guessing. Do not map consent decisions or client signatures to staff roles. " +
-      "The human reviewer will inspect every suggestion before saving.",
-    messages: [{
-      role: "user",
-      content: [
-        { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-        {
-          type: "text",
-          text:
-            "Suggest mappings for this blank provider intake packet. Use the extracted page text and coordinates below. " +
-            "Return at most 250 suggestions. Use exact source keys from the field guide. For a checkbox use source key=value when the printed option is identifiable. " +
-            "For signatures use source signature/guardian_signature/staff_signature/clinician_signature/medical_director_signature and the appropriate role.\n\n" +
-            `FIELD GUIDE:\n${fieldGuide()}\n\nPACKET LAYOUT:\n${layoutPrompt(pages)}`,
-        },
-      ],
-    }],
-    output_config: { format: { type: "json_schema", schema: suggestionSchema() } },
+      thinking: { type: "disabled" },
+      system:
+        "You are a cautious PDF intake-form mapping assistant. Suggest coordinate mappings only; never claim that a suggestion is approved. " +
+        "Use only labels and blank areas visibly supported by the packet. Never invent a field that is not present or obvious. " +
+        "Coordinates use PDF points with origin at the bottom-left. A text field's rectangle must cover the blank answer line or box, not the printed label. " +
+        "A checkbox rectangle must cover the printed checkbox. A signature rectangle must cover the printed signature line. " +
+        "Return only suggestions with confidence at least 0.55. Prefer fewer accurate suggestions over guessing. Do not map consent decisions or client signatures to staff roles. " +
+        "The human reviewer will inspect every suggestion before saving.",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
+          {
+            type: "text",
+            text:
+              "Suggest mappings for this blank provider intake packet. Use the extracted page text and coordinates below. " +
+              "Return at most 250 suggestions. Use exact source keys from the field guide. For a checkbox use source key=value when the printed option is identifiable. " +
+              "For signatures use source signature/guardian_signature/staff_signature/clinician_signature/medical_director_signature and the appropriate role.\n\n" +
+              `FIELD GUIDE:\n${fieldGuide()}\n\nPACKET LAYOUT:\n${layoutPrompt(pages)}`,
+          },
+        ],
+      }],
+      output_config: { format: { type: "json_schema", schema: suggestionSchema() } },
     }, { signal: requestController.signal });
     if (response.stop_reason === "refusal") throw new Error("AI could not review this packet.");
+    if (response.stop_reason === "max_tokens") {
+      throw new Error("AI mapping reached its output limit before returning a complete field map. Increase ANTHROPIC_MAPPING_MAX_TOKENS and try again.");
+    }
     const text = response.content.find((block) => block.type === "text");
-    if (!text || text.type !== "text") throw new Error("AI returned no mapping suggestions.");
+    if (!text || text.type !== "text") {
+      const contentTypes = response.content.map((block) => block.type).join(", ") || "none";
+      throw new Error(`AI returned no usable mapping fields (stop reason: ${response.stop_reason ?? "unknown"}; content: ${contentTypes}).`);
+    }
     const raw = JSON.parse(text.text) as unknown;
     return { suggestions: normalizeSuggestions(raw, pageSizes), pageCount: pages.length };
   } catch (error) {
