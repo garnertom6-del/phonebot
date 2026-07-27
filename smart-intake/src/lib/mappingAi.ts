@@ -15,7 +15,7 @@ function mappingAiModel(): string {
 
 function mappingAiMaxTokens(): number {
   const configured = Number(process.env.ANTHROPIC_MAPPING_MAX_TOKENS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 32000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 18000;
 }
 
 function mappingAiTimeoutMs(): number {

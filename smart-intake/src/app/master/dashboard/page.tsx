@@ -361,6 +361,7 @@ export default function MasterDashboard() {
     } catch (err) {
       const message = err instanceof Error ? err.message : "AI mapping could not be completed.";
       await load();
+      setNote("");
       setError(message);
     } finally {
       setAiMapBusy(false);
