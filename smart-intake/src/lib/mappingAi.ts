@@ -7,8 +7,10 @@ export function mappingAiConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
 }
 
+export const DEFAULT_MAPPING_AI_MODEL = "claude-sonnet-5";
+
 function mappingAiModel(): string {
-  return process.env.ANTHROPIC_MAPPING_MODEL || "claude-sonnet-4-20250514";
+  return process.env.ANTHROPIC_MAPPING_MODEL?.trim() || DEFAULT_MAPPING_AI_MODEL;
 }
 
 function mappingAiMaxTokens(): number {
