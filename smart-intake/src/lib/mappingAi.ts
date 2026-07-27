@@ -15,7 +15,7 @@ function mappingAiModel(): string {
 
 function mappingAiMaxTokens(): number {
   const configured = Number(process.env.ANTHROPIC_MAPPING_MAX_TOKENS);
-  return Number.isFinite(configured) && configured > 0 ? configured : 18000;
+  return Number.isFinite(configured) && configured > 0 ? configured : 32000;
 }
 
 function mappingAiTimeoutMs(): number {
@@ -143,7 +143,7 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
   signal?.addEventListener("abort", abortRequest, { once: true });
   if (signal?.aborted) requestController.abort();
   try {
-    const response = await client.messages.create({
+    const response = await client.messages.stream({
       model: mappingAiModel(),
       max_tokens: mappingAiMaxTokens(),
       thinking: { type: "disabled" },
@@ -169,7 +169,7 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
         ],
       }],
       output_config: { format: { type: "json_schema", schema: suggestionSchema() } },
-    }, { signal: requestController.signal });
+    }, { signal: requestController.signal }).finalMessage();
     if (response.stop_reason === "refusal") throw new Error("AI could not review this packet.");
     if (response.stop_reason === "max_tokens") {
       throw new Error("AI mapping reached its output limit before returning a complete field map. Increase ANTHROPIC_MAPPING_MAX_TOKENS and try again.");
