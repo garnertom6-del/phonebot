@@ -42,7 +42,7 @@ import {
 } from "../src/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions, validateFollowUpSubmission } from "../src/lib/clientFollowUp";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
-import { deliveryDashboardFlash } from "../src/lib/dashboardFlash";
+import { deliveryDashboardFlash, hasSmsDeliveryFailure } from "../src/lib/dashboardFlash";
 import {
   buildRulePreflight,
   groundedCorrectionOptionsFromAi,
@@ -296,6 +296,9 @@ async function main() {
   assert.equal(deliveryDashboardFlash(["email accepted"], [])?.kind, "success");
   assert.equal(deliveryDashboardFlash(["email accepted"], ["sms failed"])?.kind, "warning");
   assert(!deliveryDashboardFlash(["email accepted"], ["sms failed"])?.message.includes("email accepted"));
+  assert(hasSmsDeliveryFailure(["sms to saved contact: blocked (30034)"]));
+  assert(!hasSmsDeliveryFailure(["email to saved contact: blocked"]));
+  assert(deliveryDashboardFlash(["email accepted"], ["sms failed"])?.message.includes("Manual sending"));
   ok("successful delivery returns to the dashboard without storing contact details");
 
   assert(needsStaffAction("SIGNED"), "signed intakes must remain in the staff action queue");

@@ -25,6 +25,7 @@ import {
   clientFollowUpDeliveryContacts,
 } from "@/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
+import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
 
 type PreflightFinding = {
   key: string;
@@ -199,6 +200,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [lastSignatureAudit, setLastSignatureAudit] = useState<SignatureAudit | null>(null);
   const [signatureReminderBusy, setSignatureReminderBusy] = useState(false);
   const [clientLinkBusy, setClientLinkBusy] = useState(false);
+  const [manualSendingOpen, setManualSendingOpen] = useState(false);
+  const [smsFallbackNeeded, setSmsFallbackNeeded] = useState(false);
   const [followUpBusy, setFollowUpBusy] = useState(false);
   const [followUpRefreshBusy, setFollowUpRefreshBusy] = useState(false);
   const [followUpResult, setFollowUpResult] = useState<FollowUpDeliveryResult | null>(null);
@@ -506,6 +509,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     try {
       const r = await fetch(`/api/intakes/${i.id}/remind`, { method: "POST" });
       const b = await r.json().catch(() => ({}));
+      const failed = Array.isArray(b.failed) ? b.failed : [];
+      const smsFailed = hasSmsDeliveryFailure(failed);
+      setSmsFallbackNeeded(smsFailed);
+      if (smsFailed) setManualSendingOpen(true);
       if (r.ok && b.ok) {
         setNote(`${b.renewed ? "Expired link renewed. " : ""}${deliveryStatus(b, "No delivery result was returned.")}`);
       } else {
@@ -1050,8 +1057,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           )}
 
           {!linkFinished && (
-            <details className="mt-3 border-t border-slate-200 pt-3 [&>summary::-webkit-details-marker]:hidden">
+            <details
+              className="mt-3 border-t border-slate-200 pt-3 [&>summary::-webkit-details-marker]:hidden"
+              open={manualSendingOpen}
+              onToggle={(event) => setManualSendingOpen(event.currentTarget.open)}
+            >
               <summary className="cursor-pointer text-sm font-semibold text-brand">Manual sending &amp; message preview</summary>
+              {smsFallbackNeeded && (
+                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900" role="alert">
+                  Automatic SMS was not accepted. The secure link is still active. Use Copy SMS message or Open SMS on this computer below to send it manually.
+                </p>
+              )}
               <p className="mt-2 break-all whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{clientMessage}</p>
               <p className="mt-2 text-xs text-slate-500">This preview contains no client name, diagnosis, or intake answers.</p>
               <div className="mt-3 flex flex-wrap gap-2">

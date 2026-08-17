@@ -7,12 +7,18 @@ export interface DashboardFlash {
 
 const DASHBOARD_FLASH_KEY = "smart-intake-dashboard-flash";
 
+export function hasSmsDeliveryFailure(failed: unknown[]): boolean {
+  return failed.some((item) => typeof item === "string" && /^\s*sms\b/i.test(item));
+}
+
 export function deliveryDashboardFlash(sent: string[], failed: string[]): DashboardFlash | null {
   if (!sent.length) return null;
   if (failed.length) {
     return {
       kind: "warning",
-      message: "The secure intake link was accepted by at least one delivery channel. Another channel needs attention; open the intake to review delivery.",
+      message: hasSmsDeliveryFailure(failed)
+        ? "Email or another delivery channel was accepted, but automatic SMS was not. Open the intake and use Manual sending to copy the text or open SMS on this computer."
+        : "The secure intake link was accepted by at least one delivery channel. Another channel needs attention; open the intake to review delivery.",
     };
   }
   return {
