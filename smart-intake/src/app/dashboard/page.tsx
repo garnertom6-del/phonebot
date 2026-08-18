@@ -62,6 +62,13 @@ interface ClientDetailsDraft {
   guardianEmail: string;
 }
 
+interface ProviderPacketReadinessView {
+  ready: boolean;
+  state: string;
+  templateName?: string | null;
+  message: string;
+}
+
 const STATUS_COLORS: Record<string, string> = {
   NOT_STARTED: "bg-slate-200 text-slate-700",
   IN_PROGRESS: "bg-amber-100 text-amber-800",
@@ -176,6 +183,7 @@ export default function Dashboard() {
   const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
   const [canManageProvider, setCanManageProvider] = useState(false);
+  const [providerPacketReadiness, setProviderPacketReadiness] = useState<ProviderPacketReadinessView | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [clientDraft, setClientDraft] = useState<ClientDetailsDraft | null>(null);
@@ -198,6 +206,7 @@ export default function Dashboard() {
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
       setCanManageProvider(!!body.canManageProvider);
+      setProviderPacketReadiness(body.providerPacketReadiness || null);
       if (!preserveNotice) setNote("");
     } catch (err) {
       setNoticeKind("error");
@@ -579,6 +588,20 @@ export default function Dashboard() {
         </div>
       </section>
 
+      {providerPacketReadiness && !providerPacketReadiness.ready && (
+        <section role="alert" className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+          <div className="max-w-4xl">
+            <h2 className="font-bold">Provider packet setup required before PDF or DocuSign</h2>
+            <p className="mt-1 text-sm leading-6">{providerPacketReadiness.message}</p>
+          </div>
+          {(isMaster || canManageProvider) && (
+            <Link href={isMaster ? "/master/dashboard#provider-packet-setup" : "/provider/settings"} className="btn-ghost border-amber-400 bg-white px-3 py-2 text-sm text-amber-950">
+              Open packet setup
+            </Link>
+          )}
+        </section>
+      )}
+
       {note && (
         <div className={`mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl px-4 py-3 text-sm font-semibold ${
           noticeKind === "error"
@@ -753,9 +776,11 @@ export default function Dashboard() {
                   />
                   <StatusTile
                     label="Packet"
-                    state={row.packetState === "current" ? "Current" : row.packetState === "stale" ? "Outdated" : "Pending"}
-                    tone={row.packetState === "current" ? "good" : "warn"}
-                    detail={row.packetState === "current"
+                    state={providerPacketReadiness?.ready === false ? "Setup required" : row.packetState === "current" ? "Current" : row.packetState === "stale" ? "Outdated" : "Pending"}
+                    tone={providerPacketReadiness?.ready === false ? "warn" : row.packetState === "current" ? "good" : "warn"}
+                    detail={providerPacketReadiness?.ready === false
+                      ? "Master admin must approve and activate this provider's packet"
+                      : row.packetState === "current"
                       ? "Completed packet matches the latest answers and signatures"
                       : row.packetState === "stale"
                         ? "Answers or signatures changed; generate the packet again"
@@ -833,7 +858,13 @@ export default function Dashboard() {
                     More actions
                   </summary>
                   <div className="mt-2 flex flex-wrap gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 [&>a]:min-h-11 [&>button]:min-h-11">
-                    <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
+                    {providerPacketReadiness?.ready === false ? (
+                      <button className="btn-ghost px-3 py-2 text-sm" disabled title="Approve and activate this provider's packet before previewing a completed PDF">
+                        Preview PDF unavailable
+                      </button>
+                    ) : (
+                      <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
+                    )}
                     {!row.archived && (
                       <>
                     {!linkFinished && !linkExpired && (
@@ -881,13 +912,13 @@ export default function Dashboard() {
                     >
                       Provider packet email: {row.autoEmailProviderPacket ? "On" : "Off"}
                     </button>
-                    {row.packetState === "current" && row.status === "COMPLETED" && (
+                    {providerPacketReadiness?.ready !== false && row.packetState === "current" && row.status === "COMPLETED" && (
                       <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                         onClick={() => void runRowAction(row.id, () => sendProviderPacket(row))}>
                         Email provider now
                       </button>
                     )}
-                    {!row.docusignEnvelopeId && ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(row.status) && (
+                    {providerPacketReadiness?.ready !== false && !row.docusignEnvelopeId && ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(row.status) && (
                       <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                         title="Send only the missing signature fields through DocuSign"
                         onClick={() => void runRowAction(row.id, () => sendDocuSign(row))}>

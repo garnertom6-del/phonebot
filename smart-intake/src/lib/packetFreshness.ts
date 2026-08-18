@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { ELIGIBILITY_KEYS } from "@/lib/eligibilityState";
 import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
 import { fileExists } from "@/lib/storage";
+import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 
 export type PacketFreshnessState = "missing" | "current" | "stale";
 
@@ -26,9 +27,10 @@ export function evaluatePacketFreshness(input: {
   latestPdf?: { id: string; filePath?: string | null; createdAt: Date } | null;
   latestAnswerUpdatedAt?: Date | null;
   latestSignatureUpdatedAt?: Date | null;
+  packetTemplateUpdatedAt?: Date | null;
 }): PacketFreshness {
   const latestPdf = input.latestPdf || null;
-  const sourceDates = [input.latestAnswerUpdatedAt, input.latestSignatureUpdatedAt]
+  const sourceDates = [input.latestAnswerUpdatedAt, input.latestSignatureUpdatedAt, input.packetTemplateUpdatedAt]
     .filter((value): value is Date => value instanceof Date);
   const sourceUpdatedAt = sourceDates.length
     ? new Date(Math.max(...sourceDates.map((value) => value.getTime())))
@@ -56,7 +58,7 @@ export function evaluatePacketFreshness(input: {
 }
 
 export async function packetFreshnessForIntake(intakeId: string): Promise<PacketFreshness> {
-  const [pdfCandidates, latestAnswer, latestSignatureAudit] = await Promise.all([
+  const [pdfCandidates, latestAnswer, latestSignatureAudit, intake] = await Promise.all([
     prisma.generatedPdf.findMany({
       where: { intakeId },
       orderBy: { createdAt: "desc" },
@@ -73,13 +75,24 @@ export async function packetFreshnessForIntake(intakeId: string): Promise<Packet
       orderBy: { createdAt: "desc" },
       select: { createdAt: true },
     }),
+    prisma.intake.findUnique({
+      where: { id: intakeId },
+      select: { providerId: true },
+    }),
   ]);
   const latestPdf = pdfCandidates.find((candidate) => fileExists(candidate.filePath)) || null;
+  const providerPacket = intake?.providerId
+    ? await providerPacketReadiness(intake.providerId)
+    : null;
+  const packetTemplateUpdatedAt = providerPacket?.ready && providerPacket.templateUpdatedAt
+    ? new Date(providerPacket.templateUpdatedAt)
+    : null;
 
   return evaluatePacketFreshness({
     latestPdf,
     latestAnswerUpdatedAt: latestAnswer?.updatedAt,
     latestSignatureUpdatedAt: latestSignatureAudit?.createdAt,
+    packetTemplateUpdatedAt,
   });
 }
 

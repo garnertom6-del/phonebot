@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireStaff } from "@/lib/staffGuard";
 import { generatePacketForIntake, PacketIdentityMismatchError } from "@/lib/generatePacket";
+import { ProviderPacketNotReadyError } from "@/lib/providerPacketTemplates";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, provider, deny } = await requireStaff();
@@ -20,6 +21,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         recordName: error.recordName,
         answerName: error.answerName,
         canOverride: true,
+      }, { status: 409 });
+    }
+    if (error instanceof ProviderPacketNotReadyError) {
+      return NextResponse.json({
+        code: error.code,
+        error: error.message,
+        packetReadiness: error.readiness,
+        canContinueIntake: true,
       }, { status: 409 });
     }
     const status = message.startsWith("Packet identity check failed") ? 409 : 500;

@@ -13,6 +13,7 @@ type DashboardWorkflowInput = {
   hasCca: boolean;
   expectCca: boolean;
   hasStaffSignature: boolean;
+  providerPacketReady: boolean;
 };
 
 export function needsStaffAction(status: string): boolean {
@@ -59,6 +60,14 @@ export function buildDashboardReadiness(input: DashboardWorkflowInput): Dashboar
       state: "Add the Staff / QP signature",
       tone: "warn",
       issues: ["Open Review / edit and capture the qualified professional's signature."],
+    };
+  }
+
+  if (!input.providerPacketReady) {
+    return {
+      state: "Provider packet setup required",
+      tone: "warn",
+      issues: ["A master administrator must upload, map, review, approve, and activate this provider's packet before PDF or DocuSign."],
     };
   }
 

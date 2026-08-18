@@ -1,20 +1,14 @@
 import { NextResponse } from "next/server";
-import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { requireStaff } from "@/lib/staffGuard";
 
 function cleanPacketLabel(value: string): string {
   return value.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").trim();
 }
 
-function packetDisplayName(providerName: string, packet: Awaited<ReturnType<typeof packetTemplateForProvider>>): string {
-  if (packet.providerSpecific) {
-    const original = cleanPacketLabel(packet.originalFileName || "");
-    if (original && !/^provider intake packet$/i.test(original)) return original;
-    return `${providerName} Intake Packet`;
-  }
-  // The shared fallback PDF can still be used while a provider's custom
-  // packet is awaiting upload or approval, but the client-facing label must
-  // identify the active provider instead of the default owner's name.
+function packetDisplayName(providerName: string, packetName: string | null): string {
+  const original = cleanPacketLabel(packetName || "");
+  if (original && !/^provider intake packet$/i.test(original)) return original;
   return `${providerName} Client Intake Package`;
 }
 
@@ -22,7 +16,7 @@ export async function GET() {
   const { provider, deny } = await requireStaff();
   if (deny) return deny;
 
-  const packet = await packetTemplateForProvider(provider!.id);
+  const packet = await providerPacketReadiness(provider!.id);
   return NextResponse.json({
     provider: {
       id: provider!.id,
@@ -31,9 +25,12 @@ export async function GET() {
       slug: provider!.slug,
     },
     packet: {
-      name: packetDisplayName(provider!.name, packet),
+      name: packetDisplayName(provider!.name, packet.templateName),
       pageCount: packet.pageCount,
-      providerSpecific: packet.providerSpecific,
+      providerSpecific: packet.ready,
+      ready: packet.ready,
+      state: packet.state,
+      message: packet.message,
     },
   });
 }

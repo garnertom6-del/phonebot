@@ -244,6 +244,11 @@ async function main() {
     create: { userId: admin.id, providerId: provider.id, role: "PROVIDER_ADMIN", active: true },
     update: { role: "PROVIDER_ADMIN", active: true },
   });
+  const existingDefaultPacket = await prisma.pdfTemplate.findUnique({
+    where: { name: "Moore Divine Care Client Intake Package" },
+    select: { approvedAt: true, approvedByUserId: true, mappingScore: true },
+  });
+  const defaultPacketApprovedAt = existingDefaultPacket?.approvedAt || new Date();
   await prisma.pdfTemplate.upsert({
     where: { name: "Moore Divine Care Client Intake Package" },
     create: {
@@ -253,7 +258,12 @@ async function main() {
       pageWidth: 612,
       pageHeight: 792,
       originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+      providerId: provider.id,
       isActive: true,
+      mappingStatus: "APPROVED",
+      mappingScore: 100,
+      approvedAt: defaultPacketApprovedAt,
+      approvedByUserId: existingDefaultPacket?.approvedByUserId || admin.id,
     },
     update: {
       filePath: "public/templates/MooreDivineCare_Intake_Packet-1.pdf",
@@ -261,7 +271,12 @@ async function main() {
       pageWidth: 612,
       pageHeight: 792,
       originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+      providerId: provider.id,
       isActive: true,
+      mappingStatus: "APPROVED",
+      mappingScore: existingDefaultPacket?.mappingScore ?? 100,
+      approvedAt: defaultPacketApprovedAt,
+      approvedByUserId: existingDefaultPacket?.approvedByUserId || admin.id,
     },
   });
   await prisma.client.updateMany({ where: { providerId: null }, data: { providerId: provider.id } });

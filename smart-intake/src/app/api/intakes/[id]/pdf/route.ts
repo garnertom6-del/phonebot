@@ -5,7 +5,10 @@ import { audit } from "@/lib/auditLog";
 import { fillPacket } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
 import { readFile, fileExists } from "@/lib/storage";
-import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import {
+  ProviderPacketNotReadyError,
+  requireProviderPacketForCompletion,
+} from "@/lib/providerPacketTemplates";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 
 function fileSafe(value: string) {
@@ -20,6 +23,19 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     include: { client: true, generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 } },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  let packetTemplate: Awaited<ReturnType<typeof requireProviderPacketForCompletion>>;
+  try {
+    packetTemplate = await requireProviderPacketForCompletion(provider!.id);
+  } catch (error) {
+    if (error instanceof ProviderPacketNotReadyError) {
+      return NextResponse.json({
+        code: error.code,
+        error: error.message,
+        packetReadiness: error.readiness,
+      }, { status: 409 });
+    }
+    throw error;
+  }
   const fresh = req.nextUrl.searchParams.get("fresh") === "1";
   let bytes: Buffer;
   const latest = intake.generatedPdfs[0];
@@ -34,7 +50,6 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     bytes = readFile(latest.filePath);
   } else {
     const answers = await loadAnswers(intake.id);
-    const packetTemplate = await packetTemplateForProvider(provider!.id);
     const result = await fillPacket({
       answers,
       signatures: await loadSignatures(intake.id),

@@ -15,6 +15,7 @@ import {
 } from "@/lib/packetFreshness";
 import { buildCompletionReadiness } from "@/lib/completionReadiness";
 import { fileExists } from "@/lib/storage";
+import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 
 function generatedRecordNumber(panel?: string): string {
   const prefix = recordNumberPrefix(panel || "") || "TEMP";
@@ -31,6 +32,7 @@ export async function GET(req: NextRequest) {
   try {
     const { user, provider, membership, deny } = await requireStaff();
     if (deny) return deny;
+    const providerPacket = await providerPacketReadiness(provider!.id);
     // Lean list query: no signature image blobs, no per-row follow-up queries.
     // Active and archived rows are returned together so every count stays accurate.
     const intakes = await prisma.intake.findMany({
@@ -131,6 +133,9 @@ export async function GET(req: NextRequest) {
         latestPdf: storedPdf,
         latestAnswerUpdatedAt: latestPacketAnswerAt.get(i.id),
         latestSignatureUpdatedAt: latestSignatureAt.get(i.id),
+        packetTemplateUpdatedAt: providerPacket.ready && providerPacket.templateUpdatedAt
+          ? new Date(providerPacket.templateUpdatedAt)
+          : null,
       });
       const completion = buildCompletionReadiness({
         archived: i.archived,
@@ -139,6 +144,8 @@ export async function GET(req: NextRequest) {
         expectCca: i.expectCca,
         hasCca,
         hasStaffSignature,
+        providerPacketReady: providerPacket.ready,
+        providerPacketMessage: providerPacket.message,
         packetState: packet.state,
       });
       return {
@@ -165,6 +172,7 @@ export async function GET(req: NextRequest) {
           hasCca,
           expectCca: i.expectCca,
           hasStaffSignature,
+          providerPacketReady: providerPacket.ready,
         }),
         completionReady: completion.ready,
         completionBlockers: completion.blockers,
@@ -176,6 +184,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({
       intakes: rows,
       provider: { id: provider!.id, name: provider!.name, slug: provider!.slug },
+      providerPacketReadiness: providerPacket,
       isMaster: isMasterUser(user!),
       canManageProvider: isMasterUser(user!) || membership?.role === "PROVIDER_ADMIN",
     });

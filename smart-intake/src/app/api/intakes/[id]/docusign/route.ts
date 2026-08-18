@@ -19,6 +19,8 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     case "missing_email":
       return NextResponse.json({ error: "Client has no email on file" }, { status: 400 });
+    case "packet_not_ready":
+      return NextResponse.json({ code: "PROVIDER_PACKET_NOT_READY", error: result.message }, { status: 409 });
     case "not_configured":
       return NextResponse.json(
         { error: "DocuSign is not set up. Clients can still sign in the app. Ask your administrator to connect DocuSign." },

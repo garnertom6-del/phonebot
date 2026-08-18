@@ -4,7 +4,6 @@ import { prisma } from "@/lib/prisma";
 import { isMasterUser, requireProviderAdmin } from "@/lib/staffGuard";
 import { saveFile } from "@/lib/storage";
 import { audit } from "@/lib/auditLog";
-import { DEFAULT_PACKET_TEMPLATE_NAME } from "@/lib/providerPacketTemplates";
 
 export const runtime = "nodejs";
 
@@ -54,7 +53,6 @@ function templateResponse(template: {
         updatedAt: template.updatedAt,
       }
       : null,
-    fallbackTemplateName: DEFAULT_PACKET_TEMPLATE_NAME,
   };
 }
 

@@ -3,9 +3,9 @@ import path from "path";
 import { createHash } from "crypto";
 import { PACKET_MAP, TEMPLATE_FILE, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { welliancePacketFields } from "@/config/welliancePacketMap";
-import { loadTemplateBytes, mergedMap } from "./fillPdf";
+import { mergedMap } from "./fillPdf";
 import { prisma } from "./prisma";
-import { readFile } from "./storage";
+import { fileExists, readFile } from "./storage";
 
 export const DEFAULT_PACKET_TEMPLATE_NAME = "Moore Divine Care Client Intake Package";
 
@@ -24,6 +24,11 @@ type TemplateRow = {
   pageHeight: number | null;
   providerId: string | null;
   originalFileName: string | null;
+  isActive: boolean;
+  mappingStatus: string;
+  mappingScore: number | null;
+  approvedAt: Date | null;
+  updatedAt: Date;
   fieldMappings: MappingRow[];
 };
 
@@ -48,6 +53,57 @@ export type PacketTemplateIdentity = {
   providerSpecific: boolean;
   sha256?: string | null;
 };
+
+export type ProviderPacketReadinessState =
+  | "READY"
+  | "MISSING"
+  | "NEEDS_REVIEW"
+  | "APPROVED_INACTIVE"
+  | "LEGACY_UNVERIFIED";
+
+export type ProviderPacketReadinessTemplate = {
+  id: string;
+  providerId: string | null;
+  name: string;
+  originalFileName: string | null;
+  pageCount: number;
+  isActive: boolean;
+  mappingStatus: string;
+  mappingScore: number | null;
+  approvedAt: Date | string | null;
+  updatedAt: Date | string;
+  fileAvailable?: boolean;
+};
+
+export type ProviderPacketReadiness = {
+  ready: boolean;
+  state: ProviderPacketReadinessState;
+  templateId: string | null;
+  templateName: string | null;
+  pageCount: number | null;
+  templateUpdatedAt: Date | string | null;
+  message: string;
+};
+
+export const PROVIDER_PACKET_SETUP_INSTRUCTIONS =
+  "A master administrator must open Master Intake Setup, select this provider, then upload, map, review, approve, and activate the provider packet.";
+
+export const PROVIDER_PACKET_NOT_READY_MESSAGE =
+  `Completed packet unavailable: this provider does not have an approved active intake packet. ${PROVIDER_PACKET_SETUP_INSTRUCTIONS} Client intake creation and answer collection can continue.`;
+
+export class ProviderPacketNotReadyError extends Error {
+  code = "PROVIDER_PACKET_NOT_READY" as const;
+  readiness: ProviderPacketReadiness;
+
+  constructor(readiness: ProviderPacketReadiness, cause?: unknown) {
+    super(readiness.message);
+    this.name = "ProviderPacketNotReadyError";
+    this.readiness = readiness;
+    if (cause !== undefined) {
+      (this as Error & { cause?: unknown }).cause = cause;
+    }
+  }
+}
 
 export const WELLIANCE_PACKET_SHA256 =
   "c8034d405c28865d3018e7a85785ab57143cffd8465d45a06409b3c64f7242ec";
@@ -350,51 +406,197 @@ export function repairKnownPacketPlacements(fields: FieldMapping[], pageCount = 
   });
 }
 
-async function defaultTemplate(): Promise<TemplateRow | null> {
-  return prisma.pdfTemplate.findUnique({
-    where: { name: DEFAULT_PACKET_TEMPLATE_NAME },
-    include: { fieldMappings: true },
-  });
+function isExplicitlyApprovedProviderPacket(
+  providerId: string,
+  template: ProviderPacketReadinessTemplate,
+): boolean {
+  return template.providerId === providerId
+    && template.isActive
+    && template.mappingStatus === "APPROVED"
+    && isValidProviderPacketMappingScore(template.mappingScore)
+    && template.approvedAt !== null
+    && template.fileAvailable !== false;
 }
 
-export async function packetTemplateForProvider(providerId?: string | null): Promise<PacketTemplateSelection> {
-  const providerTemplate = providerId
-    ? await prisma.pdfTemplate.findFirst({
-      where: { providerId, isActive: true },
-      include: { fieldMappings: true },
-      orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
-    })
-    : null;
+export function isValidProviderPacketMappingScore(value: unknown): value is number {
+  return typeof value === "number"
+    && Number.isInteger(value)
+    && value >= 0
+    && value <= 100;
+}
 
-  // Only an approved provider template may replace the shared default packet.
-  // New uploads stay drafts until a master reviews and approves their map.
-  const approvedProviderTemplate = providerTemplate?.mappingStatus === "APPROVED" ? providerTemplate : null;
-  const template = approvedProviderTemplate ?? await defaultTemplate();
-  const overrides = template ? parseMappings(template.fieldMappings) : [];
+export function providerPacketFileAvailable(filePath: string): boolean {
+  const normalized = filePath.replace(/\\/g, "/");
+  try {
+    assertRelativePath(normalized);
+  } catch {
+    return false;
+  }
+  if (normalized.startsWith("public/") || normalized === TEMPLATE_FILE) {
+    return [
+      path.join(process.cwd(), normalized),
+      path.join(process.cwd(), "public", "templates", path.basename(normalized)),
+      path.join(process.cwd(), path.basename(normalized)),
+    ].some((candidate) => fs.existsSync(candidate));
+  }
+  return fileExists(normalized);
+}
 
-  const pageCount = template?.pageCount ?? PACKET_MAP.pageCount;
-  const providerSpecific = !!approvedProviderTemplate;
-  const name = template?.name ?? DEFAULT_PACKET_TEMPLATE_NAME;
-  const originalFileName = template?.originalFileName ?? TEMPLATE_FILE;
-  const bytes = template ? loadTemplateFile(template.filePath) : loadTemplateBytes();
+export function providerPacketReadinessFromTemplates(
+  providerId: string,
+  templates: ProviderPacketReadinessTemplate[],
+): ProviderPacketReadiness {
+  const owned = templates.filter((template) => template.providerId === providerId);
+  const ready = owned.find((template) => isExplicitlyApprovedProviderPacket(providerId, template));
+  if (ready) {
+    return {
+      ready: true,
+      state: "READY",
+      templateId: ready.id,
+      templateName: ready.originalFileName || ready.name,
+      pageCount: ready.pageCount,
+      templateUpdatedAt: ready.approvedAt,
+      message: `Approved provider packet ready: ${ready.originalFileName || ready.name}.`,
+    };
+  }
+
+  const active = owned.find((template) => template.isActive);
+  const explicitlyApprovedInactive = owned.find((template) =>
+    !template.isActive
+    && template.mappingStatus === "APPROVED"
+    && isValidProviderPacketMappingScore(template.mappingScore)
+    && template.approvedAt !== null
+    && template.fileAvailable !== false,
+  );
+  if (explicitlyApprovedInactive) {
+    return {
+      ready: false,
+      state: "APPROVED_INACTIVE",
+      templateId: explicitlyApprovedInactive.id,
+      templateName: explicitlyApprovedInactive.originalFileName || explicitlyApprovedInactive.name,
+      pageCount: explicitlyApprovedInactive.pageCount,
+      templateUpdatedAt: explicitlyApprovedInactive.updatedAt,
+      message: `${PROVIDER_PACKET_NOT_READY_MESSAGE} An approved packet exists but is not active.`,
+    };
+  }
+  if (active?.mappingStatus === "APPROVED") {
+    return {
+      ready: false,
+      state: "LEGACY_UNVERIFIED",
+      templateId: active.id,
+      templateName: active.originalFileName || active.name,
+      pageCount: active.pageCount,
+      templateUpdatedAt: active.updatedAt,
+      message: active.fileAvailable === false
+        ? `${PROVIDER_PACKET_NOT_READY_MESSAGE} The approved packet file is missing or unreadable; re-upload and approve it.`
+        : `${PROVIDER_PACKET_NOT_READY_MESSAGE} The active packet has not passed the current approval checks.`,
+    };
+  }
+  if (owned.length) {
+    const candidate = active || owned[0];
+    return {
+      ready: false,
+      state: "NEEDS_REVIEW",
+      templateId: candidate.id,
+      templateName: candidate.originalFileName || candidate.name,
+      pageCount: candidate.pageCount,
+      templateUpdatedAt: candidate.updatedAt,
+      message: `${PROVIDER_PACKET_NOT_READY_MESSAGE} The uploaded packet is still awaiting mapping or approval.`,
+    };
+  }
+  return {
+    ready: false,
+    state: "MISSING",
+    templateId: null,
+    templateName: null,
+    pageCount: null,
+    templateUpdatedAt: null,
+    message: PROVIDER_PACKET_NOT_READY_MESSAGE,
+  };
+}
+
+export async function providerPacketReadiness(providerId: string): Promise<ProviderPacketReadiness> {
+  const templates = await prisma.pdfTemplate.findMany({
+    where: { providerId },
+    select: {
+      id: true,
+      providerId: true,
+      name: true,
+      originalFileName: true,
+      pageCount: true,
+      isActive: true,
+      mappingStatus: true,
+      mappingScore: true,
+      approvedAt: true,
+      updatedAt: true,
+      filePath: true,
+    },
+    orderBy: [{ isActive: "desc" }, { updatedAt: "desc" }, { createdAt: "desc" }],
+  });
+  return providerPacketReadinessFromTemplates(
+    providerId,
+    templates.map((template) => ({
+      ...template,
+      fileAvailable: providerPacketFileAvailable(template.filePath),
+    })),
+  );
+}
+
+function packetSelectionFromTemplate(template: TemplateRow): PacketTemplateSelection {
+  const overrides = parseMappings(template.fieldMappings);
+  const bytes = loadTemplateFile(template.filePath);
   const fields = packetFieldsForTemplate({
-    name,
-    originalFileName,
-    pageCount,
-    providerSpecific,
+    name: template.name,
+    originalFileName: template.originalFileName,
+    pageCount: template.pageCount,
+    providerSpecific: true,
     sha256: packetTemplateSha256(bytes),
   }, overrides);
   return {
-    templateId: template?.id ?? null,
-    name,
-    filePath: template?.filePath ?? null,
-    originalFileName,
-    pageCount,
-    pageWidth: template?.pageWidth ?? PACKET_MAP.pageWidth,
-    pageHeight: template?.pageHeight ?? PACKET_MAP.pageHeight,
-    providerSpecific,
+    templateId: template.id,
+    name: template.name,
+    filePath: template.filePath,
+    originalFileName: template.originalFileName || template.name,
+    pageCount: template.pageCount,
+    pageWidth: template.pageWidth ?? PACKET_MAP.pageWidth,
+    pageHeight: template.pageHeight ?? PACKET_MAP.pageHeight,
+    providerSpecific: true,
     bytes,
     fields,
     overrides,
   };
+}
+
+export async function requireProviderPacketForCompletion(providerId: string): Promise<PacketTemplateSelection> {
+  const readiness = await providerPacketReadiness(providerId);
+  if (!readiness.ready || !readiness.templateId) {
+    throw new ProviderPacketNotReadyError(readiness);
+  }
+  const template = await prisma.pdfTemplate.findFirst({
+    where: {
+      id: readiness.templateId,
+      providerId,
+      isActive: true,
+      mappingStatus: "APPROVED",
+      approvedAt: { not: null },
+    },
+    include: { fieldMappings: true },
+  });
+  if (
+    !template
+    || !isValidProviderPacketMappingScore(template.mappingScore)
+    || !providerPacketFileAvailable(template.filePath)
+  ) {
+    throw new ProviderPacketNotReadyError(await providerPacketReadiness(providerId));
+  }
+  try {
+    return packetSelectionFromTemplate(template);
+  } catch (cause) {
+    throw new ProviderPacketNotReadyError({
+      ...readiness,
+      ready: false,
+      state: "LEGACY_UNVERIFIED",
+      message: `${PROVIDER_PACKET_NOT_READY_MESSAGE} The approved packet file is missing or unreadable; re-upload and approve it before creating completed documents.`,
+    }, cause);
+  }
 }

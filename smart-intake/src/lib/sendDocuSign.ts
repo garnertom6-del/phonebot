@@ -3,7 +3,10 @@ import { audit } from "@/lib/auditLog";
 import { createDocuSignEnvelope, docusignConfigured } from "@/lib/docusign";
 import { fillPacket } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
-import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import {
+  ProviderPacketNotReadyError,
+  requireProviderPacketForCompletion,
+} from "@/lib/providerPacketTemplates";
 import { answeredClientFields } from "@/lib/clientAnswerSync";
 
 export type DocuSignSendResult =
@@ -11,6 +14,7 @@ export type DocuSignSendResult =
   | { status: "already_sent"; envelopeId: string; message: string }
   | { status: "not_configured"; message: string }
   | { status: "missing_email"; message: string }
+  | { status: "packet_not_ready"; message: string }
   | { status: "not_found"; message: string }
   | { status: "failed"; message: string };
 
@@ -27,6 +31,15 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
   });
   if (!intake) {
     return { status: "not_found", message: "Intake not found." };
+  }
+  let packetTemplate: Awaited<ReturnType<typeof requireProviderPacketForCompletion>>;
+  try {
+    packetTemplate = await requireProviderPacketForCompletion(opts.providerId);
+  } catch (error) {
+    if (error instanceof ProviderPacketNotReadyError) {
+      return { status: "packet_not_ready", message: error.message };
+    }
+    throw error;
   }
   if (!docusignConfigured()) {
     return {
@@ -56,7 +69,6 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
   delete signatures.client;
   delete signatures.guardian;
 
-  const packetTemplate = await packetTemplateForProvider(opts.providerId);
   const result = await fillPacket({
     answers,
     signatures,

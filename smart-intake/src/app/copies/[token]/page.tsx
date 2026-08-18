@@ -3,6 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { loadAnswers } from "@/lib/intakeData";
 import { buildCompletedCopySections, COPY_ALLOWED_STATUSES } from "@/lib/completedCopies";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import {
+  PROVIDER_PACKET_NOT_READY_MESSAGE,
+  ProviderPacketNotReadyError,
+  requireProviderPacketForCompletion,
+} from "@/lib/providerPacketTemplates";
 
 export default async function CopiesPage({ params }: { params: { token: string } }) {
   const intake = await prisma.intake.findUnique({
@@ -31,6 +36,30 @@ export default async function CopiesPage({ params }: { params: { token: string }
           <p className="mt-3 text-sm text-slate-600">
             This intake has not been signed or completed yet. Please contact {providerDisplayName(intake.provider?.name)}
             {" "}at {providerPhone(intake.provider?.phone, intake.provider?.name)} if you believe this is a mistake.
+          </p>
+        </section>
+      </main>
+    );
+  }
+
+  let packetUnavailable = intake.providerId ? "" : PROVIDER_PACKET_NOT_READY_MESSAGE;
+  if (intake.providerId) {
+    try {
+      await requireProviderPacketForCompletion(intake.providerId);
+    } catch (error) {
+      if (!(error instanceof ProviderPacketNotReadyError)) throw error;
+      packetUnavailable = error.message;
+    }
+  }
+  if (packetUnavailable) {
+    return (
+      <main className="mx-auto max-w-3xl p-6">
+        <section className="card">
+          <h1 className="text-2xl font-bold text-brand">Completed copies are temporarily unavailable</h1>
+          <p className="mt-3 text-sm text-slate-600">{packetUnavailable}</p>
+          <p className="mt-3 text-sm text-slate-600">
+            Your saved intake answers are not affected. Please contact {providerDisplayName(intake.provider?.name)} at{" "}
+            {providerPhone(intake.provider?.phone, intake.provider?.name)}.
           </p>
         </section>
       </main>

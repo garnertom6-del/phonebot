@@ -18,8 +18,15 @@ import { NextRequest } from "next/server";
 import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
 import {
   packetFieldsForTemplate,
+  isValidProviderPacketMappingScore,
+  ProviderPacketNotReadyError,
+  providerPacketReadiness,
+  providerPacketReadinessFromTemplates,
+  requireProviderPacketForCompletion,
   WELLIANCE_PACKET_SHA256,
 } from "../src/lib/providerPacketTemplates";
+import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrites";
+import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
 import { signatureForRole } from "../src/lib/signaturePlacement";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
@@ -170,6 +177,62 @@ async function main() {
   );
   ok("provider packets use verified template-specific coordinates");
 
+  const approvedPacketDate = new Date("2026-07-26T12:00:00.000Z");
+  const approvedProviderPacket = {
+    id: "approved-packet",
+    providerId: "provider-approved",
+    name: "Approved Provider Intake Packet",
+    originalFileName: "approved-provider.pdf",
+    pageCount: 12,
+    isActive: true,
+    mappingStatus: "APPROVED",
+    mappingScore: 96,
+    approvedAt: approvedPacketDate,
+    updatedAt: approvedPacketDate,
+    fileAvailable: true,
+  };
+  const sharedDefaultPacket = {
+    ...approvedProviderPacket,
+    id: "shared-default",
+    providerId: null,
+    name: "Legacy Shared Default",
+    originalFileName: "legacy-default.pdf",
+  };
+  const approvedReadiness = providerPacketReadinessFromTemplates(
+    "provider-approved",
+    [approvedProviderPacket, sharedDefaultPacket],
+  );
+  assert.equal(approvedReadiness.ready, true);
+  assert.equal(approvedReadiness.templateId, "approved-packet");
+  const unreadyReadiness = providerPacketReadinessFromTemplates(
+    "provider-unready",
+    [approvedProviderPacket, sharedDefaultPacket],
+  );
+  assert.equal(unreadyReadiness.ready, false);
+  assert.equal(unreadyReadiness.state, "MISSING");
+  assert(unreadyReadiness.message.includes("upload, map, review, approve, and activate"));
+  const legacyReadiness = providerPacketReadinessFromTemplates("provider-unready", [{
+    ...approvedProviderPacket,
+    id: "legacy-provider-packet",
+    providerId: "provider-unready",
+    approvedAt: null,
+  }]);
+  assert.equal(legacyReadiness.ready, false);
+  assert.equal(legacyReadiness.state, "LEGACY_UNVERIFIED");
+  assert(isValidProviderPacketMappingScore(0));
+  assert(isValidProviderPacketMappingScore(100));
+  assert(!isValidProviderPacketMappingScore(-1));
+  assert(!isValidProviderPacketMappingScore(101));
+  assert(!isValidProviderPacketMappingScore(1.5));
+  const missingFileReadiness = providerPacketReadinessFromTemplates("provider-approved", [{
+    ...approvedProviderPacket,
+    fileAvailable: false,
+  }]);
+  assert.equal(missingFileReadiness.ready, false);
+  assert.equal(missingFileReadiness.state, "LEGACY_UNVERIFIED");
+  assert(missingFileReadiness.message.includes("missing or unreadable"));
+  ok("packet readiness accepts only the exact provider's explicitly approved active packet");
+
   const preflightInput = {
     answers: {
       client_full_name: "Test Client",
@@ -313,6 +376,7 @@ async function main() {
       hasCca: false,
       expectCca: true,
       hasStaffSignature: false,
+      providerPacketReady: true,
     }).state,
     "Upload the CCA",
   );
@@ -324,6 +388,7 @@ async function main() {
       hasCca: true,
       expectCca: true,
       hasStaffSignature: false,
+      providerPacketReady: true,
     }).state,
     "Complete required information",
   );
@@ -335,6 +400,7 @@ async function main() {
       hasCca: true,
       expectCca: true,
       hasStaffSignature: true,
+      providerPacketReady: true,
     }).state,
     "Generate the completed packet",
   );
@@ -346,6 +412,7 @@ async function main() {
       hasCca: true,
       expectCca: true,
       hasStaffSignature: true,
+      providerPacketReady: true,
     }).state,
     "Ready for final staff review",
   );
@@ -395,6 +462,7 @@ async function main() {
       hasCca: true,
       expectCca: true,
       hasStaffSignature: true,
+      providerPacketReady: true,
     }).state,
     "Regenerate the updated packet",
   );
@@ -414,6 +482,14 @@ async function main() {
     }).state,
     "stale",
   );
+  assert.equal(
+    evaluatePacketFreshness({
+      latestPdf: { id: "pdf-1", createdAt: packetCreatedAt },
+      packetTemplateUpdatedAt: new Date("2026-07-25T12:01:00.000Z"),
+    }).state,
+    "stale",
+    "activating a provider packet must invalidate an older generated PDF",
+  );
   const blockedCompletion = buildCompletionReadiness({
     archived: false,
     submittedAt: packetCreatedAt,
@@ -421,6 +497,7 @@ async function main() {
     expectCca: true,
     hasCca: true,
     hasStaffSignature: false,
+    providerPacketReady: true,
     packetState: "current",
   });
   assert.equal(blockedCompletion.ready, false);
@@ -433,10 +510,25 @@ async function main() {
       expectCca: true,
       hasCca: true,
       hasStaffSignature: true,
+      providerPacketReady: true,
       packetState: "current",
     }).ready,
     true,
   );
+  const packetBlockedCompletion = buildCompletionReadiness({
+    archived: false,
+    submittedAt: packetCreatedAt,
+    missingRequired: [],
+    expectCca: true,
+    hasCca: true,
+    hasStaffSignature: true,
+    providerPacketReady: false,
+    providerPacketMessage: unreadyReadiness.message,
+    packetState: "current",
+  });
+  assert.equal(packetBlockedCompletion.ready, false);
+  assert.equal(packetBlockedCompletion.blockers.length, 1);
+  assert.equal(packetBlockedCompletion.blockers[0]?.code, "provider_packet_not_ready");
   assert.deepEqual(COPY_ALLOWED_STATUSES, ["SIGNED", "COMPLETED"]);
   assert.equal(
     buildSignatureStatuses([]).find((status) => status.key === "staff_qp")?.required,
@@ -449,6 +541,126 @@ async function main() {
   assert(user, "seeded staff user missing - run npm run seed");
   assert(await bcrypt.compare("IntakeDemo123!", user!.passwordHash), "staff password mismatch");
   ok("staff login verifies (admin@mooredivinecare.local)");
+
+  const approvedProvider = await prisma.provider.findUnique({ where: { slug: "moore-divine-care" } });
+  assert(approvedProvider, "seeded approved provider missing");
+  const liveApprovedReadiness = await providerPacketReadiness(approvedProvider!.id);
+  assert.equal(liveApprovedReadiness.ready, true, liveApprovedReadiness.message);
+  const liveApprovedPacket = await requireProviderPacketForCompletion(approvedProvider!.id);
+  assert.equal(liveApprovedPacket.providerSpecific, true);
+  assert(liveApprovedPacket.bytes.length > 400000);
+
+  await prisma.provider.deleteMany({ where: { slug: "packet-readiness-unready-test" } });
+  const unreadyProvider = await prisma.provider.create({
+    data: { name: "Packet Readiness Unready Test", slug: "packet-readiness-unready-test" },
+  });
+  try {
+    const liveUnreadyReadiness = await providerPacketReadiness(unreadyProvider.id);
+    assert.equal(liveUnreadyReadiness.ready, false);
+    assert.equal(liveUnreadyReadiness.state, "MISSING");
+    await assert.rejects(
+      () => requireProviderPacketForCompletion(unreadyProvider.id),
+      (error: unknown) => error instanceof ProviderPacketNotReadyError
+        && error.code === "PROVIDER_PACKET_NOT_READY"
+        && error.message.includes("upload, map, review, approve, and activate"),
+    );
+
+    const missingFileTemplate = await prisma.pdfTemplate.create({
+      data: {
+        providerId: unreadyProvider.id,
+        name: `Missing Packet Test ${unreadyProvider.id}`,
+        filePath: "templates/providers/missing-packet-test.pdf",
+        originalFileName: "missing-packet-test.pdf",
+        pageCount: 1,
+        isActive: true,
+        mappingStatus: "APPROVED",
+        mappingScore: 100,
+        approvedAt: new Date(),
+      },
+    });
+    const missingFileState = await providerPacketReadiness(unreadyProvider.id);
+    assert.equal(missingFileState.ready, false);
+    assert(missingFileState.message.includes("missing or unreadable"));
+    await assert.rejects(
+      () => requireProviderPacketForCompletion(unreadyProvider.id),
+      (error: unknown) => error instanceof ProviderPacketNotReadyError
+        && error.code === "PROVIDER_PACKET_NOT_READY"
+        && error.message.includes("missing or unreadable"),
+    );
+
+    const unreadyClient = await prisma.client.create({
+      data: {
+        providerId: unreadyProvider.id,
+        fullName: "Packet Gate Test Client",
+        dob: "1980-01-01",
+      },
+    });
+    const unreadyIntake = await prisma.intake.create({
+      data: {
+        providerId: unreadyProvider.id,
+        clientId: unreadyClient.id,
+        status: "SIGNED",
+        submittedAt: new Date(),
+        token: newIntakeToken(),
+        tokenExpiresAt: tokenExpiry(),
+      },
+    });
+    const copiesBlocked = await sendCompletedCopiesLink({
+      intakeId: unreadyIntake.id,
+      providerId: unreadyProvider.id,
+      req: new Request("http://localhost"),
+    });
+    assert.equal(copiesBlocked.status, 409);
+    assert.equal(copiesBlocked.body.code, "PROVIDER_PACKET_NOT_READY");
+
+    const remapTemplate = await prisma.pdfTemplate.create({
+      data: {
+        providerId: unreadyProvider.id,
+        name: `Remap Revocation Test ${unreadyProvider.id}`,
+        filePath: "public/templates/MooreDivineCare_Intake_Packet-1.pdf",
+        originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+        pageCount: 43,
+        isActive: false,
+        mappingStatus: "APPROVED",
+        mappingScore: 100,
+        approvedAt: new Date(),
+      },
+    });
+    const mappingInput = [{
+      fieldKey: "client_full_name",
+      page: 1,
+      source: "client_full_name",
+      type: "text",
+      x: 10,
+      y: 10,
+    }];
+    assert.equal(await saveProviderPacketMappings({
+      templateId: remapTemplate.id,
+      fields: mappingInput,
+      replaceExisting: true,
+    }), 1);
+    assert.equal(await saveProviderPacketMappings({
+      templateId: remapTemplate.id,
+      fields: mappingInput,
+      replaceExisting: true,
+    }), 1, "repeating the same remap should remain deterministic");
+    const revokedTemplate = await prisma.pdfTemplate.findUnique({ where: { id: remapTemplate.id } });
+    assert.equal(revokedTemplate?.mappingStatus, "DRAFT");
+    assert.equal(revokedTemplate?.mappingScore, null);
+    assert.equal(revokedTemplate?.approvedAt, null);
+    assert.equal(revokedTemplate?.approvedByUserId, null);
+    assert.equal(
+      await prisma.pdfFieldMapping.count({ where: { templateId: remapTemplate.id } }),
+      1,
+    );
+    assert.equal(missingFileTemplate.providerId, unreadyProvider.id);
+  } finally {
+    await prisma.intake.deleteMany({ where: { providerId: unreadyProvider.id } });
+    await prisma.client.deleteMany({ where: { providerId: unreadyProvider.id } });
+    await prisma.pdfTemplate.deleteMany({ where: { providerId: unreadyProvider.id } });
+    await prisma.provider.delete({ where: { id: unreadyProvider.id } });
+  }
+  ok("packet gates reject missing files and copies, remaps revoke approval, and repeat runs stay safe");
 
   // 2. tokens
   const t1 = newIntakeToken(), t2 = newIntakeToken();

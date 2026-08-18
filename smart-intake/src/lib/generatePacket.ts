@@ -5,7 +5,7 @@ import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeDa
 import { saveFile } from "@/lib/storage";
 import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
-import { packetTemplateForProvider } from "@/lib/providerPacketTemplates";
+import { requireProviderPacketForCompletion } from "@/lib/providerPacketTemplates";
 import { brandText } from "@/lib/providerBranding";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { extractPdfText } from "@/lib/pdfText";
@@ -115,7 +115,7 @@ export async function generatePacketForIntake(
   answers.provider_staff_witness_label = `${providerName} Staff Witness:`;
   const signatures = await loadSignatures(intake.id);
   const consents = consentsFromAnswers(answers);
-  const packetTemplate = await packetTemplateForProvider(intake.providerId);
+  const packetTemplate = await requireProviderPacketForCompletion(intake.providerId!);
   const result = await fillPacket({
     answers,
     signatures,

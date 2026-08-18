@@ -7,6 +7,7 @@ import {
   type PacketFreshness,
   type PacketFreshnessState,
 } from "@/lib/packetFreshness";
+import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 
 export type CompletionBlockerCode =
   | "archived"
@@ -14,6 +15,7 @@ export type CompletionBlockerCode =
   | "required_fields"
   | "cca_missing"
   | "staff_signature_missing"
+  | "provider_packet_not_ready"
   | "packet_missing"
   | "packet_stale";
 
@@ -35,6 +37,8 @@ export function buildCompletionReadiness(input: {
   expectCca: boolean;
   hasCca: boolean;
   hasStaffSignature: boolean;
+  providerPacketReady: boolean;
+  providerPacketMessage?: string;
   packetState: PacketFreshnessState;
 }): CompletionReadiness {
   const blockers: CompletionBlocker[] = [];
@@ -62,7 +66,12 @@ export function buildCompletionReadiness(input: {
       message: "Add the Staff / QP signature on the review screen.",
     });
   }
-  if (input.packetState === "missing") {
+  if (!input.providerPacketReady) {
+    blockers.push({
+      code: "provider_packet_not_ready",
+      message: input.providerPacketMessage || "The provider packet must be uploaded, mapped, reviewed, approved, and activated by a master administrator.",
+    });
+  } else if (input.packetState === "missing") {
     blockers.push({ code: "packet_missing", message: "Generate the completed packet." });
   } else if (input.packetState === "stale") {
     blockers.push({
@@ -101,6 +110,7 @@ export async function completionReadinessForIntake(
     signature.role === "client" || signature.role === "guardian");
   const hasStaffSignature = intake.signatures.some((signature) => signature.role === "staff");
   const packet = await packetFreshnessForIntake(intake.id);
+  const providerPacket = await providerPacketReadiness(providerId);
   const readiness = buildCompletionReadiness({
     archived: intake.archived,
     submittedAt: intake.submittedAt,
@@ -108,6 +118,8 @@ export async function completionReadinessForIntake(
     expectCca: intake.expectCca,
     hasCca: intake.uploadedDocuments.length > 0,
     hasStaffSignature,
+    providerPacketReady: providerPacket.ready,
+    providerPacketMessage: providerPacket.message,
     packetState: packet.state,
   });
 

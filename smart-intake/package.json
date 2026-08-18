@@ -12,6 +12,8 @@
     "seed": "tsx prisma/seed.ts",
     "generate:samples": "tsx scripts/generate-samples.ts",
     "check:mapping": "tsx scripts/check-mapping.ts",
+    "typecheck": "tsc --noEmit",
+    "verify": "tsc --noEmit && tsx scripts/check-mapping.ts && tsx scripts/test.ts",
     "test": "tsx scripts/test.ts",
     "postinstall": "prisma generate && node scripts/copy-pdf-worker.mjs"
   },

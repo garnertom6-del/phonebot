@@ -14,6 +14,7 @@ import { completionReadinessForIntake } from "@/lib/completionReadiness";
 import { clientLinkRenewalData } from "@/lib/tokens";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "@/lib/clientDetails";
 import { parseFollowUpFieldKeys } from "@/lib/clientFollowUp";
+import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -71,6 +72,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     savedCount: followUp.savedCount,
     createdAt: followUp.createdAt,
   }));
+  const packetReadiness = await providerPacketReadiness(provider!.id);
   return NextResponse.json({
     intake: { ...intake, uploadedDocuments, followUps },
     answers,
@@ -79,6 +81,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     missingRequired: missingRequired(answers, signed),
     missingOptional: missingOptional(answers),
     signatureStatuses: buildSignatureStatuses(intake.signatures),
+    providerPacketReadiness: packetReadiness,
   });
 }
 

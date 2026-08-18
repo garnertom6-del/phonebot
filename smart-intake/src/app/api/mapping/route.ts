@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { mappingOverrides } from "@/lib/intakeData";
+import { saveProviderPacketMappings } from "@/lib/providerPacketMappingWrites";
 import {
   DEFAULT_PACKET_TEMPLATE_NAME,
   isWelliancePacket,
@@ -135,18 +136,10 @@ export async function PUT(req: NextRequest) {
     }
   }
 
-  if (body.replace === true && target.providerSpecific) {
-    await prisma.pdfFieldMapping.deleteMany({ where: { templateId: template.id } });
-  }
-
-  for (const f of body.fields) {
-    if (!f.fieldKey || !f.page) continue;
-    const { fieldKey, page, ...data } = f;
-    await prisma.pdfFieldMapping.upsert({
-      where: { templateId_fieldKey: { templateId: template.id, fieldKey } },
-      create: { templateId: template.id, fieldKey, page, data: JSON.stringify(data) },
-      update: { page, data: JSON.stringify(data) },
-    });
-  }
-  return NextResponse.json({ ok: true, saved: body.fields.length });
+  const saved = await saveProviderPacketMappings({
+    templateId: template.id,
+    fields: body.fields,
+    replaceExisting: body.replace === true && target.providerSpecific,
+  });
+  return NextResponse.json({ ok: true, saved });
 }

@@ -140,6 +140,12 @@ interface Detail {
     key: string; label: string; state: "captured" | "missing"; required: boolean;
     signedDate?: string; reason: string;
   }[];
+  providerPacketReadiness: {
+    ready: boolean;
+    state: string;
+    templateName?: string | null;
+    message: string;
+  };
 }
 
 const HELPER_FORM_KEYS = [
@@ -280,6 +286,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
+  const packetReady = d.providerPacketReadiness.ready;
   const providerName = i.provider?.name || "Moore Divine Care";
   const providerPhone = i.provider?.phone || "";
   const clientMessage = intakeShareMessage(d.clientLink, providerName, providerPhone);
@@ -871,11 +878,19 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         <div className="flex flex-wrap gap-2">
           <Link href={`/intakes/${i.id}/review`} className="btn-primary">Review / edit answers</Link>
           <Link href={`/intakes/${i.id}/plans`} className="btn-secondary">PCP / Crisis Plan</Link>
-          <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
-          <button className="btn-secondary" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
-            Generate Completed Packet
-          </button>
-          <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
+          {packetReady ? (
+            <>
+              <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
+              <button className="btn-secondary" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
+                Generate Completed Packet
+              </button>
+              <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
+            </>
+          ) : (
+            <button className="btn-secondary" disabled title="Master admin must approve and activate this provider's packet first">
+              PDF setup required
+            </button>
+          )}
           {["SIGNED", "COMPLETED"].includes(i.status) && (
             <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
               {copiesBusy ? "Sending client copies..." : "Send client copies"}
@@ -884,12 +899,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <button className="btn-ghost" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
             Email completed PDF to provider {providerPacketEmailEnabled ? "off" : "on"}
           </button>
-          {i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
+          {packetReady && i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
             <button className="btn-ghost" onClick={() => { void sendProviderPacketNow(); }}>
               Email provider now
             </button>
           )}
-          <button className="btn-ghost" onClick={() => {
+          <button className="btn-ghost" disabled={!packetReady} title={packetReady ? "Send missing signature fields through DocuSign" : "Master admin must approve and activate this provider's packet first"} onClick={() => {
             if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
             void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
               method: "POST",
@@ -912,6 +927,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           )}
         </div>
       </div>
+      {!packetReady && (
+        <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
+          <h2 className="font-bold">Provider packet setup required before PDF or DocuSign</h2>
+          <p className="mt-1 text-sm leading-6">{d.providerPacketReadiness.message}</p>
+          <p className="mt-1 text-sm font-semibold">Client answers, uploads, and signatures can continue while the master administrator completes packet setup.</p>
+        </div>
+      )}
       <WorkflowSteps d={d} />
       <MoodPanel answers={d.answers} />
       <CoveragePanel intakeId={i.id} />

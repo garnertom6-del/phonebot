@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
+import { isValidProviderPacketMappingScore } from "@/lib/providerPacketTemplates";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, deny } = await requireMaster();
@@ -11,12 +12,21 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!templateId) return NextResponse.json({ error: "templateId is required" }, { status: 400 });
   const template = await prisma.pdfTemplate.findFirst({ where: { id: templateId, providerId: params.id } });
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
-  if (template.mappingStatus !== "APPROVED") {
-    return NextResponse.json({ error: "Only an approved packet can be activated." }, { status: 409 });
+  if (
+    template.mappingStatus !== "APPROVED"
+    || !isValidProviderPacketMappingScore(template.mappingScore)
+    || template.approvedAt === null
+  ) {
+    return NextResponse.json({
+      error: "Only a packet that passed mapping review and master approval can be activated.",
+    }, { status: 409 });
   }
   await prisma.$transaction(async (tx) => {
     await tx.pdfTemplate.updateMany({ where: { providerId: params.id, isActive: true }, data: { isActive: false } });
-    await tx.pdfTemplate.update({ where: { id: template.id }, data: { isActive: true } });
+    await tx.pdfTemplate.update({
+      where: { id: template.id },
+      data: { isActive: true, approvedAt: new Date(), approvedByUserId: user!.id },
+    });
   });
   await audit("provider_packet_rolled_back", {
     providerId: params.id,

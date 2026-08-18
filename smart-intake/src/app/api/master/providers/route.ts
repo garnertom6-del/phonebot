@@ -4,6 +4,10 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { isMasterUser, requireMaster, requireProviderAdmin } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
+import {
+  providerPacketFileAvailable,
+  providerPacketReadinessFromTemplates,
+} from "@/lib/providerPacketTemplates";
 
 const optionalEmailSchema = z.union([
   z.string().trim().email("Enter a valid provider contact email"),
@@ -81,6 +85,8 @@ export async function GET() {
         take: 10,
         select: {
           id: true,
+          providerId: true,
+          filePath: true,
           name: true,
           originalFileName: true,
           pageCount: true,
@@ -125,6 +131,13 @@ export async function GET() {
       const intakeSummary = intakeSummaryByProvider.get(item.id) || {};
       return {
         ...item,
+        packetReadiness: providerPacketReadinessFromTemplates(
+          item.id,
+          item.pdfTemplates.map((template) => ({
+            ...template,
+            fileAvailable: providerPacketFileAvailable(template.filePath),
+          })),
+        ),
         intakeSummary,
         currentIntakeCount: Object.values(intakeSummary).reduce((sum, count) => sum + count, 0),
         archivedIntakeCount: archivedIntakeCountByProvider.get(item.id) || 0,

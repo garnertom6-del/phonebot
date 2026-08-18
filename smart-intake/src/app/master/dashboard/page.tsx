@@ -17,8 +17,17 @@ type ProviderRow = {
   intakeSummary: Record<string, number>;
   currentIntakeCount: number;
   archivedIntakeCount: number;
+  packetReadiness: {
+    ready: boolean;
+    state: string;
+    templateId: string | null;
+    templateName: string | null;
+    pageCount: number | null;
+    message: string;
+  };
   pdfTemplates: Array<{
     id: string;
+    providerId: string | null;
     name: string;
     originalFileName?: string | null;
     pageCount: number;
@@ -84,7 +93,8 @@ function providerOpenWorkCount(provider: ProviderRow) {
 }
 
 function activePacketFor(provider: ProviderRow) {
-  return provider.pdfTemplates.find((template) => template.isActive) || null;
+  if (!provider.packetReadiness.ready || !provider.packetReadiness.templateId) return null;
+  return provider.pdfTemplates.find((template) => template.id === provider.packetReadiness.templateId) || null;
 }
 
 function latestPacketFor(provider: ProviderRow) {
@@ -95,9 +105,13 @@ function latestPacketFor(provider: ProviderRow) {
 }
 
 function packetStatus(template: ProviderRow["pdfTemplates"][number]) {
-  if (template.isActive && (template.mappingStatus !== "APPROVED" || template.mappingScore == null)) {
+  const validScore = typeof template.mappingScore === "number"
+    && Number.isInteger(template.mappingScore)
+    && template.mappingScore >= 0
+    && template.mappingScore <= 100;
+  if (template.isActive && (template.mappingStatus !== "APPROVED" || !validScore || !template.approvedAt)) {
     return {
-      label: "Active - mapping unverified",
+      label: "Not ready - approval required",
       className: "bg-amber-100 text-amber-900",
     };
   }
@@ -808,7 +822,7 @@ export default function MasterDashboard() {
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${provider.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{provider.status === "ACTIVE" ? "Active" : "Inactive"}</span>
                       </div>
                       {openSummary === "packets" ? (
-                        packet ? <p className="mt-1 text-slate-300">{packet.originalFileName || packet.name} · {packet.pageCount} pages · {packetState?.label}</p> : <p className="mt-1 text-slate-300">Using the shared default packet.</p>
+                        packet ? <p className="mt-1 text-slate-300">{packet.originalFileName || packet.name} · {packet.pageCount} pages · {packetState?.label}</p> : <p className="mt-1 font-semibold text-amber-200">Packet setup required before PDF or DocuSign.</p>
                       ) : (
                         <p className="mt-1 text-slate-300">
                           {provider._count.clients} clients · {provider.currentIntakeCount} current intakes · {provider.archivedIntakeCount} archived · {activeMembershipCount(provider)} staff users
@@ -1065,9 +1079,9 @@ export default function MasterDashboard() {
                     </div>
 
                     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-                      <p className="font-semibold text-slate-800">{packet?.originalFileName || "Shared default packet"}</p>
+                      <p className="font-semibold text-slate-800">{packet?.originalFileName || "Provider packet not ready"}</p>
                       <p className="mt-1 text-slate-500">
-                        {packet ? `${packet.pageCount} pages · ${packetState?.label}` : "No custom packet uploaded"}
+                        {packet ? `${packet.pageCount} pages · ${packetState?.label}` : "Upload, map, review, approve, and activate this provider's packet"}
                       </p>
                       <p className="mt-1 text-slate-500">Staff review: {reviewQueue} · Open work: {openWork}</p>
                     </div>
@@ -1128,7 +1142,7 @@ export default function MasterDashboard() {
                               </span>
                             </div>
                           ) : (
-                            <span className="text-slate-500">Default packet</span>
+                            <span className="font-semibold text-amber-700">Setup required</span>
                           )}
                         </td>
                         <td className="px-4 py-3">{provider._count.clients}</td>
@@ -1219,12 +1233,15 @@ export default function MasterDashboard() {
             {selectedProvider ? (
               selectedActiveTemplate ? (
                 <div>
-                  <p className="text-xs font-semibold uppercase text-slate-500">Active packet used for new intakes</p>
+                  <p className="text-xs font-semibold uppercase text-slate-500">Approved packet used for PDF and DocuSign</p>
                   <p className="mt-1 font-semibold text-slate-800">{selectedActiveTemplate.originalFileName || selectedActiveTemplate.name}</p>
                   <p className="mt-1">{selectedActiveTemplate.pageCount} pages • updated {new Date(selectedActiveTemplate.updatedAt).toLocaleDateString()}</p>
                 </div>
               ) : (
-                <p>Active packet: shared default intake packet.</p>
+                <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-950">
+                  <p className="font-bold">No approved active provider packet</p>
+                  <p className="mt-1">Upload, map, review, approve, and activate this provider&apos;s packet. Staff may create intakes and collect answers while setup is completed.</p>
+                </div>
               )
             ) : (
               <p>Select a provider to view packet status.</p>

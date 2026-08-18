@@ -72,19 +72,23 @@ export default function NewIntake() {
   const [providerPhone, setProviderPhone] = useState("");
   const [packetName, setPacketName] = useState("Provider Intake Packet");
   const [packetPageCount, setPacketPageCount] = useState<number | null>(null);
+  const [packetReady, setPacketReady] = useState(true);
+  const [packetReadinessMessage, setPacketReadinessMessage] = useState("");
 
   useEffect(() => {
     let active = true;
     fetch("/api/intakes/context").then(async (res) => {
       const body = await readResponse(res) as {
         provider?: { name?: string; phone?: string };
-        packet?: { name?: string; pageCount?: number };
+        packet?: { name?: string; pageCount?: number | null; ready?: boolean; message?: string };
       };
       if (!res.ok || !active) return;
       setProviderName(body.provider?.name || "Provider");
       setProviderPhone(body.provider?.phone || "");
       setPacketName(body.packet?.name || "Provider Intake Packet");
       setPacketPageCount(typeof body.packet?.pageCount === "number" ? body.packet.pageCount : null);
+      setPacketReady(body.packet?.ready !== false);
+      setPacketReadinessMessage(body.packet?.message || "");
     }).catch(() => {});
     return () => { active = false; };
   }, []);
@@ -353,6 +357,13 @@ export default function NewIntake() {
         <p className="mb-4 text-sm text-slate-500">
           Package: {packetName}{packetPageCount ? ` (${packetPageCount} pages)` : ""}
         </p>
+        {!packetReady && (
+          <div role="alert" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
+            <p className="font-bold">Provider packet setup required before PDF or DocuSign</p>
+            <p className="mt-1 leading-6">{packetReadinessMessage}</p>
+            <p className="mt-1 font-semibold">You can still create this intake, send the secure link, and collect the client&apos;s answers.</p>
+          </div>
+        )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           {FIELDS.filter(([key]) => !["recordNumber", "addressStreet", "addressCity", "addressState", "livingArrangement"].includes(key)).map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>

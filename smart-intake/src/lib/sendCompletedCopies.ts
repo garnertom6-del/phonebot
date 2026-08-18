@@ -14,6 +14,10 @@ import { sendCompletedPacketEmail, sendCopiesLinkEmail, sendCopiesLinkSms, type 
 import { answeredClientFields } from "./clientAnswerSync";
 import { fileExists, readFile } from "./storage";
 import { packetFreshnessForIntake } from "./packetFreshness";
+import {
+  ProviderPacketNotReadyError,
+  requireProviderPacketForCompletion,
+} from "./providerPacketTemplates";
 
 function sentLabel(r: NotifyResult): string {
   return `${r.channel} to ${r.to}`;
@@ -79,6 +83,24 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
         failed: [],
       },
     };
+  }
+
+  try {
+    await requireProviderPacketForCompletion(opts.providerId);
+  } catch (error) {
+    if (error instanceof ProviderPacketNotReadyError) {
+      return {
+        status: 409,
+        body: {
+          ok: false,
+          code: error.code,
+          error: error.message,
+          sent: [],
+          failed: [],
+        },
+      };
+    }
+    throw error;
   }
 
   const link = `${appBaseUrl(opts.req)}/copies/${intake.token}`;
@@ -172,6 +194,14 @@ export async function sendCompletedPacketToProvider(opts: SendCompletedCopiesOpt
   if (!intake) return { skipped: true, reason: "Intake not found" };
   if (intake.archived || intake.status !== "COMPLETED") {
     return { skipped: true, reason: "Provider packet email waits until the intake is marked completed" };
+  }
+  try {
+    await requireProviderPacketForCompletion(opts.providerId);
+  } catch (error) {
+    if (error instanceof ProviderPacketNotReadyError) {
+      return { skipped: true, reason: error.message, code: error.code };
+    }
+    throw error;
   }
   if (!intake.provider?.email) return { skipped: true, reason: "Provider email is not configured" };
   const packet = await packetFreshnessForIntake(intake.id);
