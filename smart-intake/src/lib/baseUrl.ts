@@ -2,6 +2,17 @@
  * Public base URL for client links. On Render, RENDER_EXTERNAL_URL is set
  * automatically, so a Blueprint deploy needs zero manual URL configuration.
  */
+const DEPLOYED_PUBLIC_URL = "https://mdc-smart-intake.onrender.com";
+
+function isLocalOrigin(value: string): boolean {
+  try {
+    const hostname = new URL(value).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
+}
+
 function requestOrigin(req?: Request | { headers?: Headers; nextUrl?: URL; url?: string }): string {
   if (!req) return "";
   try {
@@ -15,14 +26,27 @@ function requestOrigin(req?: Request | { headers?: Headers; nextUrl?: URL; url?:
   return host ? `${proto}://${host}` : "";
 }
 
+export function isLocalWorkspace(): boolean {
+  return process.env.NODE_ENV !== "production" && /^file:/i.test((process.env.DATABASE_URL || "").trim());
+}
+
 export function appBaseUrl(req?: Request | { headers?: Headers; nextUrl?: URL; url?: string }): string {
+  // A local SQLite database is not shared with the deployed Render service.
+  // Keep local links local so they cannot be mistaken for public client links.
+  if (isLocalWorkspace()) {
+    const origin = requestOrigin(req);
+    return origin || "http://localhost:3000";
+  }
   if (process.env.APP_BASE_URL) return process.env.APP_BASE_URL;
   if (process.env.RENDER_EXTERNAL_URL) return process.env.RENDER_EXTERNAL_URL;
   if (process.env.VERCEL_URL) return `https://${process.env.VERCEL_URL}`;
   const origin = requestOrigin(req);
+  // A local dashboard can create links for clients, but localhost is never
+  // reachable from a client's phone. Use the deployed site as the fallback.
+  if (origin && isLocalOrigin(origin)) return DEPLOYED_PUBLIC_URL;
   if (origin) return origin;
   if (process.env.NODE_ENV === "production") {
     throw new Error("APP_BASE_URL or RENDER_EXTERNAL_URL must be set before creating public links.");
   }
-  return "http://localhost:3000";
+  return DEPLOYED_PUBLIC_URL;
 }

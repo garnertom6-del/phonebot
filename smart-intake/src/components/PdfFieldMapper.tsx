@@ -65,7 +65,10 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [aiBusy, setAiBusy] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [replaceMappingOnSave, setReplaceMappingOnSave] = useState(false);
+  const [previewRotation, setPreviewRotation] = useState<0 | 180>(0);
   const pdfRef = useRef<unknown>(null);
+  const renderTaskRef = useRef<{ promise: Promise<void>; cancel: () => void } | null>(null);
+  const renderSequenceRef = useRef(0);
   const dragRef = useRef<{ key: string; startX: number; startY: number; ox: number; oy: number; resize: boolean } | null>(null);
   const qs = queryString(providerId, templateId);
 
@@ -78,6 +81,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setAiSuggestions([]);
     setStatusError("");
     setReplaceMappingOnSave(false);
+    const rotationKey = `pdf-mapper-rotation:${templateId || providerId || "default"}`;
+    const savedRotation = window.localStorage.getItem(rotationKey);
+    setPreviewRotation(savedRotation === "180" ? 180 : 0);
     fetch(`/api/mapping${qs}`).then(async (r) => {
       const d = await r.json();
       if (!r.ok) throw new Error(d.error || "Mapping could not be loaded");
@@ -93,28 +99,70 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     });
   }, [qs]);
 
-  useEffect(() => { pdfRef.current = null; }, [qs]);
+  useEffect(() => {
+    pdfRef.current = null;
+    renderSequenceRef.current += 1;
+    renderTaskRef.current?.cancel();
+    renderTaskRef.current = null;
+  }, [qs]);
 
   const renderPage = useCallback(async () => {
+    const sequence = ++renderSequenceRef.current;
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     if (!pdfRef.current) {
       pdfRef.current = await pdfjs.getDocument(`/api/template${qs}`).promise;
     }
-    const doc = pdfRef.current as { getPage: (n: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number }; render: (o: object) => { promise: Promise<void> } }> };
+    if (sequence !== renderSequenceRef.current) return;
+    const doc = pdfRef.current as { getPage: (n: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number }; render: (o: object) => { promise: Promise<void>; cancel: () => void } }> };
     const page = await doc.getPage(pageNum);
+    if (sequence !== renderSequenceRef.current) return;
+    renderTaskRef.current?.cancel();
     const viewport = page.getViewport({ scale });
     const canvas = canvasRef.current!;
     canvas.width = viewport.width; canvas.height = viewport.height;
-    await page.render({ canvasContext: canvas.getContext("2d")!, viewport }).promise;
+    const renderTask = page.render({ canvasContext: canvas.getContext("2d")!, viewport });
+    renderTaskRef.current = renderTask;
+    try {
+      await renderTask.promise;
+    } catch (error) {
+      if (sequence !== renderSequenceRef.current || (error instanceof Error && error.name === "RenderingCancelledException")) return;
+      throw error;
+    } finally {
+      if (renderTaskRef.current === renderTask) renderTaskRef.current = null;
+    }
   }, [pageNum, scale, qs]);
 
-  useEffect(() => { void renderPage(); }, [renderPage]);
+  useEffect(() => {
+    void renderPage().catch((error) => {
+      if (error instanceof Error) setStatusError(error.message || "The PDF preview could not be rendered.");
+    });
+    return () => {
+      renderSequenceRef.current += 1;
+      renderTaskRef.current?.cancel();
+      renderTaskRef.current = null;
+    };
+  }, [renderPage]);
 
   const toScreen = (f: Field) => ({
-    left: f.x * scale, top: (pageSize.h - f.y - f.height) * scale,
+    left: previewRotation === 180
+      ? (pageSize.w - f.x - f.width) * scale
+      : f.x * scale,
+    top: previewRotation === 180
+      ? f.y * scale
+      : (pageSize.h - f.y - f.height) * scale,
     width: f.width * scale, height: f.height * scale,
   });
+
+  function togglePreviewRotation() {
+    const next = previewRotation === 180 ? 0 : 180;
+    const rotationKey = `pdf-mapper-rotation:${templateId || providerId || "default"}`;
+    setPreviewRotation(next);
+    window.localStorage.setItem(rotationKey, String(next));
+    setNote(next === 180
+      ? "Preview rotated 180 deg. Field coordinates remain aligned with the saved PDF."
+      : "Preview returned to normal orientation.");
+  }
 
   function update(key: string, patch: Partial<Field>) {
     setFields((fs) => fs.map((f) => (f.fieldKey === key ? { ...f, ...patch } : f)));
@@ -124,12 +172,18 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   function addFieldAt(e: React.MouseEvent) {
     if ((e.target as HTMLElement).dataset.fieldkey) return;
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const px = (e.clientX - rect.left) / scale;
-    const py = pageSize.h - (e.clientY - rect.top) / scale - 12;
+    const visualX = (e.clientX - rect.left) / scale;
+    const visualY = (e.clientY - rect.top) / scale;
+    const fieldWidth = 140;
+    const fieldHeight = 12;
+    const px = previewRotation === 180 ? pageSize.w - visualX - fieldWidth : visualX;
+    const py = previewRotation === 180 ? visualY - fieldHeight : pageSize.h - visualY - fieldHeight;
     const key = `custom_${Date.now()}`;
     const f: Field = {
-      page: pageNum, fieldKey: key, source: "", type: "text", x: Math.round(px), y: Math.round(py),
-      width: 140, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6,
+      page: pageNum, fieldKey: key, source: "", type: "text",
+      x: Math.round(Math.max(0, Math.min(pageSize.w - fieldWidth, px))),
+      y: Math.round(Math.max(0, Math.min(pageSize.h - fieldHeight, py))),
+      width: fieldWidth, height: fieldHeight, fontSize: 9, lines: 1, lineHeight: 11.6,
       required: false, role: "client", consentKey: null, notes: "added in mapper",
     };
     setFields((fs) => [...fs, f]);
@@ -161,8 +215,15 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     if (!d) return;
     const dx = (e.clientX - d.startX) / scale;
     const dy = (e.clientY - d.startY) / scale;
-    if (d.resize) update(d.key, { width: Math.max(10, Math.round(d.ox + dx)), height: Math.max(8, Math.round(d.oy + dy)) });
-    else update(d.key, { x: Math.round(d.ox + dx), y: Math.round(d.oy - dy) });
+    if (d.resize) {
+      update(d.key, previewRotation === 180
+        ? { width: Math.max(10, Math.round(d.ox - dx)), height: Math.max(8, Math.round(d.oy - dy)) }
+        : { width: Math.max(10, Math.round(d.ox + dx)), height: Math.max(8, Math.round(d.oy + dy)) });
+    } else {
+      update(d.key, previewRotation === 180
+        ? { x: Math.round(d.ox - dx), y: Math.round(d.oy + dy) }
+        : { x: Math.round(d.ox + dx), y: Math.round(d.oy - dy) });
+    }
   }
   function onPointerUp() { dragRef.current = null; }
 
@@ -355,6 +416,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           </select>
           <button className="btn-ghost px-3 py-1" onClick={() => setScale((s) => s + 0.2)}>Zoom +</button>
           <button className="btn-ghost px-3 py-1" onClick={() => setScale((s) => Math.max(0.6, s - 0.2))}>Zoom -</button>
+          <button type="button" className="btn-ghost px-3 py-1" onClick={togglePreviewRotation}>
+            {previewRotation === 180 ? "Use normal orientation" : "Rotate 180 deg"}
+          </button>
           <label className="ml-2 flex items-center gap-1 text-sm">
             <input type="checkbox" checked={testFill} onChange={(e) => setTestFill(e.target.checked)} /> Test-fill labels
           </label>
@@ -372,7 +436,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           <button className="btn-ghost px-3 py-1" onClick={exportJson}>Export JSON</button>
           {(statusError || note) && <span role={statusError ? "alert" : "status"} className={`text-sm ${statusError ? "text-red-700" : "text-emerald-600"}`}>{statusError || note}</span>}
         </div>
-        <p className="mb-2 text-xs text-slate-500">Click empty space to add a field. Drag a box to move. Drag the corner dot to resize. Click a box to edit its properties.</p>
+        <p className="mb-2 text-xs text-slate-500">Click empty space to add a field. Drag a box to move. Drag the corner dot to resize. Click a box to edit its properties.{previewRotation === 180 ? " Preview correction is on; saved PDF coordinates are preserved." : ""}</p>
         {health && (
           <div className={`mb-3 rounded-lg border p-3 text-sm ${health.ready ? "border-emerald-200 bg-emerald-50 text-emerald-900" : "border-red-200 bg-red-50 text-red-900"}`}>
             <p className="font-semibold">Mapping score: {health.score}/100 {health.ready ? "- ready for master approval" : "- fix blocking items first"}</p>
@@ -393,7 +457,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
             <p className="mt-2 text-xs">Preview: {aiSuggestions.slice(0, 5).map((field) => `${field.source} p${field.page}`).join("; ")}{aiSuggestions.length > 5 ? "; ..." : ""}</p>
           </div>
         )}
-        <div className="relative inline-block border border-slate-300 shadow" onClick={addFieldAt}
+        <div className="relative inline-block border border-slate-300 shadow"
+          style={{ transform: previewRotation === 180 ? "rotate(180deg)" : undefined }}
+          onClick={addFieldAt}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
           <canvas ref={canvasRef} />
           {pageFields.map((f) => {
@@ -406,10 +472,10 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
                 style={{ left: s.left, top: s.top, width: s.width, height: Math.max(s.height, 10) }}
                 title={`${f.fieldKey} from ${f.source}`}>
                 {testFill && <span className="pointer-events-none block truncate px-0.5 text-sky-900">{f.source || f.fieldKey}</span>}
-                {isSel && (
-                  <div onPointerDown={(e) => onPointerDown(e, f, true)}
-                    className="absolute -bottom-1.5 -right-1.5 h-3 w-3 cursor-nwse-resize rounded-full bg-red-500" />
-                )}
+                  {isSel && (
+                    <div onPointerDown={(e) => onPointerDown(e, f, true)}
+                    className={`absolute h-3 w-3 rounded-full bg-red-500 ${previewRotation === 180 ? "-left-1.5 -top-1.5 cursor-nwse-resize" : "-bottom-1.5 -right-1.5 cursor-nwse-resize"}`} />
+                  )}
               </div>
             );
           })}

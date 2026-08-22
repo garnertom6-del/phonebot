@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { appBaseUrl } from "@/lib/baseUrl";
+import { appBaseUrl, isLocalWorkspace } from "@/lib/baseUrl";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -17,6 +17,7 @@ export interface StaffIntakeResult {
   linkDays: number;
   recordNumber: string;
   providerChoicePlan: string;
+  publicLinkReady: boolean;
 }
 
 export async function createStaffIntake(
@@ -104,5 +105,6 @@ export async function createStaffIntake(
     linkDays: tokenExpiryDays(),
     recordNumber: data.recordNumber,
     providerChoicePlan: data.providerChoicePlan,
+    publicLinkReady: !isLocalWorkspace(),
   };
 }

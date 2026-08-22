@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { appBaseUrl } from "@/lib/baseUrl";
+import { appBaseUrl, isLocalWorkspace } from "@/lib/baseUrl";
 import { requireStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import {
@@ -34,6 +34,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     include: { client: true },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (isLocalWorkspace()) {
+    return NextResponse.json({
+      error: "This intake is stored in the local workspace. Create it from the live Render dashboard before sending it to a client.",
+    }, { status: 409 });
+  }
   if (clientLinkMessagingFinished(intake.status)) {
     return NextResponse.json({
       error: "The client or guardian already signed this intake. No intake reminder was sent.",

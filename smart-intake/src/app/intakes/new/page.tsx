@@ -55,7 +55,7 @@ export default function NewIntake() {
   const [autoEmailProviderPacket, setAutoEmailProviderPacket] = useState(false);
   const [error, setError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
-  const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string } | null>(null);
+  const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
   const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
@@ -190,7 +190,7 @@ export default function NewIntake() {
       });
       const body = await readResponse(res);
       if (res.ok) {
-        const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string };
+        const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean };
         await applyStarterInfo(created.id);
         setResult(created);
       }
@@ -267,61 +267,76 @@ export default function NewIntake() {
             Record#: {result.recordNumber || "Generated"}{result.providerChoicePlan ? ` (${result.providerChoicePlan})` : ""}
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
-          {hasContact && (
-            <p className="mt-3 break-words rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
-              <span className="font-bold">Send to:</span> {recipientSummary}
-            </p>
-          )}
-          <div className="mt-4 grid gap-2 sm:grid-cols-2">
-            <button
-              className="btn-primary"
-              disabled={sendBusy || redirecting || !hasContact}
-              onClick={() => { void sendWithApp(); }}
-            >
-              {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
-            </button>
-            <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
-              Open intake &amp; staff setup
-            </Link>
-          </div>
-          {!hasContact && (
-            <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">
-              Add a client or guardian phone number or email on the intake page before sending.
-            </p>
-          )}
-          <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-            <summary className="cursor-pointer font-semibold text-slate-800">
-              Manual sending &amp; message preview
-            </summary>
-            <p className="mt-3 break-all whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{message}</p>
-            <p className="mt-2 text-xs text-slate-500">
-              The message contains a secure link and no client name or health details. Confirm the recipient before sending.
-            </p>
-            <div className="mt-3 grid gap-2 sm:grid-cols-2">
-              <button className="btn-ghost" onClick={async () => {
-                await navigator.clipboard.writeText(result.clientLink); setCopied(true);
-              }}>{copied ? "Link copied" : "Copy client link"}</button>
-              <button className="btn-ghost" onClick={async () => {
-                await navigator.clipboard.writeText(message); setMessageCopied(true);
-              }}>{messageCopied ? "Message copied" : "Copy SMS message"}</button>
-              {phone && (
-                <a
-                  className="btn-ghost text-center"
-                  href={intakeSmsHref(phone, result.clientLink, providerName, providerPhone)}
-                >
-                  Open SMS on this computer
+          {result.publicLinkReady === false ? (
+            <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
+              <p className="font-semibold">Local workspace only</p>
+              <p className="mt-1">This intake is saved on this computer, not on the live Render site. Do not text or email this link to the client.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <a className="btn-primary text-center" href="https://mdc-smart-intake.onrender.com/login" target="_blank" rel="noreferrer">
+                  Open live dashboard
                 </a>
-              )}
-              {email && (
-                <a
-                  className="btn-ghost text-center"
-                  href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}
-                >
-                  Open email
-                </a>
-              )}
+                <Link href={`/intakes/${result.id}`} className="btn-secondary">Open local intake</Link>
+              </div>
             </div>
-          </details>
+          ) : (
+            <>
+              {hasContact && (
+                <p className="mt-3 break-words rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-900">
+                  <span className="font-bold">Send to:</span> {recipientSummary}
+                </p>
+              )}
+              <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                <button
+                  className="btn-primary"
+                  disabled={sendBusy || redirecting || !hasContact}
+                  onClick={() => { void sendWithApp(); }}
+                >
+                  {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
+                </button>
+                <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
+                  Open intake &amp; staff setup
+                </Link>
+              </div>
+              {!hasContact && (
+                <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">
+                  Add a client or guardian phone number or email on the intake page before sending.
+                </p>
+              )}
+              <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                <summary className="cursor-pointer font-semibold text-slate-800">
+                  Manual sending &amp; message preview
+                </summary>
+                <p className="mt-3 break-all whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{message}</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  The message contains a secure link and no client name or health details. Confirm the recipient before sending.
+                </p>
+                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                  <button className="btn-ghost" onClick={async () => {
+                    await navigator.clipboard.writeText(result.clientLink); setCopied(true);
+                  }}>{copied ? "Link copied" : "Copy client link"}</button>
+                  <button className="btn-ghost" onClick={async () => {
+                    await navigator.clipboard.writeText(message); setMessageCopied(true);
+                  }}>{messageCopied ? "Message copied" : "Copy SMS message"}</button>
+                  {phone && (
+                    <a
+                      className="btn-ghost text-center"
+                      href={intakeSmsHref(phone, result.clientLink, providerName, providerPhone)}
+                    >
+                      Open SMS on this computer
+                    </a>
+                  )}
+                  {email && (
+                    <a
+                      className="btn-ghost text-center"
+                      href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}
+                    >
+                      Open email
+                    </a>
+                  )}
+                </div>
+              </details>
+            </>
+          )}
           {setupStatus && (
             <p className={`mt-3 rounded-lg p-3 text-sm font-semibold ${
               setupStatusKind === "success" ? "bg-emerald-50 text-emerald-700" :
