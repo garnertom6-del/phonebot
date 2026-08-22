@@ -50,6 +50,7 @@ type ProviderRow = {
 };
 
 type SummaryKey = "providers" | "active" | "inactive" | "packets" | "intakes" | "staff" | "ai";
+type WorkflowView = "manage" | "create" | "access" | "packet";
 
 const EMPTY_FORM = {
   name: "",
@@ -127,6 +128,94 @@ function packetStatus(template: ProviderRow["pdfTemplates"][number]) {
   return { label: "Draft - needs review", className: "bg-amber-100 text-amber-900" };
 }
 
+function providerAdminMemberships(provider: ProviderRow) {
+  return provider.memberships.filter((membership) => membership.active && membership.role === "PROVIDER_ADMIN");
+}
+
+function providerLoginStatus(provider: ProviderRow) {
+  const admins = providerAdminMemberships(provider);
+  if (!admins.length) {
+    return {
+      label: "Admin login needed",
+      detail: "Create or reset provider administrator access",
+      className: "bg-red-100 text-red-800",
+    };
+  }
+  return {
+    label: "Login ready",
+    detail: admins.map((membership) => membership.user.email).join(", "),
+    className: "bg-emerald-100 text-emerald-800",
+  };
+}
+
+function mappingReadiness(template: ProviderRow["pdfTemplates"][number] | null) {
+  if (!template) {
+    return {
+      label: "No packet uploaded",
+      detail: "Upload the provider's blank intake packet",
+      scoreLabel: "0%",
+      className: "bg-red-100 text-red-800",
+    };
+  }
+  if (template.mappingStatus === "MAPPING") {
+    return {
+      label: "AI mapping",
+      detail: "Mapping is running in the background",
+      scoreLabel: "Working",
+      className: "bg-sky-100 text-sky-800",
+    };
+  }
+  if (template.mappingStatus === "APPROVED" && template.isActive) {
+    return {
+      label: "Ready to use",
+      detail: `Approved active packet${typeof template.mappingScore === "number" ? ` at ${template.mappingScore}/100` : ""}`,
+      scoreLabel: typeof template.mappingScore === "number" ? `${template.mappingScore}%` : "Approved",
+      className: "bg-emerald-100 text-emerald-800",
+    };
+  }
+  if (template.mappingStatus === "APPROVED") {
+    return {
+      label: "Approved history",
+      detail: "Approved but not the active packet",
+      scoreLabel: typeof template.mappingScore === "number" ? `${template.mappingScore}%` : "Approved",
+      className: "bg-slate-200 text-slate-700",
+    };
+  }
+  return {
+    label: "Needs review",
+    detail: typeof template.mappingScore === "number" ? `Mapping score ${template.mappingScore}/100` : "Review mapping and approve before use",
+    scoreLabel: typeof template.mappingScore === "number" ? `${template.mappingScore}%` : "Draft",
+    className: "bg-amber-100 text-amber-900",
+  };
+}
+
+function providerNextAction(provider: ProviderRow) {
+  const active = provider.status === "ACTIVE";
+  const packet = activePacketFor(provider) || latestPacketFor(provider);
+  const admins = providerAdminMemberships(provider);
+  const reviewQueue = providerReviewQueueCount(provider);
+
+  if (!active) {
+    return { label: "Reactivate provider", detail: "Access is paused", className: "bg-slate-200 text-slate-700" };
+  }
+  if (!admins.length) {
+    return { label: "Set admin login", detail: "Provider needs username/password", className: "bg-red-100 text-red-800" };
+  }
+  if (!packet) {
+    return { label: "Upload packet", detail: "No intake packet is attached", className: "bg-red-100 text-red-800" };
+  }
+  if (packet.mappingStatus === "MAPPING") {
+    return { label: "Wait for mapping", detail: "AI is still working", className: "bg-sky-100 text-sky-800" };
+  }
+  if (!activePacketFor(provider) || packet.mappingStatus !== "APPROVED" || !packet.isActive) {
+    return { label: "Review and approve", detail: "Packet is not ready for signatures", className: "bg-amber-100 text-amber-900" };
+  }
+  if (reviewQueue > 0) {
+    return { label: "Review intakes", detail: `${reviewQueue} intake${reviewQueue === 1 ? "" : "s"} need staff review`, className: "bg-amber-100 text-amber-900" };
+  }
+  return { label: "Ready", detail: "Provider can create and review intakes", className: "bg-emerald-100 text-emerald-800" };
+}
+
 export default function MasterDashboard() {
   const router = useRouter();
   const pathname = usePathname();
@@ -156,6 +245,7 @@ export default function MasterDashboard() {
   const [deleteBusyProviderId, setDeleteBusyProviderId] = useState("");
   const [providerNotifyBusy, setProviderNotifyBusy] = useState("");
   const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
+  const [workflowView, setWorkflowView] = useState<WorkflowView>("manage");
   const aiStopRequested = useRef(false);
 
   const load = useCallback(async () => {
@@ -222,6 +312,7 @@ export default function MasterDashboard() {
       if (body.provider?.id) {
         setSelectedProviderId(body.provider.id);
         setShowProviderAdminPassword(false);
+        setWorkflowView("packet");
         window.setTimeout(() => document.getElementById("provider-packet-setup")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
       }
       await load();
@@ -535,9 +626,23 @@ export default function MasterDashboard() {
 
   function openPacketSetup(providerId: string) {
     setSelectedProviderId(providerId);
+    setWorkflowView("packet");
     window.setTimeout(() => {
       document.getElementById("provider-packet-setup")?.scrollIntoView({ behavior: "smooth", block: "start" });
     }, 0);
+  }
+
+  function openAdminAccess(provider: ProviderRow) {
+    const admin = providerAdminMemberships(provider)[0];
+    setSelectedProviderId(provider.id);
+    setAdminForm((current) => ({
+      ...current,
+      name: admin?.user.name || provider.contactName || provider.name,
+      email: admin?.user.email || provider.email || "",
+      password: "",
+    }));
+    setWorkflowView("access");
+    window.setTimeout(() => document.getElementById("provider-admin-access")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
   function providerActions(provider: ProviderRow, mobile = false) {
@@ -546,22 +651,33 @@ export default function MasterDashboard() {
     const buttonClass = mobile ? "w-full justify-center px-3 py-2 text-xs" : "px-3 py-1.5 text-xs";
 
     return (
-      <div className={mobile ? "grid grid-cols-2 gap-2" : "flex flex-wrap gap-2"}>
-        {active ? (
-          <button
-            type="button"
-            className={`btn-primary ${buttonClass}`}
-            disabled={contextBusyProviderId === provider.id}
-            onClick={() => void openProviderDashboard(provider.id)}
-          >
-            {contextBusyProviderId === provider.id ? "Opening..." : "Open intakes"}
+      <div className="space-y-2">
+        <div className={mobile ? "grid grid-cols-2 gap-2" : "flex flex-wrap gap-2"}>
+          {active ? (
+            <button
+              type="button"
+              className={`btn-primary ${buttonClass}`}
+              disabled={contextBusyProviderId === provider.id}
+              onClick={() => void openProviderDashboard(provider.id)}
+            >
+              {contextBusyProviderId === provider.id ? "Opening..." : "Open intakes"}
+            </button>
+          ) : (
+            <span className={`rounded-lg bg-slate-100 text-center text-slate-500 ${buttonClass}`}>Inactive</span>
+          )}
+          <button type="button" className={`btn-ghost ${buttonClass}`} onClick={() => openAdminAccess(provider)}>
+            Login access
           </button>
-        ) : (
-          <span className={`rounded-lg bg-slate-100 text-center text-slate-500 ${buttonClass}`}>Inactive</span>
-        )}
-        <button type="button" className={`btn-ghost ${buttonClass}`} onClick={() => openPacketSetup(provider.id)}>
-          Packet setup
-        </button>
+          <button type="button" className={`btn-ghost ${buttonClass}`} onClick={() => openPacketSetup(provider.id)}>
+            Packet setup
+          </button>
+          {isMaster && packet && (
+            <Link className={`btn-ghost ${buttonClass}`} href={`/admin/pdf-mapping?providerId=${provider.id}&templateId=${packet.id}`}>
+              Map packet
+            </Link>
+          )}
+        </div>
+        <div className={mobile ? "grid grid-cols-2 gap-2" : "flex flex-wrap gap-2"}>
         {isMaster && active && provider.email && (
           <button
             type="button"
@@ -582,11 +698,6 @@ export default function MasterDashboard() {
             {providerNotifyBusy === `${provider.id}:sms` ? "Texting..." : mobile ? "Text portal" : "Text provider portal"}
           </button>
         )}
-        {isMaster && packet && (
-          <Link className={`btn-ghost ${buttonClass}`} href={`/admin/pdf-mapping?providerId=${provider.id}&templateId=${packet.id}`}>
-            Map packet
-          </Link>
-        )}
         {isMaster && (active ? (
           <button
             type="button"
@@ -606,15 +717,22 @@ export default function MasterDashboard() {
             {statusBusyProviderId === provider.id ? "Activating..." : "Activate"}
           </button>
         ))}
+        </div>
         {isMaster && (
-          <button
-            type="button"
-            className={`btn-ghost border-red-300 text-red-800 hover:bg-red-50 ${mobile ? "col-span-2" : ""} ${buttonClass}`}
-            disabled={deleteBusyProviderId === provider.id}
-            onClick={() => void deleteProviderProfile(provider)}
-          >
-            {deleteBusyProviderId === provider.id ? "Deleting..." : "Delete profile"}
-          </button>
+          <details className="rounded-lg border border-red-100 bg-red-50/50 px-2 py-1">
+            <summary className="cursor-pointer text-xs font-semibold text-red-800">Danger actions</summary>
+            <p className="mt-2 text-xs text-red-700">
+              Deletes {provider._count.clients} clients, {provider._count.intakes} intakes, {provider.pdfTemplates.length} packet templates, and {activeMembershipCount(provider)} active users for this provider.
+            </p>
+            <button
+              type="button"
+              className={`btn-ghost mt-2 border-red-300 text-red-800 hover:bg-red-50 ${mobile ? "w-full justify-center" : ""} ${buttonClass}`}
+              disabled={deleteBusyProviderId === provider.id}
+              onClick={() => void deleteProviderProfile(provider)}
+            >
+              {deleteBusyProviderId === provider.id ? "Deleting..." : "Delete profile"}
+            </button>
+          </details>
         )}
       </div>
     );
@@ -703,9 +821,14 @@ export default function MasterDashboard() {
             <h1 className="mt-3 text-3xl font-bold tracking-tight">{isMaster ? "Create Providers & Map Intake Packets" : "Provider Packet Dashboard"}</h1>
             <p className="mt-2 text-sm text-slate-200">
               {isMaster
-                ? "Create provider workspaces, set up administrator access, and upload, map, and approve the intake packet each provider uses."
+                ? "Use this master dashboard to create providers, assign usernames and passwords, send provider portal links, upload intake packets, and approve packet mapping before a provider uses it with clients."
                 : "Manage the intake packet PDF your provider uses for previews, downloads, and DocuSign."}
             </p>
+            {isMaster && (
+              <p className="mt-2 text-xs font-semibold text-brand-light">
+                Provider staff should use their own provider dashboard after you create their access here.
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap gap-2">
             {isMaster ? (
@@ -877,7 +1000,33 @@ export default function MasterDashboard() {
       )}
 
       {isMaster && (
-        <section className="mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <nav className="mt-5 rounded-2xl border border-slate-200 bg-white p-2 shadow-sm" aria-label="Master dashboard workflow">
+          <div className="grid gap-2 md:grid-cols-4">
+            {([
+              ["manage", "Manage providers", "Search, open, send login, and review next actions"],
+              ["create", "Create provider", "Add a new provider workspace and first login"],
+              ["access", "User & password", "Create or reset provider administrator access"],
+              ["packet", "Packet mapping", "Upload, map, approve, and activate packet PDFs"],
+            ] as Array<[WorkflowView, string, string]>).map(([view, label, detail]) => (
+              <button
+                key={view}
+                type="button"
+                className={`rounded-xl border px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand ${
+                  workflowView === view ? "border-brand bg-brand text-white" : "border-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+                }`}
+                aria-pressed={workflowView === view}
+                onClick={() => setWorkflowView(view)}
+              >
+                <span className="block text-sm font-bold">{label}</span>
+                <span className={`mt-1 block text-xs ${workflowView === view ? "text-brand-light" : "text-slate-500"}`}>{detail}</span>
+              </button>
+            ))}
+          </div>
+        </nav>
+      )}
+
+      {isMaster && (
+        <section className={`mt-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${workflowView === "manage" ? "" : "hidden"}`}>
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold text-slate-900">Find and manage providers</h2>
@@ -916,7 +1065,7 @@ export default function MasterDashboard() {
       <section className="mt-5 grid min-w-0 gap-5">
         <div className="min-w-0 space-y-5">
           {isMaster && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${workflowView === "create" ? "" : "hidden"}`}>
               <h2 className="mb-4 text-lg font-bold">Step 1: Create Provider Dashboard</h2>
               <p className="mb-4 text-sm text-slate-500">Create the provider first. This creates the provider workspace, login, and place where its client intakes will belong.</p>
               <form onSubmit={createProvider} className="grid grid-cols-1 gap-4 lg:grid-cols-4">
@@ -986,7 +1135,7 @@ export default function MasterDashboard() {
           )}
 
           {isMaster && (
-            <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+            <section id="provider-admin-access" className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${workflowView === "access" ? "" : "hidden"}`}>
               <h2 className="text-lg font-bold">Provider Administrator Access</h2>
               <p className="mt-1 text-sm text-slate-500">Create or reset the sign-in for an existing provider dashboard.</p>
               <form onSubmit={saveProviderAdmin} className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -1029,7 +1178,7 @@ export default function MasterDashboard() {
             </section>
           )}
 
-          <section id="provider-list" className="min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+          <section id="provider-list" className={`min-w-0 overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm ${!isMaster || workflowView === "manage" ? "" : "hidden"}`}>
             <div className="border-b border-slate-200 px-5 py-4">
               <h2 className="text-lg font-bold">{isMaster ? "Provider list" : "Your provider workspace"}</h2>
               <p className="text-sm text-slate-500">
@@ -1045,6 +1194,9 @@ export default function MasterDashboard() {
                 const active = provider.status === "ACTIVE";
                 const packet = activePacketFor(provider) || latestPacketFor(provider);
                 const packetState = packet ? packetStatus(packet) : null;
+                const nextAction = providerNextAction(provider);
+                const loginStatus = providerLoginStatus(provider);
+                const mappingStatus = mappingReadiness(packet);
                 const reviewQueue = providerReviewQueueCount(provider);
                 const openWork = providerOpenWorkCount(provider);
 
@@ -1061,6 +1213,17 @@ export default function MasterDashboard() {
                       <span className={`badge shrink-0 ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
                         {active ? "Active" : "Inactive"}
                       </span>
+                    </div>
+
+                    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-xs">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${nextAction.className}`}>{nextAction.label}</span>
+                        <span className="text-slate-500">{nextAction.detail}</span>
+                      </div>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${loginStatus.className}`}>{loginStatus.label}</span>
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${mappingStatus.className}`}>Mapping {mappingStatus.scoreLabel}</span>
+                      </div>
                     </div>
 
                     <div className="mt-3 grid grid-cols-3 gap-2 text-center">
@@ -1083,6 +1246,7 @@ export default function MasterDashboard() {
                       <p className="mt-1 text-slate-500">
                         {packet ? `${packet.pageCount} pages · ${packetState?.label}` : "Upload, map, review, approve, and activate this provider's packet"}
                       </p>
+                      <p className="mt-1 text-slate-500">{mappingStatus.detail}</p>
                       <p className="mt-1 text-slate-500">Staff review: {reviewQueue} · Open work: {openWork}</p>
                     </div>
 
@@ -1096,7 +1260,7 @@ export default function MasterDashboard() {
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 text-xs uppercase text-slate-500">
                   <tr>
-                    {["Provider", "Status", "Provider admin", "Packet", "Clients", "Intakes", "Users", "Actions"].map((heading) => (
+                    {["Provider", "Next action", "Provider admin", "Packet mapping", "Clients", "Intakes", "Users", "Actions"].map((heading) => (
                       <th key={heading} className="px-4 py-3">{heading}</th>
                     ))}
                   </tr>
@@ -1105,13 +1269,13 @@ export default function MasterDashboard() {
                   {loading && <tr><td colSpan={8} className="p-6 text-center text-slate-400">Loading...</td></tr>}
                   {!loading && !error && filteredProviders.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-400">{emptyProviderMessage}</td></tr>}
                   {filteredProviders.map((provider) => {
-                    const admins = provider.memberships
-                      .filter((membership) => membership.active && membership.role === "PROVIDER_ADMIN")
-                      .map((membership) => membership.user.email);
                     const active = provider.status === "ACTIVE";
                     const packet = activePacketFor(provider) || latestPacketFor(provider);
                     const packetState = packet ? packetStatus(packet) : null;
                     const activeStaff = activeMembershipCount(provider);
+                    const nextAction = providerNextAction(provider);
+                    const loginStatus = providerLoginStatus(provider);
+                    const mappingStatus = mappingReadiness(packet);
 
                     return (
                       <tr key={provider.id} className={`border-t border-slate-100 ${selectedProviderId === provider.id ? "bg-brand-light/20" : "hover:bg-slate-50"}`}>
@@ -1127,11 +1291,21 @@ export default function MasterDashboard() {
                           </div>
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`badge ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
-                            {active ? "Active" : "Inactive"}
+                          <span className={`badge ${nextAction.className}`}>
+                            {nextAction.label}
                           </span>
+                          <div className="mt-1 text-xs text-slate-500">{nextAction.detail}</div>
+                          <div className={`mt-2 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${active ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>
+                            {active ? "Active" : "Inactive"}
+                          </div>
                         </td>
-                        <td className="px-4 py-3 text-xs">{admins.length ? admins.join(", ") : "-"}</td>
+                        <td className="px-4 py-3 text-xs">
+                          <span className={`inline-block rounded-full px-2 py-0.5 font-semibold ${loginStatus.className}`}>{loginStatus.label}</span>
+                          <div className="mt-1 max-w-[180px] break-words text-slate-500">{loginStatus.detail}</div>
+                          <button type="button" className="mt-2 text-xs font-semibold text-brand hover:underline" onClick={() => openAdminAccess(provider)}>
+                            Create/reset login
+                          </button>
+                        </td>
                         <td className="px-4 py-3 text-xs">
                           {packet ? (
                             <div>
@@ -1140,9 +1314,16 @@ export default function MasterDashboard() {
                               <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${packetState?.className}`}>
                                 {packetState?.label}
                               </span>
+                              <span className={`ml-1 mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${mappingStatus.className}`}>
+                                {mappingStatus.scoreLabel}
+                              </span>
+                              <div className="mt-1 text-slate-500">{mappingStatus.detail}</div>
                             </div>
                           ) : (
-                            <span className="font-semibold text-amber-700">Setup required</span>
+                            <div>
+                              <span className="font-semibold text-amber-700">Setup required</span>
+                              <div className="mt-1 text-slate-500">{mappingStatus.detail}</div>
+                            </div>
                           )}
                         </td>
                         <td className="px-4 py-3">{provider._count.clients}</td>
@@ -1161,7 +1342,7 @@ export default function MasterDashboard() {
           </section>
         </div>
 
-        <section id="provider-packet-setup" className="min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <section id="provider-packet-setup" className={`min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${!isMaster || workflowView === "packet" ? "" : "hidden"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold">{isMaster ? "Step 2: Upload the Provider Packet" : "Provider Packet Upload"}</h2>
