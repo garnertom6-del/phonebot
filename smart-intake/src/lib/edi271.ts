@@ -17,15 +17,25 @@ export interface Edi271Result {
 const ACTIVE = new Set(["1"]); // Active Coverage
 const INACTIVE = new Set(["6", "7", "8"]); // Inactive / Inactive-Pending / etc.
 
-// A few common AAA reject reason codes -> plain text
+// AAA reject reason codes -> plain text. The 15/41/50/51/T4/42 set is the one
+// NC Tracks documents it can return (companion guide 10.2); the rest are the
+// standard 005010X279A1 subscriber-validation codes.
 const AAA_REASON: Record<string, string> = {
+  "15": "The request was missing required search information (name/DOB or member ID).",
+  "41": "Authorization or access restrictions on this provider.",
   "42": "Unable to respond at this time - try again later.",
   "43": "Invalid or missing provider identification.",
+  "50": "Provider is not eligible to submit eligibility inquiries.",
+  "51": "Provider is not on file with NC Tracks.",
+  "57": "Invalid or missing date(s) of service.",
+  "58": "Invalid or missing subscriber/insured birth date.",
+  "71": "Birth date does not match the person on file.",
   "72": "Invalid or missing subscriber/insured ID.",
   "73": "Invalid or missing subscriber/insured name.",
   "74": "Invalid or missing subscriber/insured birth date.",
   "75": "Subscriber/insured not found.",
   "76": "Duplicate subscriber/insured ID number.",
+  "T4": "Payer name or identifier missing from the request.",
 };
 
 function d8ToUs(v: string): string {

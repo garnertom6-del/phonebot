@@ -53,34 +53,58 @@ two of back-and-forth with NC Tracks; the actual forms take under an hour.
 have them: the **Submitter/Trading Partner ID**, the EDI endpoint + secret,
 and which region (test vs production). I wire the rest to the companion guide.
 
-### Exact environment variables the app reads
+### How the app talks to NC Tracks (already built)
 
-The feature is **inactive** until the first three are set:
+NC Tracks' real-time door is **CAQH CORE Phase II connectivity** (documented in
+the NC Tracks *Trading Partner Connectivity Guide*, section 4.2.5). The app:
 
-| Variable | Required | From | Notes |
-|---|---|---|---|
-| `NCTRACKS_EDI_URL` | ✅ | Companion guide | The NC Tracks real-time 270/271 endpoint URL |
-| `NCTRACKS_SUBMITTER_ID` | ✅ | Enrollment | Your Trading Partner / submitter ID |
-| `NCTRACKS_PROVIDER_NPI` | ✅ | The provider | NPI used on the inquiry (Type 2 org, or Type 1) |
-| `NCTRACKS_EDI_SECRET` | recommended | Enrollment | Bearer token / password for the endpoint |
-| `NCTRACKS_RECEIVER_ID` | optional | Companion guide | Defaults to `NCTRACKS` |
-| `NCTRACKS_PROVIDER_NAME` | optional | The provider | Printed in the 270; defaults to `PROVIDER` |
-| `NCTRACKS_ISA_SENDER_QUALIFIER` | optional | Companion guide | ISA05, defaults to `ZZ` |
-| `NCTRACKS_ISA_RECEIVER_QUALIFIER` | optional | Companion guide | ISA07, defaults to `ZZ` |
+1. Builds a compliant X12 **270** with NC Tracks' required envelope values —
+   `ISA08`/`GS03` = `NCTRACKSREL` (real-time), info source = `NCTRACKS`,
+   provider taxonomy `PRV*SB` segment, and the subscriber last name
+   **normalized** per companion-guide section 1.4.
+2. Wraps it in a **SOAP 1.2 `COREEnvelopeRealTimeRequest`** with a WS-Security
+   `UsernameToken`, `CORERuleVersion 2.2.0`, `ProcessingMode RealTime`.
+3. POSTs to the endpoint (`https://edi.nctracks.nc.gov/EDIGateway`) and pulls
+   the **271** out of the `COREEnvelopeRealTimeResponse` `<Payload>`.
 
-With none set, the intake page shows "Direct check not connected — enroll as
-an NC Tracks Trading Partner," and the manual screenshot-upload reader remains
-the fallback. Nothing is sent anywhere.
+No code change is needed to go live — only the environment variables below.
 
-### What still needs the real companion guide (the one external blocker)
+### Exact environment variables the app reads (set these in Render)
 
-The 270 is built to the standard 005010X279A1 structure, but a few values are
-**payer-specific and only in NC Tracks' companion guide**, which you receive at
-enrollment: the exact **endpoint URL**, the **receiver ID**, the **ISA
-interchange qualifiers**, and the authentication method (bearer token vs
-SOAP/CORE envelope). All are env-configurable above; once you paste the
-companion-guide values in, we run NC Tracks' connectivity test together and
-flip to production. No code change is required for standard values.
+The feature is **inactive** until the required ones are set:
+
+| Variable | Required | Value / where it comes from |
+|---|---|---|
+| `NCTRACKS_EDI_URL` | ✅ | `https://edi.nctracks.nc.gov/EDIGateway` (production, from the Connectivity Guide). Use the **test-region** URL first for connectivity testing. |
+| `NCTRACKS_SUBMITTER_ID` | ✅ | Your **4-digit** Trading Partner / submitter ID (from enrollment). Goes in `ISA06`/`GS02`. |
+| `NCTRACKS_PROVIDER_NPI` | ✅ | The provider's NPI (Type 2 org, or Type 1). |
+| `NCTRACKS_EDI_USERNAME` | ✅ (SOAP) | WS-Security username for the EDI endpoint (from enrollment / your NCID trading-partner user). |
+| `NCTRACKS_EDI_PASSWORD` | ✅ (SOAP) | WS-Security password for that user. **Secret — Render only.** |
+| `NCTRACKS_PROVIDER_TAXONOMY` | ✅ | Provider taxonomy code (e.g. behavioral-health agency taxonomy). NC Tracks requires it on the inquiry (`PRV*SB*PXC*…`). |
+| `NCTRACKS_PROVIDER_NAME` | optional | Printed in the 270; defaults to `PROVIDER`. |
+| `NCTRACKS_SENDER_ID` | optional | CORE envelope `SenderID` (≤50 chars, no spaces); defaults to the submitter ID. |
+| `NCTRACKS_RECEIVER_ID` | optional | `ISA08`/`GS03`; defaults to `NCTRACKSREL` (real-time). Use `NCTRACKSBAT` only for batch. |
+| `NCTRACKS_PROVIDER_ID_CODE` | optional | 2100B entity code `1P` (default), `2B`, or `GP`. |
+| `NCTRACKS_ISA_SENDER_QUALIFIER` / `NCTRACKS_ISA_RECEIVER_QUALIFIER` | optional | `ISA05`/`ISA07`, default `ZZ`. |
+| `NCTRACKS_EDI_MODE` | optional | `soap` (default, real NC Tracks) or `raw` (plain X12 body, for local testing). |
+| `NCTRACKS_EDI_SECRET` | optional | Bearer token, used only in `raw` mode. |
+
+With the required ones unset, the intake page shows "Direct check not connected —
+enroll as an NC Tracks Trading Partner," and the manual screenshot-upload reader
+remains the fallback. Nothing is sent anywhere.
+
+### The only remaining external steps (not code)
+
+1. **Get your Submitter ID + WS-Security username/password** from your NC Tracks
+   EDI enrollment (the Trading Partner welcome packet, or the NC Tracks EDI
+   Support Unit via 1-800-688-6696).
+2. **Confirm the test-region endpoint URL** from the Connectivity Guide and set
+   `NCTRACKS_EDI_URL` to it first.
+3. **Pass NC Tracks' connectivity test** in the test region (they require this
+   before enabling production).
+4. **Flip `NCTRACKS_EDI_URL` to production** (`https://edi.nctracks.nc.gov/EDIGateway`).
+
+That's it — no code change for any of these.
 
 > BAA / data agreement: the Trading Partner Agreement itself is the data
 > agreement with the state for this channel. Keep a copy for your compliance

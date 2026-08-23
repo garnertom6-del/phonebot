@@ -12,30 +12,33 @@
 import http from "http";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { extractX12Payload } from "../src/lib/nctracksEdi";
 
 const FIX = join(process.cwd(), "test", "fixtures", "nctracks");
 
-// A mock NC Tracks door: reads the incoming 270 and answers with a canned 271
-// chosen by which sample client is being looked up.
+// A mock NC Tracks door that speaks the SAME CAQH CORE SOAP protocol as the
+// real endpoint: it unwraps the SOAP request, reads the embedded 270, and
+// answers with a SOAP-wrapped 271 chosen by which sample client was looked up.
 function mockNcTracks(): Promise<{ url: string; close: () => void }> {
   return new Promise((resolve) => {
     const server = http.createServer((req, res) => {
       let body = "";
       req.on("data", (c) => (body += c));
       req.on("end", () => {
+        const x12_270 = extractX12Payload(body); // pull the 270 out of the SOAP envelope
         // Pick a canned response by the name that appears in the 270 we received.
         let file = "271-active.edi";
-        if (/DOE/i.test(body)) file = "271-inactive.edi";
-        if (/NOMATCH/i.test(body)) file = "271-notfound.edi";
+        if (/DOE/i.test(x12_270)) file = "271-inactive.edi";
+        if (/NOMATCH/i.test(x12_270)) file = "271-notfound.edi";
         const edi = readFileSync(join(FIX, file), "utf8");
-        res.writeHead(200, { "Content-Type": "application/edi-x12" });
-        res.end(edi);
+        res.writeHead(200, { "Content-Type": "application/soap+xml" });
+        res.end(`<soap:Envelope><soap:Body><cor:COREEnvelopeRealTimeResponse><Payload><![CDATA[${edi}]]></Payload></cor:COREEnvelopeRealTimeResponse></soap:Body></soap:Envelope>`);
       });
     });
     server.listen(0, "127.0.0.1", () => {
       const addr = server.address();
       const port = typeof addr === "object" && addr ? addr.port : 0;
-      resolve({ url: `http://127.0.0.1:${port}`, close: () => server.close() });
+      resolve({ url: `http://127.0.0.1:${port}/EDIGateway`, close: () => server.close() });
     });
   });
 }
@@ -47,9 +50,12 @@ async function main() {
   // these come from the NC Tracks Trading Partner enrollment (see
   // README_NCTRACKS_EDI.md) and live in Render env vars, never in code.
   process.env.NCTRACKS_EDI_URL = mock.url;
-  process.env.NCTRACKS_SUBMITTER_ID = "DEMOSUBMIT";
+  process.env.NCTRACKS_SUBMITTER_ID = "SUB1";
   process.env.NCTRACKS_PROVIDER_NPI = "1234567893";
   process.env.NCTRACKS_PROVIDER_NAME = "MOORE DIVINE CARE INC";
+  process.env.NCTRACKS_PROVIDER_TAXONOMY = "251S00000X";
+  process.env.NCTRACKS_EDI_USERNAME = "demo-user"; // WS-Security (real value from enrollment)
+  process.env.NCTRACKS_EDI_PASSWORD = "demo-pass";
 
   // Import AFTER env is set so nctracksEdiConfigured() sees the config.
   const { checkNcTracksEligibility } = await import("../src/lib/nctracksEdi");

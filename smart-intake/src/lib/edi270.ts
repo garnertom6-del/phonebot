@@ -17,10 +17,14 @@ export interface Edi270Member {
 }
 
 export interface Edi270Config {
-  submitterId: string;   // your NC Tracks Trading Partner / submitter ID
-  receiverId: string;    // NC Tracks receiver ID (companion guide; default NCTRACKS)
+  submitterId: string;   // your NC Tracks 4-digit Trading Partner / submitter ID -> ISA06/GS02
+  receiverId: string;    // ISA08/GS03: "NCTRACKSREL" (real-time) or "NCTRACKSBAT" (batch)
   providerNpi: string;   // the provider organization NPI (Type 2) or individual NPI
   providerName: string;  // the provider/organization name
+  providerTaxonomy?: string; // 2100B PRV03 taxonomy code - NC Tracks requires this on the inquiry
+  providerIdCode?: string;   // 2100B NM101 entity code: "1P" (default), "2B", or "GP"
+  payerName?: string;    // 2100A NM103 info-source name, default "NCTRACKS"
+  payerId?: string;      // 2100A NM109 info-source id, default "NCTRACKS"
   interchangeSenderQualifier?: string; // ISA05, default "ZZ"
   interchangeReceiverQualifier?: string; // ISA07, default "ZZ"
 }
@@ -57,6 +61,34 @@ export function toD8(v: string): string {
   return s.replace(/\D/g, "");
 }
 
+// CAQH CORE / NC Tracks last-name normalization (companion guide section 1.4):
+// (1) uppercase, (2) drop titles/suffixes, (3) strip 16 special characters,
+// (4) drop suffix tokens (JR, SR, roman numerals, credentials) when set off by
+// a space, comma, or slash. NC Tracks matches on the normalized last name.
+const NAME_SUFFIXES = [
+  "JR", "SR", "III", "II", "IV", "V", "RN", "MD", "MRS", "MR", "MS",
+  "DR", "PHD", "REV", "ESQ",
+];
+export function normalizeLastName(name: string): string {
+  let s = (name || "").toUpperCase().trim();
+  // rule 4: strip trailing suffix tokens preceded by space/comma/slash
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const suf of NAME_SUFFIXES) {
+      const re = new RegExp(`[\\s,/]+${suf}\\.?$`);
+      if (re.test(s)) {
+        s = s.replace(re, "");
+        changed = true;
+      }
+    }
+  }
+  // rule 3: remove the 16 special characters  ! ' & ' ( ) * + , - . / : ; ? =
+  s = s.replace(/[!'’‘&()*+,\-.\/:;?=]/g, "");
+  // tidy whitespace
+  return s.replace(/\s+/g, " ").trim();
+}
+
 function genderCode(g?: string): string | null {
   const s = (g || "").toLowerCase();
   if (s.startsWith("m")) return "M";
@@ -81,21 +113,31 @@ export function buildEdi270(member: Edi270Member, cfg: Edi270Config, ctx: Edi270
   // ST / BHT
   seg.push(["ST", "270", "0001", "005010X279A1"].join(EL));
   seg.push(["BHT", "0022", "13", ctx.traceNumber.slice(0, 30), ccyymmdd(ctx.now), hhmm(ctx.now)].join(EL));
-  // 2000A Information Source = the payer (NC Medicaid)
+  // 2000A Information Source = NC Tracks (companion guide: NM103/NM109 = NCTRACKS)
+  const payerName = cfg.payerName || "NCTRACKS";
+  const payerId = cfg.payerId || "NCTRACKS";
   seg.push(["HL", "1", "", "20", "1"].join(EL));
-  seg.push(["NM1", "PR", "2", "NC MEDICAID", "", "", "", "", "PI", cfg.receiverId].join(EL));
-  // 2000B Information Receiver = the provider
+  seg.push(["NM1", "PR", "2", payerName, "", "", "", "", "PI", payerId].join(EL));
+  // 2000B Information Receiver = the provider (NM108 XX => NPI in NM109)
+  const idCode = cfg.providerIdCode || "1P";
   seg.push(["HL", "2", "1", "21", "1"].join(EL));
-  seg.push(["NM1", "1P", "2", cfg.providerName.toUpperCase(), "", "", "", "", "XX", cfg.providerNpi].join(EL));
+  seg.push(["NM1", idCode, "2", cfg.providerName.toUpperCase(), "", "", "", "", "XX", cfg.providerNpi].join(EL));
+  // 2100B PRV - NC Tracks requires the provider taxonomy on the inquiry
+  if (cfg.providerTaxonomy) {
+    seg.push(["PRV", "SB", "PXC", cfg.providerTaxonomy].join(EL));
+  }
   // 2000C Subscriber = the client
   seg.push(["HL", "3", "2", "22", "0"].join(EL));
   seg.push(["TRN", "1", ctx.traceNumber.slice(0, 50), cfg.submitterId].join(EL));
 
-  // NM1*IL - by Medicaid ID when known (MI), else by name (identity from DMG/DOB)
+  // NM1*IL - by Medicaid ID when known (MI), else by name (identity from DMG/DOB).
+  // NC Tracks matches on the *normalized* last name (companion guide section 1.4).
+  const normLast = normalizeLastName(member.lastName);
+  const firstUp = (member.firstName || "").toUpperCase();
   if (member.medicaidId) {
-    seg.push(["NM1", "IL", "1", member.lastName.toUpperCase(), (member.firstName || "").toUpperCase(), "", "", "", "MI", member.medicaidId].join(EL));
+    seg.push(["NM1", "IL", "1", normLast, firstUp, "", "", "", "MI", member.medicaidId].join(EL));
   } else {
-    seg.push(["NM1", "IL", "1", member.lastName.toUpperCase(), (member.firstName || "").toUpperCase()].join(EL));
+    seg.push(["NM1", "IL", "1", normLast, firstUp].join(EL));
   }
   // DMG - gender + DOB (helps match when no member ID)
   const g = genderCode(member.gender);
