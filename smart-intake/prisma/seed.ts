@@ -244,6 +244,30 @@ async function main() {
     create: { userId: admin.id, providerId: provider.id, role: "PROVIDER_ADMIN", active: true },
     update: { role: "PROVIDER_ADMIN", active: true },
   });
+
+  // Owner master login (Tom Garner). Password comes from OWNER_PASSWORD, or
+  // falls back to ADMIN_PASSWORD so one Render value covers both master logins.
+  // Same safety gate as admin: an existing password is only overwritten when
+  // SYNC_ADMIN_PASSWORD=true, so a deploy never silently resets it.
+  const ownerEmail = "garnertom6@gmail.com";
+  const ownerPassword = process.env.OWNER_PASSWORD || process.env.ADMIN_PASSWORD || "IntakeDemo123!";
+  const ownerPwProvided = !!(process.env.OWNER_PASSWORD || process.env.ADMIN_PASSWORD);
+  const owner = await prisma.user.upsert({
+    where: { email: ownerEmail },
+    create: {
+      email: ownerEmail,
+      passwordHash: await bcrypt.hash(ownerPassword, 10),
+      name: "Tom Garner", role: "master",
+    },
+    update: ownerPwProvided && syncAdminPasswordOnSeed
+      ? { passwordHash: await bcrypt.hash(ownerPassword, 10), name: "Tom Garner", role: "master" }
+      : { name: "Tom Garner", role: "master" },
+  });
+  await prisma.userMembership.upsert({
+    where: { userId_providerId: { userId: owner.id, providerId: welliance.id } },
+    create: { userId: owner.id, providerId: welliance.id, role: "PROVIDER_ADMIN", active: true },
+    update: { role: "PROVIDER_ADMIN", active: true },
+  });
   await prisma.pdfTemplate.upsert({
     where: { name: "Moore Divine Care Client Intake Package" },
     create: {
