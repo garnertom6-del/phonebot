@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "next dev",
     "build": "prisma generate && next build",
-    "prestart": "tsx scripts/prepare-record-numbers.ts && prisma db push --accept-data-loss && npm run seed",
+    "prestart": "tsx scripts/prepare-record-numbers.ts && prisma db push && npm run seed",
     "start": "next start",
     "db:push": "tsx scripts/prepare-record-numbers.ts && prisma db push",
     "seed": "tsx prisma/seed.ts",
