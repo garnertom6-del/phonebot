@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 
 const overrideSchema = z.object({
@@ -11,7 +11,7 @@ const overrideSchema = z.object({
 });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const parsed = overrideSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

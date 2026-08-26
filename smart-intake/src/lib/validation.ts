@@ -28,7 +28,13 @@ const optionalPhone = z.string().trim().optional().default("").refine(
   "Enter a valid phone number with at least 10 digits",
 );
 
-export const newIntakeSchema = z.object({
+function hasPhoneOrEmail(value: { phone?: string; email?: string }) {
+  const phone = (value.phone || "").replace(/\D/g, "");
+  const email = (value.email || "").trim();
+  return phone.length >= 10 || !!email;
+}
+
+const newIntakeObject = z.object({
   fullName: z.string().trim().min(2, "Enter the client's full name"),
   dob: z.string().trim().min(1, "DOB is required").refine((value) => {
     const date = validCalendarDate(value);
@@ -56,7 +62,11 @@ export const newIntakeSchema = z.object({
   autoEmailProviderPacket: z.boolean().optional(),
 });
 
-export const clientDetailsSchema = newIntakeSchema.pick({
+export const newIntakeSchema = newIntakeObject.refine(hasPhoneOrEmail, {
+  message: "Enter a phone number or email so the client can receive the intake link.",
+});
+
+export const clientDetailsSchema = newIntakeObject.pick({
   fullName: true,
   dob: true,
   midNumber: true,
@@ -66,6 +76,8 @@ export const clientDetailsSchema = newIntakeSchema.pick({
   guardianName: true,
   guardianEmail: true,
   guardianPhone: true,
+}).refine(hasPhoneOrEmail, {
+  message: "Enter a phone number or email so the client can receive the intake link.",
 });
 
 export const batchIntakesSchema = z.object({

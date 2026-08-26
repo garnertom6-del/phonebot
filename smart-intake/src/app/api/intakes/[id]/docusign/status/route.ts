@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { checkDocuSignStatus, downloadDocuSignDocument, docusignConfigured } from "@/lib/docusign";
 import { saveFile } from "@/lib/storage";
@@ -17,7 +17,7 @@ const FRIENDLY: Record<string, string> = {
 
 /** Check the DocuSign envelope; when completed, pull the signed PDF into the record. */
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   if (!docusignConfigured()) {
     return NextResponse.json({ error: "DocuSign is not set up." }, { status: 400 });

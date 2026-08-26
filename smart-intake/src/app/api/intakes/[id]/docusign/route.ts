@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { sendIntakeToDocuSign } from "@/lib/sendDocuSign";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const result = await sendIntakeToDocuSign({
     intakeId: params.id,

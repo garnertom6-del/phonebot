@@ -33,6 +33,10 @@ import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
 import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardWorkflow";
+import { packetDisplayStatus } from "../src/lib/mappingStatus";
+import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
+import { assessMapping } from "../src/lib/mappingHealth";
+import { catalogEntryByKey, mappingCatalog, mappedSourceKeys, newCatalogField } from "../src/lib/mappingCatalog";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -368,6 +372,10 @@ async function main() {
   assert(needsStaffAction("SUBMITTED"), "submitted intakes must remain in the staff action queue");
   assert(!needsStaffAction("IN_PROGRESS"), "in-progress intakes belong in the waiting-on-client queue");
   assert(!needsStaffAction("COMPLETED"), "completed intakes must leave the staff action queue");
+  assert(
+    needsStaffAction("COMPLETED", { tone: "warn", state: "Upload the CCA" }),
+    "missing CCA or a stale packet must still appear in Needs staff action",
+  );
   assert.equal(
     buildDashboardReadiness({
       status: "SIGNED",
@@ -421,10 +429,30 @@ async function main() {
       fullName: "Workflow Test",
       dob: "01/01/2000",
       recordNumber: "WORKFLOW-1",
+      phone: "3365550142",
       autoEmailProviderPacket: true,
     }).autoEmailProviderPacket,
     true,
     "new-intake validation must retain provider packet email choice",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "No Contact",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-NC",
+    }).success,
+    false,
+    "create-intake requires a phone number or email",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Email Only",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-EM",
+      email: "client@example.test",
+    }).success,
+    true,
+    "email alone is enough to create an intake",
   );
   assert.equal(
     newIntakeSchema.safeParse({
@@ -1081,6 +1109,57 @@ async function main() {
   assert(!jResult.skipped.includes("sig_provider_choice"), "guardian signature should satisfy client slots for a minor");
   assert(!jResult.skipped.includes("cca_guardian_sig"), "guardian CCA signature missing");
   ok("guardian signature flows to required slots for a youth client");
+
+  assert.equal(applyOperationalDefaults({}).severity_of_need, undefined, "unanswered severity of need must stay blank");
+  ok("severity of need is not defaulted to Routine");
+
+  const catalog = mappingCatalog();
+  assert(catalog.length > 8, "intake catalog should be grouped by section");
+  assert(catalog.some((section) => section.entries.some((entry) => entry.key === "client_full_name")));
+  assert(catalogEntryByKey("dob")?.mapperType === "date");
+  const placed = newCatalogField(catalogEntryByKey("client_full_name")!, 1, 40, 700);
+  assert.equal(placed.source, "client_full_name");
+  assert(mappedSourceKeys([placed]).has("client_full_name"));
+  ok("intake mapping catalog can place answer keys onto a packet");
+
+  const emptyHealth = assessMapping([], 3, 612, 792, 0);
+  assert.equal(emptyHealth.ready, false);
+  assert(emptyHealth.missingRequired.some((item) => item.key === "client_full_name"));
+  assert(emptyHealth.missingRequired.some((item) => item.key === "signature"));
+  const namedHealth = assessMapping([
+    { ...placed, type: "text" },
+    { page: 1, fieldKey: "map_dob", source: "dob", type: "date", x: 180, y: 700, width: 72, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "client", consentKey: null, notes: "" },
+    { page: 1, fieldKey: "map_record", source: "record_number", type: "text", x: 260, y: 700, width: 90, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "staff", consentKey: null, notes: "" },
+    { page: 1, fieldKey: "map_date", source: "intake_date", type: "date", x: 360, y: 700, width: 72, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "staff", consentKey: null, notes: "" },
+    { page: 1, fieldKey: "map_sig", source: "signature", type: "signature", x: 40, y: 80, width: 180, height: 18, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "client", consentKey: null, notes: "" },
+  ], 1, 612, 792, 5);
+  assert(namedHealth.missingRequired.every((item) => item.key !== "client_full_name" && item.key !== "signature"));
+  ok("mapping quality lists missing required fields instead of a score-only badge");
+
+  const approvedOnly = packetDisplayStatus({ mappingStatus: "APPROVED", mappingScore: 72, isActive: false, approvedAt: new Date() });
+  assert.equal(approvedOnly.key, "needs_review");
+  assert(!/approved/i.test(approvedOnly.label) || approvedOnly.key === "approved_active");
+  const live = packetDisplayStatus({ mappingStatus: "APPROVED", mappingScore: 100, isActive: true, approvedAt: new Date() });
+  assert.equal(live.key, "approved_active");
+  const draft = packetDisplayStatus({ mappingStatus: "DRAFT", mappingScore: null, isActive: false, approvedAt: null });
+  assert.equal(draft.key, "draft");
+  assert.notEqual(draft.label, live.label);
+  ok("packet status is a single badge and never Approved plus Not ready");
+
+  const wellianceWrongFile = packetFilenameWarning(
+    "GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf",
+    "Welliance Care",
+    ["GSO Behavioral Health", "Essential Wellness Care"],
+  );
+  assert(wellianceWrongFile, "Welliance/GSO-ALIYAH filename must warn");
+  assert(["other_provider", "client_name"].includes(wellianceWrongFile!.code));
+  assert.equal(packetFilenameWarning("E.W.C.-INTAKE-FORM.pdf", "Essential Wellness Care Inc."), null);
+  assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care, Inc."), null);
+  ok("wrong-packet filename guard catches another org or client name");
+
+  const schema = fs.readFileSync(path.join(process.cwd(), "prisma/schema.prisma"), "utf8");
+  assert(schema.includes('@@unique([providerId, recordNumber], name: "provider_record_number")'));
+  ok("provider+recordNumber uniqueness is prepared for SQLite");
 
   console.log(`\nAll ${passed} checks passed ✓`);
 }

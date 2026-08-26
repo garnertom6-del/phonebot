@@ -4,6 +4,8 @@ import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { mappingOverrides } from "@/lib/intakeData";
 import { saveProviderPacketMappings } from "@/lib/providerPacketMappingWrites";
+import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
+import { packetDisplayStatus } from "@/lib/mappingStatus";
 import {
   DEFAULT_PACKET_TEMPLATE_NAME,
   isWelliancePacket,
@@ -75,13 +77,31 @@ export async function GET(req: NextRequest) {
     providerSpecific: target.providerSpecific,
     sha256,
   }, overrides);
+  const provider = target.template?.providerId
+    ? await prisma.provider.findUnique({ where: { id: target.template.providerId }, select: { name: true } })
+    : null;
+  const otherProviders = provider
+    ? (await prisma.provider.findMany({ where: { id: { not: target.template!.providerId! } }, select: { name: true } })).map((row) => row.name)
+    : [];
+  const filenameWarning = packetFilenameWarning(originalFileName, provider?.name || "", otherProviders);
+  const displayStatus = packetDisplayStatus({
+    mappingStatus: target.template?.mappingStatus ?? "APPROVED",
+    mappingScore: target.template?.mappingScore ?? null,
+    mappingIssues: target.template?.mappingIssues ?? null,
+    isActive: target.template?.isActive ?? true,
+    approvedAt: target.template?.approvedAt ?? new Date(),
+    originalFileName,
+  });
 
   return NextResponse.json({
     templateId: target.template?.id ?? null,
     templateName,
     originalFileName,
     providerId: target.template?.providerId ?? target.requestedProvider,
+    providerName: provider?.name || null,
     providerSpecific: target.providerSpecific,
+    isActive: target.template?.isActive ?? true,
+    approvedAt: target.template?.approvedAt ?? null,
     pageCount,
     pageWidth: target.template?.pageWidth ?? PACKET_MAP.pageWidth,
     pageHeight: target.template?.pageHeight ?? PACKET_MAP.pageHeight,
@@ -89,6 +109,8 @@ export async function GET(req: NextRequest) {
     mappingScore: target.template?.mappingScore ?? null,
     mappingIssues: target.template?.mappingIssues ?? null,
     savedMappingCount: target.template?.fieldMappings.length ?? 0,
+    displayStatus,
+    filenameWarning,
     fields,
     overrideKeys: overrides.map((o: { fieldKey: string }) => o.fieldKey),
   });
@@ -139,7 +161,7 @@ export async function PUT(req: NextRequest) {
   const saved = await saveProviderPacketMappings({
     templateId: template.id,
     fields: body.fields,
-    replaceExisting: body.replace === true && target.providerSpecific,
+    replaceExisting: body.replace === true,
   });
   return NextResponse.json({ ok: true, saved });
 }

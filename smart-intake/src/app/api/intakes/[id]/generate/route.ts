@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { generatePacketForIntake, PacketIdentityMismatchError } from "@/lib/generatePacket";
 import { ProviderPacketNotReadyError } from "@/lib/providerPacketTemplates";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const body = await req.json().catch(() => ({})) as { allowIdentityMismatch?: boolean };
   let result: Awaited<ReturnType<typeof generatePacketForIntake>>;

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -15,7 +15,7 @@ function s(v: unknown): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   if (!ncTracksDocumentConfigured()) {
     return NextResponse.json(

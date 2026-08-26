@@ -57,10 +57,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         include: { client: true },
       });
       if (!current) throw new SignatureClosedError();
-      // Identity is rechecked after acquiring the write lock so a concurrent
-      // staff correction cannot validate a signature against stale details.
-      const dobVerified = dobMatches(dobCheck || "", current.client.dob);
-      if (dobCheck && !dobVerified) throw new DobMismatchError();
+      if (!dobCheck) throw new DobMismatchError();
+      const dobVerified = dobMatches(dobCheck, current.client.dob);
+      if (!dobVerified) throw new DobMismatchError();
       await tx.signature.upsert({
         where: { intakeId_role: { intakeId: intake.id, role: d.role } },
         create: { intakeId: intake.id, ...d, dobVerified, ip, userAgent },

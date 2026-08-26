@@ -4,6 +4,7 @@ import { requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
+import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 import {
   loadTemplateFile,
   packetFieldsForTemplate,
@@ -19,13 +20,31 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (deny) return deny;
   const body = await req.json().catch(() => ({}));
   const templateId = typeof body.templateId === "string" ? body.templateId : "";
+  const overrideReason = typeof body.overrideReason === "string" ? body.overrideReason.trim() : "";
+  const filenameAcknowledged = body.filenameAcknowledged === true;
   if (!templateId) return NextResponse.json({ error: "templateId is required" }, { status: 400 });
 
   const template = await prisma.pdfTemplate.findFirst({
     where: { id: templateId, providerId: params.id },
-    include: { fieldMappings: true },
+    include: { fieldMappings: true, provider: { select: { name: true } } },
   });
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
+
+  const otherProviders = (await prisma.provider.findMany({
+    where: { id: { not: params.id } },
+    select: { name: true },
+  })).map((row) => row.name);
+  const filenameWarning = packetFilenameWarning(
+    template.originalFileName,
+    template.provider?.name || "",
+    otherProviders,
+  );
+  if (filenameWarning && !filenameAcknowledged && overrideReason.length < 8) {
+    return NextResponse.json({
+      error: filenameWarning.message,
+      filenameWarning,
+    }, { status: 409 });
+  }
 
   const overrides = parseMappings(template.fieldMappings);
   const fields = packetFieldsForTemplate({
@@ -40,11 +59,11 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     template.pageCount,
     template.pageWidth || PACKET_MAP.pageWidth,
     template.pageHeight || PACKET_MAP.pageHeight,
-    fields.length,
+    template.fieldMappings.length,
   );
-  if (!health.ready) {
+  if (!health.ready && overrideReason.length < 8) {
     return NextResponse.json({
-      error: "This packet is not ready for approval. Fix the blocking mapping items first.",
+      error: "This packet is not ready for approval. Map the missing required fields, or send an override reason of at least 8 characters.",
       health,
     }, { status: 409 });
   }
@@ -57,7 +76,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         isActive: true,
         mappingStatus: "APPROVED",
         mappingScore: health.score,
-        mappingIssues: JSON.stringify({ blockingIssues: health.blockingIssues, warnings: health.warnings }),
+        mappingIssues: JSON.stringify({
+          blockingIssues: health.blockingIssues,
+          warnings: health.warnings,
+          missingRequired: health.missingRequired,
+          overrideReason: overrideReason || null,
+          filenameWarning: filenameWarning?.message || null,
+        }),
         approvedAt: new Date(),
         approvedByUserId: user!.id,
       },
@@ -66,7 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await audit("provider_packet_approved", {
     providerId: params.id,
     userId: user!.id,
-    detail: `${template.originalFileName || template.name}; score ${health.score}; ${health.warnings.length} warning(s)`,
+    detail: `${template.originalFileName || template.name}; score ${health.score}; ${health.warnings.length} warning(s)${overrideReason ? `; override: ${overrideReason.slice(0, 180)}` : ""}`,
   });
-  return NextResponse.json({ ok: true, health });
+  return NextResponse.json({ ok: true, health, overridden: !!overrideReason });
 }

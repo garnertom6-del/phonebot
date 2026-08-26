@@ -497,7 +497,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             Back
           </button>
           <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
-          {!q.required && (
+          {!q.required && q.type !== "consent" && (
             <button type="button" className="btn-ghost px-4 py-2 text-sm text-slate-500" onClick={goNext}>
               Skip
             </button>

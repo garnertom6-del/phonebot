@@ -8,7 +8,7 @@
 import rawMap from "./mooreDivinePacketMap.json";
 
 export type FieldType =
-  | "text" | "checkbox" | "signature" | "initials" | "survey_rating" | "signature_small"
+  | "text" | "checkbox" | "date" | "signature" | "initials" | "survey_rating" | "signature_small"
   | "whiteout_text";
 
 export interface FieldMapping {
@@ -27,6 +27,8 @@ export interface FieldMapping {
   role: "client" | "guardian" | "staff" | "clinician" | "medicalDirector" | "witness" | "auto";
   consentKey: string | null;
   notes: string;
+  confidence?: number;
+  aiStatus?: "pending" | "accepted" | "rejected";
   align?: "left" | "center";
   // long-answer flow: the answer is wrapped once to `flowLines` total lines and
   // this placement renders `lines` of them starting at `startLine` - lets one

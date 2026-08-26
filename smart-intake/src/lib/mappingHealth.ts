@@ -1,5 +1,6 @@
-import { SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
+import { REQUIRED_FOR_SUBMIT, SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
 import type { FieldMapping } from "@/config/mooreDivinePacketMap";
+import { HEADER_SOURCES, catalogEntryByKey, sourceBase } from "./mappingCatalog";
 
 const SPECIAL_SOURCES = new Set([
   "signature", "guardian_signature", "staff_signature", "clinician_signature",
@@ -10,11 +11,19 @@ const SPECIAL_SOURCES = new Set([
 
 const CORE_SOURCES = ["client_full_name", "dob", "record_number", "intake_date"];
 
+export type MissingRequiredField = {
+  key: string;
+  label: string;
+  section: string;
+  page: number | null;
+};
+
 export type MappingHealth = {
   ready: boolean;
   score: number;
   blockingIssues: string[];
   warnings: string[];
+  missingRequired: MissingRequiredField[];
   counts: {
     fields: number;
     text: number;
@@ -25,7 +34,7 @@ export type MappingHealth = {
 };
 
 function sourceKey(source: string): string {
-  return source.split(/[=~]/)[0].trim();
+  return sourceBase(source);
 }
 
 function rectanglesOverlap(a: FieldMapping, b: FieldMapping): boolean {
@@ -57,6 +66,7 @@ export function assessMapping(
 ): MappingHealth {
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
+  const missingRequired: MissingRequiredField[] = [];
   const catalog = sourceCatalog();
   const seenKeys = new Set<string>();
   const pages = new Set<number>();
@@ -90,12 +100,33 @@ export function assessMapping(
     }
   }
 
-  for (const required of CORE_SOURCES) {
-    if (!fields.some((field) => sourceKey(field.source) === required)) {
-      blockingIssues.push(`Missing core mapping: ${required}.`);
-    }
+  const mappedSources = new Set(fields.map((field) => sourceKey(field.source)).filter(Boolean));
+  const requiredKeys = [
+    ...CORE_SOURCES,
+    ...HEADER_SOURCES,
+    ...REQUIRED_FOR_SUBMIT.map((item) => item.key),
+  ];
+  const seenRequired = new Set<string>();
+  for (const required of requiredKeys) {
+    if (seenRequired.has(required) || mappedSources.has(required)) continue;
+    seenRequired.add(required);
+    const entry = catalogEntryByKey(required);
+    const submit = REQUIRED_FOR_SUBMIT.find((item) => item.key === required);
+    missingRequired.push({
+      key: required,
+      label: entry?.easyLabel || submit?.label || entry?.label || required,
+      section: entry?.sectionTitle || "Required intake fields",
+      page: null,
+    });
+    blockingIssues.push(`Missing required mapping: ${required}.`);
   }
   if (!fields.some((field) => ["signature", "signature_small"].includes(field.type) && ["client", "guardian"].includes(field.role))) {
+    missingRequired.push({
+      key: "signature",
+      label: "Client or guardian signature",
+      section: "Signatures & dates",
+      page: null,
+    });
     blockingIssues.push("No client or guardian signature field is mapped.");
   }
   if (!fields.some((field) => ["signature", "signature_small"].includes(field.type) && ["staff", "clinician", "witness"].includes(field.role))) {
@@ -118,12 +149,23 @@ export function assessMapping(
     if (!pages.has(page)) warnings.push(`Page ${page} has no mapped fields; confirm it is intentionally blank or informational.`);
   }
 
+  const headerKeys = new Set<string>(HEADER_SOURCES);
+  const headerPages = new Set(
+    fields.filter((field) => headerKeys.has(sourceKey(field.source))).map((field) => field.page),
+  );
+  for (let page = 1; page <= pageCount; page++) {
+    if (headerPages.size > 2 && !headerPages.has(page) && pages.has(page)) {
+      warnings.push(`Page ${page} has mappings but no repeating header row (name/DOB/MID/record/date).`);
+    }
+  }
+
   const score = Math.max(0, Math.min(100, 100 - blockingIssues.length * 25 - warnings.length * 2));
   return {
     ready: blockingIssues.length === 0,
     score,
     blockingIssues,
     warnings,
+    missingRequired,
     counts: { fields: fields.length, text, checkboxes, signatures, pagesWithFields: pages.size },
   };
 }

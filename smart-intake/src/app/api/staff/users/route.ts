@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.user.findUnique({ where: { email } });
     const staffUser = existing
-      ? await tx.user.update({ where: { id: existing.id }, data: { name: d.name, passwordHash } })
+      ? await tx.user.update({ where: { id: existing.id }, data: { name: d.name } })
       : await tx.user.create({ data: { email, name: d.name, passwordHash, role: "staff" } });
     const membership = await tx.userMembership.upsert({
       where: { userId_providerId: { userId: staffUser.id, providerId: provider!.id } },
