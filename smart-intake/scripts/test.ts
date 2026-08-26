@@ -1154,6 +1154,7 @@ async function main() {
   assert(wellianceWrongFile, "Welliance/GSO-ALIYAH filename must warn");
   assert(["other_provider", "client_name"].includes(wellianceWrongFile!.code));
   assert.equal(packetFilenameWarning("E.W.C.-INTAKE-FORM.pdf", "Essential Wellness Care Inc."), null);
+  assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care, Inc."), null);
   ok("wrong-packet filename guard catches another org or client name");
 
   const schema = fs.readFileSync(path.join(process.cwd(), "prisma/schema.prisma"), "utf8");

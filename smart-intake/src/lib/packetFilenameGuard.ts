@@ -9,6 +9,10 @@ const KNOWN_PROVIDER_TOKENS: Array<{ token: string; names: string[] }> = [
 
 const CLIENT_NAME_RE = /\b([A-Z][A-Za-z.'-]{1,20})[-_ ]([A-Z][A-Za-z.'-]{1,20})\b/;
 const BLANK_PACKET_HINTS = /\b(blank|template|intake[-_ ]?(form|packet)|packet)\b/i;
+const GENERIC_NAME_WORDS = new Set([
+  "intake", "packet", "form", "client", "blank", "template", "care", "inc", "llc",
+  "health", "wellness", "services", "clinic", "package", "document", "page", "copy",
+]);
 
 export type PacketFilenameWarning = {
   level: "block" | "warn";
@@ -32,10 +36,13 @@ function providerTokens(providerName: string): Set<string> {
   return tokens;
 }
 
-function filenameLooksLikeClientPacket(fileName: string): boolean {
+function filenameLooksLikeClientPacket(fileName: string, own: Set<string>): boolean {
   const stem = fileName.replace(/\.pdf$/i, "").replace(/[_]+/g, " ");
-  if (!CLIENT_NAME_RE.test(stem)) return false;
+  const match = CLIENT_NAME_RE.exec(stem);
+  if (!match) return false;
+  if (GENERIC_NAME_WORDS.has(match[1].toLowerCase()) || GENERIC_NAME_WORDS.has(match[2].toLowerCase())) return false;
   if (/\b(inc|llc|care|wellness|health|services|clinic)\b/i.test(stem)) return false;
+  if ([...own].some((token) => token.length > 3 && normalize(fileName).includes(token))) return false;
   return !BLANK_PACKET_HINTS.test(stem) || /[-_][A-Z][a-z]+[-_][A-Z][a-z]+/.test(fileName);
 }
 
@@ -77,7 +84,7 @@ export function packetFilenameWarning(
     }
   }
 
-  if (filenameLooksLikeClientPacket(raw)) {
+  if (filenameLooksLikeClientPacket(raw, own)) {
     return {
       level: "warn",
       code: "client_name",
