@@ -7,6 +7,10 @@
  */
 import { PrismaClient } from "@prisma/client";
 
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = "file:./dev.db";
+}
+
 const prisma = new PrismaClient();
 
 type DupeRow = {
@@ -16,6 +20,11 @@ type DupeRow = {
 };
 
 export async function prepareRecordNumbers(client = prisma): Promise<number> {
+  try {
+    await client.$queryRawUnsafe(`SELECT 1 FROM Client LIMIT 1`);
+  } catch {
+    return 0;
+  }
   await client.$executeRawUnsafe(`
     UPDATE Client
     SET recordNumber = NULL
