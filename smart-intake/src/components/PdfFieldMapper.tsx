@@ -611,7 +611,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           <button className="btn-primary px-3 py-1" onClick={() => void saveOverrides()}>
             Save mapping ({fields.length}){dirty ? " · unsaved" : ""}
           </button>
-          {providerSpecific && <button className="btn-ghost px-3 py-1" onClick={() => void runHealthCheck()}>Check mapping quality</button>}
+          <button className="btn-ghost px-3 py-1" onClick={() => void runHealthCheck()}>Check mapping quality</button>
           {providerSpecific && mappingStatus !== "APPROVED" && (
             <button
               className="btn-primary px-3 py-1"

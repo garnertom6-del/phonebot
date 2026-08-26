@@ -4,6 +4,7 @@ import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
 import {
+  DEFAULT_PACKET_TEMPLATE_NAME,
   loadTemplateFile,
   packetFieldsForTemplate,
   packetTemplateSha256,
@@ -23,7 +24,10 @@ async function templateFromRequest(req: NextRequest) {
         where: { providerId }, include: { fieldMappings: true },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       })
-      : null;
+      : prisma.pdfTemplate.findUnique({
+        where: { name: DEFAULT_PACKET_TEMPLATE_NAME },
+        include: { fieldMappings: true },
+      });
 }
 
 function healthFor(template: {
@@ -77,10 +81,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const { deny } = await requireMaster();
   if (deny) return deny;
-  const template = await templateFromRequest(req);
-  if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
   const body = await req.json().catch(() => ({}));
   const liveFields = Array.isArray(body.fields) ? body.fields as FieldMapping[] : undefined;
+  const template = await templateFromRequest(req);
+  if (!template) {
+    if (!liveFields) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+    return NextResponse.json({
+      health: assessMapping(liveFields, PACKET_MAP.pageCount, PACKET_MAP.pageWidth, PACKET_MAP.pageHeight, liveFields.length),
+    });
+  }
   const health = healthFor(template, liveFields);
   return NextResponse.json({ health });
 }
