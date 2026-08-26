@@ -3,17 +3,28 @@ import bcrypt from "bcryptjs";
 import crypto from "crypto";
 import { prisma } from "@/lib/prisma";
 
-const RESET_TOKEN_SHA256 = "713153abe4cd72a7b6b8bb53bffd029d9837546674467e0816f019d0a328d0a0";
 const ADMIN_EMAIL = "admin@mooredivinecare.local";
 
-function isAuthorized(token: string | null) {
-  if (!token) return false;
-  const digest = crypto.createHash("sha256").update(token).digest("hex");
-  return crypto.timingSafeEqual(Buffer.from(digest, "hex"), Buffer.from(RESET_TOKEN_SHA256, "hex"));
+function resetToken(): string {
+  return process.env.MASTER_LOGIN_RESET_TOKEN?.trim() || "";
 }
 
+function isAuthorized(headerToken: string | null) {
+  const expected = resetToken();
+  if (!expected || !headerToken) return false;
+  const a = Buffer.from(headerToken);
+  const b = Buffer.from(expected);
+  if (a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
+
+/**
+ * Emergency master-password reset. Disabled unless MASTER_LOGIN_RESET_TOKEN
+ * is set in the server environment. There is no default secret in git.
+ * Rotate the production master password after any suspected leak.
+ */
 export async function POST(req: NextRequest) {
-  if (!isAuthorized(req.headers.get("x-reset-token"))) {
+  if (!resetToken() || !isAuthorized(req.headers.get("x-reset-token"))) {
     return NextResponse.json({ error: "Not found" }, { status: 404 });
   }
 

@@ -12,7 +12,7 @@ const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
   ["midNumber", "MID#", "text"], ["recordNumber", "Record# (generated if blank)", "text"],
   ["intakeDate", "Date of intake", "date"], ["location", "Location", "text"],
-  ["email", "Client email", "email"], ["phone", "Client phone", "tel"],
+  ["email", "Client email (or phone) *", "email"], ["phone", "Client phone (or email) *", "tel"],
   ["guardianName", "Guardian name (if applicable)", "text"],
   ["guardianEmail", "Guardian email", "email"], ["guardianPhone", "Guardian phone", "tel"],
   ["addressStreet", "Street address", "text"], ["addressCity", "City", "text"], ["addressState", "State", "text"],
@@ -174,6 +174,12 @@ export default function NewIntake() {
     setForm((current) => ({ ...current, ...nextForm }));
     setError("");
     setSetupStatus("");
+    const phoneDigits = String(nextForm.phone || form.phone || "").replace(/\D/g, "");
+    const email = String(nextForm.email || form.email || "").trim();
+    if (phoneDigits.length < 10 && !email) {
+      setError("Enter a phone number or email so the client can receive the intake link.");
+      return;
+    }
     setIsCreating(true);
     try {
       const requestBody = {

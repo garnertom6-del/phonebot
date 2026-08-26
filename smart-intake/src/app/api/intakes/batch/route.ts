@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { batchIntakesSchema } from "@/lib/validation";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { generatePacketForIntake } from "@/lib/generatePacket";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(req: NextRequest) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
 
   const parsed = batchIntakesSchema.safeParse(await req.json());

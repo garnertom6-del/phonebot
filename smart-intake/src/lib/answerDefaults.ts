@@ -216,10 +216,7 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
     setDefault(a, key, addOneYear(intakeDate));
   }
 
-  // Screening workflow default requested by the provider. Staff can change
-  // this after reviewing risk, placement, and the CCA.
-  setDefault(a, "severity_of_need", "Routine");
-  setDefault(a, "severity_explanation", "Routine service initiation target: within 14 calendar days.");
+  // Screening workflow: never invent Routine (or any severity) when nobody answered.
   setDefault(a, "program_can_meet_needs", "Yes");
 
   // These are packet-only workflow defaults. A CCA extraction that already

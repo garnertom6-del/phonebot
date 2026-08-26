@@ -54,7 +54,11 @@ export const newIntakeSchema = z.object({
   guardianPhone: optionalPhone,
   expectCca: z.boolean().optional(),
   autoEmailProviderPacket: z.boolean().optional(),
-});
+}).refine((value) => {
+  const phone = (value.phone || "").replace(/\D/g, "");
+  const email = (value.email || "").trim();
+  return phone.length >= 10 || !!email;
+}, { message: "Enter a phone number or email so the client can receive the intake link." });
 
 export const clientDetailsSchema = newIntakeSchema.pick({
   fullName: true,

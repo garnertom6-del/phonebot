@@ -66,7 +66,7 @@ function suggestionSchema() {
             y: { type: "number" },
             width: { type: "number" },
             height: { type: "number" },
-            type: { type: "string", enum: ["text", "checkbox", "signature", "signature_small", "initials"] },
+            type: { type: "string", enum: ["text", "checkbox", "date", "signature", "signature_small", "initials"] },
             role: { type: "string", enum: ["client", "guardian", "staff", "clinician", "medicalDirector", "witness", "auto"] },
             confidence: { type: "number" },
             reason: { type: "string" },
@@ -111,7 +111,7 @@ function normalizeSuggestions(raw: unknown, pageSizes: Map<number, { width: numb
     let suffix = 2;
     while (used.has(fieldKey)) fieldKey = `${fieldKey}_${suffix++}`;
     used.add(fieldKey);
-    const type = ["text", "checkbox", "signature", "signature_small", "initials"].includes(String(value.type))
+    const type = ["text", "checkbox", "date", "signature", "signature_small", "initials"].includes(String(value.type))
       ? String(value.type) as FieldType
       : "text";
     const role = ["client", "guardian", "staff", "clinician", "medicalDirector", "witness", "auto"].includes(String(value.role))
@@ -122,6 +122,8 @@ function normalizeSuggestions(raw: unknown, pageSizes: Map<number, { width: numb
       fontSize: 9, lines: 1, lineHeight: 11.6, required: false, role,
       consentKey: null,
       notes: `AI suggestion (${Math.round(confidence * 100)}%): ${String(value.reason || "matched nearby packet label").slice(0, 220)}`,
+      confidence,
+      aiStatus: "pending",
     });
   }
   return output;
@@ -161,9 +163,9 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
           {
             type: "text",
             text:
-              "Suggest mappings for this blank provider intake packet. Use the extracted page text and coordinates below. " +
-              "Return at most 250 suggestions. Use exact source keys from the field guide. For a checkbox use source key=value when the printed option is identifiable. " +
-              "For signatures use source signature/guardian_signature/staff_signature/clinician_signature/medical_director_signature and the appropriate role.\n\n" +
+              "Suggest mappings for this blank provider intake packet in one pass across every page. Use the extracted page text and coordinates below. " +
+              "Return at most 400 suggestions covering the whole packet, not just page 1. Use exact source keys from the field guide. For a checkbox use source key=value when the printed option is identifiable. " +
+              "For dates use type date. For signatures use source signature/guardian_signature/staff_signature/clinician_signature/medical_director_signature and the appropriate role. Include a confidence between 0 and 1.\n\n" +
               `FIELD GUIDE:\n${fieldGuide()}\n\nPACKET LAYOUT:\n${layoutPrompt(pages)}`,
           },
         ],

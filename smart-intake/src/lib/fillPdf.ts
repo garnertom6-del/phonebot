@@ -291,6 +291,14 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       } else skipped.push(f.fieldKey);
       continue;
     }
+    if (f.type === "date") {
+      const text = resolved.text || "";
+      if (text) {
+        drawTextField(page, f, text, bold);
+        filled++;
+      } else skipped.push(f.fieldKey);
+      continue;
+    }
     const placeholder = f.page >= 2 && f.page <= 12 && f.role === "client" &&
       f.type === "text" && !f.fieldKey.startsWith("hdr_") && !f.consentKey
       ? missingClientPlaceholder(f)

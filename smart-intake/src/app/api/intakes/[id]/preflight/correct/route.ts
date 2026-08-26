@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -49,7 +49,7 @@ function sourceValue(
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const parsed = correctionSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

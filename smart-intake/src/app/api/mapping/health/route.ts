@@ -13,36 +13,54 @@ function parseMappings(rows: Array<{ fieldKey: string; page: number; data: strin
   return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
 }
 
-export async function GET(req: NextRequest) {
-  const { deny } = await requireMaster();
-  if (deny) return deny;
+async function templateFromRequest(req: NextRequest) {
   const templateId = req.nextUrl.searchParams.get("templateId");
   const providerId = req.nextUrl.searchParams.get("providerId");
-  const template = templateId
-    ? await prisma.pdfTemplate.findUnique({ where: { id: templateId }, include: { fieldMappings: true } })
+  return templateId
+    ? prisma.pdfTemplate.findUnique({ where: { id: templateId }, include: { fieldMappings: true } })
     : providerId
-      ? await prisma.pdfTemplate.findFirst({
+      ? prisma.pdfTemplate.findFirst({
         where: { providerId }, include: { fieldMappings: true },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       })
       : null;
-  if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+}
 
+function healthFor(template: {
+  name: string;
+  originalFileName: string | null;
+  pageCount: number;
+  pageWidth: number | null;
+  pageHeight: number | null;
+  providerId: string | null;
+  filePath: string;
+  fieldMappings: Array<{ fieldKey: string; page: number; data: string }>;
+}, liveFields?: FieldMapping[]) {
   const overrides = parseMappings(template.fieldMappings);
-  const fields = packetFieldsForTemplate({
-    name: template.name,
-    originalFileName: template.originalFileName,
-    pageCount: template.pageCount,
-    providerSpecific: !!template.providerId,
-    sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
-  }, overrides);
-  const health = assessMapping(
+  const fields = liveFields && liveFields.length
+    ? liveFields
+    : packetFieldsForTemplate({
+      name: template.name,
+      originalFileName: template.originalFileName,
+      pageCount: template.pageCount,
+      providerSpecific: !!template.providerId,
+      sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+    }, overrides);
+  return assessMapping(
     fields,
     template.pageCount,
     template.pageWidth || PACKET_MAP.pageWidth,
     template.pageHeight || PACKET_MAP.pageHeight,
-    fields.length,
+    liveFields ? liveFields.length : template.fieldMappings.length,
   );
+}
+
+export async function GET(req: NextRequest) {
+  const { deny } = await requireMaster();
+  if (deny) return deny;
+  const template = await templateFromRequest(req);
+  if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+  const health = healthFor(template);
   return NextResponse.json({
     template: {
       id: template.id,
@@ -54,4 +72,15 @@ export async function GET(req: NextRequest) {
     },
     health,
   });
+}
+
+export async function POST(req: NextRequest) {
+  const { deny } = await requireMaster();
+  if (deny) return deny;
+  const template = await templateFromRequest(req);
+  if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+  const body = await req.json().catch(() => ({}));
+  const liveFields = Array.isArray(body.fields) ? body.fields as FieldMapping[] : undefined;
+  const health = healthFor(template, liveFields);
+  return NextResponse.json({ health });
 }

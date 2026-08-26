@@ -1,9 +1,9 @@
 import { NextResponse } from "next/server";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { sendCompletedCopiesLink } from "@/lib/sendCompletedCopies";
 
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const result = await sendCompletedCopiesLink({
     intakeId: params.id,

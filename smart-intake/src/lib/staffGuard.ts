@@ -10,7 +10,7 @@ export function isMasterUser(user: { role?: string | null }) {
   return role === "master" || role === "admin" || role === "master_admin";
 }
 
-export async function requireStaff() {
+export async function requireStaff(opts?: { write?: boolean }) {
   const user = await currentUser();
   if (!user) {
     return { user: null, deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
@@ -49,7 +49,19 @@ export async function requireStaff() {
       ),
     };
   }
+  if (opts?.write && membership.role === "REVIEWER") {
+    return {
+      user,
+      provider: membership.provider,
+      membership,
+      deny: NextResponse.json({ error: "Reviewer accounts are read-only." }, { status: 403 }),
+    };
+  }
   return { user, provider: membership.provider, membership, deny: null };
+}
+
+export async function requireWritableStaff() {
+  return requireStaff({ write: true });
 }
 
 export async function requireMaster() {

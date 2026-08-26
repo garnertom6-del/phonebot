@@ -150,12 +150,7 @@ function setGatingParents(extracted: Answers) {
 }
 
 function setCcaWorkflowDefaults(extracted: Answers) {
-  // These are operational review defaults, not a replacement for clinical
-  // judgment. The staff screen can change them before the packet is signed.
-  if (!extracted.severity_of_need) extracted.severity_of_need = "Routine";
-  if (!extracted.severity_explanation) {
-    extracted.severity_explanation = "Routine service initiation target: within 14 calendar days.";
-  }
+  // Do not invent a clinical severity. Staff must choose Emergent/Urgent/Routine.
   if (!extracted.program_can_meet_needs) extracted.program_can_meet_needs = "Yes";
   if (!extracted.placement_considerations && extracted.cca_recommendations) {
     extracted.placement_considerations = `Service match from CCA: ${String(extracted.cca_recommendations).slice(0, 170)}`;

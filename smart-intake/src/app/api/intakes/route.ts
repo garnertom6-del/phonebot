@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { isMasterUser, requireStaff } from "@/lib/staffGuard";
+import { isMasterUser, requireStaff, requireWritableStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -187,6 +187,7 @@ export async function GET(req: NextRequest) {
       providerPacketReadiness: providerPacket,
       isMaster: isMasterUser(user!),
       canManageProvider: isMasterUser(user!) || membership?.role === "PROVIDER_ADMIN",
+      readOnly: membership?.role === "REVIEWER",
     });
   } catch (error) {
     console.error("GET /api/intakes failed", error);
@@ -196,7 +197,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, provider, deny } = await requireStaff();
+    const { user, provider, deny } = await requireWritableStaff();
     if (deny) return deny;
     const raw = await req.json();
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
