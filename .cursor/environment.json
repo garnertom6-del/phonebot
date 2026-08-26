@@ -1,0 +1,14 @@
+{
+  "name": "phonebot + MDC Smart Intake",
+  "install": "bash ./.cursor/install.sh",
+  "terminals": [
+    {
+      "name": "smart-intake (Next.js)",
+      "command": "cd smart-intake && npm run dev"
+    },
+    {
+      "name": "phonebot (Flask)",
+      "command": "source .venv/bin/activate && PORT=5000 python app.py"
+    }
+  ]
+}
