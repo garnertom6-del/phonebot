@@ -36,7 +36,7 @@ import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardW
 import { packetDisplayStatus } from "../src/lib/mappingStatus";
 import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
 import { assessMapping } from "../src/lib/mappingHealth";
-import { catalogEntryByKey, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, packetRequiredEntries } from "../src/lib/mappingCatalog";
+import { catalogEntryByKey, catalogPlacementFields, DEMO_CLIENT_ANSWERS, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, overlayFillText, packetRequiredEntries } from "../src/lib/mappingCatalog";
 import { questionCatalogId } from "../src/config/mooreDivineQuestions";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
@@ -134,6 +134,95 @@ async function main() {
   assert.equal(signatureForRole(staffOnlySignature, "clinician"), null);
   assert.equal(signatureForRole(staffOnlySignature, "witness"), null);
   ok("staff signatures never substitute for clinician or witness roles");
+
+  const exclusiveAnswers = {
+    gender: "Female",
+    is_minor_or_incompetent: "Yes",
+    has_medicaid: "Yes",
+    consent_hipaa: true,
+  };
+  assert.equal(resolveValue("gender=Female", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("gender=Male", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("gender=Transgender", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("gender=Other", exclusiveAnswers).checked, false);
+  assert.notEqual(resolveValue("gender", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("gender=Female", {}).checked, false);
+  assert.equal(resolveValue("is_minor_or_incompetent=Y", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("is_minor_or_incompetent=Yes", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("is_minor_or_incompetent=N", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("is_minor_or_incompetent=No", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("has_medicaid=Yes", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("has_medicaid=No", exclusiveAnswers).checked, false);
+  assert.notEqual(resolveValue("has_medicaid", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("consent_hipaa=true", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("consent_orientation", { consent_orientation: true }).checked, true);
+  const genderBoxes = catalogPlacementFields(catalogEntryByKey("gender")!, 1, 40, 700);
+  assert.deepEqual(genderBoxes.map((field) => field.source), ["gender=Female", "gender=Male", "gender=Transgender", "gender=Other"]);
+  assert(genderBoxes.every((field) => field.type === "checkbox"));
+  assert.equal(newCatalogField(catalogEntryByKey("gender")!, 1, 40, 700).source, "gender=Female");
+  assert.deepEqual(
+    catalogPlacementFields(catalogEntryByKey("has_medicaid")!, 1, 40, 700).map((field) => field.source),
+    ["has_medicaid=Yes", "has_medicaid=No"],
+  );
+  assert.deepEqual(
+    catalogPlacementFields(catalogEntryByKey("is_minor_or_incompetent")!, 1, 40, 700).map((field) => field.source),
+    ["is_minor_or_incompetent=Yes", "is_minor_or_incompetent=No"],
+  );
+  assert.equal(overlayFillText({ source: "gender=Female", type: "checkbox" }, "demo"), "X");
+  assert.equal(overlayFillText({ source: "gender=Male", type: "checkbox" }, "demo"), "");
+  assert.equal(overlayFillText({ source: "gender=Female", type: "checkbox" }, "labels"), "X");
+  assert.equal(overlayFillText({ source: "gender=Male", type: "checkbox" }, "labels"), "");
+  assert.equal(overlayFillText({ source: "is_minor_or_incompetent=Y", type: "checkbox" }, "demo", exclusiveAnswers), "X");
+  assert.equal(overlayFillText({ source: "is_minor_or_incompetent=N", type: "checkbox" }, "demo", exclusiveAnswers), "");
+  assert.equal(overlayFillText({ source: "has_medicaid=Yes", type: "checkbox" }, "demo"), "X");
+  assert.equal(overlayFillText({ source: "has_medicaid=No", type: "checkbox" }, "demo"), "");
+  assert.equal(overlayFillText({ source: "consent_hipaa=true", type: "checkbox" }, "demo"), "X");
+  assert.equal(DEMO_CLIENT_ANSWERS.gender, "Female");
+  const { PDFDocument } = await import("pdf-lib");
+  const exclusiveDoc = await PDFDocument.create();
+  exclusiveDoc.addPage([612, 792]);
+  const exclusiveTemplate = await exclusiveDoc.save();
+  const exclusiveBox = (fieldKey: string, source: string, x: number) => ({
+    page: 1 as const, fieldKey, source, type: "checkbox" as const, x, y: 700, width: 14, height: 14,
+    fontSize: 9, lines: 1, lineHeight: 11.6, required: false, role: "client" as const, consentKey: null, notes: "",
+  });
+  const exclusiveFields = [
+    exclusiveBox("g_f", "gender=Female", 40),
+    exclusiveBox("g_m", "gender=Male", 58),
+    exclusiveBox("g_t", "gender=Transgender", 76),
+    exclusiveBox("g_o", "gender=Other", 94),
+    exclusiveBox("min_y", "is_minor_or_incompetent=Y", 112),
+    exclusiveBox("min_n", "is_minor_or_incompetent=N", 130),
+    exclusiveBox("med_y", "has_medicaid=Yes", 148),
+    exclusiveBox("med_n", "has_medicaid=No", 166),
+    exclusiveBox("c_ok", "consent_hipaa=true", 184),
+  ];
+  const exclusiveFill = await fillPacket({
+    answers: exclusiveAnswers,
+    signatures: {},
+    consents: { consent_hipaa: true },
+    fields: exclusiveFields,
+    templateBytes: exclusiveTemplate,
+  });
+  assert(!exclusiveFill.skipped.includes("g_f"), "Female gender box must fill");
+  assert(exclusiveFill.skipped.includes("g_m") && exclusiveFill.skipped.includes("g_t") && exclusiveFill.skipped.includes("g_o"),
+    "non-Female gender boxes must stay empty");
+  assert(!exclusiveFill.skipped.includes("min_y"), "minor Y box must fill");
+  assert(exclusiveFill.skipped.includes("min_n"), "minor N box must stay empty");
+  assert(!exclusiveFill.skipped.includes("med_y"), "medicaid Yes box must fill");
+  assert(exclusiveFill.skipped.includes("med_n"), "medicaid No box must stay empty");
+  assert(!exclusiveFill.skipped.includes("c_ok"), "consent true box must fill");
+  const emptyFill = await fillPacket({
+    answers: {},
+    signatures: {},
+    consents: {},
+    fields: exclusiveFields,
+    templateBytes: exclusiveTemplate,
+  });
+  for (const field of exclusiveFields) {
+    assert(emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} must stay empty when unanswered`);
+  }
+  ok("exclusive checkbox fill: Female-only, minor Y-only, medicaid Yes-only, consent true");
 
   const wellianceFields = packetFieldsForTemplate({
     name: "Welliance Care Intake Packet",
@@ -1194,6 +1283,7 @@ async function main() {
   assert(!mappingFieldGuide(ewCtx).includes("consent_provider_choice"));
   assert.equal(resolveValue("consent_orientation", { consent_orientation: true }).checked, true);
   assert.equal(resolveValue("has_medicaid=Yes", { has_medicaid: "Yes" }).checked, true);
+  assert.equal(resolveValue("has_medicaid=No", { has_medicaid: "Yes" }).checked, false);
   assert.equal(missingRequired({ client_full_name: "X", dob: "1990-01-01" }, true, ewCtx).some((item) => item.key === "consent_provider_choice"), false);
   ok("EW mapping catalog drops MDC-only keys and the checker reports every remaining required-unmapped field");
 

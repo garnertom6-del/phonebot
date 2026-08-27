@@ -10,6 +10,7 @@ import {
   type QuestionCatalogId,
 } from "@/config/mooreDivineQuestions";
 import type { FieldMapping, FieldType } from "@/config/mooreDivinePacketMap";
+import { resolveValue, type Answers } from "./resolveMappingValue";
 
 export type MappingProviderContext = {
   name?: string | null;
@@ -293,7 +294,7 @@ export function bestPageForSource(fields: Array<{ source: string; page: number }
   return lastPageForSource(fields, source) || 1;
 }
 
-export const DEMO_CLIENT_ANSWERS: Record<string, string> = {
+export const DEMO_CLIENT_ANSWERS: Answers = {
   client_full_name: "Alexandria Montgomery-Whitfield",
   dob: "04/12/1987",
   location: "Greensboro Clinic",
@@ -306,12 +307,41 @@ export const DEMO_CLIENT_ANSWERS: Record<string, string> = {
   presenting_problem: "I need help managing anxiety, depression, and a long-standing substance use history that is affecting work and family.",
   signature: "[client signature]",
   sign_date: "08/26/2026",
+  gender: "Female",
+  has_medicaid: "Yes",
+  is_minor_or_incompetent: "No",
+  consent_hipaa: true,
+  consent_orientation: true,
 };
 
-export function demoValueForSource(source: string): string {
-  const base = sourceBase(source);
-  if (source.includes("=") || source.includes("~")) return "X";
-  return DEMO_CLIENT_ANSWERS[base] || base.replace(/_/g, " ");
+export function overlayFillText(
+  field: { source?: string; type?: string; fieldKey?: string },
+  mode: "labels" | "demo",
+  answers: Answers = DEMO_CLIENT_ANSWERS,
+): string {
+  const source = field.source || field.fieldKey || "";
+  const resolved = resolveValue(source, answers);
+  const markField = field.type === "checkbox"
+    || field.type === "initials"
+    || source.includes("=")
+    || source.includes("~");
+  if (markField) return resolved.checked ? "X" : "";
+  if (mode === "labels") return source;
+  if (resolved.text) return resolved.text;
+  const fallback = answers[sourceBase(source)];
+  if (fallback == null || fallback === "") return sourceBase(source).replace(/_/g, " ");
+  return String(fallback);
+}
+
+export function demoValueForSource(source: string, answers: Answers = DEMO_CLIENT_ANSWERS): string {
+  const type = source.includes("=") || source.includes("~") ? "checkbox" : "text";
+  return overlayFillText({ source, type }, "demo", answers);
+}
+
+export function catalogOptionValues(entry: CatalogEntry): string[] | undefined {
+  if (entry.questionType === "consent") return ["true"];
+  if (entry.mapperType === "checkbox" && entry.options?.length) return entry.options;
+  return undefined;
 }
 
 export function newCatalogField(
@@ -320,16 +350,18 @@ export function newCatalogField(
   x: number,
   y: number,
   optionValue?: string,
+  idSuffix?: string,
 ): FieldMapping {
-  const type = optionValue ? "checkbox" : entry.mapperType === "date" ? "date" : entry.mapperType;
-  const source = optionValue
-    ? `${entry.key}=${optionValue}`
-    : entry.questionType === "consent"
-      ? `${entry.key}=true`
-      : entry.mapperType === "checkbox" && entry.options?.length === 1
-        ? `${entry.key}=${entry.options[0]}`
-        : entry.key;
-  const size = defaultFieldSize(optionValue ? "checkbox" : entry.mapperType, entry.key);
+  const options = catalogOptionValues(entry);
+  const exclusiveValue = optionValue
+    || (entry.questionType === "consent" ? "true" : undefined)
+    || (options?.length ? options[0] : undefined);
+  const exclusiveCheckbox = !!exclusiveValue && (entry.mapperType === "checkbox" || entry.questionType === "consent" || !!optionValue);
+  const type = exclusiveCheckbox ? "checkbox" : entry.mapperType === "date" ? "date" : entry.mapperType;
+  const source = exclusiveCheckbox && exclusiveValue
+    ? `${entry.key}=${exclusiveValue}`
+    : entry.key;
+  const size = defaultFieldSize(exclusiveCheckbox ? "checkbox" : entry.mapperType, entry.key);
   const role = entry.key.includes("guardian")
     ? "guardian"
     : entry.key.includes("clinician")
@@ -339,8 +371,9 @@ export function newCatalogField(
         : entry.key.includes("witness")
           ? "witness"
           : "client";
-  const stamp = Date.now().toString(36);
-  const fieldKey = `map_${entry.key}${optionValue ? `_${optionValue.replace(/\W+/g, "_")}` : ""}_p${page}_${stamp}`.slice(0, 120);
+  const stamp = `${Date.now().toString(36)}${idSuffix ? `_${idSuffix}` : ""}`;
+  const optionKey = exclusiveCheckbox && exclusiveValue ? `_${exclusiveValue.replace(/\W+/g, "_")}` : "";
+  const fieldKey = `map_${entry.key}${optionKey}_p${page}_${stamp}`.slice(0, 120);
   return {
     page,
     fieldKey,
@@ -356,6 +389,23 @@ export function newCatalogField(
     required: entry.required,
     role,
     consentKey: entry.questionType === "consent" ? entry.key : null,
-    notes: optionValue ? `${entry.label} = ${optionValue}` : entry.easyLabel,
+    notes: exclusiveCheckbox && exclusiveValue && exclusiveValue !== "true"
+      ? `${entry.label} = ${exclusiveValue}`
+      : entry.easyLabel,
   };
+}
+
+/** Place a radio / yes-no catalog field as one checkbox per printed option. */
+export function catalogPlacementFields(
+  entry: CatalogEntry,
+  page: number,
+  x: number,
+  y: number,
+  optionValue?: string,
+): FieldMapping[] {
+  if (optionValue) return [newCatalogField(entry, page, x, y, optionValue)];
+  const options = catalogOptionValues(entry);
+  if (!options?.length) return [newCatalogField(entry, page, x, y)];
+  return options.map((value, index) =>
+    newCatalogField(entry, page, x + index * 18, y, value, String(index)));
 }
