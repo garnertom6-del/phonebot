@@ -9,12 +9,12 @@ import type { FieldMapping } from "@/config/mooreDivinePacketMap";
 import {
   bestPageForSource,
   catalogEntryByKey,
+  catalogPlacementFields,
   defaultFieldSize,
-  demoValueForSource,
   HEADER_SOURCES,
   mappingCatalog,
   mappedSourceKeys,
-  newCatalogField,
+  overlayFillText,
   sourceBase,
   type CatalogEntry,
 } from "@/lib/mappingCatalog";
@@ -83,6 +83,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [previewRotation, setPreviewRotation] = useState<0 | 180>(0);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [placing, setPlacing] = useState<CatalogEntry | null>(null);
+  const [placingOption, setPlacingOption] = useState<string | null>(null);
   const [guides, setGuides] = useState<{ v: number[]; h: number[] }>({ v: [], h: [] });
   const [filenameWarning, setFilenameWarning] = useState<PacketFilenameWarning | null>(null);
   const [overrideReason, setOverrideReason] = useState("");
@@ -107,6 +108,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setHealth(null);
     setStatusError("");
     setPlacing(null);
+    setPlacingOption(null);
     setOverrideReason("");
     setShowOverride(false);
     const rotationKey = `pdf-mapper-rotation:${templateId || providerId || "default"}`;
@@ -215,20 +217,37 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     markDirty();
   }
 
+  function startPlacing(entry: CatalogEntry, option?: string) {
+    setPlacing(entry);
+    setPlacingOption(option ?? null);
+    setNote(option
+      ? `Click the PDF to place ${entry.easyLabel} = ${option}.`
+      : `Click the PDF to place ${entry.easyLabel}${entry.options?.length && entry.mapperType === "checkbox" ? ` (${entry.options.length} option boxes)` : ""}.`);
+  }
+
   function placeCatalogEntry(entry: CatalogEntry, visualX: number, visualY: number, optionValue?: string) {
     const size = defaultFieldSize(optionValue ? "checkbox" : entry.mapperType, entry.key);
     const px = previewRotation === 180 ? pageSize.w - visualX - size.width : visualX;
     const py = previewRotation === 180 ? visualY - size.height : pageSize.h - visualY - size.height;
-    const field = newCatalogField(
-      entry,
-      pageNum,
-      Math.round(Math.max(0, Math.min(pageSize.w - size.width, px))),
-      Math.round(Math.max(0, Math.min(pageSize.h - size.height, py))),
-      optionValue,
-    );
-    addField(field);
+    const x = Math.round(Math.max(0, Math.min(pageSize.w - size.width, px)));
+    const y = Math.round(Math.max(0, Math.min(pageSize.h - size.height, py)));
+    const existing = new Set(fieldsRef.current.map((field) => field.source));
+    const created = catalogPlacementFields(entry, pageNum, x, y, optionValue)
+      .filter((field) => optionValue || !existing.has(field.source));
+    if (!created.length) {
+      setPlacing(null);
+      setPlacingOption(null);
+      setNote(`${entry.easyLabel} option boxes are already on this packet.`);
+      return;
+    }
+    setFields((fs) => [...fs, ...created]);
+    setSelected(created[created.length - 1].fieldKey);
+    markDirty();
     setPlacing(null);
-    setNote(`Placed ${entry.easyLabel} on page ${pageNum}.`);
+    setPlacingOption(null);
+    setNote(created.length === 1
+      ? `Placed ${created[0].source} on page ${pageNum}.`
+      : `Placed ${created.length} ${entry.easyLabel} option boxes on page ${pageNum}. Drag each onto the printed checkbox.`);
   }
 
   function addFieldAt(e: React.MouseEvent) {
@@ -237,7 +256,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     const visualX = (e.clientX - rect.left) / scale;
     const visualY = (e.clientY - rect.top) / scale;
     if (placing) {
-      placeCatalogEntry(placing, visualX, visualY);
+      placeCatalogEntry(placing, visualX, visualY, placingOption ?? undefined);
       return;
     }
     const size = defaultFieldSize("text");
@@ -316,7 +335,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       if (e.key === "ArrowUp") { e.preventDefault(); update(field.fieldKey, { y: field.y + step }); }
       if (e.key === "ArrowDown") { e.preventDefault(); update(field.fieldKey, { y: field.y - step }); }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); deleteSelected(); }
-      if (e.key === "Escape") { setSelected(null); setPlacing(null); }
+      if (e.key === "Escape") { setSelected(null); setPlacing(null); setPlacingOption(null); }
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -534,8 +553,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setNote(`Jumped to ${entry.easyLabel} on page ${page}.`);
       return;
     }
-    setPlacing(entry);
-    setNote(`Page ${page}: click the blank to place ${entry.easyLabel}.`);
+    startPlacing(entry);
   }
 
   function clearMap() {
@@ -573,7 +591,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
         query={paletteQuery}
         onQuery={setPaletteQuery}
         placing={placing}
-        onPlace={setPlacing}
+        onPlace={startPlacing}
         onJump={jumpToCatalog}
         unmappedRequired={unmappedRequired.length}
       />
@@ -634,7 +652,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           {(statusError || note) && <span role={statusError ? "alert" : "status"} className={`text-sm ${statusError ? "text-red-700" : "text-emerald-600"}`}>{statusError || note}</span>}
         </div>
         <p className="mb-2 text-xs text-slate-500">
-          {placing ? `Click or drop onto the PDF to place “${placing.easyLabel}”. Esc cancels.` : "Search the intake catalog, drag a field onto the PDF, or click it then click the blank. Drag a box to move. Corner dot resizes. Arrow keys nudge (Shift for 10pt)."}
+          {placing ? `Click or drop onto the PDF to place “${placing.easyLabel}${placingOption ? ` = ${placingOption}` : ""}”. Esc cancels.` : "Search the intake catalog, drag a field onto the PDF, or click it then click the blank. Drag a box to move. Corner dot resizes. Arrow keys nudge (Shift for 10pt)."}
         </p>
         {pendingAi.length > 0 && (
           <div className="mb-3 rounded-lg border border-sky-200 bg-sky-50 p-3 text-sm text-sky-900">
@@ -680,7 +698,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
             const entry = catalogEntryByKey(key, mappingContext) || placing;
             if (!entry) return;
             const rect = event.currentTarget.getBoundingClientRect();
-            placeCatalogEntry(entry, (event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale);
+            placeCatalogEntry(entry, (event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale, placingOption ?? undefined);
           }}
           onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
           <canvas ref={canvasRef} />
@@ -694,9 +712,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
             const s = toScreen(f);
             const isSel = selected === f.fieldKey;
             const pending = isPendingAi(f);
-            const fillText = testFill === "demo" ? demoValueForSource(f.source || f.fieldKey)
-              : testFill === "labels" ? (f.source || f.fieldKey)
-              : "";
+            const fillText = testFill === "off" ? "" : overlayFillText(f, testFill);
             return (
               <div key={f.fieldKey} data-fieldkey={f.fieldKey}
                 onPointerDown={(e) => onPointerDown(e, f, false)}
@@ -776,7 +792,7 @@ function MappingPalette({
   query: string;
   onQuery: (value: string) => void;
   placing: CatalogEntry | null;
-  onPlace: (entry: CatalogEntry | null) => void;
+  onPlace: (entry: CatalogEntry, option?: string) => void;
   onJump: (entry: CatalogEntry) => void;
   unmappedRequired: number;
 }) {
@@ -801,6 +817,9 @@ function MappingPalette({
               <ul className="mt-1 space-y-1">
                 {section.entries.map((entry) => {
                   const mapped = mappedKeys.has(entry.key);
+                  const optionBoxes = entry.mapperType === "checkbox" && entry.options && entry.options.length > 1
+                    ? entry.options
+                    : null;
                   return (
                     <li key={entry.key}>
                       <button
@@ -821,7 +840,26 @@ function MappingPalette({
                       >
                         <span className="block font-semibold text-slate-800">{entry.easyLabel}</span>
                         <span className="block text-[10px] text-slate-500">{entry.key} · {mapped ? "mapped" : entry.required ? "required · unmapped" : "unmapped"}</span>
+                        {optionBoxes && (
+                          <span className="mt-0.5 block text-[10px] text-slate-400">
+                            Places {optionBoxes.map((opt) => `${entry.key}=${opt}`).join(", ")}
+                          </span>
+                        )}
                       </button>
+                      {optionBoxes && (
+                        <div className="mt-0.5 flex flex-wrap gap-1 pl-1">
+                          {optionBoxes.map((opt) => (
+                            <button
+                              key={opt}
+                              type="button"
+                              className="rounded border border-slate-200 bg-white px-1 py-0.5 text-[10px] text-slate-600 hover:border-brand"
+                              onClick={() => onPlace(entry, opt)}
+                            >
+                              {opt}
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </li>
                   );
                 })}
