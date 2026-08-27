@@ -94,7 +94,11 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const fieldsRef = useRef(fields);
   fieldsRef.current = fields;
   const qs = queryString(providerId, templateId);
-  const catalog = useMemo(() => mappingCatalog(), []);
+  const mappingContext = useMemo(
+    () => ({ name: providerName || null, originalFileName: templateName || null }),
+    [providerName, templateName],
+  );
+  const catalog = useMemo(() => mappingCatalog(mappingContext), [mappingContext]);
 
   useEffect(() => {
     setNote("");
@@ -556,6 +560,8 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     window.localStorage.setItem(rotationKey, String(next));
   }
 
+  const canApproveClean = !dirty && mappingStatus !== "MAPPING" && unmappedRequired.length === 0 && (!health || health.ready);
+  const needsOverride = providerSpecific && mappingStatus !== "APPROVED" && (unmappedRequired.length > 0 || showOverride || (health != null && !health.ready) || !!filenameWarning);
   const pageFields = fields.filter((f) => f.page === pageNum);
   const sel = fields.find((f) => f.fieldKey === selected);
 
@@ -615,7 +621,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           {providerSpecific && mappingStatus !== "APPROVED" && (
             <button
               className="btn-primary px-3 py-1"
-              disabled={dirty || mappingStatus === "MAPPING"}
+              disabled={!canApproveClean}
               onClick={() => void approvePacket(false)}
             >
               Approve packet
@@ -642,17 +648,21 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           <QualityPanel
             health={health}
             onJump={(key) => {
-              const entry = catalogEntryByKey(key);
+              const entry = catalogEntryByKey(key, mappingContext);
               if (entry) jumpToCatalog(entry);
             }}
           />
         )}
-        {showOverride && (
+        {needsOverride && (
           <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             <p className="font-semibold text-amber-950">Approval override</p>
-            <p className="mt-1 text-amber-900">Required fields are missing or the filename looks wrong. Type a reason to approve anyway. This is recorded in the audit log.</p>
+            <p className="mt-1 text-amber-900">
+              {unmappedRequired.length
+                ? `${unmappedRequired.length} required field${unmappedRequired.length === 1 ? " is" : "s are"} still unmapped. Map them, or type a reason of at least 8 characters to approve anyway.`
+                : "Required fields are missing or the filename looks wrong. Type a reason to approve anyway. This is recorded in the audit log."}
+            </p>
             <textarea className="input mt-2" rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Why this packet can go live without the missing required mappings" />
-            <button className="btn-primary mt-2 px-3 py-1.5 text-xs" disabled={overrideReason.trim().length < 8} onClick={() => void approvePacket(true)}>
+            <button className="btn-primary mt-2 px-3 py-1.5 text-xs" disabled={dirty || mappingStatus === "MAPPING" || overrideReason.trim().length < 8} onClick={() => void approvePacket(true)}>
               Approve with override
             </button>
           </div>
@@ -667,7 +677,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           onDrop={(event) => {
             event.preventDefault();
             const key = event.dataTransfer.getData("text/intake-key");
-            const entry = catalogEntryByKey(key) || placing;
+            const entry = catalogEntryByKey(key, mappingContext) || placing;
             if (!entry) return;
             const rect = event.currentTarget.getBoundingClientRect();
             placeCatalogEntry(entry, (event.clientX - rect.left) / scale, (event.clientY - rect.top) / scale);
@@ -721,7 +731,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
                 <div><label className="label">Field key</label><input className="input" value={sel.fieldKey} disabled /></div>
                 <div><label className="label">Intake answer key</label>
                   <input className="input" value={sel.source} onChange={(e) => update(sel.fieldKey, { source: e.target.value })} />
-                  {catalogEntryByKey(sel.source) && <p className="mt-1 text-xs text-slate-500">{catalogEntryByKey(sel.source)?.easyLabel}</p>}
+                  {catalogEntryByKey(sel.source, mappingContext) && <p className="mt-1 text-xs text-slate-500">{catalogEntryByKey(sel.source, mappingContext)?.easyLabel}</p>}
                 </div>
                 <div className="grid grid-cols-2 gap-2">
                   <div><label className="label">Type</label>
@@ -831,9 +841,9 @@ function QualityPanel({ health, onJump }: { health: MappingHealth; onJump: (key:
       <p className="mt-1 text-xs">{health.counts.fields} fields, {health.counts.signatures} signature fields, {health.counts.pagesWithFields} pages with mappings.</p>
       {health.missingRequired?.length > 0 && (
         <div className="mt-2">
-          <p className="text-xs font-semibold">Missing required</p>
-          <ul className="mt-1 space-y-1">
-            {health.missingRequired.slice(0, 12).map((item) => (
+          <p className="text-xs font-semibold">Missing required ({health.missingRequired.length})</p>
+          <ul className="mt-1 max-h-56 space-y-1 overflow-y-auto">
+            {health.missingRequired.map((item) => (
               <li key={item.key}>
                 <button type="button" className="text-xs font-semibold underline" onClick={() => onJump(item.key)}>
                   {item.label}
@@ -844,14 +854,14 @@ function QualityPanel({ health, onJump }: { health: MappingHealth; onJump: (key:
           </ul>
         </div>
       )}
-      {health.blockingIssues.length > 0 && health.missingRequired?.length === 0 && (
-        <p className="mt-2 text-xs"><b>Blocking:</b> {health.blockingIssues.slice(0, 5).join(" ")}</p>
+      {health.blockingIssues.filter((issue) => !issue.startsWith("Missing required mapping:")).length > 0 && (
+        <p className="mt-2 text-xs"><b>Blocking:</b> {health.blockingIssues.filter((issue) => !issue.startsWith("Missing required mapping:")).join(" ")}</p>
       )}
       {health.warnings.length > 0 && (
         <details className="mt-2 text-xs">
           <summary className="cursor-pointer font-semibold">{health.warnings.length} warning{health.warnings.length === 1 ? "" : "s"}</summary>
           <ul className="mt-1 list-disc pl-4">
-            {health.warnings.slice(0, 8).map((warning) => <li key={warning}>{warning}</li>)}
+            {health.warnings.map((warning) => <li key={warning}>{warning}</li>)}
           </ul>
         </details>
       )}

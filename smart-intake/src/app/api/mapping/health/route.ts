@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
 import {
   DEFAULT_PACKET_TEMPLATE_NAME,
   loadTemplateFile,
@@ -18,15 +19,19 @@ async function templateFromRequest(req: NextRequest) {
   const templateId = req.nextUrl.searchParams.get("templateId");
   const providerId = req.nextUrl.searchParams.get("providerId");
   return templateId
-    ? prisma.pdfTemplate.findUnique({ where: { id: templateId }, include: { fieldMappings: true } })
+    ? prisma.pdfTemplate.findUnique({
+      where: { id: templateId },
+      include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
+    })
     : providerId
       ? prisma.pdfTemplate.findFirst({
-        where: { providerId }, include: { fieldMappings: true },
+        where: { providerId },
+        include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       })
       : prisma.pdfTemplate.findUnique({
         where: { name: DEFAULT_PACKET_TEMPLATE_NAME },
-        include: { fieldMappings: true },
+        include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
       });
 }
 
@@ -39,6 +44,7 @@ function healthFor(template: {
   providerId: string | null;
   filePath: string;
   fieldMappings: Array<{ fieldKey: string; page: number; data: string }>;
+  provider?: { name: string | null; slug: string | null } | null;
 }, liveFields?: FieldMapping[]) {
   const overrides = parseMappings(template.fieldMappings);
   const fields = liveFields && liveFields.length
@@ -56,6 +62,7 @@ function healthFor(template: {
     template.pageWidth || PACKET_MAP.pageWidth,
     template.pageHeight || PACKET_MAP.pageHeight,
     liveFields ? liveFields.length : template.fieldMappings.length,
+    mappingContextFrom(template),
   );
 }
 

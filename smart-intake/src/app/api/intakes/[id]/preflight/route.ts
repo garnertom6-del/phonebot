@@ -31,7 +31,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const hasClientSignature = intake.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
   const missing = {
-    required: missingRequired(answers, hasClientSignature),
+    required: missingRequired(answers, hasClientSignature, provider),
     optional: missingOptional(answers),
   };
   const input = {

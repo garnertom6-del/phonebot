@@ -10,6 +10,7 @@ import {
 import { mappingAiConfigured, suggestPacketMappings } from "@/lib/mappingAi";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
 import { audit } from "@/lib/auditLog";
 
 export const runtime = "nodejs";
@@ -68,13 +69,21 @@ async function mappingStillActive(templateId: string): Promise<boolean> {
   return template.mappingStatus === "MAPPING" && issues.status === "MAPPING";
 }
 
+async function mappingContextForTemplate(template: { providerId: string | null; originalFileName: string | null }) {
+  const provider = template.providerId
+    ? await prisma.provider.findUnique({ where: { id: template.providerId }, select: { name: true, slug: true } })
+    : null;
+  return mappingContextFrom({ ...template, provider });
+}
+
 async function applyPacketMapping(templateId: string, userId: string, controller: AbortController) {
   try {
     const template = await prisma.pdfTemplate.findUnique({ where: { id: templateId }, include: { fieldMappings: true } });
     if (!template) throw new Error("Provider packet template not found.");
     if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
 
-    const result = await suggestPacketMappings(loadTemplateFile(template.filePath), controller.signal);
+    const mappingContext = await mappingContextForTemplate(template);
+    const result = await suggestPacketMappings(loadTemplateFile(template.filePath), controller.signal, mappingContext);
     if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
     const existing = template.fieldMappings.map((row) => ({
       fieldKey: row.fieldKey,
@@ -106,6 +115,7 @@ async function applyPacketMapping(templateId: string, userId: string, controller
       template.pageWidth || PACKET_MAP.pageWidth,
       template.pageHeight || PACKET_MAP.pageHeight,
       fields.length,
+      mappingContext,
     );
     if (controller.signal.aborted || !(await mappingStillActive(templateId))) return;
     await prisma.pdfTemplate.update({
@@ -113,7 +123,13 @@ async function applyPacketMapping(templateId: string, userId: string, controller
       data: {
         mappingStatus: "DRAFT",
         mappingScore: health.score,
-        mappingIssues: JSON.stringify({ status: "COMPLETE", appliedCount: result.suggestions.length, blockingIssues: health.blockingIssues, warnings: health.warnings }),
+        mappingIssues: JSON.stringify({
+          status: "COMPLETE",
+          appliedCount: result.suggestions.length,
+          blockingIssues: health.blockingIssues,
+          warnings: health.warnings,
+          missingRequired: health.missingRequired,
+        }),
       },
     });
     await audit("provider_packet_ai_mapped", {
@@ -209,7 +225,8 @@ export async function POST(req: NextRequest) {
       ? await prisma.pdfTemplate.findUnique({ where: { id: template.id }, include: { fieldMappings: true } })
       : null;
     if (apply && !background && !detailedTemplate) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
-    const result = await suggestPacketMappings(loadTemplateFile(template.filePath));
+    const mappingContext = await mappingContextForTemplate(template);
+    const result = await suggestPacketMappings(loadTemplateFile(template.filePath), undefined, mappingContext);
     if (!apply) {
       return NextResponse.json({ ...result, templateId: template.id, warning: "AI suggestions are not saved or approved. Review every box, save the map, run the quality check, and approve only after visual testing." });
     }
@@ -238,8 +255,22 @@ export async function POST(req: NextRequest) {
       template.pageWidth || PACKET_MAP.pageWidth,
       template.pageHeight || PACKET_MAP.pageHeight,
       fields.length,
+      mappingContext,
     );
-    await prisma.pdfTemplate.update({ where: { id: template.id }, data: { mappingStatus: "DRAFT", mappingScore: health.score, mappingIssues: JSON.stringify({ status: "COMPLETE", appliedCount: result.suggestions.length, blockingIssues: health.blockingIssues, warnings: health.warnings }) } });
+    await prisma.pdfTemplate.update({
+      where: { id: template.id },
+      data: {
+        mappingStatus: "DRAFT",
+        mappingScore: health.score,
+        mappingIssues: JSON.stringify({
+          status: "COMPLETE",
+          appliedCount: result.suggestions.length,
+          blockingIssues: health.blockingIssues,
+          warnings: health.warnings,
+          missingRequired: health.missingRequired,
+        }),
+      },
+    });
     await audit("provider_packet_ai_mapped", { providerId: template.providerId || undefined, userId: user!.id, detail: `${template.originalFileName || template.name}: ${result.suggestions.length} AI field suggestion(s); score ${health.score}` });
     return NextResponse.json({ ...result, templateId: template.id, appliedCount: result.suggestions.length, health, warning: "AI mappings were saved as a draft. Review the packet visually before approval or signatures." });
   } catch (error) {

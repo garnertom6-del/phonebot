@@ -3,10 +3,31 @@ import {
   REQUIRED_FOR_SUBMIT,
   SECTIONS,
   STAFF_FIELDS,
+  questionCatalogId,
+  questionVisibleInCatalog,
   type QType,
   type Question,
+  type QuestionCatalogId,
 } from "@/config/mooreDivineQuestions";
 import type { FieldMapping, FieldType } from "@/config/mooreDivinePacketMap";
+
+export type MappingProviderContext = {
+  name?: string | null;
+  slug?: string | null;
+  originalFileName?: string | null;
+};
+
+const MAPPING_HINTS: Record<string, string> = {
+  gender: "Demographics page: place one checkbox per printed Female/Male/Transgender/Other option using source gender=Value.",
+  has_medicaid: "Yes/No checkbox near the Medicaid effective date. Use checkbox sources has_medicaid=Yes and has_medicaid=No; the date field does not cover this key.",
+  is_minor_or_incompetent: "Yes/No checkbox or minor/incompetent branch next to already-mapped guardian fields.",
+  ec1_cell_phone: "Emergency contact 1 cell/mobile phone column, often on the same row as home and work phone.",
+  welcome_letter_ack: "Checkbox or initial that the welcome letter was received.",
+};
+
+function consentHint(label: string): string {
+  return `Map the printed yes/no checkbox, initial line, or attestation mark for “${label}”. Nearby signature name/date boxes use source signature or sign_date and do not satisfy this consent key.`;
+}
 
 export const HEADER_SOURCES = [
   "client_full_name",
@@ -47,6 +68,7 @@ export type CatalogEntry = {
   required: boolean;
   staffOnly: boolean;
   options?: string[];
+  hint?: string;
 };
 
 export type CatalogSection = {
@@ -69,6 +91,45 @@ function mapperTypeFor(question: Question): MapperFieldType {
   return "text";
 }
 
+function mappingHintFor(question: Question): string | undefined {
+  if (MAPPING_HINTS[question.key]) return MAPPING_HINTS[question.key];
+  if (question.type === "consent") return consentHint(question.label);
+  return undefined;
+}
+
+function entryFromQuestion(question: Question, sectionKey: string, sectionTitle: string, required: boolean, staffOnly: boolean): CatalogEntry {
+  return {
+    key: question.key,
+    label: question.label,
+    easyLabel: easyLabelFor(question.key, question.label),
+    sectionKey,
+    sectionTitle,
+    questionType: question.type,
+    mapperType: mapperTypeFor(question),
+    required,
+    staffOnly,
+    options: question.options,
+    hint: mappingHintFor(question),
+  };
+}
+
+export function mappingContextFrom(input: {
+  originalFileName?: string | null;
+  providerName?: string | null;
+  providerSlug?: string | null;
+  provider?: { name?: string | null; slug?: string | null } | null;
+} = {}): MappingProviderContext {
+  return {
+    name: input.providerName || input.provider?.name || null,
+    slug: input.providerSlug || input.provider?.slug || null,
+    originalFileName: input.originalFileName || null,
+  };
+}
+
+export function mappingCatalogId(ctx?: MappingProviderContext): QuestionCatalogId {
+  return questionCatalogId(ctx);
+}
+
 function defaultSize(type: MapperFieldType): { width: number; height: number } {
   if (type === "checkbox") return { width: 14, height: 14 };
   if (type === "signature" || type === "signature_small") return { width: 180, height: 18 };
@@ -88,43 +149,42 @@ export function sourceBase(source: string): string {
   return source.split(/[=~]/)[0].trim();
 }
 
-export function buildMappingCatalog(): CatalogSection[] {
+export function buildMappingCatalog(ctx?: MappingProviderContext): CatalogSection[] {
+  const catalogId = mappingCatalogId(ctx);
   const sections: CatalogSection[] = SECTIONS.map((section) => ({
     key: section.key,
     title: section.title,
     entries: section.questions
-      .filter((question) => question.type !== "info" && question.type !== "heading")
-      .map((question) => ({
-        key: question.key,
-        label: question.label,
-        easyLabel: easyLabelFor(question.key, question.label),
-        sectionKey: section.key,
-        sectionTitle: section.title,
-        questionType: question.type,
-        mapperType: mapperTypeFor(question),
-        required: !!question.required || REQUIRED_KEYS.has(question.key),
-        staffOnly: !!question.staffOnly,
-        options: question.options,
-      })),
-  }));
+      .filter((question) =>
+        question.type !== "info"
+        && question.type !== "heading"
+        && !question.appOnly
+        && questionVisibleInCatalog(question, catalogId))
+      .map((question) => entryFromQuestion(
+        question,
+        section.key,
+        section.title,
+        !!question.required || REQUIRED_KEYS.has(question.key),
+        !!question.staffOnly,
+      )),
+  })).filter((section) => section.entries.length);
 
   for (const group of STAFF_FIELDS) {
+    const entries = group.fields
+      .filter((question) => !question.appOnly && questionVisibleInCatalog(question, catalogId))
+      .map((question) => entryFromQuestion(
+        question,
+        "staff",
+        group.group,
+        HEADER_SOURCES.includes(question.key as (typeof HEADER_SOURCES)[number])
+          || REQUIRED_KEYS.has(question.key),
+        true,
+      ));
+    if (!entries.length) continue;
     sections.push({
       key: `staff_${group.group.toLowerCase().replace(/[^a-z0-9]+/g, "_")}`,
       title: group.group,
-      entries: group.fields.map((question) => ({
-        key: question.key,
-        label: question.label,
-        easyLabel: easyLabelFor(question.key, question.label),
-        sectionKey: "staff",
-        sectionTitle: group.group,
-        questionType: question.type,
-        mapperType: mapperTypeFor(question),
-        required: HEADER_SOURCES.includes(question.key as (typeof HEADER_SOURCES)[number])
-          || REQUIRED_KEYS.has(question.key),
-        staffOnly: true,
-        options: question.options,
-      })),
+      entries,
     });
   }
 
@@ -171,20 +231,52 @@ export function buildMappingCatalog(): CatalogSection[] {
   return sections;
 }
 
-let catalogCache: CatalogSection[] | null = null;
+const catalogCache = new Map<QuestionCatalogId, CatalogSection[]>();
 
-export function mappingCatalog(): CatalogSection[] {
-  catalogCache ??= buildMappingCatalog();
-  return catalogCache;
+export function mappingCatalog(ctx?: MappingProviderContext): CatalogSection[] {
+  const catalogId = mappingCatalogId(ctx);
+  const cached = catalogCache.get(catalogId);
+  if (cached) return cached;
+  const built = buildMappingCatalog(ctx);
+  catalogCache.set(catalogId, built);
+  return built;
 }
 
-export function catalogEntryByKey(key: string): CatalogEntry | undefined {
+export function catalogEntryByKey(key: string, ctx?: MappingProviderContext): CatalogEntry | undefined {
   const base = sourceBase(key);
-  for (const section of mappingCatalog()) {
+  for (const section of mappingCatalog(ctx)) {
     const match = section.entries.find((entry) => entry.key === base);
     if (match) return match;
   }
   return undefined;
+}
+
+export function packetRequiredEntries(ctx?: MappingProviderContext): CatalogEntry[] {
+  const seen = new Set<string>();
+  const entries: CatalogEntry[] = [];
+  for (const section of mappingCatalog(ctx)) {
+    for (const entry of section.entries) {
+      if (!entry.required || seen.has(entry.key)) continue;
+      seen.add(entry.key);
+      entries.push(entry);
+    }
+  }
+  return entries;
+}
+
+export function mappingFieldGuide(ctx?: MappingProviderContext): string {
+  const rows: string[] = [];
+  for (const section of mappingCatalog(ctx)) {
+    for (const entry of section.entries) {
+      const req = entry.required ? "REQUIRED" : "optional";
+      const optionHint = entry.options?.length
+        ? ` Printed options: ${entry.options.join(" / ")}. Use source ${entry.key}=Value for each checkbox.`
+        : "";
+      const hint = entry.hint ? ` ${entry.hint}` : "";
+      rows.push(`${entry.key} [${entry.mapperType}, ${req}]: ${entry.label}.${optionHint}${hint}`);
+    }
+  }
+  return rows.join("\n");
 }
 
 export function mappedSourceKeys(fields: Array<{ source: string }>): Set<string> {
@@ -230,7 +322,13 @@ export function newCatalogField(
   optionValue?: string,
 ): FieldMapping {
   const type = optionValue ? "checkbox" : entry.mapperType === "date" ? "date" : entry.mapperType;
-  const source = optionValue ? `${entry.key}=${optionValue}` : entry.key;
+  const source = optionValue
+    ? `${entry.key}=${optionValue}`
+    : entry.questionType === "consent"
+      ? `${entry.key}=true`
+      : entry.mapperType === "checkbox" && entry.options?.length === 1
+        ? `${entry.key}=${entry.options[0]}`
+        : entry.key;
   const size = defaultFieldSize(optionValue ? "checkbox" : entry.mapperType, entry.key);
   const role = entry.key.includes("guardian")
     ? "guardian"

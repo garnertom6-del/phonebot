@@ -126,7 +126,7 @@ export async function GET(req: NextRequest) {
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
       const providerPacketLog = i.auditLogs.find((a) => a.event === "provider_packet_email_sent");
-      const required = missingRequired(answers, signed);
+      const required = missingRequired(answers, signed, provider);
       const hasCca = i.uploadedDocuments.length > 0;
       const storedPdf = i.generatedPdfs.find((pdf) => fileExists(pdf.filePath)) || null;
       const packet = evaluatePacketFreshness({

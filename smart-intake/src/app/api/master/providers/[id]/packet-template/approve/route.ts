@@ -4,6 +4,7 @@ import { requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
 import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 import {
   loadTemplateFile,
@@ -26,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const template = await prisma.pdfTemplate.findFirst({
     where: { id: templateId, providerId: params.id },
-    include: { fieldMappings: true, provider: { select: { name: true } } },
+    include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
   });
   if (!template) return NextResponse.json({ error: "Provider packet template not found." }, { status: 404 });
 
@@ -60,6 +61,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     template.pageWidth || PACKET_MAP.pageWidth,
     template.pageHeight || PACKET_MAP.pageHeight,
     template.fieldMappings.length,
+    mappingContextFrom(template),
   );
   if (!health.ready && overrideReason.length < 8) {
     return NextResponse.json({

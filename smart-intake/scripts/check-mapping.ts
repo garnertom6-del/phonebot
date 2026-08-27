@@ -6,6 +6,8 @@
 import { PACKET_MAP } from "../src/config/mooreDivinePacketMap";
 import { repairKnownPacketPlacements } from "../src/lib/providerPacketTemplates";
 import { SECTIONS, STAFF_FIELDS, questionByKey } from "../src/config/mooreDivineQuestions";
+import { assessMapping } from "../src/lib/mappingHealth";
+import { mappingCatalog, packetRequiredEntries } from "../src/lib/mappingCatalog";
 
 const SPECIAL_SOURCES = new Set([
   "signature", "guardian_signature", "staff_signature", "clinician_signature",
@@ -89,6 +91,41 @@ if (pocFields.some((field) => field.page === 6 && field.fieldKey === "mh_history
 if (pocByKey.get("c_to")?.page !== 27 || pocByKey.get("c_phone")?.page !== 27 ||
     pocByKey.get("c_address")?.page !== 27 || !pocByKey.has("c_practice")) {
   console.error("✗ 39-page Prayers of Care PCP fields are not mapped to page 27");
+  errors++;
+}
+
+const ewCtx = { name: "Essential Wellness Care Inc.", originalFileName: "E.W.C.-INTAKE-FORM.pdf" };
+const ewKeys = new Set(mappingCatalog(ewCtx).flatMap((section) => section.entries.map((entry) => entry.key)));
+if (ewKeys.has("intake_mode")) {
+  console.error("✗ intake_mode must not be required (or present) in packet mapping");
+  errors++;
+}
+if (ewKeys.has("consent_provider_choice")) {
+  console.error("✗ consent_provider_choice must not appear on Essential Wellness");
+  errors++;
+}
+const remainingEwRequired = [
+  "gender", "has_medicaid", "is_minor_or_incompetent", "ec1_cell_phone",
+  "consent_orientation", "consent_rights", "consent_treatment", "consent_bill_of_rights",
+  "consent_emergency_info", "consent_emergency_care", "consent_hipaa", "consent_confidentiality",
+  "welcome_letter_ack", "consent_cca",
+];
+const ewRequired = packetRequiredEntries(ewCtx);
+const mapped = PACKET_MAP.fields.filter((field) => !remainingEwRequired.includes(field.source.split(/[=~]/)[0]));
+const ewHealth = assessMapping(mapped, 39, PACKET_MAP.pageWidth, PACKET_MAP.pageHeight, mapped.length, ewCtx);
+const reported = new Set(ewHealth.missingRequired.map((item) => item.key));
+for (const key of remainingEwRequired) {
+  if (!ewRequired.some((entry) => entry.key === key)) {
+    console.error(`✗ EW required map is missing ${key}`);
+    errors++;
+  }
+  if (!reported.has(key)) {
+    console.error(`✗ quality check omitted required-unmapped ${key}`);
+    errors++;
+  }
+}
+if (reported.has("intake_mode") || reported.has("consent_provider_choice")) {
+  console.error("✗ quality check still lists keys that were dropped for Essential Wellness");
   errors++;
 }
 
