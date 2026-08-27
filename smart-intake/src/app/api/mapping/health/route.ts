@@ -8,6 +8,7 @@ import {
   packetFieldsForTemplate,
   packetTemplateSha256,
 } from "@/lib/providerPacketTemplates";
+import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 
 function parseMappings(rows: Array<{ fieldKey: string; page: number; data: string }>): FieldMapping[] {
   return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
@@ -43,6 +44,11 @@ export async function GET(req: NextRequest) {
     template.pageHeight || PACKET_MAP.pageHeight,
     fields.length,
   );
+  const provider = template.providerId
+    ? await prisma.provider.findUnique({ where: { id: template.providerId }, select: { name: true } })
+    : null;
+  const filenameWarning = packetFilenameWarning(provider?.name || "", template.originalFileName);
+  if (filenameWarning) health.warnings.unshift(filenameWarning);
   return NextResponse.json({
     template: {
       id: template.id,
@@ -52,6 +58,7 @@ export async function GET(req: NextRequest) {
       mappingStatus: template.mappingStatus,
       mappingScore: template.mappingScore,
     },
+    filenameWarning,
     health,
   });
 }

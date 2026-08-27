@@ -10,12 +10,12 @@ export function isMasterUser(user: { role?: string | null }) {
   return role === "master" || role === "admin" || role === "master_admin";
 }
 
-export async function requireStaff() {
+export async function requireStaff(options?: { providerId?: string | null }) {
   const user = await currentUser();
   if (!user) {
     return { user: null, deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   }
-  const selectedProviderId = cookies().get(SELECTED_PROVIDER_COOKIE)?.value;
+  const selectedProviderId = options?.providerId?.trim() || cookies().get(SELECTED_PROVIDER_COOKIE)?.value;
 
   // Master users can work across providers; the selected cookie scopes their
   // intake routes without granting access to an inactive or unknown provider.

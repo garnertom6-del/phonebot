@@ -8,6 +8,7 @@ import {
   providerPacketFileAvailable,
   providerPacketReadinessFromTemplates,
 } from "@/lib/providerPacketTemplates";
+import { buildMasterProviderListExtras, visiblePacketTemplate } from "@/lib/masterProviderList";
 
 const optionalEmailSchema = z.union([
   z.string().trim().email("Enter a valid provider contact email"),
@@ -129,6 +130,12 @@ export async function GET() {
   return NextResponse.json({
     providers: providers.map((item) => {
       const intakeSummary = intakeSummaryByProvider.get(item.id) || {};
+      const packetTemplate = visiblePacketTemplate(item.pdfTemplates);
+      const listExtras = buildMasterProviderListExtras({
+        name: item.name,
+        intakeSummary,
+        packetTemplate,
+      });
       return {
         ...item,
         packetReadiness: providerPacketReadinessFromTemplates(
@@ -141,6 +148,9 @@ export async function GET() {
         intakeSummary,
         currentIntakeCount: Object.values(intakeSummary).reduce((sum, count) => sum + count, 0),
         archivedIntakeCount: archivedIntakeCountByProvider.get(item.id) || 0,
+        staffReviewCount: listExtras.staffReviewCount,
+        filenameWarning: listExtras.filenameWarning,
+        packetDisplay: listExtras.packetDisplay,
       };
     }),
     isMaster,

@@ -58,6 +58,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [note, setNote] = useState("");
   const [testFill, setTestFill] = useState(false);
   const [templateName, setTemplateName] = useState("Moore Divine Care Client Intake Package");
+  const [filenameWarning, setFilenameWarning] = useState("");
   const [providerSpecific, setProviderSpecific] = useState(false);
   const [mappingStatus, setMappingStatus] = useState("APPROVED");
   const [health, setHealth] = useState<MappingHealth | null>(null);
@@ -80,6 +81,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setHealth(null);
     setAiSuggestions([]);
     setStatusError("");
+    setFilenameWarning("");
     setReplaceMappingOnSave(false);
     const rotationKey = `pdf-mapper-rotation:${templateId || providerId || "default"}`;
     const savedRotation = window.localStorage.getItem(rotationKey);
@@ -91,6 +93,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setPageCount(d.pageCount);
       setPageSize({ w: d.pageWidth, h: d.pageHeight });
       setTemplateName(d.originalFileName || d.templateName || "Packet template");
+      setFilenameWarning(typeof d.filenameWarning === "string" ? d.filenameWarning : "");
       setProviderSpecific(!!d.providerSpecific);
       setMappingStatus(d.mappingStatus || "APPROVED");
     }).catch((err) => {
@@ -407,6 +410,12 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
           Mapping: <strong>{templateName}</strong>{providerSpecific ? " (provider packet)" : " (default packet)"}
           {providerSpecific && <span className={`ml-2 rounded-full px-2 py-0.5 text-xs font-semibold ${mappingStatus === "APPROVED" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{mappingStatus}</span>}
         </div>
+        {filenameWarning && (
+          <div role="alert" className="mb-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
+            <p className="font-semibold">Wrong packet file</p>
+            <p className="mt-1">{filenameWarning}</p>
+          </div>
+        )}
         <div className="mb-2 flex flex-wrap items-center gap-2">
           <button type="button" className="btn-ghost px-3 py-1" onClick={() => setPageNum((p) => Math.max(1, p - 1))}>Prev</button>
           <span className="text-sm font-semibold">Page {pageNum} / {pageCount}</span>

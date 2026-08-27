@@ -1,8 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
@@ -159,7 +159,7 @@ function rowSearchText(row: Row) {
 }
 
 function rowNeedsStaffAction(row: Row): boolean {
-  return needsStaffAction(row.status) || (row.status === "COMPLETED" && row.readiness.tone === "warn");
+  return needsStaffAction(row.status);
 }
 
 function csvCell(value: unknown): string {
@@ -173,8 +173,10 @@ function reportFileName(providerName: string): string {
   return `${safeName}-intake-workflow-${new Date().toISOString().slice(0, 10)}.csv`;
 }
 
-export default function Dashboard() {
+function Dashboard() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const providerIdFromUrl = searchParams.get("providerId");
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
@@ -194,7 +196,8 @@ export default function Dashboard() {
   const load = useCallback(async (_activeTab: string = "all", preserveNotice = false) => {
     setRefreshing(true);
     try {
-      const response = await fetch("/api/intakes");
+      const query = providerIdFromUrl ? `?providerId=${encodeURIComponent(providerIdFromUrl)}` : "";
+      const response = await fetch(`/api/intakes${query}`);
       if (response.status === 401) {
         router.push("/provider");
         return;
@@ -215,7 +218,16 @@ export default function Dashboard() {
     } finally {
       setRefreshing(false);
     }
-  }, [router]);
+  }, [router, providerIdFromUrl]);
+
+  useEffect(() => {
+    if (!providerIdFromUrl) return;
+    void fetch("/api/provider-context", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ providerId: providerIdFromUrl }),
+    });
+  }, [providerIdFromUrl]);
 
   useEffect(() => {
     let active = true;
@@ -544,6 +556,14 @@ export default function Dashboard() {
 
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
+      {isMaster && (
+        <div className="sticky top-2 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm">
+          <p className="font-semibold">Viewing as {providerName}</p>
+          <Link href="/master/dashboard" className="btn-ghost border-sky-300 bg-white px-3 py-1.5 text-xs text-sky-950 hover:bg-sky-100">
+            Return to master
+          </Link>
+        </div>
+      )}
       <section className="rounded-2xl bg-gradient-to-br from-brand via-brand-dark to-slate-900 px-5 py-6 text-white shadow-xl sm:px-6 sm:py-7">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
@@ -1219,5 +1239,13 @@ function StatusTile({
       <p className="mt-2 text-base font-bold">{state}</p>
       <p className="mt-1 text-xs leading-5">{detail}</p>
     </div>
+  );
+}
+
+export default function DashboardPage() {
+  return (
+    <Suspense fallback={<main className="p-6 text-sm text-slate-500">Opening the intake dashboard...</main>}>
+      <Dashboard />
+    </Suspense>
   );
 }

@@ -11,6 +11,7 @@ import {
   packetFieldsForTemplate,
   packetTemplateSha256,
 } from "@/lib/providerPacketTemplates";
+import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 
 type MappingRow = {
   fieldKey: string;
@@ -76,10 +77,17 @@ export async function GET(req: NextRequest) {
     sha256,
   }, overrides);
 
+  const provider = target.template?.providerId
+    ? await prisma.provider.findUnique({ where: { id: target.template.providerId }, select: { name: true } })
+    : null;
+  const filenameWarning = packetFilenameWarning(provider?.name || "", originalFileName);
+
   return NextResponse.json({
     templateId: target.template?.id ?? null,
     templateName,
     originalFileName,
+    filenameWarning,
+    providerName: provider?.name ?? null,
     providerId: target.template?.providerId ?? target.requestedProvider,
     providerSpecific: target.providerSpecific,
     pageCount,
