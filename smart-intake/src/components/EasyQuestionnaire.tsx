@@ -9,7 +9,7 @@
  * Drop-in replacement for ClientQuestionnaire (identical props).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, isQuestionPrefilledForClient, isQuickIntakeQuestion, type Question } from "@/config/mooreDivineQuestions";
+import { SECTIONS, isQuestionPrefilledForClient, isQuickIntakeQuestion, questionCatalogId, questionVisibleInCatalog, type Question } from "@/config/mooreDivineQuestions";
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -34,12 +34,14 @@ const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?:
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
-function flattenVisible(answers: Answers, prefilledAnswers: Answers, quick: boolean): FlatQ[] {
+function flattenVisible(answers: Answers, prefilledAnswers: Answers, quick: boolean, providerName?: string): FlatQ[] {
+  const catalogId = questionCatalogId(providerName);
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
     if (quick && s.key === "insurance") continue;
     for (const q of s.questions) {
+      if (!questionVisibleInCatalog(q, catalogId)) continue;
       if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
       // Quick Intake: only the essentials + consents; the clinician's CCA
       // fills the rest after upload by staff.
@@ -86,7 +88,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const gateFingerprint = JSON.stringify(GATE_KEYS.map((k) => answers[k]));
   const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const flat = useMemo(() => flattenVisible(answers, prefilledRef.current, quick), [gateFingerprint, quick]);
+  const flat = useMemo(() => flattenVisible(answers, prefilledRef.current, quick, providerName), [gateFingerprint, quick, providerName]);
 
   // Refs so timers (auto-advance) always see the latest state.
   const answersRef = useRef(answers); answersRef.current = answers;

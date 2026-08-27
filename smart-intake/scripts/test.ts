@@ -15,7 +15,7 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
-import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
+import { fillPacket, loadTemplateBytes, resolveValue } from "../src/lib/fillPdf";
 import {
   packetFieldsForTemplate,
   isValidProviderPacketMappingScore,
@@ -36,7 +36,8 @@ import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardW
 import { packetDisplayStatus } from "../src/lib/mappingStatus";
 import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
 import { assessMapping } from "../src/lib/mappingHealth";
-import { catalogEntryByKey, mappingCatalog, mappedSourceKeys, newCatalogField } from "../src/lib/mappingCatalog";
+import { catalogEntryByKey, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, packetRequiredEntries } from "../src/lib/mappingCatalog";
+import { questionCatalogId } from "../src/config/mooreDivineQuestions";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -1117,9 +1118,17 @@ async function main() {
   assert(catalog.length > 8, "intake catalog should be grouped by section");
   assert(catalog.some((section) => section.entries.some((entry) => entry.key === "client_full_name")));
   assert(catalogEntryByKey("dob")?.mapperType === "date");
+  assert.equal(catalogEntryByKey("gender")?.mapperType, "checkbox");
+  assert.equal(catalogEntryByKey("has_medicaid")?.mapperType, "checkbox");
+  assert.equal(catalogEntryByKey("is_minor_or_incompetent")?.mapperType, "checkbox");
+  assert.equal(catalogEntryByKey("consent_orientation")?.mapperType, "checkbox");
+  assert(catalogEntryByKey("consent_orientation")?.hint?.toLowerCase().includes("checkbox"));
   const placed = newCatalogField(catalogEntryByKey("client_full_name")!, 1, 40, 700);
   assert.equal(placed.source, "client_full_name");
   assert(mappedSourceKeys([placed]).has("client_full_name"));
+  const consentBox = newCatalogField(catalogEntryByKey("consent_hipaa")!, 12, 40, 400);
+  assert.equal(consentBox.type, "checkbox");
+  assert.equal(consentBox.source, "consent_hipaa=true");
   ok("intake mapping catalog can place answer keys onto a packet");
 
   const emptyHealth = assessMapping([], 3, 612, 792, 0);
@@ -1135,6 +1144,58 @@ async function main() {
   ], 1, 612, 792, 5);
   assert(namedHealth.missingRequired.every((item) => item.key !== "client_full_name" && item.key !== "signature"));
   ok("mapping quality lists missing required fields instead of a score-only badge");
+
+  const ewCtx = { name: "Essential Wellness Care Inc.", originalFileName: "E.W.C.-INTAKE-FORM.pdf" };
+  assert.equal(questionCatalogId(ewCtx), "essential-wellness");
+  const ewCatalogKeys = new Set(mappingCatalog(ewCtx).flatMap((section) => section.entries.map((entry) => entry.key)));
+  assert(!ewCatalogKeys.has("intake_mode"), "intake_mode is app-only and must not appear in the mapping catalog");
+  assert(!ewCatalogKeys.has("consent_provider_choice"), "MDC provider-choice must not appear on Essential Wellness");
+  assert(mappingCatalog().some((section) => section.entries.some((entry) => entry.key === "consent_provider_choice")));
+  const liveUnmapped = [
+    "intake_mode", "gender", "has_medicaid", "is_minor_or_incompetent", "ec1_cell_phone",
+    "consent_provider_choice", "consent_orientation", "consent_rights", "consent_treatment",
+    "consent_bill_of_rights", "consent_emergency_info", "consent_emergency_care", "consent_hipaa",
+    "consent_confidentiality", "welcome_letter_ack", "consent_cca",
+  ];
+  const remainingForEw = liveUnmapped.filter((key) => key !== "intake_mode" && key !== "consent_provider_choice");
+  const ewRequired = packetRequiredEntries(ewCtx);
+  for (const key of remainingForEw) {
+    assert(ewRequired.some((entry) => entry.key === key), `EW required map should include ${key}`);
+  }
+  const dummyField = (key: string, type: "text" | "checkbox" | "date" | "signature", role: "client" | "staff" = "client") => ({
+    page: 1, fieldKey: `map_${key}`, source: key, type, x: 40, y: 700, width: 40, height: 12,
+    fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role, consentKey: null, notes: "",
+  });
+  const mappedExceptLiveGaps = ewRequired
+    .filter((entry) => !remainingForEw.includes(entry.key))
+    .map((entry, index) => ({
+      ...dummyField(
+        entry.key,
+        entry.mapperType === "signature" || entry.mapperType === "signature_small" ? "signature"
+          : entry.mapperType === "checkbox" || entry.mapperType === "initials" ? "checkbox"
+          : entry.mapperType === "date" ? "date"
+          : "text",
+        entry.key.includes("staff") || entry.key.includes("record") || entry.key === "intake_date" ? "staff" : "client",
+      ),
+      y: 40 + (index % 40) * 12,
+      x: 40 + Math.floor(index / 40) * 80,
+    }));
+  if (!mappedExceptLiveGaps.some((field) => field.type === "signature")) {
+    mappedExceptLiveGaps.push(dummyField("signature", "signature"));
+  }
+  const ewHealth = assessMapping(mappedExceptLiveGaps, 39, 612, 792, mappedExceptLiveGaps.length, ewCtx);
+  const reported = ewHealth.missingRequired.map((item) => item.key);
+  assert.deepEqual([...reported].sort(), [...remainingForEw].sort());
+  assert.equal(reported.length, remainingForEw.length, "quality check must list every remaining required-unmapped field");
+  assert(ewHealth.score > 0, "score must not collapse to 0/100 just because required fields remain");
+  assert.equal(ewHealth.ready, false);
+  assert(mappingFieldGuide(ewCtx).includes("gender=Value"));
+  assert(mappingFieldGuide(ewCtx).includes("has_medicaid=Yes"));
+  assert(!mappingFieldGuide(ewCtx).includes("consent_provider_choice"));
+  assert.equal(resolveValue("consent_orientation", { consent_orientation: true }).checked, true);
+  assert.equal(resolveValue("has_medicaid=Yes", { has_medicaid: "Yes" }).checked, true);
+  assert.equal(missingRequired({ client_full_name: "X", dob: "1990-01-01" }, true, ewCtx).some((item) => item.key === "consent_provider_choice"), false);
+  ok("EW mapping catalog drops MDC-only keys and the checker reports every remaining required-unmapped field");
 
   const approvedOnly = packetDisplayStatus({ mappingStatus: "APPROVED", mappingScore: 72, isActive: false, approvedAt: new Date() });
   assert.equal(approvedOnly.key, "needs_review");

@@ -217,7 +217,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       const hasSignature = current.signatures.some((signature) => (
         signature.role === "client" || signature.role === "guardian"
       ));
-      const missing = missingRequired(answers, hasSignature);
+      const missing = missingRequired(answers, hasSignature, intake.provider);
       if (missing.length) throw new MissingSubmitFieldsError(missing);
       await saveAnswersInTransaction(tx, intake.id, answers);
       await syncStructuredRowsInTransaction(tx, intake.id, answers);

@@ -55,7 +55,9 @@ export function resolveValue(source: string, answers: Answers): { text?: string;
     /(^|_)date_(sent|adjudicated)$/.test(source) ||
     source === "intervention_valid_until"
   ) v = formatDate(v);
-  return { text: v };
+  const raw = answers[source];
+  const checked = raw === true || raw === "true" || raw === "Yes" || raw === "yes";
+  return { text: v, checked };
 }
 
 function formatDate(v: string): string {

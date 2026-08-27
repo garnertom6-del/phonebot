@@ -78,7 +78,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     answers,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),
-    missingRequired: missingRequired(answers, signed),
+    missingRequired: missingRequired(answers, signed, provider),
     missingOptional: missingOptional(answers),
     signatureStatuses: buildSignatureStatuses(intake.signatures),
     providerPacketReadiness: packetReadiness,

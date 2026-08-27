@@ -1,6 +1,11 @@
-import { REQUIRED_FOR_SUBMIT, SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
+import { SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
 import type { FieldMapping } from "@/config/mooreDivinePacketMap";
-import { HEADER_SOURCES, catalogEntryByKey, sourceBase } from "./mappingCatalog";
+import {
+  HEADER_SOURCES,
+  packetRequiredEntries,
+  sourceBase,
+  type MappingProviderContext,
+} from "./mappingCatalog";
 
 const SPECIAL_SOURCES = new Set([
   "signature", "guardian_signature", "staff_signature", "clinician_signature",
@@ -8,8 +13,6 @@ const SPECIAL_SOURCES = new Set([
   "medical_director_sign_date", "initials", "signer_name", "screening_date",
   "hospitalizations_more",
 ]);
-
-const CORE_SOURCES = ["client_full_name", "dob", "record_number", "intake_date"];
 
 export type MissingRequiredField = {
   key: string;
@@ -63,6 +66,7 @@ export function assessMapping(
   pageWidth: number,
   pageHeight: number,
   savedMappingCount = fields.length,
+  context?: MappingProviderContext,
 ): MappingHealth {
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
@@ -101,26 +105,20 @@ export function assessMapping(
   }
 
   const mappedSources = new Set(fields.map((field) => sourceKey(field.source)).filter(Boolean));
-  const requiredKeys = [
-    ...CORE_SOURCES,
-    ...HEADER_SOURCES,
-    ...REQUIRED_FOR_SUBMIT.map((item) => item.key),
-  ];
-  const seenRequired = new Set<string>();
-  for (const required of requiredKeys) {
-    if (seenRequired.has(required) || mappedSources.has(required)) continue;
-    seenRequired.add(required);
-    const entry = catalogEntryByKey(required);
-    const submit = REQUIRED_FOR_SUBMIT.find((item) => item.key === required);
+  const requiredEntries = packetRequiredEntries(context);
+  for (const entry of requiredEntries) {
+    if (mappedSources.has(entry.key)) continue;
     missingRequired.push({
-      key: required,
-      label: entry?.easyLabel || submit?.label || entry?.label || required,
-      section: entry?.sectionTitle || "Required intake fields",
+      key: entry.key,
+      label: entry.easyLabel || entry.label,
+      section: entry.sectionTitle || "Required intake fields",
       page: null,
     });
-    blockingIssues.push(`Missing required mapping: ${required}.`);
+    blockingIssues.push(`Missing required mapping: ${entry.key}.`);
   }
-  if (!fields.some((field) => ["signature", "signature_small"].includes(field.type) && ["client", "guardian"].includes(field.role))) {
+  const hasClientOrGuardianSignature = fields.some((field) =>
+    ["signature", "signature_small"].includes(field.type) && ["client", "guardian"].includes(field.role));
+  if (!hasClientOrGuardianSignature && !missingRequired.some((item) => item.key === "signature" || item.key === "guardian_signature")) {
     missingRequired.push({
       key: "signature",
       label: "Client or guardian signature",
@@ -159,7 +157,12 @@ export function assessMapping(
     }
   }
 
-  const score = Math.max(0, Math.min(100, 100 - blockingIssues.length * 25 - warnings.length * 2));
+  const requiredTotal = requiredEntries.length || missingRequired.length;
+  const mappedRequired = Math.max(0, requiredTotal - missingRequired.filter((item) =>
+    requiredEntries.some((entry) => entry.key === item.key)).length);
+  const completeness = requiredTotal ? Math.round((mappedRequired / requiredTotal) * 100) : 100;
+  const geometryBlocks = blockingIssues.filter((issue) => !issue.startsWith("Missing required mapping:")).length;
+  const score = Math.max(0, Math.min(100, completeness - geometryBlocks * 10 - Math.min(20, warnings.length)));
   return {
     ready: blockingIssues.length === 0,
     score,

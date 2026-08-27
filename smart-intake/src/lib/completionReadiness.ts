@@ -111,10 +111,11 @@ export async function completionReadinessForIntake(
   const hasStaffSignature = intake.signatures.some((signature) => signature.role === "staff");
   const packet = await packetFreshnessForIntake(intake.id);
   const providerPacket = await providerPacketReadiness(providerId);
+  const provider = await prisma.provider.findUnique({ where: { id: providerId }, select: { name: true, slug: true } });
   const readiness = buildCompletionReadiness({
     archived: intake.archived,
     submittedAt: intake.submittedAt,
-    missingRequired: missingRequired(answers, hasClientSignature),
+    missingRequired: missingRequired(answers, hasClientSignature, provider),
     expectCca: intake.expectCca,
     hasCca: intake.uploadedDocuments.length > 0,
     hasStaffSignature,
