@@ -1,4 +1,4 @@
-import { isValidProviderPacketMappingScore } from "@/lib/providerPacketTemplates";
+import { isValidProviderPacketMappingScore } from "@/lib/packetMappingScore";
 import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 
 export type PacketDisplayTemplate = {

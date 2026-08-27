@@ -5,6 +5,7 @@ import { PACKET_MAP, TEMPLATE_FILE, type FieldMapping } from "@/config/mooreDivi
 import { welliancePacketFields } from "@/config/welliancePacketMap";
 import { mergedMap } from "./fillPdf";
 import { prisma } from "./prisma";
+import { isValidProviderPacketMappingScore } from "./packetMappingScore";
 import { fileExists, readFile } from "./storage";
 
 export const DEFAULT_PACKET_TEMPLATE_NAME = "Moore Divine Care Client Intake Package";
@@ -418,12 +419,7 @@ function isExplicitlyApprovedProviderPacket(
     && template.fileAvailable !== false;
 }
 
-export function isValidProviderPacketMappingScore(value: unknown): value is number {
-  return typeof value === "number"
-    && Number.isInteger(value)
-    && value >= 0
-    && value <= 100;
-}
+export { isValidProviderPacketMappingScore } from "./packetMappingScore";
 
 export function providerPacketFileAvailable(filePath: string): boolean {
   const normalized = filePath.replace(/\\/g, "/");
