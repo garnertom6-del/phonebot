@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { packetDisplayStatus } from "@/lib/mappingStatus";
-import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
+import { INTAKE_STATUS_LABELS, staffReviewCountFromSummary } from "@/lib/dashboardWorkflow";
+import { packetDisplayStatus } from "@/lib/packetDisplayStatus";
+import { filterProvidersBySearch, providerSearchFieldsFromRow, type ProviderSearchMatch } from "@/lib/providerSearch";
 
 type ProviderRow = {
   id: string;
@@ -19,6 +20,18 @@ type ProviderRow = {
   intakeSummary: Record<string, number>;
   currentIntakeCount: number;
   archivedIntakeCount: number;
+  staffReviewCount?: number;
+  filenameWarning?: string | null;
+  packetDisplay?: {
+    label: string;
+    scoreLabel: string;
+    detail: string;
+    className: string;
+    badge: string;
+    filenameWarning: string | null;
+    originalFileName?: string | null;
+    pageCount?: number | null;
+  } | null;
   packetReadiness: {
     ready: boolean;
     state: string;
@@ -65,45 +78,18 @@ const EMPTY_FORM = {
   adminPassword: "",
 };
 
-function providerSearchText(provider: ProviderRow) {
-  const admins = provider.memberships
-    .filter((membership) => membership.active && membership.role === "PROVIDER_ADMIN")
-    .map((membership) => membership.user.email)
-    .join(" ");
-
-  return [
-    provider.name,
-    provider.slug,
-    provider.contactName,
-    provider.email,
-    provider.phone,
-    admins,
-    provider.pdfTemplates.map((template) => template.originalFileName).join(" "),
-  ].join(" ").toLowerCase();
-}
-
-function fuzzyProviderMatch(haystack: string, query: string): boolean {
-  const hay = haystack.toLowerCase();
-  const tokens = query.toLowerCase().trim().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return true;
-  if (tokens.every((token) => hay.includes(token))) return true;
-  return tokens.every((token) => {
-    let from = 0;
-    for (const ch of token) {
-      const at = hay.indexOf(ch, from);
-      if (at < 0) return false;
-      from = at + 1;
-    }
-    return true;
-  });
+function providerSearchFields(provider: ProviderRow) {
+  return providerSearchFieldsFromRow(provider);
 }
 
 function activeMembershipCount(provider: ProviderRow) {
   return provider.memberships.filter((membership) => membership.active).length;
 }
 
-function providerReviewQueueCount(provider: ProviderRow) {
-  return (provider.intakeSummary?.NEEDS_REVIEW || 0) + (provider.intakeSummary?.SIGNED || 0);
+function providerStaffReviewCount(provider: ProviderRow) {
+  return typeof provider.staffReviewCount === "number"
+    ? provider.staffReviewCount
+    : staffReviewCountFromSummary(provider.intakeSummary);
 }
 
 function providerOpenWorkCount(provider: ProviderRow) {
@@ -123,12 +109,38 @@ function latestPacketFor(provider: ProviderRow) {
   }, null);
 }
 
-function packetStatus(template: ProviderRow["pdfTemplates"][number]) {
-  return packetDisplayStatus(template);
+function packetView(provider: ProviderRow, otherProviderNames: string[] = []) {
+  const packet = activePacketFor(provider) || latestPacketFor(provider);
+  const display = provider.packetDisplay || packetDisplayStatus(packet, provider.name, otherProviderNames);
+  return {
+    packet,
+    display,
+    filenameWarning: provider.filenameWarning || display.filenameWarning,
+  };
 }
 
-function mappingReadiness(template: ProviderRow["pdfTemplates"][number] | null) {
-  return packetDisplayStatus(template);
+function HighlightedText({
+  text,
+  match,
+  field,
+}: {
+  text: string;
+  match?: ProviderSearchMatch | null;
+  field?: ProviderSearchMatch["field"];
+}) {
+  if (!match || match.length <= 0 || (field && match.field !== field) || match.start < 0) {
+    return <>{text}</>;
+  }
+  const start = Math.min(match.start, text.length);
+  const end = Math.min(start + match.length, text.length);
+  if (end <= start) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, start)}
+      <mark className="rounded-sm bg-amber-200 px-0.5 text-inherit">{text.slice(start, end)}</mark>
+      {text.slice(end)}
+    </>
+  );
 }
 
 function providerAdminMemberships(provider: ProviderRow) {
@@ -155,7 +167,7 @@ function providerNextAction(provider: ProviderRow) {
   const active = provider.status === "ACTIVE";
   const packet = activePacketFor(provider) || latestPacketFor(provider);
   const admins = providerAdminMemberships(provider);
-  const reviewQueue = providerReviewQueueCount(provider);
+  const reviewQueue = providerStaffReviewCount(provider);
 
   if (!active) {
     return { label: "Reactivate provider", detail: "Access is paused", className: "bg-slate-200 text-slate-700" };
@@ -169,13 +181,8 @@ function providerNextAction(provider: ProviderRow) {
   if (packet.mappingStatus === "MAPPING") {
     return { label: "Wait for mapping", detail: "AI is still working", className: "bg-sky-100 text-sky-800" };
   }
-  const packetState = packetDisplayStatus(packet);
-  if (packetState.key !== "approved_active") {
-    return {
-      label: packetState.key === "mapping" ? "Wait for mapping" : "Review and approve",
-      detail: packetState.detail,
-      className: packetState.className,
-    };
+  if (!activePacketFor(provider) || packet.mappingStatus !== "APPROVED" || !packet.isActive) {
+    return { label: "Review and approve", detail: "Packet is not ready for signatures", className: "bg-amber-100 text-amber-900" };
   }
   if (reviewQueue > 0) {
     return { label: "Review intakes", detail: `${reviewQueue} intake${reviewQueue === 1 ? "" : "s"} need staff review`, className: "bg-amber-100 text-amber-900" };
@@ -213,6 +220,8 @@ export default function MasterDashboard() {
   const [providerNotifyBusy, setProviderNotifyBusy] = useState("");
   const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
   const [workflowView, setWorkflowView] = useState<WorkflowView>("manage");
+  const [openMenuId, setOpenMenuId] = useState("");
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const aiStopRequested = useRef(false);
 
   const load = useCallback(async () => {
@@ -256,6 +265,24 @@ export default function MasterDashboard() {
   }, [pathname, router]);
 
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!openMenuId) return;
+    function onPointerDown(event: PointerEvent) {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+        setOpenMenuId("");
+      }
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setOpenMenuId("");
+    }
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [openMenuId]);
 
   function updateField(key: keyof typeof EMPTY_FORM, value: string) {
     setForm((current) => ({ ...current, [key]: value }));
@@ -574,7 +601,7 @@ export default function MasterDashboard() {
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Provider dashboard could not be opened.");
-      router.push("/dashboard");
+      router.push(`/dashboard?providerId=${encodeURIComponent(providerId)}`);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Provider dashboard could not be opened.");
     } finally {
@@ -629,13 +656,24 @@ export default function MasterDashboard() {
     window.setTimeout(() => document.getElementById("provider-admin-access")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
+  function openPacketMapping(provider: ProviderRow) {
+    const packet = latestPacketFor(provider) || activePacketFor(provider);
+    if (isMaster && packet) {
+      router.push(`/admin/pdf-mapping?providerId=${encodeURIComponent(provider.id)}&templateId=${encodeURIComponent(packet.id)}`);
+      return;
+    }
+    openPacketSetup(provider.id);
+  }
+
   function providerActions(provider: ProviderRow, mobile = false) {
     const active = provider.status === "ACTIVE";
-    const packet = latestPacketFor(provider);
     const buttonClass = mobile ? "w-full justify-center px-3 py-2 text-xs" : "px-3 py-1.5 text-xs";
+    const menuOpen = openMenuId === provider.id;
+    const missingEmail = !provider.email;
+    const missingPhone = !provider.phone;
 
     return (
-      <div className={mobile ? "space-y-2" : "flex items-start gap-2"}>
+      <div className={mobile ? "grid grid-cols-2 gap-2" : "flex flex-wrap items-start gap-2"}>
         {active ? (
           <button
             type="button"
@@ -643,51 +681,112 @@ export default function MasterDashboard() {
             disabled={contextBusyProviderId === provider.id}
             onClick={() => void openProviderDashboard(provider.id)}
           >
-            {contextBusyProviderId === provider.id ? "Opening..." : "Open"}
+            {contextBusyProviderId === provider.id ? "Opening..." : "Open intakes"}
           </button>
         ) : (
           <span className={`rounded-lg bg-slate-100 text-center text-slate-500 ${buttonClass}`}>Inactive</span>
         )}
-        <details className="relative">
-          <summary className={`btn-ghost cursor-pointer list-none ${buttonClass}`}>More</summary>
-          <div className={`absolute ${mobile ? "left-0 right-0" : "right-0"} z-20 mt-1 grid min-w-48 gap-1 rounded-lg border border-slate-200 bg-white p-2 shadow-xl`}>
-            <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold hover:bg-slate-100" onClick={() => openAdminAccess(provider)}>
-              Login access
-            </button>
-            <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold hover:bg-slate-100" onClick={() => openPacketSetup(provider.id)}>
-              Packet setup
-            </button>
-            {isMaster && packet && (
-              <Link className="rounded-md px-3 py-2 text-xs font-semibold hover:bg-slate-100" href={`/admin/pdf-mapping?providerId=${provider.id}&templateId=${packet.id}`}>
-                Map packet
-              </Link>
-            )}
-            {isMaster && active && provider.email && (
-              <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold hover:bg-slate-100" disabled={providerNotifyBusy === `${provider.id}:email`} onClick={() => void notifyProvider(provider, "email")}>
-                {providerNotifyBusy === `${provider.id}:email` ? "Emailing..." : "Email portal"}
+        <div className={`relative ${mobile ? "w-full" : ""}`} ref={menuOpen ? menuRef : undefined}>
+          <button
+            type="button"
+            className={`btn-ghost ${buttonClass} ${mobile ? "w-full" : ""}`}
+            aria-haspopup="menu"
+            aria-expanded={menuOpen}
+            onClick={() => setOpenMenuId((current) => current === provider.id ? "" : provider.id)}
+          >
+            More
+          </button>
+          {menuOpen && (
+            <div
+              role="menu"
+              className={`absolute z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 text-slate-800 shadow-xl ${mobile ? "left-0 right-0 w-full" : "right-0"}`}
+            >
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100"
+                onClick={() => { setOpenMenuId(""); openAdminAccess(provider); }}
+              >
+                Login access
               </button>
-            )}
-            {isMaster && active && provider.phone && (
-              <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold hover:bg-slate-100" disabled={providerNotifyBusy === `${provider.id}:sms`} onClick={() => void notifyProvider(provider, "sms")}>
-                {providerNotifyBusy === `${provider.id}:sms` ? "Texting..." : "Text portal"}
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100"
+                onClick={() => { setOpenMenuId(""); openPacketMapping(provider); }}
+              >
+                Open packet mapping
               </button>
-            )}
-            {isMaster && (active ? (
-              <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold text-red-700 hover:bg-red-50" disabled={statusBusyProviderId === provider.id} onClick={() => void setProviderStatus(provider, "INACTIVE")}>
-                {statusBusyProviderId === provider.id ? "Deactivating..." : "Deactivate"}
-              </button>
-            ) : (
-              <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold hover:bg-slate-100" disabled={statusBusyProviderId === provider.id} onClick={() => void setProviderStatus(provider, "ACTIVE")}>
-                {statusBusyProviderId === provider.id ? "Activating..." : "Activate"}
-              </button>
-            ))}
-            {isMaster && (
-              <button type="button" className="rounded-md px-3 py-2 text-left text-xs font-semibold text-red-800 hover:bg-red-50" disabled={deleteBusyProviderId === provider.id} onClick={() => void deleteProviderProfile(provider)}>
-                {deleteBusyProviderId === provider.id ? "Deleting..." : "Delete profile"}
-              </button>
-            )}
-          </div>
-        </details>
+              {isMaster && active && (
+                <>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                    disabled={missingEmail || providerNotifyBusy === `${provider.id}:email`}
+                    title={missingEmail ? "No email saved for this provider" : undefined}
+                    onClick={() => { if (!missingEmail) { setOpenMenuId(""); void notifyProvider(provider, "email"); } }}
+                  >
+                    {providerNotifyBusy === `${provider.id}:email`
+                      ? "Emailing..."
+                      : missingEmail
+                        ? "Email portal (no email saved)"
+                        : "Email portal"}
+                  </button>
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400"
+                    disabled={missingPhone || providerNotifyBusy === `${provider.id}:sms`}
+                    title={missingPhone ? "No phone saved for this provider" : undefined}
+                    onClick={() => { if (!missingPhone) { setOpenMenuId(""); void notifyProvider(provider, "sms"); } }}
+                  >
+                    {providerNotifyBusy === `${provider.id}:sms`
+                      ? "Texting..."
+                      : missingPhone
+                        ? "Text portal (no phone saved)"
+                        : "Text portal"}
+                  </button>
+                </>
+              )}
+              {isMaster && (
+                <div className="mt-2 border-t border-red-200 pt-2">
+                  <p className="px-3 pb-1 text-[11px] font-semibold uppercase tracking-wide text-red-700">Danger</p>
+                  {active ? (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-red-700 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                      disabled={statusBusyProviderId === provider.id}
+                      onClick={() => { setOpenMenuId(""); void setProviderStatus(provider, "INACTIVE"); }}
+                    >
+                      {statusBusyProviderId === provider.id ? "Deactivating..." : "Deactivate"}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100"
+                      disabled={statusBusyProviderId === provider.id}
+                      onClick={() => { setOpenMenuId(""); void setProviderStatus(provider, "ACTIVE"); }}
+                    >
+                      {statusBusyProviderId === provider.id ? "Activating..." : "Activate"}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    role="menuitem"
+                    className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    disabled={deleteBusyProviderId === provider.id}
+                    onClick={() => { setOpenMenuId(""); void deleteProviderProfile(provider); }}
+                  >
+                    {deleteBusyProviderId === provider.id ? "Deleting..." : "Delete profile"}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     );
   }
@@ -695,34 +794,38 @@ export default function MasterDashboard() {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null;
   const selectedLatestTemplate = selectedProvider ? latestPacketFor(selectedProvider) : null;
   const selectedActiveTemplate = selectedProvider ? activePacketFor(selectedProvider) : null;
-  const selectedLatestPacketState = selectedLatestTemplate ? packetStatus(selectedLatestTemplate) : null;
-  const selectedFilenameWarning = selectedProvider && selectedLatestTemplate
-    ? packetFilenameWarning(
-      selectedLatestTemplate.originalFileName,
-      selectedProvider.name,
-      providers.filter((row) => row.id !== selectedProvider.id).map((row) => row.name),
+  const otherProviderNames = (exceptId: string) =>
+    providers.filter((row) => row.id !== exceptId).map((row) => row.name);
+  const selectedLatestPacketState = selectedLatestTemplate
+    ? packetDisplayStatus(
+      selectedLatestTemplate,
+      selectedProvider?.name || "",
+      selectedProvider ? otherProviderNames(selectedProvider.id) : [],
     )
     : null;
-  const trimmedSearch = search.trim().toLowerCase();
-  const filteredProviders = providers.filter((provider) => {
-    const matchesSearch = !trimmedSearch || fuzzyProviderMatch(providerSearchText(provider), trimmedSearch);
-    const matchesStatus = statusFilter === "ALL" || provider.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const trimmedSearch = search.trim();
+  const statusMatchedProviders = providers.filter((provider) => statusFilter === "ALL" || provider.status === statusFilter);
+  const filteredProviders = filterProvidersBySearch(
+    statusMatchedProviders.map((provider) => ({ ...provider, ...providerSearchFields(provider) })),
+    trimmedSearch,
+  );
+  const filtersOn = !!trimmedSearch || statusFilter !== "ALL";
+
+  function clearProviderFilters() {
+    setSearch("");
+    setStatusFilter("ALL");
+  }
 
   const activeCount = providers.filter((provider) => provider.status === "ACTIVE").length;
   const inactiveCount = providers.filter((provider) => provider.status !== "ACTIVE").length;
   const customPacketCount = providers.filter((provider) => provider.pdfTemplates.length > 0).length;
   const currentIntakes = providers.reduce((sum, provider) => sum + provider.currentIntakeCount, 0);
   const archivedIntakes = providers.reduce((sum, provider) => sum + provider.archivedIntakeCount, 0);
+  const totalStaffReview = providers.reduce((sum, provider) => sum + providerStaffReviewCount(provider), 0);
   const totalMemberships = providers.reduce((sum, provider) => sum + activeMembershipCount(provider), 0);
-  const emptyProviderMessage = trimmedSearch
-    ? "No providers match this search."
-    : statusFilter === "ACTIVE"
-      ? "No active providers found."
-      : statusFilter === "INACTIVE"
-        ? "No inactive providers found."
-        : "No providers found.";
+  const emptyProviderMessage = filtersOn
+    ? "No providers match the current filters. A search or status filter is on."
+    : "No providers found.";
 
   function toggleSummary(summary: SummaryKey) {
     setOpenSummary((current) => current === summary ? null : summary);
@@ -801,9 +904,12 @@ export default function MasterDashboard() {
                     void openProviderDashboard(selectedProviderId);
                     return;
                   }
-                  const providerSelector = document.getElementById("provider-selector");
-                  providerSelector?.scrollIntoView({ behavior: "smooth", block: "center" });
-                  if (providerSelector instanceof HTMLSelectElement) providerSelector.focus();
+                  setWorkflowView("manage");
+                  window.setTimeout(() => {
+                    const searchInput = document.getElementById("provider-search");
+                    searchInput?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    if (searchInput instanceof HTMLInputElement) searchInput.focus();
+                  }, 0);
                 }}
               >
                 {contextBusyProviderId ? "Opening intakes..." : selectedProvider ? `Open ${selectedProvider.name} intakes` : "Choose a provider"}
@@ -841,7 +947,7 @@ export default function MasterDashboard() {
           <StatCard
             label="Current intakes"
             value={loading ? "-" : currentIntakes}
-            detail={loading ? undefined : `${archivedIntakes} archived`}
+            detail={loading ? undefined : `${archivedIntakes} archived · ${totalStaffReview} staff review`}
             active={openSummary === "intakes"}
             onClick={() => toggleSummary("intakes")}
           />
@@ -891,8 +997,13 @@ export default function MasterDashboard() {
                       {provider.currentIntakeCount} current · {provider.archivedIntakeCount} archived · {provider._count.intakes} total
                     </p>
                     <p className="mt-1 text-xs text-slate-300">{provider._count.clients} clients · {activeMembershipCount(provider)} active staff users</p>
+                    <p className="mt-1 text-xs font-semibold text-amber-200">Staff review {providerStaffReviewCount(provider)}</p>
                     <div className="mt-2 flex flex-wrap gap-1 text-[11px] text-slate-300">
-                      {Object.entries(provider.intakeSummary).map(([status, count]) => <span key={status} className="rounded-full bg-white/10 px-2 py-0.5">{status.replaceAll("_", " ")}: {count}</span>)}
+                      {Object.entries(provider.intakeSummary).map(([status, count]) => (
+                        <span key={status} className="rounded-full bg-white/10 px-2 py-0.5">
+                          {INTAKE_STATUS_LABELS[status] || status.replaceAll("_", " ")}: {count}
+                        </span>
+                      ))}
                     </div>
                     {provider.status === "ACTIVE" && <button type="button" className="mt-3 btn-ghost border-white/25 bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20" onClick={() => void openProviderDashboard(provider.id)}>Open intakes</button>}
                   </div>
@@ -901,8 +1012,7 @@ export default function MasterDashboard() {
             ) : (
               <div className="mt-3 grid gap-2 md:grid-cols-2">
                 {summaryProviders.map((provider) => {
-                  const packet = activePacketFor(provider) || latestPacketFor(provider);
-                  const packetState = packet ? packetStatus(packet) : null;
+                  const view = packetView(provider, otherProviderNames(provider.id));
                   return (
                     <div key={provider.id} className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
                       <div className="flex items-center justify-between gap-3">
@@ -910,7 +1020,12 @@ export default function MasterDashboard() {
                         <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${provider.status === "ACTIVE" ? "bg-emerald-100 text-emerald-800" : "bg-slate-200 text-slate-700"}`}>{provider.status === "ACTIVE" ? "Active" : "Inactive"}</span>
                       </div>
                       {openSummary === "packets" ? (
-                        packet ? <p className="mt-1 text-slate-300">{packet.originalFileName || packet.name} · {packet.pageCount} pages · {packetState?.label}</p> : <p className="mt-1 font-semibold text-amber-200">Packet setup required before PDF or DocuSign.</p>
+                        view.packet ? (
+                          <div>
+                            <p className="mt-1 text-slate-300">{view.packet.originalFileName || view.packet.name} · {view.packet.pageCount} pages · {view.display.badge}</p>
+                            {view.filenameWarning && <p className="mt-1 font-semibold text-amber-200">{view.filenameWarning}</p>}
+                          </div>
+                        ) : <p className="mt-1 font-semibold text-amber-200">Packet setup required before PDF or DocuSign.</p>
                       ) : (
                         <p className="mt-1 text-slate-300">
                           {provider._count.clients} clients · {provider.currentIntakeCount} current intakes · {provider.archivedIntakeCount} archived · {activeMembershipCount(provider)} staff users
@@ -1003,13 +1118,26 @@ export default function MasterDashboard() {
             </p>
           </div>
           <label className="sr-only" htmlFor="provider-search">Search providers</label>
-          <input
-            id="provider-search"
-            className="input mt-4"
-            value={search}
-            onChange={(event) => setSearch(event.target.value)}
-            placeholder="Search provider, slug, contact, admin, or packet (fuzzy)"
-          />
+          <div className="relative mt-4">
+            <input
+              id="provider-search"
+              className="input pr-10"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search provider, slug, contact, or admin email"
+              autoComplete="off"
+            />
+            {search && (
+              <button
+                type="button"
+                className="absolute inset-y-0 right-0 px-3 text-lg leading-none text-slate-500 hover:text-slate-800"
+                aria-label="Clear search"
+                onClick={() => setSearch("")}
+              >
+                ✕
+              </button>
+            )}
+          </div>
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <label className="text-sm font-semibold text-slate-600" htmlFor="provider-status-filter">Show</label>
             <select
@@ -1022,6 +1150,11 @@ export default function MasterDashboard() {
               <option value="ACTIVE">Active only</option>
               <option value="INACTIVE">Inactive only</option>
             </select>
+            {filtersOn && (
+              <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={clearProviderFilters}>
+                Clear filters
+              </button>
+            )}
             <span className="text-xs text-slate-500">Deactivate pauses access without deleting provider records.</span>
           </div>
         </section>
@@ -1154,23 +1287,39 @@ export default function MasterDashboard() {
             </div>
             <div className="divide-y divide-slate-100 md:hidden">
               {loading && <p className="p-6 text-center text-sm text-slate-400">Loading providers...</p>}
-              {!loading && !error && filteredProviders.length === 0 && <p className="p-6 text-center text-sm text-slate-400">{emptyProviderMessage}</p>}
+              {!loading && !error && filteredProviders.length === 0 && (
+                <div className="p-6 text-center text-sm text-slate-500">
+                  <p>{emptyProviderMessage}</p>
+                  {filtersOn && (
+                    <button type="button" className="btn-ghost mt-3 px-3 py-1.5 text-xs" onClick={clearProviderFilters}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
               {filteredProviders.map((provider) => {
                 const active = provider.status === "ACTIVE";
-                const packet = activePacketFor(provider) || latestPacketFor(provider);
-                const packetState = packet ? packetStatus(packet) : null;
+                const view = packetView(provider, otherProviderNames(provider.id));
                 const nextAction = providerNextAction(provider);
                 const loginStatus = providerLoginStatus(provider);
-                const mappingStatus = mappingReadiness(packet);
-                const reviewQueue = providerReviewQueueCount(provider);
+                const reviewQueue = providerStaffReviewCount(provider);
                 const openWork = providerOpenWorkCount(provider);
 
                 return (
                   <article key={provider.id} className={selectedProviderId === provider.id ? "bg-brand-light/20 p-4" : "p-4"}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        <h3 className="font-bold text-slate-900">{provider.name}</h3>
-                        <p className="text-xs text-slate-500">{provider.slug}</p>
+                        <h3 className="font-bold text-slate-900">
+                          <HighlightedText text={provider.name} match={provider.searchMatch} field="name" />
+                        </h3>
+                        <p className="text-xs text-slate-500">
+                          <HighlightedText text={provider.slug} match={provider.searchMatch} field="slug" />
+                        </p>
+                        {provider.searchMatch && provider.searchMatch.field !== "name" && provider.searchMatch.field !== "slug" && (
+                          <p className="mt-1 text-xs text-slate-500">
+                            Matched {provider.searchMatch.field}: <HighlightedText text={provider.searchMatch.haystack} match={provider.searchMatch} />
+                          </p>
+                        )}
                         {(provider.email || provider.phone) && (
                           <p className="mt-1 break-words text-xs text-slate-500">{[provider.email, provider.phone].filter(Boolean).join(" · ")}</p>
                         )}
@@ -1187,7 +1336,7 @@ export default function MasterDashboard() {
                       </div>
                       <div className="mt-2 flex flex-wrap gap-2">
                         <span className={`rounded-full px-2 py-0.5 font-semibold ${loginStatus.className}`}>{loginStatus.label}</span>
-                        <span className={`rounded-full px-2 py-0.5 font-semibold ${mappingStatus.className}`}>{mappingStatus.label}{mappingStatus.scoreLabel && mappingStatus.scoreLabel !== mappingStatus.label ? ` · ${mappingStatus.scoreLabel}` : ""}</span>
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${view.display.className}`}>{view.display.badge}</span>
                       </div>
                     </div>
 
@@ -1207,11 +1356,14 @@ export default function MasterDashboard() {
                     </div>
 
                     <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-xs">
-                      <p className="font-semibold text-slate-800">{packet?.originalFileName || "Provider packet not ready"}</p>
+                      <p className="font-semibold text-slate-800">{view.packet?.originalFileName || "Provider packet not ready"}</p>
                       <p className="mt-1 text-slate-500">
-                        {packet ? `${packet.pageCount} pages · ${packetState?.label}` : "Upload, map, review, approve, and activate this provider's packet"}
+                        {view.packet ? `${view.packet.pageCount} pages · ${view.display.badge}` : "Upload, map, review, approve, and activate this provider's packet"}
                       </p>
-                      <p className="mt-1 text-slate-500">{mappingStatus.detail}</p>
+                      <p className="mt-1 text-slate-500">{view.display.detail}</p>
+                      {view.filenameWarning && (
+                        <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900">{view.filenameWarning}</p>
+                      )}
                       <p className="mt-1 text-slate-500">Staff review: {reviewQueue} · Open work: {openWork}</p>
                     </div>
 
@@ -1232,26 +1384,44 @@ export default function MasterDashboard() {
                 </thead>
                 <tbody>
                   {loading && <tr><td colSpan={8} className="p-6 text-center text-slate-400">Loading...</td></tr>}
-                  {!loading && !error && filteredProviders.length === 0 && <tr><td colSpan={8} className="p-6 text-center text-slate-400">{emptyProviderMessage}</td></tr>}
+                  {!loading && !error && filteredProviders.length === 0 && (
+                    <tr>
+                      <td colSpan={8} className="p-6 text-center text-slate-500">
+                        <p>{emptyProviderMessage}</p>
+                        {filtersOn && (
+                          <button type="button" className="btn-ghost mt-3 px-3 py-1.5 text-xs" onClick={clearProviderFilters}>
+                            Clear
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  )}
                   {filteredProviders.map((provider) => {
                     const active = provider.status === "ACTIVE";
-                    const packet = activePacketFor(provider) || latestPacketFor(provider);
-                    const packetState = packet ? packetStatus(packet) : null;
+                    const view = packetView(provider, otherProviderNames(provider.id));
                     const activeStaff = activeMembershipCount(provider);
                     const nextAction = providerNextAction(provider);
                     const loginStatus = providerLoginStatus(provider);
-                    const mappingStatus = mappingReadiness(packet);
 
                     return (
                       <tr key={provider.id} className={`border-t border-slate-100 ${selectedProviderId === provider.id ? "bg-brand-light/20" : "hover:bg-slate-50"}`}>
                         <td className="px-4 py-3">
-                          <div className="font-semibold text-slate-900">{provider.name}</div>
-                          <div className="text-xs text-slate-500">{provider.slug}</div>
+                          <div className="font-semibold text-slate-900">
+                            <HighlightedText text={provider.name} match={provider.searchMatch} field="name" />
+                          </div>
+                          <div className="text-xs text-slate-500">
+                            <HighlightedText text={provider.slug} match={provider.searchMatch} field="slug" />
+                          </div>
+                          {provider.searchMatch && provider.searchMatch.field !== "name" && provider.searchMatch.field !== "slug" && (
+                            <div className="mt-1 text-xs text-slate-500">
+                              Matched {provider.searchMatch.field}: <HighlightedText text={provider.searchMatch.haystack} match={provider.searchMatch} />
+                            </div>
+                          )}
                           {(provider.email || provider.phone) && (
                             <div className="mt-1 text-xs text-slate-500">{[provider.email, provider.phone].filter(Boolean).join(" • ")}</div>
                           )}
                           <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-semibold">
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Staff review {providerReviewQueueCount(provider)}</span>
+                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Staff review {providerStaffReviewCount(provider)}</span>
                             <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">Open work {providerOpenWorkCount(provider)}</span>
                           </div>
                         </td>
@@ -1272,19 +1442,24 @@ export default function MasterDashboard() {
                           </button>
                         </td>
                         <td className="px-4 py-3 text-xs">
-                          {packet ? (
+                          {view.packet ? (
                             <div>
-                              <div className="font-semibold text-slate-700">{packet.originalFileName || "Provider packet"}</div>
-                              <div className="text-slate-500">{packet.pageCount} pages</div>
-                              <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${packetState?.className}`}>
-                                {packetState?.label}{packetState?.scoreLabel && packetState.scoreLabel !== packetState.label ? ` · ${packetState.scoreLabel}` : ""}
+                              <div className="font-semibold text-slate-700">{view.packet.originalFileName || "Provider packet"}</div>
+                              <div className="text-slate-500">{view.packet.pageCount} pages</div>
+                              <span className={`mt-1 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${view.display.className}`}>
+                                {view.display.badge}
                               </span>
-                              <div className="mt-1 text-slate-500">{packetState?.detail}</div>
+                              {view.filenameWarning && (
+                                <div className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900">
+                                  {view.filenameWarning}
+                                </div>
+                              )}
+                              <div className="mt-1 text-slate-500">{view.display.detail}</div>
                             </div>
                           ) : (
                             <div>
                               <span className="font-semibold text-amber-700">Setup required</span>
-                              <div className="mt-1 text-slate-500">{mappingStatus.detail}</div>
+                              <div className="mt-1 text-slate-500">{view.display.detail}</div>
                             </div>
                           )}
                         </td>
@@ -1292,6 +1467,7 @@ export default function MasterDashboard() {
                         <td className="px-4 py-3">
                           <div className="font-semibold">{provider.currentIntakeCount} current</div>
                           <div className="text-xs text-slate-500">{provider.archivedIntakeCount} archived</div>
+                          <div className="text-xs text-amber-800">Staff review {providerStaffReviewCount(provider)}</div>
                         </td>
                         <td className="px-4 py-3">{activeStaff}</td>
                         <td className="px-4 py-3">{providerActions(provider)}</td>
@@ -1393,17 +1569,25 @@ export default function MasterDashboard() {
           {selectedProvider && selectedLatestTemplate && (
             <div className="mt-3 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">Latest upload: {selectedLatestTemplate.originalFileName || selectedLatestTemplate.name}</p>
-              <p className="mt-1 text-xs">{selectedLatestTemplate.pageCount} pages. {selectedLatestPacketState?.label}{selectedLatestPacketState?.scoreLabel ? ` · ${selectedLatestPacketState.scoreLabel}` : ""}.</p>
-              <p className="mt-2 text-xs font-semibold">{selectedLatestPacketState?.detail}</p>
-              {selectedFilenameWarning && (
-                <p className="mt-2 rounded-md bg-white/80 p-2 text-xs font-semibold text-amber-950">
-                  {selectedFilenameWarning.message}
-                </p>
+              <p className="mt-1 text-xs">{selectedLatestTemplate.pageCount} pages. {selectedLatestPacketState?.badge}.</p>
+              {selectedLatestPacketState?.filenameWarning && (
+                <p className="mt-2 rounded-md border border-amber-300 bg-white px-2 py-1 text-xs font-semibold text-amber-900">{selectedLatestPacketState.filenameWarning}</p>
               )}
+              <p className="mt-2 text-xs font-semibold">
+                {selectedLatestTemplate.mappingStatus === "MAPPING"
+                  ? "AI is mapping this packet in the background. This draft is not active yet."
+                  : selectedLatestTemplate.mappingScore == null
+                    ? selectedLatestTemplate.isActive
+                      ? "This packet is in use, but its fields and signature locations have not been verified. A master administrator should map it before DocuSign is used."
+                      : "AI mapping has not been run yet."
+                  : selectedLatestTemplate.mappingStatus === "APPROVED"
+                    ? `Signature-ready packet approved (${selectedLatestTemplate.mappingScore}/100).`
+                    : `Mapping quality score: ${selectedLatestTemplate.mappingScore}/100. Review before approval.`}
+              </p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {isMaster ? (
                   <Link className="btn-ghost px-3 py-1.5 text-xs" href={`/admin/pdf-mapping?providerId=${selectedProvider.id}&templateId=${selectedLatestTemplate.id}`}>
-                    Open mapper
+                    Open packet mapping
                   </Link>
                 ) : (
                   <span className="rounded-lg bg-white/70 px-3 py-2 text-xs font-semibold text-amber-900">

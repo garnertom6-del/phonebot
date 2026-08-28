@@ -30,7 +30,8 @@ function stringValue(value: unknown): string {
 
 export async function GET(req: NextRequest) {
   try {
-    const { user, provider, membership, deny } = await requireStaff();
+    const requestedProviderId = req.nextUrl.searchParams.get("providerId");
+    const { user, provider, membership, deny } = await requireStaff({ providerId: requestedProviderId });
     if (deny) return deny;
     const providerPacket = await providerPacketReadiness(provider!.id);
     // Lean list query: no signature image blobs, no per-row follow-up queries.

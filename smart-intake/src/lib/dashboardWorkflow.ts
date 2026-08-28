@@ -1,5 +1,14 @@
 export const NEEDS_ACTION_STATUSES = ["SUBMITTED", "NEEDS_REVIEW", "SIGNED"] as const;
 
+export const INTAKE_STATUS_LABELS: Record<string, string> = {
+  NOT_STARTED: "Not started",
+  IN_PROGRESS: "In progress",
+  SUBMITTED: "Submitted",
+  NEEDS_REVIEW: "In staff review",
+  SIGNED: "Client signed",
+  COMPLETED: "Completed",
+};
+
 export type DashboardReadiness = {
   state: string;
   tone: "good" | "warn" | "brand";
@@ -22,6 +31,11 @@ export function needsStaffAction(
 ): boolean {
   if (readiness?.tone === "warn") return true;
   return NEEDS_ACTION_STATUSES.includes(status as (typeof NEEDS_ACTION_STATUSES)[number]);
+}
+
+/** Count intakes that belong in the shared staff-review queue. Archived rows must be omitted before calling this. */
+export function staffReviewCountFromSummary(summary?: Record<string, number> | null): number {
+  return NEEDS_ACTION_STATUSES.reduce((total, status) => total + (summary?.[status] || 0), 0);
 }
 
 export function buildDashboardReadiness(input: DashboardWorkflowInput): DashboardReadiness {

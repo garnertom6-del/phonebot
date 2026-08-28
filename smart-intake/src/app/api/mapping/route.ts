@@ -97,8 +97,9 @@ export async function GET(req: NextRequest) {
     templateId: target.template?.id ?? null,
     templateName,
     originalFileName,
+    filenameWarning,
+    providerName: provider?.name ?? null,
     providerId: target.template?.providerId ?? target.requestedProvider,
-    providerName: provider?.name || null,
     providerSpecific: target.providerSpecific,
     isActive: target.template?.isActive ?? true,
     approvedAt: target.template?.approvedAt ?? null,
@@ -110,7 +111,6 @@ export async function GET(req: NextRequest) {
     mappingIssues: target.template?.mappingIssues ?? null,
     savedMappingCount: target.template?.fieldMappings.length ?? 0,
     displayStatus,
-    filenameWarning,
     fields,
     overrideKeys: overrides.map((o: { fieldKey: string }) => o.fieldKey),
   });

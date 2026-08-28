@@ -32,9 +32,12 @@ import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from ".
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
-import { buildDashboardReadiness, needsStaffAction } from "../src/lib/dashboardWorkflow";
-import { packetDisplayStatus } from "../src/lib/mappingStatus";
+import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
+import { filterProvidersBySearch } from "../src/lib/providerSearch";
+import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
+import { packetDisplayStatus as packetMapperStatus } from "../src/lib/mappingStatus";
 import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
+import { buildMasterProviderListExtras } from "../src/lib/masterProviderList";
 import { assessMapping } from "../src/lib/mappingHealth";
 import { catalogEntryByKey, catalogPlacementFields, DEMO_CLIENT_ANSWERS, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, overlayFillText, packetRequiredEntries } from "../src/lib/mappingCatalog";
 import { questionCatalogId } from "../src/config/mooreDivineQuestions";
@@ -460,12 +463,84 @@ async function main() {
 
   assert(needsStaffAction("SIGNED"), "signed intakes must remain in the staff action queue");
   assert(needsStaffAction("SUBMITTED"), "submitted intakes must remain in the staff action queue");
+  assert(needsStaffAction("NEEDS_REVIEW"), "needs-review intakes must remain in the staff action queue");
   assert(!needsStaffAction("IN_PROGRESS"), "in-progress intakes belong in the waiting-on-client queue");
   assert(!needsStaffAction("COMPLETED"), "completed intakes must leave the staff action queue");
   assert(
     needsStaffAction("COMPLETED", { tone: "warn", state: "Upload the CCA" }),
     "missing CCA or a stale packet must still appear in Needs staff action",
   );
+  assert.equal(
+    staffReviewCountFromSummary({ NEEDS_REVIEW: 5, SIGNED: 2, SUBMITTED: 4, COMPLETED: 9, IN_PROGRESS: 3 }),
+    11,
+    "staff review is SUBMITTED + NEEDS_REVIEW + SIGNED from one helper",
+  );
+  assert.equal(
+    staffReviewCountFromSummary({ NEEDS_REVIEW: 1, SIGNED: 6, SUBMITTED: 0 }),
+    7,
+    "Welliance-style mix still uses the same staff-review helper",
+  );
+  const listStaffReview = staffReviewCountFromSummary({ NEEDS_REVIEW: 5, SIGNED: 2, SUBMITTED: 4 });
+  const dashboardStaffReview = ["SUBMITTED", "SUBMITTED", "SUBMITTED", "SUBMITTED", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "SIGNED", "SIGNED"]
+    .filter((status) => needsStaffAction(status)).length;
+  assert.equal(listStaffReview, dashboardStaffReview, "list row, next-action copy, and /dashboard share one staff-review definition");
+  ok("one staff-review helper is used for the list, next-action copy, and dashboard");
+
+  const searchProviders = [
+    { name: "Empower Wellness", slug: "empower", packetFileNames: ["MooreDivineCare_Intake_Packet-1.pdf"] },
+    { name: "EW", slug: "ew" },
+    { name: "Moore Divine Care", slug: "moore-divine" },
+    { name: "Prayers of Care", slug: "prayers-of-care" },
+    { name: "Welliance Care", slug: "welliance", packetFileNames: ["GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf"] },
+    { name: "Another Provider", slug: "another" },
+  ];
+  const moorHits = filterProvidersBySearch(searchProviders, "moor");
+  assert.equal(moorHits.length, 1, "short query must not match unrelated providers");
+  assert.equal(moorHits[0].name, "Moore Divine Care");
+  assert.equal(moorHits[0].searchMatch?.field, "name");
+  assert.ok((moorHits[0].searchMatch?.length || 0) >= 3, "search highlights the matched text");
+  assert.equal(filterProvidersBySearch(searchProviders, "mo").filter((hit) => hit.name !== "Moore Divine Care").length, 0);
+  assert.equal(filterProvidersBySearch(searchProviders, "aliyah")[0]?.name, "Welliance Care");
+  ok("provider search uses a relevance floor instead of loose subsequence matching");
+
+  const missingScoreBadge = packetDisplayStatus({
+    originalFileName: "prayers-of-care-packet.pdf",
+    isActive: false,
+    mappingStatus: "DRAFT",
+    mappingScore: null,
+    approvedAt: null,
+  }, "Prayers of Care");
+  assert.equal(missingScoreBadge.scoreLabel, "Score unavailable");
+  assert.equal(missingScoreBadge.badge, "Needs review · Score unavailable");
+  assert(!missingScoreBadge.scoreLabel.toLowerCase().includes("review"), "missing scores must never use Review as a fake score");
+  ok("packet badge shows Score unavailable when mapping score is missing");
+
+  const wellianceListPayload = buildMasterProviderListExtras({
+    name: "Welliance Care",
+    intakeSummary: { NEEDS_REVIEW: 1, SIGNED: 6, SUBMITTED: 0 },
+    packetTemplate: {
+      originalFileName: "GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf",
+      pageCount: 36,
+      isActive: false,
+      mappingStatus: "DRAFT",
+      mappingScore: null,
+    },
+    otherProviderNames: ["GSO Behavioral Health", "Essential Wellness Care"],
+  });
+  assert.equal(wellianceListPayload.staffReviewCount, 7);
+  assert.ok(wellianceListPayload.filenameWarning, "list payload must include the wrong-packet filename warning");
+  assert.match(wellianceListPayload.filenameWarning || "", /looks like|does not match|client copy/i);
+  assert.equal(
+    packetFilenameWarning(
+      "GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf",
+      "Welliance Care",
+      ["GSO Behavioral Health", "Essential Wellness Care"],
+    )?.message,
+    wellianceListPayload.filenameWarning,
+  );
+  assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care"), null);
+  ok("filename warning is included on the master provider list payload");
+
   assert.equal(
     buildDashboardReadiness({
       status: "SIGNED",
@@ -1287,12 +1362,12 @@ async function main() {
   assert.equal(missingRequired({ client_full_name: "X", dob: "1990-01-01" }, true, ewCtx).some((item) => item.key === "consent_provider_choice"), false);
   ok("EW mapping catalog drops MDC-only keys and the checker reports every remaining required-unmapped field");
 
-  const approvedOnly = packetDisplayStatus({ mappingStatus: "APPROVED", mappingScore: 72, isActive: false, approvedAt: new Date() });
+  const approvedOnly = packetMapperStatus({ mappingStatus: "APPROVED", mappingScore: 72, isActive: false, approvedAt: new Date() });
   assert.equal(approvedOnly.key, "needs_review");
   assert(!/approved/i.test(approvedOnly.label) || approvedOnly.key === "approved_active");
-  const live = packetDisplayStatus({ mappingStatus: "APPROVED", mappingScore: 100, isActive: true, approvedAt: new Date() });
+  const live = packetMapperStatus({ mappingStatus: "APPROVED", mappingScore: 100, isActive: true, approvedAt: new Date() });
   assert.equal(live.key, "approved_active");
-  const draft = packetDisplayStatus({ mappingStatus: "DRAFT", mappingScore: null, isActive: false, approvedAt: null });
+  const draft = packetMapperStatus({ mappingStatus: "DRAFT", mappingScore: null, isActive: false, approvedAt: null });
   assert.equal(draft.key, "draft");
   assert.notEqual(draft.label, live.label);
   ok("packet status is a single badge and never Approved plus Not ready");

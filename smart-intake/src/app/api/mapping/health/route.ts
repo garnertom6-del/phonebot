@@ -10,6 +10,7 @@ import {
   packetFieldsForTemplate,
   packetTemplateSha256,
 } from "@/lib/providerPacketTemplates";
+import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 
 function parseMappings(rows: Array<{ fieldKey: string; page: number; data: string }>): FieldMapping[] {
   return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
@@ -66,12 +67,28 @@ function healthFor(template: {
   );
 }
 
+async function filenameWarningFor(template: {
+  providerId: string | null;
+  originalFileName: string | null;
+  provider?: { name: string | null } | null;
+}) {
+  const otherProviders = template.providerId
+    ? (await prisma.provider.findMany({
+      where: { id: { not: template.providerId } },
+      select: { name: true },
+    })).map((row) => row.name)
+    : [];
+  return packetFilenameWarning(template.originalFileName, template.provider?.name || "", otherProviders);
+}
+
 export async function GET(req: NextRequest) {
   const { deny } = await requireMaster();
   if (deny) return deny;
   const template = await templateFromRequest(req);
   if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
   const health = healthFor(template);
+  const filenameWarning = await filenameWarningFor(template);
+  if (filenameWarning) health.warnings.unshift(filenameWarning.message);
   return NextResponse.json({
     template: {
       id: template.id,
@@ -81,6 +98,7 @@ export async function GET(req: NextRequest) {
       mappingStatus: template.mappingStatus,
       mappingScore: template.mappingScore,
     },
+    filenameWarning,
     health,
   });
 }
@@ -98,5 +116,7 @@ export async function POST(req: NextRequest) {
     });
   }
   const health = healthFor(template, liveFields);
-  return NextResponse.json({ health });
+  const filenameWarning = await filenameWarningFor(template);
+  if (filenameWarning) health.warnings.unshift(filenameWarning.message);
+  return NextResponse.json({ filenameWarning, health });
 }
