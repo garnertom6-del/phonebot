@@ -7,7 +7,7 @@
  * the end that the server applies to every agreed form.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, isQuestionPrefilledForClient, type Question, type Section } from "@/config/mooreDivineQuestions";
+import { SECTIONS, isQuestionPrefilledForClient, questionCatalogId, questionVisibleInCatalog, type Question, type Section } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
@@ -51,9 +51,14 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
 
   const fastMode = answers.intake_mode === "Fast Intake - required questions first";
   const steps: Section[] = useMemo(() => {
-    const base = fastMode ? SECTIONS.filter((s) => s.fastIntake) : SECTIONS;
+    const catalogId = questionCatalogId(providerName);
+    const visible = SECTIONS.map((section) => ({
+      ...section,
+      questions: section.questions.filter((question) => questionVisibleInCatalog(question, catalogId)),
+    })).filter((section) => section.questions.length);
+    const base = fastMode ? visible.filter((s) => s.fastIntake) : visible;
     return [...base, { key: "__signature", title: "Signature & Submit", questions: [] }];
-  }, [fastMode]);
+  }, [fastMode, providerName]);
   const step = steps[Math.min(stepIdx, steps.length - 1)];
 
   // Keep the current section when a phone briefly leaves the page for its camera.
@@ -173,8 +178,10 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   }
 
   const answeredCount = useMemo(() => {
+    const catalogId = questionCatalogId(providerName);
     let total = 0, filled = 0;
     for (const s of SECTIONS) for (const q of s.questions) {
+      if (!questionVisibleInCatalog(q, catalogId)) continue;
       if (q.staffOnly) continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
       total++;
@@ -182,7 +189,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
       if (v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)) filled++;
     }
     return total ? Math.round((filled / total) * 100) : 0;
-  }, [answers]);
+  }, [answers, providerName]);
 
   if (done) {
     return (

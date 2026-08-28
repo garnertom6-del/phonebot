@@ -135,6 +135,7 @@ export async function GET() {
         name: item.name,
         intakeSummary,
         packetTemplate,
+        otherProviderNames: providers.filter((row) => row.id !== item.id).map((row) => row.name),
       });
       return {
         ...item,

@@ -1,5 +1,11 @@
 import { SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
 import type { FieldMapping } from "@/config/mooreDivinePacketMap";
+import {
+  HEADER_SOURCES,
+  packetRequiredEntries,
+  sourceBase,
+  type MappingProviderContext,
+} from "./mappingCatalog";
 
 const SPECIAL_SOURCES = new Set([
   "signature", "guardian_signature", "staff_signature", "clinician_signature",
@@ -8,13 +14,19 @@ const SPECIAL_SOURCES = new Set([
   "hospitalizations_more",
 ]);
 
-const CORE_SOURCES = ["client_full_name", "dob", "record_number", "intake_date"];
+export type MissingRequiredField = {
+  key: string;
+  label: string;
+  section: string;
+  page: number | null;
+};
 
 export type MappingHealth = {
   ready: boolean;
   score: number;
   blockingIssues: string[];
   warnings: string[];
+  missingRequired: MissingRequiredField[];
   counts: {
     fields: number;
     text: number;
@@ -25,7 +37,7 @@ export type MappingHealth = {
 };
 
 function sourceKey(source: string): string {
-  return source.split(/[=~]/)[0].trim();
+  return sourceBase(source);
 }
 
 function rectanglesOverlap(a: FieldMapping, b: FieldMapping): boolean {
@@ -54,9 +66,11 @@ export function assessMapping(
   pageWidth: number,
   pageHeight: number,
   savedMappingCount = fields.length,
+  context?: MappingProviderContext,
 ): MappingHealth {
   const blockingIssues: string[] = [];
   const warnings: string[] = [];
+  const missingRequired: MissingRequiredField[] = [];
   const catalog = sourceCatalog();
   const seenKeys = new Set<string>();
   const pages = new Set<number>();
@@ -90,12 +104,27 @@ export function assessMapping(
     }
   }
 
-  for (const required of CORE_SOURCES) {
-    if (!fields.some((field) => sourceKey(field.source) === required)) {
-      blockingIssues.push(`Missing core mapping: ${required}.`);
-    }
+  const mappedSources = new Set(fields.map((field) => sourceKey(field.source)).filter(Boolean));
+  const requiredEntries = packetRequiredEntries(context);
+  for (const entry of requiredEntries) {
+    if (mappedSources.has(entry.key)) continue;
+    missingRequired.push({
+      key: entry.key,
+      label: entry.easyLabel || entry.label,
+      section: entry.sectionTitle || "Required intake fields",
+      page: null,
+    });
+    blockingIssues.push(`Missing required mapping: ${entry.key}.`);
   }
-  if (!fields.some((field) => ["signature", "signature_small"].includes(field.type) && ["client", "guardian"].includes(field.role))) {
+  const hasClientOrGuardianSignature = fields.some((field) =>
+    ["signature", "signature_small"].includes(field.type) && ["client", "guardian"].includes(field.role));
+  if (!hasClientOrGuardianSignature && !missingRequired.some((item) => item.key === "signature" || item.key === "guardian_signature")) {
+    missingRequired.push({
+      key: "signature",
+      label: "Client or guardian signature",
+      section: "Signatures & dates",
+      page: null,
+    });
     blockingIssues.push("No client or guardian signature field is mapped.");
   }
   if (!fields.some((field) => ["signature", "signature_small"].includes(field.type) && ["staff", "clinician", "witness"].includes(field.role))) {
@@ -118,12 +147,28 @@ export function assessMapping(
     if (!pages.has(page)) warnings.push(`Page ${page} has no mapped fields; confirm it is intentionally blank or informational.`);
   }
 
-  const score = Math.max(0, Math.min(100, 100 - blockingIssues.length * 25 - warnings.length * 2));
+  const headerKeys = new Set<string>(HEADER_SOURCES);
+  const headerPages = new Set(
+    fields.filter((field) => headerKeys.has(sourceKey(field.source))).map((field) => field.page),
+  );
+  for (let page = 1; page <= pageCount; page++) {
+    if (headerPages.size > 2 && !headerPages.has(page) && pages.has(page)) {
+      warnings.push(`Page ${page} has mappings but no repeating header row (name/DOB/MID/record/date).`);
+    }
+  }
+
+  const requiredTotal = requiredEntries.length || missingRequired.length;
+  const mappedRequired = Math.max(0, requiredTotal - missingRequired.filter((item) =>
+    requiredEntries.some((entry) => entry.key === item.key)).length);
+  const completeness = requiredTotal ? Math.round((mappedRequired / requiredTotal) * 100) : 100;
+  const geometryBlocks = blockingIssues.filter((issue) => !issue.startsWith("Missing required mapping:")).length;
+  const score = Math.max(0, Math.min(100, completeness - geometryBlocks * 10 - Math.min(20, warnings.length)));
   return {
     ready: blockingIssues.length === 0,
     score,
     blockingIssues,
     warnings,
+    missingRequired,
     counts: { fields: fields.length, text, checkboxes, signatures, pagesWithFields: pages.size },
   };
 }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { ccaConfigured, extractFromCca, mergeCcaAnswers } from "@/lib/ccaExtract";
 import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
@@ -11,7 +11,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   if (!ccaConfigured()) {
     return NextResponse.json(

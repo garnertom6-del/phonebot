@@ -40,6 +40,7 @@ function badge(label: string, scoreLabel: string): string {
 export function packetDisplayStatus(
   template: PacketDisplayTemplate | null | undefined,
   providerName = "",
+  otherProviderNames: string[] = [],
 ): PacketDisplayStatus {
   if (!template) {
     return {
@@ -52,7 +53,11 @@ export function packetDisplayStatus(
     };
   }
 
-  const filenameWarning = packetFilenameWarning(providerName, template.originalFileName);
+  const filenameWarning = packetFilenameWarning(
+    template.originalFileName,
+    providerName,
+    otherProviderNames,
+  )?.message ?? null;
   const validScore = isValidProviderPacketMappingScore(template.mappingScore);
 
   if (template.isActive && (template.mappingStatus !== "APPROVED" || !validScore || !template.approvedAt)) {

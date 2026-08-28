@@ -1,7 +1,12 @@
 import Anthropic from "@anthropic-ai/sdk";
-import { SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
 import { extractPdfLayout, layoutPrompt } from "./pdfLayout";
 import type { FieldType, FieldMapping } from "@/config/mooreDivinePacketMap";
+import {
+  mappingCatalog,
+  mappingFieldGuide,
+  sourceBase,
+  type MappingProviderContext,
+} from "./mappingCatalog";
 
 export function mappingAiConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
@@ -29,25 +34,25 @@ const SPECIAL_SOURCES = [
   "medical_director_sign_date", "initials", "signer_name", "screening_date",
 ];
 
-const KNOWN_SOURCES = new Set([
-  ...SPECIAL_SOURCES,
-  ...SECTIONS.flatMap((section) => section.questions.map((question) => question.key)),
-  ...STAFF_FIELDS.flatMap((group) => group.fields.map((question) => question.key)),
-]);
+function knownSources(ctx?: MappingProviderContext): Set<string> {
+  const keys = new Set<string>(SPECIAL_SOURCES);
+  for (const section of mappingCatalog(ctx)) {
+    for (const entry of section.entries) keys.add(entry.key);
+  }
+  return keys;
+}
 
-function fieldGuide(): string {
-  const rows: string[] = [];
-  for (const section of SECTIONS) {
-    for (const question of section.questions) {
-      if (question.type === "info" || question.type === "heading") continue;
-      rows.push(`${question.key}: ${question.label}`);
-    }
-  }
-  for (const group of STAFF_FIELDS) {
-    for (const question of group.fields) rows.push(`${question.key}: ${question.label}`);
-  }
-  for (const source of SPECIAL_SOURCES) rows.push(`${source}: signature/date/initial field`);
-  return [...new Set(rows)].join("\n");
+function fieldGuide(ctx?: MappingProviderContext): string {
+  const required = mappingCatalog(ctx)
+    .flatMap((section) => section.entries)
+    .filter((entry) => entry.required)
+    .map((entry) => entry.key);
+  return [
+    "Do not map intake_mode; it is app-only and is not printed on the packet.",
+    "Consent, yes/no, and radio questions are checkbox (or initials) fields. Place the printed mark; do not treat a nearby signature name/date as covering that key.",
+    required.length ? `Required source keys for this provider: ${required.join(", ")}.` : "",
+    mappingFieldGuide(ctx),
+  ].filter(Boolean).join("\n");
 }
 
 function suggestionSchema() {
@@ -66,7 +71,7 @@ function suggestionSchema() {
             y: { type: "number" },
             width: { type: "number" },
             height: { type: "number" },
-            type: { type: "string", enum: ["text", "checkbox", "signature", "signature_small", "initials"] },
+            type: { type: "string", enum: ["text", "checkbox", "date", "signature", "signature_small", "initials"] },
             role: { type: "string", enum: ["client", "guardian", "staff", "clinician", "medicalDirector", "witness", "auto"] },
             confidence: { type: "number" },
             reason: { type: "string" },
@@ -82,15 +87,20 @@ function suggestionSchema() {
 }
 
 function sourceKey(source: string): string {
-  return source.split(/[=~]/)[0].trim();
+  return sourceBase(source);
 }
 
-function normalizeSuggestions(raw: unknown, pageSizes: Map<number, { width: number; height: number }>): FieldMapping[] {
+function normalizeSuggestions(
+  raw: unknown,
+  pageSizes: Map<number, { width: number; height: number }>,
+  ctx?: MappingProviderContext,
+): FieldMapping[] {
   const items = raw && typeof raw === "object" && "suggestions" in raw && Array.isArray(raw.suggestions)
     ? raw.suggestions
     : [];
   const used = new Set<string>();
   const output: FieldMapping[] = [];
+  const known = knownSources(ctx);
   for (const item of items) {
     if (!item || typeof item !== "object") continue;
     const value = item as Record<string, unknown>;
@@ -105,13 +115,13 @@ function normalizeSuggestions(raw: unknown, pageSizes: Map<number, { width: numb
     if (!source || !size || !Number.isFinite(confidence) || confidence < 0.55 || !Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(width) || !Number.isFinite(height)) continue;
     if (x < 0 || y < 0 || width <= 4 || height <= 4 || x + width > size.width || y + height > size.height) continue;
     const base = sourceKey(source);
-    if (!base || (!KNOWN_SOURCES.has(base) && !base.startsWith("c_") && !base.startsWith("poc_"))) continue;
+    if (!base || (!known.has(base) && !base.startsWith("c_") && !base.startsWith("poc_"))) continue;
     const rawKey = typeof value.fieldKey === "string" ? value.fieldKey.replace(/[^a-zA-Z0-9_-]+/g, "_") : `${base}_p${page}`;
     let fieldKey = `ai_${rawKey || `${base}_p${page}`}`.slice(0, 120);
     let suffix = 2;
     while (used.has(fieldKey)) fieldKey = `${fieldKey}_${suffix++}`;
     used.add(fieldKey);
-    const type = ["text", "checkbox", "signature", "signature_small", "initials"].includes(String(value.type))
+    const type = ["text", "checkbox", "date", "signature", "signature_small", "initials"].includes(String(value.type))
       ? String(value.type) as FieldType
       : "text";
     const role = ["client", "guardian", "staff", "clinician", "medicalDirector", "witness", "auto"].includes(String(value.role))
@@ -122,12 +132,18 @@ function normalizeSuggestions(raw: unknown, pageSizes: Map<number, { width: numb
       fontSize: 9, lines: 1, lineHeight: 11.6, required: false, role,
       consentKey: null,
       notes: `AI suggestion (${Math.round(confidence * 100)}%): ${String(value.reason || "matched nearby packet label").slice(0, 220)}`,
+      confidence,
+      aiStatus: "pending",
     });
   }
   return output;
 }
 
-export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal): Promise<{ suggestions: FieldMapping[]; pageCount: number }> {
+export async function suggestPacketMappings(
+  bytes: Buffer,
+  signal?: AbortSignal,
+  ctx?: MappingProviderContext,
+): Promise<{ suggestions: FieldMapping[]; pageCount: number }> {
   if (!mappingAiConfigured()) throw new Error("ANTHROPIC_API_KEY is not configured for AI mapping.");
   const pages = await extractPdfLayout(bytes);
   const pageSizes = new Map(pages.map((page) => [page.page, { width: page.width, height: page.height }]));
@@ -151,7 +167,8 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
         "You are a cautious PDF intake-form mapping assistant. Suggest coordinate mappings only; never claim that a suggestion is approved. " +
         "Use only labels and blank areas visibly supported by the packet. Never invent a field that is not present or obvious. " +
         "Coordinates use PDF points with origin at the bottom-left. A text field's rectangle must cover the blank answer line or box, not the printed label. " +
-        "A checkbox rectangle must cover the printed checkbox. A signature rectangle must cover the printed signature line. " +
+        "A checkbox rectangle must cover the printed checkbox or yes/no mark. Initials cover a printed initial line. A signature rectangle must cover the printed signature line. " +
+        "Consent acknowledgments are checkbox or initials fields. Do not skip them just because a signature name/date is nearby. " +
         "Return only suggestions with confidence at least 0.55. Prefer fewer accurate suggestions over guessing. Do not map consent decisions or client signatures to staff roles. " +
         "The human reviewer will inspect every suggestion before saving.",
       messages: [{
@@ -161,10 +178,10 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
           {
             type: "text",
             text:
-              "Suggest mappings for this blank provider intake packet. Use the extracted page text and coordinates below. " +
-              "Return at most 250 suggestions. Use exact source keys from the field guide. For a checkbox use source key=value when the printed option is identifiable. " +
-              "For signatures use source signature/guardian_signature/staff_signature/clinician_signature/medical_director_signature and the appropriate role.\n\n" +
-              `FIELD GUIDE:\n${fieldGuide()}\n\nPACKET LAYOUT:\n${layoutPrompt(pages)}`,
+              "Suggest mappings for this blank provider intake packet in one pass across every page. Use the extracted page text and coordinates below. " +
+              "Return at most 400 suggestions covering the whole packet, not just page 1. Use exact source keys from the field guide. For a checkbox use source key=value when the printed option is identifiable. " +
+              "For dates use type date. For signatures use source signature/guardian_signature/staff_signature/clinician_signature/medical_director_signature and the appropriate role. Include a confidence between 0 and 1.\n\n" +
+              `FIELD GUIDE:\n${fieldGuide(ctx)}\n\nPACKET LAYOUT:\n${layoutPrompt(pages)}`,
           },
         ],
       }],
@@ -180,7 +197,7 @@ export async function suggestPacketMappings(bytes: Buffer, signal?: AbortSignal)
       throw new Error(`AI returned no usable mapping fields (stop reason: ${response.stop_reason ?? "unknown"}; content: ${contentTypes}).`);
     }
     const raw = JSON.parse(text.text) as unknown;
-    return { suggestions: normalizeSuggestions(raw, pageSizes), pageCount: pages.length };
+    return { suggestions: normalizeSuggestions(raw, pageSizes, ctx), pageCount: pages.length };
   } catch (error) {
     if (timedOut) throw new Error(`AI mapping timed out after ${Math.round(mappingAiTimeoutMs() / 60000)} minutes.`);
     throw error;

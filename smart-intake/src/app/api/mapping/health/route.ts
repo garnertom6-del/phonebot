@@ -3,7 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { requireMaster } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
 import {
+  DEFAULT_PACKET_TEMPLATE_NAME,
   loadTemplateFile,
   packetFieldsForTemplate,
   packetTemplateSha256,
@@ -14,41 +16,79 @@ function parseMappings(rows: Array<{ fieldKey: string; page: number; data: strin
   return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
 }
 
-export async function GET(req: NextRequest) {
-  const { deny } = await requireMaster();
-  if (deny) return deny;
+async function templateFromRequest(req: NextRequest) {
   const templateId = req.nextUrl.searchParams.get("templateId");
   const providerId = req.nextUrl.searchParams.get("providerId");
-  const template = templateId
-    ? await prisma.pdfTemplate.findUnique({ where: { id: templateId }, include: { fieldMappings: true } })
+  return templateId
+    ? prisma.pdfTemplate.findUnique({
+      where: { id: templateId },
+      include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
+    })
     : providerId
-      ? await prisma.pdfTemplate.findFirst({
-        where: { providerId }, include: { fieldMappings: true },
+      ? prisma.pdfTemplate.findFirst({
+        where: { providerId },
+        include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
         orderBy: [{ updatedAt: "desc" }, { createdAt: "desc" }],
       })
-      : null;
-  if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+      : prisma.pdfTemplate.findUnique({
+        where: { name: DEFAULT_PACKET_TEMPLATE_NAME },
+        include: { fieldMappings: true, provider: { select: { name: true, slug: true } } },
+      });
+}
 
+function healthFor(template: {
+  name: string;
+  originalFileName: string | null;
+  pageCount: number;
+  pageWidth: number | null;
+  pageHeight: number | null;
+  providerId: string | null;
+  filePath: string;
+  fieldMappings: Array<{ fieldKey: string; page: number; data: string }>;
+  provider?: { name: string | null; slug: string | null } | null;
+}, liveFields?: FieldMapping[]) {
   const overrides = parseMappings(template.fieldMappings);
-  const fields = packetFieldsForTemplate({
-    name: template.name,
-    originalFileName: template.originalFileName,
-    pageCount: template.pageCount,
-    providerSpecific: !!template.providerId,
-    sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
-  }, overrides);
-  const health = assessMapping(
+  const fields = liveFields && liveFields.length
+    ? liveFields
+    : packetFieldsForTemplate({
+      name: template.name,
+      originalFileName: template.originalFileName,
+      pageCount: template.pageCount,
+      providerSpecific: !!template.providerId,
+      sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+    }, overrides);
+  return assessMapping(
     fields,
     template.pageCount,
     template.pageWidth || PACKET_MAP.pageWidth,
     template.pageHeight || PACKET_MAP.pageHeight,
-    fields.length,
+    liveFields ? liveFields.length : template.fieldMappings.length,
+    mappingContextFrom(template),
   );
-  const provider = template.providerId
-    ? await prisma.provider.findUnique({ where: { id: template.providerId }, select: { name: true } })
-    : null;
-  const filenameWarning = packetFilenameWarning(provider?.name || "", template.originalFileName);
-  if (filenameWarning) health.warnings.unshift(filenameWarning);
+}
+
+async function filenameWarningFor(template: {
+  providerId: string | null;
+  originalFileName: string | null;
+  provider?: { name: string | null } | null;
+}) {
+  const otherProviders = template.providerId
+    ? (await prisma.provider.findMany({
+      where: { id: { not: template.providerId } },
+      select: { name: true },
+    })).map((row) => row.name)
+    : [];
+  return packetFilenameWarning(template.originalFileName, template.provider?.name || "", otherProviders);
+}
+
+export async function GET(req: NextRequest) {
+  const { deny } = await requireMaster();
+  if (deny) return deny;
+  const template = await templateFromRequest(req);
+  if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+  const health = healthFor(template);
+  const filenameWarning = await filenameWarningFor(template);
+  if (filenameWarning) health.warnings.unshift(filenameWarning.message);
   return NextResponse.json({
     template: {
       id: template.id,
@@ -61,4 +101,22 @@ export async function GET(req: NextRequest) {
     filenameWarning,
     health,
   });
+}
+
+export async function POST(req: NextRequest) {
+  const { deny } = await requireMaster();
+  if (deny) return deny;
+  const body = await req.json().catch(() => ({}));
+  const liveFields = Array.isArray(body.fields) ? body.fields as FieldMapping[] : undefined;
+  const template = await templateFromRequest(req);
+  if (!template) {
+    if (!liveFields) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
+    return NextResponse.json({
+      health: assessMapping(liveFields, PACKET_MAP.pageCount, PACKET_MAP.pageWidth, PACKET_MAP.pageHeight, liveFields.length),
+    });
+  }
+  const health = healthFor(template, liveFields);
+  const filenameWarning = await filenameWarningFor(template);
+  if (filenameWarning) health.warnings.unshift(filenameWarning.message);
+  return NextResponse.json({ filenameWarning, health });
 }

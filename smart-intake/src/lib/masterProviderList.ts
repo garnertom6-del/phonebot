@@ -32,8 +32,13 @@ export function buildMasterProviderListExtras(input: {
   name: string;
   intakeSummary?: Record<string, number> | null;
   packetTemplate?: PacketDisplayTemplate | null;
+  otherProviderNames?: string[];
 }): MasterProviderListExtras {
-  const packetDisplay = packetDisplayStatus(input.packetTemplate, input.name);
+  const packetDisplay = packetDisplayStatus(
+    input.packetTemplate,
+    input.name,
+    input.otherProviderNames,
+  );
   return {
     staffReviewCount: staffReviewCountFromSummary(input.intakeSummary),
     packetDisplay: {
@@ -42,6 +47,11 @@ export function buildMasterProviderListExtras(input: {
       pageCount: input.packetTemplate?.pageCount ?? null,
     },
     filenameWarning: packetDisplay.filenameWarning
-      || packetFilenameWarning(input.name, input.packetTemplate?.originalFileName),
+      || packetFilenameWarning(
+        input.packetTemplate?.originalFileName,
+        input.name,
+        input.otherProviderNames,
+      )?.message
+      || null,
   };
 }

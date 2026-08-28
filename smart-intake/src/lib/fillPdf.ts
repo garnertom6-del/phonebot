@@ -13,55 +13,12 @@ import {
   initialsFromName, signatureForRole,
 } from "./signaturePlacement";
 import { applyOperationalDefaults } from "./answerDefaults";
+import { formatDate, resolveValue, str, type Answers } from "./resolveMappingValue";
 
-export type Answers = Record<string, unknown>;
+export type { Answers };
+export { resolveValue };
 
 const INK = rgb(0.07, 0.12, 0.35);
-
-const FREQ_CODES: Record<string, string> = {
-  "Not used past month": "0", "1-3x past month": "1", "1-2x per week": "2",
-  "3-6x per week": "3", "Daily": "4",
-};
-const ROUTE_CODES: Record<string, string> = {
-  Oral: "1", Smoking: "2", Inhalation: "3", Injection: "4", Other: "5",
-};
-
-function str(v: unknown): string {
-  if (v == null) return "";
-  if (Array.isArray(v)) return v.join(", ");
-  if (typeof v === "boolean") return v ? "Yes" : "";
-  return String(v);
-}
-
-/** Resolve a mapping's `source` expression against the answers. */
-export function resolveValue(source: string, answers: Answers): { text?: string; checked?: boolean } {
-  if (source.includes("=")) {
-    const [key, expected] = source.split("=");
-    const v = answers[key];
-    if (expected === "true") return { checked: v === true || v === "true" || v === "Yes" };
-    return { checked: str(v) === expected };
-  }
-  if (source.includes("~")) {
-    const [key, expected] = source.split("~");
-    const v = answers[key];
-    return { checked: Array.isArray(v) ? v.includes(expected) : str(v).includes(expected) };
-  }
-  let v = str(answers[source]);
-  if (/^sub\d_freq$/.test(source) && FREQ_CODES[v]) v = `${FREQ_CODES[v]} (${v})`;
-  if (/^sub\d_route$/.test(source) && ROUTE_CODES[v]) v = `${ROUTE_CODES[v]} (${v})`;
-  if (
-    source === "dob" ||
-    /_date$/.test(source) ||
-    /(^|_)date_(sent|adjudicated)$/.test(source) ||
-    source === "intervention_valid_until"
-  ) v = formatDate(v);
-  return { text: v };
-}
-
-function formatDate(v: string): string {
-  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(v);
-  return m ? `${m[2]}/${m[3]}/${m[1]}` : v;
-}
 
 function drawTextField(
   page: PDFPage, f: FieldMapping, text: string, font: PDFFont,
@@ -287,6 +244,14 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
     if (f.type === "checkbox") {
       if (resolved.checked) {
         drawCenteredX(page, f, bold);
+        filled++;
+      } else skipped.push(f.fieldKey);
+      continue;
+    }
+    if (f.type === "date") {
+      const text = resolved.text || "";
+      if (text) {
+        drawTextField(page, f, text, bold);
         filled++;
       } else skipped.push(f.fieldKey);
       continue;

@@ -15,7 +15,7 @@ import path from "path";
 import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
-import { fillPacket, loadTemplateBytes } from "../src/lib/fillPdf";
+import { fillPacket, loadTemplateBytes, resolveValue } from "../src/lib/fillPdf";
 import {
   packetFieldsForTemplate,
   isValidProviderPacketMappingScore,
@@ -35,8 +35,12 @@ import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete 
 import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
+import { packetDisplayStatus as packetMapperStatus } from "../src/lib/mappingStatus";
 import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
 import { buildMasterProviderListExtras } from "../src/lib/masterProviderList";
+import { assessMapping } from "../src/lib/mappingHealth";
+import { catalogEntryByKey, catalogPlacementFields, DEMO_CLIENT_ANSWERS, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, overlayFillText, packetRequiredEntries } from "../src/lib/mappingCatalog";
+import { questionCatalogId } from "../src/config/mooreDivineQuestions";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -133,6 +137,95 @@ async function main() {
   assert.equal(signatureForRole(staffOnlySignature, "clinician"), null);
   assert.equal(signatureForRole(staffOnlySignature, "witness"), null);
   ok("staff signatures never substitute for clinician or witness roles");
+
+  const exclusiveAnswers = {
+    gender: "Female",
+    is_minor_or_incompetent: "Yes",
+    has_medicaid: "Yes",
+    consent_hipaa: true,
+  };
+  assert.equal(resolveValue("gender=Female", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("gender=Male", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("gender=Transgender", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("gender=Other", exclusiveAnswers).checked, false);
+  assert.notEqual(resolveValue("gender", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("gender=Female", {}).checked, false);
+  assert.equal(resolveValue("is_minor_or_incompetent=Y", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("is_minor_or_incompetent=Yes", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("is_minor_or_incompetent=N", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("is_minor_or_incompetent=No", exclusiveAnswers).checked, false);
+  assert.equal(resolveValue("has_medicaid=Yes", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("has_medicaid=No", exclusiveAnswers).checked, false);
+  assert.notEqual(resolveValue("has_medicaid", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("consent_hipaa=true", exclusiveAnswers).checked, true);
+  assert.equal(resolveValue("consent_orientation", { consent_orientation: true }).checked, true);
+  const genderBoxes = catalogPlacementFields(catalogEntryByKey("gender")!, 1, 40, 700);
+  assert.deepEqual(genderBoxes.map((field) => field.source), ["gender=Female", "gender=Male", "gender=Transgender", "gender=Other"]);
+  assert(genderBoxes.every((field) => field.type === "checkbox"));
+  assert.equal(newCatalogField(catalogEntryByKey("gender")!, 1, 40, 700).source, "gender=Female");
+  assert.deepEqual(
+    catalogPlacementFields(catalogEntryByKey("has_medicaid")!, 1, 40, 700).map((field) => field.source),
+    ["has_medicaid=Yes", "has_medicaid=No"],
+  );
+  assert.deepEqual(
+    catalogPlacementFields(catalogEntryByKey("is_minor_or_incompetent")!, 1, 40, 700).map((field) => field.source),
+    ["is_minor_or_incompetent=Yes", "is_minor_or_incompetent=No"],
+  );
+  assert.equal(overlayFillText({ source: "gender=Female", type: "checkbox" }, "demo"), "X");
+  assert.equal(overlayFillText({ source: "gender=Male", type: "checkbox" }, "demo"), "");
+  assert.equal(overlayFillText({ source: "gender=Female", type: "checkbox" }, "labels"), "X");
+  assert.equal(overlayFillText({ source: "gender=Male", type: "checkbox" }, "labels"), "");
+  assert.equal(overlayFillText({ source: "is_minor_or_incompetent=Y", type: "checkbox" }, "demo", exclusiveAnswers), "X");
+  assert.equal(overlayFillText({ source: "is_minor_or_incompetent=N", type: "checkbox" }, "demo", exclusiveAnswers), "");
+  assert.equal(overlayFillText({ source: "has_medicaid=Yes", type: "checkbox" }, "demo"), "X");
+  assert.equal(overlayFillText({ source: "has_medicaid=No", type: "checkbox" }, "demo"), "");
+  assert.equal(overlayFillText({ source: "consent_hipaa=true", type: "checkbox" }, "demo"), "X");
+  assert.equal(DEMO_CLIENT_ANSWERS.gender, "Female");
+  const { PDFDocument } = await import("pdf-lib");
+  const exclusiveDoc = await PDFDocument.create();
+  exclusiveDoc.addPage([612, 792]);
+  const exclusiveTemplate = await exclusiveDoc.save();
+  const exclusiveBox = (fieldKey: string, source: string, x: number) => ({
+    page: 1 as const, fieldKey, source, type: "checkbox" as const, x, y: 700, width: 14, height: 14,
+    fontSize: 9, lines: 1, lineHeight: 11.6, required: false, role: "client" as const, consentKey: null, notes: "",
+  });
+  const exclusiveFields = [
+    exclusiveBox("g_f", "gender=Female", 40),
+    exclusiveBox("g_m", "gender=Male", 58),
+    exclusiveBox("g_t", "gender=Transgender", 76),
+    exclusiveBox("g_o", "gender=Other", 94),
+    exclusiveBox("min_y", "is_minor_or_incompetent=Y", 112),
+    exclusiveBox("min_n", "is_minor_or_incompetent=N", 130),
+    exclusiveBox("med_y", "has_medicaid=Yes", 148),
+    exclusiveBox("med_n", "has_medicaid=No", 166),
+    exclusiveBox("c_ok", "consent_hipaa=true", 184),
+  ];
+  const exclusiveFill = await fillPacket({
+    answers: exclusiveAnswers,
+    signatures: {},
+    consents: { consent_hipaa: true },
+    fields: exclusiveFields,
+    templateBytes: exclusiveTemplate,
+  });
+  assert(!exclusiveFill.skipped.includes("g_f"), "Female gender box must fill");
+  assert(exclusiveFill.skipped.includes("g_m") && exclusiveFill.skipped.includes("g_t") && exclusiveFill.skipped.includes("g_o"),
+    "non-Female gender boxes must stay empty");
+  assert(!exclusiveFill.skipped.includes("min_y"), "minor Y box must fill");
+  assert(exclusiveFill.skipped.includes("min_n"), "minor N box must stay empty");
+  assert(!exclusiveFill.skipped.includes("med_y"), "medicaid Yes box must fill");
+  assert(exclusiveFill.skipped.includes("med_n"), "medicaid No box must stay empty");
+  assert(!exclusiveFill.skipped.includes("c_ok"), "consent true box must fill");
+  const emptyFill = await fillPacket({
+    answers: {},
+    signatures: {},
+    consents: {},
+    fields: exclusiveFields,
+    templateBytes: exclusiveTemplate,
+  });
+  for (const field of exclusiveFields) {
+    assert(emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} must stay empty when unanswered`);
+  }
+  ok("exclusive checkbox fill: Female-only, minor Y-only, medicaid Yes-only, consent true");
 
   const wellianceFields = packetFieldsForTemplate({
     name: "Welliance Care Intake Packet",
@@ -373,6 +466,10 @@ async function main() {
   assert(needsStaffAction("NEEDS_REVIEW"), "needs-review intakes must remain in the staff action queue");
   assert(!needsStaffAction("IN_PROGRESS"), "in-progress intakes belong in the waiting-on-client queue");
   assert(!needsStaffAction("COMPLETED"), "completed intakes must leave the staff action queue");
+  assert(
+    needsStaffAction("COMPLETED", { tone: "warn", state: "Upload the CCA" }),
+    "missing CCA or a stale packet must still appear in Needs staff action",
+  );
   assert.equal(
     staffReviewCountFromSummary({ NEEDS_REVIEW: 5, SIGNED: 2, SUBMITTED: 4, COMPLETED: 9, IN_PROGRESS: 3 }),
     11,
@@ -428,12 +525,20 @@ async function main() {
       mappingStatus: "DRAFT",
       mappingScore: null,
     },
+    otherProviderNames: ["GSO Behavioral Health", "Essential Wellness Care"],
   });
   assert.equal(wellianceListPayload.staffReviewCount, 7);
   assert.ok(wellianceListPayload.filenameWarning, "list payload must include the wrong-packet filename warning");
-  assert.match(wellianceListPayload.filenameWarning || "", /Wrong packet file/);
-  assert.equal(packetFilenameWarning("Welliance Care", "GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf"), wellianceListPayload.filenameWarning);
-  assert.equal(packetFilenameWarning("Moore Divine Care", "MooreDivineCare_Intake_Packet-1.pdf"), null);
+  assert.match(wellianceListPayload.filenameWarning || "", /looks like|does not match|client copy/i);
+  assert.equal(
+    packetFilenameWarning(
+      "GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf",
+      "Welliance Care",
+      ["GSO Behavioral Health", "Essential Wellness Care"],
+    )?.message,
+    wellianceListPayload.filenameWarning,
+  );
+  assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care"), null);
   ok("filename warning is included on the master provider list payload");
 
   assert.equal(
@@ -489,10 +594,30 @@ async function main() {
       fullName: "Workflow Test",
       dob: "01/01/2000",
       recordNumber: "WORKFLOW-1",
+      phone: "3365550142",
       autoEmailProviderPacket: true,
     }).autoEmailProviderPacket,
     true,
     "new-intake validation must retain provider packet email choice",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "No Contact",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-NC",
+    }).success,
+    false,
+    "create-intake requires a phone number or email",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Email Only",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-EM",
+      email: "client@example.test",
+    }).success,
+    true,
+    "email alone is enough to create an intake",
   );
   assert.equal(
     newIntakeSchema.safeParse({
@@ -1149,6 +1274,118 @@ async function main() {
   assert(!jResult.skipped.includes("sig_provider_choice"), "guardian signature should satisfy client slots for a minor");
   assert(!jResult.skipped.includes("cca_guardian_sig"), "guardian CCA signature missing");
   ok("guardian signature flows to required slots for a youth client");
+
+  assert.equal(applyOperationalDefaults({}).severity_of_need, undefined, "unanswered severity of need must stay blank");
+  ok("severity of need is not defaulted to Routine");
+
+  const catalog = mappingCatalog();
+  assert(catalog.length > 8, "intake catalog should be grouped by section");
+  assert(catalog.some((section) => section.entries.some((entry) => entry.key === "client_full_name")));
+  assert(catalogEntryByKey("dob")?.mapperType === "date");
+  assert.equal(catalogEntryByKey("gender")?.mapperType, "checkbox");
+  assert.equal(catalogEntryByKey("has_medicaid")?.mapperType, "checkbox");
+  assert.equal(catalogEntryByKey("is_minor_or_incompetent")?.mapperType, "checkbox");
+  assert.equal(catalogEntryByKey("consent_orientation")?.mapperType, "checkbox");
+  assert(catalogEntryByKey("consent_orientation")?.hint?.toLowerCase().includes("checkbox"));
+  const placed = newCatalogField(catalogEntryByKey("client_full_name")!, 1, 40, 700);
+  assert.equal(placed.source, "client_full_name");
+  assert(mappedSourceKeys([placed]).has("client_full_name"));
+  const consentBox = newCatalogField(catalogEntryByKey("consent_hipaa")!, 12, 40, 400);
+  assert.equal(consentBox.type, "checkbox");
+  assert.equal(consentBox.source, "consent_hipaa=true");
+  ok("intake mapping catalog can place answer keys onto a packet");
+
+  const emptyHealth = assessMapping([], 3, 612, 792, 0);
+  assert.equal(emptyHealth.ready, false);
+  assert(emptyHealth.missingRequired.some((item) => item.key === "client_full_name"));
+  assert(emptyHealth.missingRequired.some((item) => item.key === "signature"));
+  const namedHealth = assessMapping([
+    { ...placed, type: "text" },
+    { page: 1, fieldKey: "map_dob", source: "dob", type: "date", x: 180, y: 700, width: 72, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "client", consentKey: null, notes: "" },
+    { page: 1, fieldKey: "map_record", source: "record_number", type: "text", x: 260, y: 700, width: 90, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "staff", consentKey: null, notes: "" },
+    { page: 1, fieldKey: "map_date", source: "intake_date", type: "date", x: 360, y: 700, width: 72, height: 12, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "staff", consentKey: null, notes: "" },
+    { page: 1, fieldKey: "map_sig", source: "signature", type: "signature", x: 40, y: 80, width: 180, height: 18, fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role: "client", consentKey: null, notes: "" },
+  ], 1, 612, 792, 5);
+  assert(namedHealth.missingRequired.every((item) => item.key !== "client_full_name" && item.key !== "signature"));
+  ok("mapping quality lists missing required fields instead of a score-only badge");
+
+  const ewCtx = { name: "Essential Wellness Care Inc.", originalFileName: "E.W.C.-INTAKE-FORM.pdf" };
+  assert.equal(questionCatalogId(ewCtx), "essential-wellness");
+  const ewCatalogKeys = new Set(mappingCatalog(ewCtx).flatMap((section) => section.entries.map((entry) => entry.key)));
+  assert(!ewCatalogKeys.has("intake_mode"), "intake_mode is app-only and must not appear in the mapping catalog");
+  assert(!ewCatalogKeys.has("consent_provider_choice"), "MDC provider-choice must not appear on Essential Wellness");
+  assert(mappingCatalog().some((section) => section.entries.some((entry) => entry.key === "consent_provider_choice")));
+  const liveUnmapped = [
+    "intake_mode", "gender", "has_medicaid", "is_minor_or_incompetent", "ec1_cell_phone",
+    "consent_provider_choice", "consent_orientation", "consent_rights", "consent_treatment",
+    "consent_bill_of_rights", "consent_emergency_info", "consent_emergency_care", "consent_hipaa",
+    "consent_confidentiality", "welcome_letter_ack", "consent_cca",
+  ];
+  const remainingForEw = liveUnmapped.filter((key) => key !== "intake_mode" && key !== "consent_provider_choice");
+  const ewRequired = packetRequiredEntries(ewCtx);
+  for (const key of remainingForEw) {
+    assert(ewRequired.some((entry) => entry.key === key), `EW required map should include ${key}`);
+  }
+  const dummyField = (key: string, type: "text" | "checkbox" | "date" | "signature", role: "client" | "staff" = "client") => ({
+    page: 1, fieldKey: `map_${key}`, source: key, type, x: 40, y: 700, width: 40, height: 12,
+    fontSize: 9, lines: 1, lineHeight: 11.6, required: true, role, consentKey: null, notes: "",
+  });
+  const mappedExceptLiveGaps = ewRequired
+    .filter((entry) => !remainingForEw.includes(entry.key))
+    .map((entry, index) => ({
+      ...dummyField(
+        entry.key,
+        entry.mapperType === "signature" || entry.mapperType === "signature_small" ? "signature"
+          : entry.mapperType === "checkbox" || entry.mapperType === "initials" ? "checkbox"
+          : entry.mapperType === "date" ? "date"
+          : "text",
+        entry.key.includes("staff") || entry.key.includes("record") || entry.key === "intake_date" ? "staff" : "client",
+      ),
+      y: 40 + (index % 40) * 12,
+      x: 40 + Math.floor(index / 40) * 80,
+    }));
+  if (!mappedExceptLiveGaps.some((field) => field.type === "signature")) {
+    mappedExceptLiveGaps.push(dummyField("signature", "signature"));
+  }
+  const ewHealth = assessMapping(mappedExceptLiveGaps, 39, 612, 792, mappedExceptLiveGaps.length, ewCtx);
+  const reported = ewHealth.missingRequired.map((item) => item.key);
+  assert.deepEqual([...reported].sort(), [...remainingForEw].sort());
+  assert.equal(reported.length, remainingForEw.length, "quality check must list every remaining required-unmapped field");
+  assert(ewHealth.score > 0, "score must not collapse to 0/100 just because required fields remain");
+  assert.equal(ewHealth.ready, false);
+  assert(mappingFieldGuide(ewCtx).includes("gender=Value"));
+  assert(mappingFieldGuide(ewCtx).includes("has_medicaid=Yes"));
+  assert(!mappingFieldGuide(ewCtx).includes("consent_provider_choice"));
+  assert.equal(resolveValue("consent_orientation", { consent_orientation: true }).checked, true);
+  assert.equal(resolveValue("has_medicaid=Yes", { has_medicaid: "Yes" }).checked, true);
+  assert.equal(resolveValue("has_medicaid=No", { has_medicaid: "Yes" }).checked, false);
+  assert.equal(missingRequired({ client_full_name: "X", dob: "1990-01-01" }, true, ewCtx).some((item) => item.key === "consent_provider_choice"), false);
+  ok("EW mapping catalog drops MDC-only keys and the checker reports every remaining required-unmapped field");
+
+  const approvedOnly = packetMapperStatus({ mappingStatus: "APPROVED", mappingScore: 72, isActive: false, approvedAt: new Date() });
+  assert.equal(approvedOnly.key, "needs_review");
+  assert(!/approved/i.test(approvedOnly.label) || approvedOnly.key === "approved_active");
+  const live = packetMapperStatus({ mappingStatus: "APPROVED", mappingScore: 100, isActive: true, approvedAt: new Date() });
+  assert.equal(live.key, "approved_active");
+  const draft = packetMapperStatus({ mappingStatus: "DRAFT", mappingScore: null, isActive: false, approvedAt: null });
+  assert.equal(draft.key, "draft");
+  assert.notEqual(draft.label, live.label);
+  ok("packet status is a single badge and never Approved plus Not ready");
+
+  const wellianceWrongFile = packetFilenameWarning(
+    "GSO-INTAKE-PACKET-ALIYAH-BALDWIN-BLANK.pdf",
+    "Welliance Care",
+    ["GSO Behavioral Health", "Essential Wellness Care"],
+  );
+  assert(wellianceWrongFile, "Welliance/GSO-ALIYAH filename must warn");
+  assert(["other_provider", "client_name"].includes(wellianceWrongFile!.code));
+  assert.equal(packetFilenameWarning("E.W.C.-INTAKE-FORM.pdf", "Essential Wellness Care Inc."), null);
+  assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care, Inc."), null);
+  ok("wrong-packet filename guard catches another org or client name");
+
+  const schema = fs.readFileSync(path.join(process.cwd(), "prisma/schema.prisma"), "utf8");
+  assert(schema.includes('@@unique([providerId, recordNumber], name: "provider_record_number")'));
+  ok("provider+recordNumber uniqueness is prepared for SQLite");
 
   console.log(`\nAll ${passed} checks passed ✓`);
 }

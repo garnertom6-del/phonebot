@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -16,7 +16,7 @@ import { missingRequired, missingOptional } from "@/lib/validation";
 export const maxDuration = 90;
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
@@ -31,7 +31,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const hasClientSignature = intake.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
   const missing = {
-    required: missingRequired(answers, hasClientSignature),
+    required: missingRequired(answers, hasClientSignature, provider),
     optional: missingOptional(answers),
   };
   const input = {

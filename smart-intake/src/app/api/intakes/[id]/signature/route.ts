@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { signatureSchema } from "@/lib/validation";
 import { loadAnswers, saveAnswers } from "@/lib/intakeData";
 
 /** Staff-side signature capture (staff, clinician, witness, medical director). */
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
   const parsed = signatureSchema.safeParse(await req.json());
   if (!parsed.success) return NextResponse.json({ error: "Invalid signature" }, { status: 400 });

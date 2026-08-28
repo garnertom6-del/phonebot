@@ -10,6 +10,8 @@ export type QType =
 
 export interface AskIf { key: string; equals?: string; oneOf?: string[]; truthy?: boolean }
 
+export type QuestionCatalogId = "moore-divine" | "essential-wellness" | "welliance" | "generic";
+
 export interface Question {
   key: string;
   label: string;
@@ -23,6 +25,8 @@ export interface Question {
   consentText?: string;     // for type=consent: the readable legal text
   staffOnly?: boolean;      // never shown to client; appears in staff review
   essential?: boolean;      // asked even in Quick Intake (CCA-expected) mode
+  appOnly?: boolean;        // asked in the app only; not a paper-packet mapping field
+  providers?: QuestionCatalogId[]; // omit = every provider catalog
 }
 
 export interface Section {
@@ -78,7 +82,7 @@ export const SECTIONS: Section[] = [
       "You will sign once at the end.",
     questions: [{
       key: "intake_mode", label: "How would you like to work through this?",
-      type: "radio", required: true,
+      type: "radio", required: true, appOnly: true,
       options: ["Fast Intake - required questions first", "Full Intake - answer everything now"],
     }],
   },
@@ -291,9 +295,9 @@ export const SECTIONS: Section[] = [
   {
     key: "provider_choice", title: "Provider Choice", fastIntake: true,
     questions: [
-      { key: "provider_choice_plan", essential: true, staffOnly: true, label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare", "Not sure"] },
+      { key: "provider_choice_plan", essential: true, staffOnly: true, providers: ["moore-divine"], label: "Which plan covers you? (marked on the Provider Choice form)", type: "radio", options: ["AmeriHealth", "Alliance", "Blue Cross Blue Shield", "Partners Behavioral Health", "Carolina Complete", "Sandhills Center/Trillium", "Healthy Blue", "Vaya", "Medicaid", "United Health Care", "Wellcare", "Not sure"] },
       {
-        key: "consent_provider_choice", label: "Provider Choice", type: "consent", required: true,
+        key: "consent_provider_choice", label: "Provider Choice", type: "consent", required: true, providers: ["moore-divine"],
         consentText: "I understand that I have the right to choose which provider will provide services to me. I have selected Moore Divine Care, Inc. as my provider of choice and have been offered a list of other providers who offer the same or similar services based on my medical needs. I understand that at any time I may change my service provider and will, if possible, provide reasonable notice so my records can transition. I may contact my Local Management Entity with questions or concerns.",
       },
     ],
@@ -648,6 +652,31 @@ export function questionByKey(key: string): Question | undefined {
   for (const s of SECTIONS) for (const q of s.questions) if (q.key === key) return q;
   for (const g of STAFF_FIELDS) for (const q of g.fields) if (q.key === key) return q;
   return undefined;
+}
+
+/** Identify which intake catalog a provider/packet should use. Default packet is Moore Divine. */
+export function questionCatalogId(
+  ctx?: { name?: string | null; slug?: string | null; originalFileName?: string | null } | string | null,
+): QuestionCatalogId {
+  const blob = typeof ctx === "string"
+    ? ctx
+    : `${ctx?.name || ""} ${ctx?.slug || ""} ${ctx?.originalFileName || ""}`;
+  const compact = blob.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+  if (compact.includes("essential wellness") || /(^| )e w c( |$)/.test(` ${compact} `) || /(^| )ewc( |$)/.test(` ${compact} `)) {
+    return "essential-wellness";
+  }
+  if (compact.includes("welliance")) return "welliance";
+  if (compact.includes("moore divine") || /(^| )mdc( |$)/.test(` ${compact} `)) return "moore-divine";
+  if (!compact) return "moore-divine";
+  return "generic";
+}
+
+export function questionVisibleInCatalog(
+  question: Pick<Question, "providers">,
+  catalogId: QuestionCatalogId,
+): boolean {
+  if (!question.providers?.length) return true;
+  return question.providers.includes(catalogId);
 }
 
 /** True when a question is part of the shortened Quick Intake (CCA-expected) flow. */

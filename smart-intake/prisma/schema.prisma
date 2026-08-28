@@ -71,6 +71,7 @@ model Client {
   intakes       Intake[]
 
   @@index([providerId])
+  @@unique([providerId, recordNumber], name: "provider_record_number")
 }
 
 model Intake {

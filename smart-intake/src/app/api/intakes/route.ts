@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { isMasterUser, requireStaff } from "@/lib/staffGuard";
+import { isMasterUser, requireStaff, requireWritableStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -127,7 +127,7 @@ export async function GET(req: NextRequest) {
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
       const providerPacketLog = i.auditLogs.find((a) => a.event === "provider_packet_email_sent");
-      const required = missingRequired(answers, signed);
+      const required = missingRequired(answers, signed, provider);
       const hasCca = i.uploadedDocuments.length > 0;
       const storedPdf = i.generatedPdfs.find((pdf) => fileExists(pdf.filePath)) || null;
       const packet = evaluatePacketFreshness({
@@ -188,6 +188,7 @@ export async function GET(req: NextRequest) {
       providerPacketReadiness: providerPacket,
       isMaster: isMasterUser(user!),
       canManageProvider: isMasterUser(user!) || membership?.role === "PROVIDER_ADMIN",
+      readOnly: membership?.role === "REVIEWER",
     });
   } catch (error) {
     console.error("GET /api/intakes failed", error);
@@ -197,7 +198,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, provider, deny } = await requireStaff();
+    const { user, provider, deny } = await requireWritableStaff();
     if (deny) return deny;
     const raw = await req.json();
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";

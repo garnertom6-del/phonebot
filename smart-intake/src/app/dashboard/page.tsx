@@ -185,6 +185,7 @@ function Dashboard() {
   const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
   const [canManageProvider, setCanManageProvider] = useState(false);
+  const [readOnly, setReadOnly] = useState(false);
   const [providerPacketReadiness, setProviderPacketReadiness] = useState<ProviderPacketReadinessView | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
@@ -209,6 +210,7 @@ function Dashboard() {
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
       setCanManageProvider(!!body.canManageProvider);
+      setReadOnly(!!body.readOnly);
       setProviderPacketReadiness(body.providerPacketReadiness || null);
       if (!preserveNotice) setNote("");
     } catch (err) {
@@ -571,19 +573,24 @@ function Dashboard() {
             <h1 className="mt-3 text-2xl font-bold tracking-tight sm:text-3xl">{providerName} Intake Dashboard</h1>
             <p className="mt-2 max-w-2xl text-sm text-slate-200">
               Review where each intake stands, spot missing information faster, and handle reminders, copies, packets, and signatures from one place.
+              {readOnly ? " This reviewer login can view records but cannot change them." : ""}
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>
+            {!readOnly && <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>}
             {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master: providers &amp; packets</Link>}
             {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider: packet settings</Link>}
             <details className="relative [&>summary::-webkit-details-marker]:hidden">
               <summary className="btn-secondary cursor-pointer list-none bg-white/15 text-white hover:bg-white/25">More tools</summary>
               <div className="absolute right-0 z-30 mt-2 grid min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-xl">
-                <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>
+                {!readOnly && <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
                 {(isMaster || canManageProvider) && <Link href="/admin/users" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Staff logins</Link>}
                 {isMaster && <Link href="/admin/pdf-mapping" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">PDF mapping</Link>}
-                {isMaster && <a href="/api/admin/backup" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Download backup</a>}
+                {isMaster && <a href="/api/admin/backup?confirmPhi=yes" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100" onClick={(event) => {
+                  if (!window.confirm("This backup contains protected health information. Download it only to a private, encrypted location. Continue?")) {
+                    event.preventDefault();
+                  }
+                }}>Download backup</a>}
                 <button
                   className="rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100"
                   onClick={async () => {
@@ -833,7 +840,7 @@ function Dashboard() {
                 </div>
               </div>
 
-              <CcaAiPanel row={row} onImported={() => load(tab, true)} />
+              {!readOnly && <CcaAiPanel row={row} onImported={() => load(tab, true)} />}
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Missing required items</p>
@@ -856,6 +863,9 @@ function Dashboard() {
 
               <div className="mt-4 flex flex-wrap gap-2 [&>a]:min-h-11 [&>button]:min-h-11">
                 <Link href={`/intakes/${row.id}`} className="btn-primary px-3 py-2 text-sm">Open intake</Link>
+                {readOnly ? (
+                  <p className="w-full text-sm text-slate-500">Reviewer accounts are read-only.</p>
+                ) : (
                 <button
                   type="button"
                   className="btn-ghost px-3 py-2 text-sm"
@@ -866,8 +876,9 @@ function Dashboard() {
                 >
                   {editingClientId === row.id ? "Close client details" : "Edit client details"}
                 </button>
+                )}
                 <Link href={`/intakes/${row.id}/review`} className="btn-ghost px-3 py-2 text-sm">Review packet answers</Link>
-                {!row.archived && row.status !== "COMPLETED" && row.completionReady && (
+                {!readOnly && !row.archived && row.status !== "COMPLETED" && row.completionReady && (
                   <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                     onClick={() => void runRowAction(row.id, () => markCompleted(row))}>
                     Mark completed
@@ -885,7 +896,7 @@ function Dashboard() {
                     ) : (
                       <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
                     )}
-                    {!row.archived && (
+                    {!readOnly && !row.archived && (
                       <>
                     {!linkFinished && !linkExpired && (
                       <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>
@@ -947,11 +958,13 @@ function Dashboard() {
                     )}
                       </>
                     )}
+                    {!readOnly && (
                     <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                       onClick={() => void runRowAction(row.id, () => setArchived(row, tab !== "archived"))}>
                       {tab === "archived" ? "Restore to active dashboard" : "Archive / remove from dashboard"}
                     </button>
-                    {tab !== "archived" && (
+                    )}
+                    {!readOnly && tab !== "archived" && (
                       <p className="w-full text-xs leading-5 text-slate-500">
                         Archiving hides this intake without permanently deleting the healthcare record.
                       </p>

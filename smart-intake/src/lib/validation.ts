@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { REQUIRED_FOR_SUBMIT, SECTIONS, questionByKey, type AskIf, type Question } from "@/config/mooreDivineQuestions";
+import { REQUIRED_FOR_SUBMIT, SECTIONS, questionByKey, questionCatalogId, questionVisibleInCatalog, type AskIf, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 
 export const loginSchema = z.object({
@@ -28,7 +28,13 @@ const optionalPhone = z.string().trim().optional().default("").refine(
   "Enter a valid phone number with at least 10 digits",
 );
 
-export const newIntakeSchema = z.object({
+function hasPhoneOrEmail(value: { phone?: string; email?: string }) {
+  const phone = (value.phone || "").replace(/\D/g, "");
+  const email = (value.email || "").trim();
+  return phone.length >= 10 || !!email;
+}
+
+const newIntakeObject = z.object({
   fullName: z.string().trim().min(2, "Enter the client's full name"),
   dob: z.string().trim().min(1, "DOB is required").refine((value) => {
     const date = validCalendarDate(value);
@@ -56,7 +62,11 @@ export const newIntakeSchema = z.object({
   autoEmailProviderPacket: z.boolean().optional(),
 });
 
-export const clientDetailsSchema = newIntakeSchema.pick({
+export const newIntakeSchema = newIntakeObject.refine(hasPhoneOrEmail, {
+  message: "Enter a phone number or email so the client can receive the intake link.",
+});
+
+export const clientDetailsSchema = newIntakeObject.pick({
   fullName: true,
   dob: true,
   midNumber: true,
@@ -66,6 +76,8 @@ export const clientDetailsSchema = newIntakeSchema.pick({
   guardianName: true,
   guardianEmail: true,
   guardianPhone: true,
+}).refine(hasPhoneOrEmail, {
+  message: "Enter a phone number or email so the client can receive the intake link.",
 });
 
 export const batchIntakesSchema = z.object({
@@ -109,10 +121,17 @@ export function isQuestionRequired(q: Pick<Question, "key" | "required">, answer
 export interface MissingField { key: string; label: string; section?: string }
 
 /** Required items still missing before a client can submit. */
-export function missingRequired(answers: Answers, hasClientSignature: boolean): MissingField[] {
+export function missingRequired(
+  answers: Answers,
+  hasClientSignature: boolean,
+  provider?: { name?: string | null; slug?: string | null } | string | null,
+): MissingField[] {
+  const catalogId = questionCatalogId(typeof provider === "string" ? provider : provider);
   const missing: MissingField[] = [];
   const seen = new Set<string>();
   for (const req of REQUIRED_FOR_SUBMIT) {
+    const question = questionByKey(req.key);
+    if (question && !questionVisibleInCatalog(question, catalogId)) continue;
     if (!askIfSatisfied(req.when, answers)) continue;
     if (req.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") continue;
     const v = answers[req.key];
@@ -124,6 +143,7 @@ export function missingRequired(answers: Answers, hasClientSignature: boolean): 
   }
   for (const s of SECTIONS) {
     for (const q of s.questions) {
+      if (!questionVisibleInCatalog(q, catalogId)) continue;
       if (s.key === "welcome" || q.key === "intake_mode" || q.staffOnly || q.type === "info" || q.type === "heading") continue;
       if (!isQuestionRequired(q, answers) || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];

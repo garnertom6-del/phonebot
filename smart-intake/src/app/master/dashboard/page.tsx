@@ -109,9 +109,9 @@ function latestPacketFor(provider: ProviderRow) {
   }, null);
 }
 
-function packetView(provider: ProviderRow) {
+function packetView(provider: ProviderRow, otherProviderNames: string[] = []) {
   const packet = activePacketFor(provider) || latestPacketFor(provider);
-  const display = provider.packetDisplay || packetDisplayStatus(packet, provider.name);
+  const display = provider.packetDisplay || packetDisplayStatus(packet, provider.name, otherProviderNames);
   return {
     packet,
     display,
@@ -486,7 +486,7 @@ export default function MasterDashboard() {
     }
   }
 
-  async function approvePacket(templateId: string) {
+  async function approvePacket(templateId: string, extras: { filenameAcknowledged?: boolean; overrideReason?: string } = {}) {
     const provider = selectedProvider;
     if (!provider) return;
     setPacketActionBusy(templateId);
@@ -495,12 +495,22 @@ export default function MasterDashboard() {
     try {
       const response = await fetch(`/api/master/providers/${provider.id}/packet-template/approve`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId }),
+        body: JSON.stringify({ templateId, ...extras }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (body.filenameWarning && !extras.filenameAcknowledged) {
+          const confirmed = window.confirm(`${body.filenameWarning.message}\n\nApprove this packet anyway?`);
+          if (confirmed) {
+            await approvePacket(templateId, { ...extras, filenameAcknowledged: true, overrideReason: extras.overrideReason || "Filename warning acknowledged from master dashboard." });
+            return;
+          }
+        }
+        const missing = Array.isArray(body.health?.missingRequired)
+          ? body.health.missingRequired.slice(0, 4).map((item: { label?: string; key?: string }) => item.label || item.key).join(", ")
+          : "";
         const blocking = Array.isArray(body.health?.blockingIssues) ? body.health.blockingIssues.slice(0, 3).join(" ") : "";
-        setError(`${body.error || "Packet approval failed."}${blocking ? ` ${blocking}` : ""}`);
+        setError(`${body.error || "Packet approval failed."}${missing ? ` Missing: ${missing}.` : blocking ? ` ${blocking}` : ""}`);
         return;
       }
       setNote(`Packet approved with a ${body.health?.score ?? "completed"}/100 mapping score. It is now the provider's active packet.`);
@@ -512,7 +522,7 @@ export default function MasterDashboard() {
     }
   }
 
-  async function activatePacket(templateId: string) {
+  async function activatePacket(templateId: string, extras: { filenameAcknowledged?: boolean } = {}) {
     const provider = selectedProvider;
     if (!provider) return;
     setPacketActionBusy(templateId);
@@ -520,10 +530,17 @@ export default function MasterDashboard() {
     try {
       const response = await fetch(`/api/master/providers/${provider.id}/packet-template/activate`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ templateId }),
+        body: JSON.stringify({ templateId, filenameAcknowledged: extras.filenameAcknowledged === true }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (body.filenameWarning && !extras.filenameAcknowledged) {
+          const confirmed = window.confirm(`${body.filenameWarning.message}\n\nActivate this packet anyway?`);
+          if (confirmed) {
+            await activatePacket(templateId, { filenameAcknowledged: true });
+            return;
+          }
+        }
         setError(body.error || "Packet could not be activated.");
         return;
       }
@@ -777,8 +794,14 @@ export default function MasterDashboard() {
   const selectedProvider = providers.find((provider) => provider.id === selectedProviderId) || null;
   const selectedLatestTemplate = selectedProvider ? latestPacketFor(selectedProvider) : null;
   const selectedActiveTemplate = selectedProvider ? activePacketFor(selectedProvider) : null;
+  const otherProviderNames = (exceptId: string) =>
+    providers.filter((row) => row.id !== exceptId).map((row) => row.name);
   const selectedLatestPacketState = selectedLatestTemplate
-    ? packetDisplayStatus(selectedLatestTemplate, selectedProvider?.name || "")
+    ? packetDisplayStatus(
+      selectedLatestTemplate,
+      selectedProvider?.name || "",
+      selectedProvider ? otherProviderNames(selectedProvider.id) : [],
+    )
     : null;
   const trimmedSearch = search.trim();
   const statusMatchedProviders = providers.filter((provider) => statusFilter === "ALL" || provider.status === statusFilter);
@@ -894,7 +917,11 @@ export default function MasterDashboard() {
             ) : (
               <Link href="/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Intake dashboard</Link>
             )}
-            {isMaster && <a href="/api/admin/backup" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Download backup</a>}
+            {isMaster && <a href="/api/admin/backup?confirmPhi=yes" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={(event) => {
+              if (!window.confirm("This backup contains protected health information. Download it only to a private, encrypted location. Continue?")) {
+                event.preventDefault();
+              }
+            }}>Download backup</a>}
             <button
               className="btn-secondary bg-white/15 text-white hover:bg-white/25"
               onClick={async () => {
@@ -985,7 +1012,7 @@ export default function MasterDashboard() {
             ) : (
               <div className="mt-3 grid gap-2 md:grid-cols-2">
                 {summaryProviders.map((provider) => {
-                  const view = packetView(provider);
+                  const view = packetView(provider, otherProviderNames(provider.id));
                   return (
                     <div key={provider.id} className="rounded-xl border border-white/10 bg-white/10 p-3 text-sm">
                       <div className="flex items-center justify-between gap-3">
@@ -1272,7 +1299,7 @@ export default function MasterDashboard() {
               )}
               {filteredProviders.map((provider) => {
                 const active = provider.status === "ACTIVE";
-                const view = packetView(provider);
+                const view = packetView(provider, otherProviderNames(provider.id));
                 const nextAction = providerNextAction(provider);
                 const loginStatus = providerLoginStatus(provider);
                 const reviewQueue = providerStaffReviewCount(provider);
@@ -1371,7 +1398,7 @@ export default function MasterDashboard() {
                   )}
                   {filteredProviders.map((provider) => {
                     const active = provider.status === "ACTIVE";
-                    const view = packetView(provider);
+                    const view = packetView(provider, otherProviderNames(provider.id));
                     const activeStaff = activeMembershipCount(provider);
                     const nextAction = providerNextAction(provider);
                     const loginStatus = providerLoginStatus(provider);

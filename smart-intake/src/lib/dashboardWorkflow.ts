@@ -25,7 +25,11 @@ type DashboardWorkflowInput = {
   providerPacketReady: boolean;
 };
 
-export function needsStaffAction(status: string): boolean {
+export function needsStaffAction(
+  status: string,
+  readiness?: Pick<DashboardReadiness, "tone" | "state">,
+): boolean {
+  if (readiness?.tone === "warn") return true;
   return NEEDS_ACTION_STATUSES.includes(status as (typeof NEEDS_ACTION_STATUSES)[number]);
 }
 
