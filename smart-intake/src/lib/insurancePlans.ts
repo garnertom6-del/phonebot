@@ -40,11 +40,47 @@ const RECORD_NUMBER_PREFIXES: Record<string, string> = {
 const LOOKUP_ONLY_RECORD_NUMBER_KEYS = new Set(["partners", "vaya", "alliance", "trillium"]);
 const GENERATOR_RECORD_NUMBER_KEYS = new Set(["bcbs", "united", "amerihealth", "carolina-complete"]);
 
+/**
+ * Where staff actually sign in to find a member's record for the lookup-only
+ * plans. Verified against each MCO's own provider site on 2026-08-29:
+ *  - Alliance: providerportal.alliancehealthplan.org is the single sign-on
+ *    front door to the Alliance Claims System (ACS) and other provider apps.
+ *  - Trillium: Provider Direct (behavioral health / I/DD) uses the Dashboard
+ *    sign-in at ncinno.org.
+ *  - Vaya: providerportal.vayahealth.com (claims, authorizations, users).
+ *  - Partners: ProviderCONNECT signs in at id.partnersbhm.org; each agency's
+ *    local administrator provisions its users.
+ * These are not directories - a member lookup needs the agency's own login.
+ */
 export const RECORD_NUMBER_LOOKUP_LINKS = [
-  { key: "partners", label: "Partners", url: "https://www.partnersbhm.org/provider-search/", description: "Official Partners provider search" },
-  { key: "vaya", label: "Vaya", url: "https://providers.vayahealth.com/", description: "Official Vaya Provider Central" },
-  { key: "alliance", label: "Alliance", url: "https://www.alliancehealthplan.org/providers/tp/providers/", description: "Official Alliance provider resources" },
-  { key: "trillium", label: "Trillium", url: "https://www.trilliumhealthresources.org/for-providers/provider-contact-information-and-portals", description: "Official Trillium provider portals" },
+  {
+    key: "partners",
+    label: "Partners",
+    portal: "ProviderCONNECT",
+    url: "https://id.partnersbhm.org/",
+    description: "Partners ProviderCONNECT sign-in. Your agency's ProviderCONNECT local administrator must provision your account before you can log in.",
+  },
+  {
+    key: "vaya",
+    label: "Vaya",
+    portal: "Vaya Provider Portal",
+    url: "https://providerportal.vayahealth.com/",
+    description: "Vaya Health Provider Portal sign-in (claims, authorizations, member information).",
+  },
+  {
+    key: "alliance",
+    label: "Alliance",
+    portal: "Alliance Provider Portal (ACS)",
+    url: "https://providerportal.alliancehealthplan.org/",
+    description: "Alliance Health Provider Portal - single sign-on to the Alliance Claims System (ACS). Access is requested through Alliance's ACS access form.",
+  },
+  {
+    key: "trillium",
+    label: "Trillium",
+    portal: "Provider Direct",
+    url: "https://www.ncinno.org/Dashboard",
+    description: "Trillium Provider Direct dashboard sign-in for behavioral health and I/DD providers.",
+  },
 ] as const;
 
 export const PROVIDER_CHOICE_PLAN_OPTIONS = INSURANCE_PLAN_MAP.map((item) => item.providerChoice);
@@ -69,7 +105,7 @@ export const RECORD_NUMBER_MANUAL_PLAN_OPTIONS = INSURANCE_PLAN_MAP
  */
 export const RECORD_NUMBER_PLAN_GROUPS: ReadonlyArray<{ label: string; plans: string[] }> = [
   { label: "Generates a Record# for you", plans: RECORD_NUMBER_GENERATOR_PLAN_OPTIONS },
-  { label: "Look up the official Record# on the plan's site", plans: RECORD_NUMBER_LOOKUP_PLAN_OPTIONS },
+  { label: "Sign in to the plan's provider portal for the Record#", plans: RECORD_NUMBER_LOOKUP_PLAN_OPTIONS },
   { label: "Type the official Record# or use a temporary one", plans: RECORD_NUMBER_MANUAL_PLAN_OPTIONS },
 ];
 
