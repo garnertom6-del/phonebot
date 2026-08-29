@@ -323,15 +323,16 @@ export default function NewIntake() {
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const nextForm = readFieldValues(e.currentTarget, form);
-    const assigned = assignIntakeContacts(nextForm.email || form.email || "", nextForm.phone || form.phone || "");
-    setForm((current) => ({ ...current, ...nextForm, email: assigned.email, phone: assigned.phone }));
+    const assigned = assignIntakeContacts(nextForm.email, nextForm.phone);
     setError("");
     setContactError("");
     setSetupStatus("");
     if (assigned.error) {
+      setForm((current) => ({ ...current, ...nextForm }));
       setContactError(assigned.error);
       return;
     }
+    setForm((current) => ({ ...current, ...nextForm, email: assigned.email, phone: assigned.phone }));
     setIsCreating(true);
     try {
       const requestBody = {
