@@ -85,6 +85,33 @@ export function canGenerateRecordNumber(value: string): boolean {
   return !!plan && GENERATOR_RECORD_NUMBER_KEYS.has(plan.key);
 }
 
+export function isLookupOnlyRecordNumberPlan(value: string): boolean {
+  const plan = matchingPlan(value);
+  return !!plan && LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(plan.key);
+}
+
+/**
+ * Record# is optional on Create New Intake. A lookup-only panel still needs
+ * the official number. Otherwise the server generates TEMP- or panel-prefixed
+ * digits so staff are not blocked by Advanced.
+ */
+export function resolveCreateRecordNumber(
+  recordNumber?: string,
+  providerChoicePlan?: string,
+): { recordNumber: string; shouldGenerate: boolean; error?: string } {
+  const existing = text(recordNumber);
+  if (existing) return { recordNumber: existing, shouldGenerate: false };
+  const panel = text(providerChoicePlan);
+  if (panel && isLookupOnlyRecordNumberPlan(panel)) {
+    return {
+      recordNumber: "",
+      shouldGenerate: false,
+      error: "Enter the panel's official Record# manually. Only BCBS, United Health Care, AmeriHealth, and Carolina Complete use the generator.",
+    };
+  }
+  return { recordNumber: "", shouldGenerate: true };
+}
+
 export function makeRecordNumber(value: string, random: () => number = Math.random): string {
   const prefix = recordNumberPrefix(value) || "TEMP";
   const safeRandom = Math.min(0.999999, Math.max(0, random()));

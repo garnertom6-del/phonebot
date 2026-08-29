@@ -57,7 +57,7 @@ export async function createStaffIntake(
         tokenExpiresAt: tokenExpiry(),
         expectCca: data.expectCca !== false,
         intakeDate: data.intakeDate || new Date().toLocaleDateString("en-US"),
-        location: data.location || "Greensboro",
+        location: data.location || "",
       },
     });
 

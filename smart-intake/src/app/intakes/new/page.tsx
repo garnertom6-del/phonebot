@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
@@ -16,6 +16,11 @@ import {
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
 import { buildNewIntakeReadiness } from "@/lib/newIntakeReadiness";
+import {
+  DEFAULT_INTAKE_STATE,
+  canOfferCompletedPacketEmail,
+  resolveCreateIntakeHousing,
+} from "@/lib/newIntakeHousing";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -29,9 +34,14 @@ const FIELDS = [
 ] as const;
 type FieldKey = (typeof FIELDS)[number][0];
 
-const GENERIC_FIELD_SKIP = new Set([
-  "recordNumber", "addressStreet", "addressCity", "addressState", "livingArrangement", "email", "phone",
+const IDENTITY_KEYS = new Set(["fullName", "dob"]);
+const DETAILS_FORM_KEYS = new Set(["midNumber", "intakeDate", "location", "guardianName", "guardianEmail", "guardianPhone"]);
+const DETAILS_NOTE_KEYS = new Set([
+  "mid_number", "address_street", "address_city", "address_state", "living_arrangement",
+  "gender", "race", "ethnicity", "veteran", "employment_status", "pcp_name", "pcp_phone",
+  "ec1_name", "ec1_cell_phone",
 ]);
+const ADVANCED_NOTE_KEYS = new Set(["provider_choice_plan", "record_number"]);
 
 const QUICK_NOTE_RACE_OPTIONS = [
   "American Indian or Alaska Native", "Asian", "Black or African American",
@@ -64,7 +74,7 @@ const NOTE_TARGETS: Record<string, { kind: "form"; key: FieldKey } | { kind: "qu
   ec1_cell_phone: { kind: "quick", key: "ec1_cell_phone" },
 };
 
-type NcTracksTab = "paste" | "upload" | "howto" | "nctracks";
+type NcTracksTab = "upload" | "howto" | "nctracks";
 
 function todayInputDate(): string {
   const now = new Date();
@@ -82,11 +92,13 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 
 export default function NewIntake() {
   const router = useRouter();
-  const [form, setForm] = useState<Record<string, string>>({ location: "Greensboro", intakeDate: todayInputDate() });
+  const [form, setForm] = useState<Record<string, string>>({ intakeDate: todayInputDate(), addressState: DEFAULT_INTAKE_STATE });
   const [recordPanel, setRecordPanel] = useState("");
   const [referralSource, setReferralSource] = useState("");
   const [recordTab, setRecordTab] = useState<"generate" | "lookup">("generate");
-  const [housingTab, setHousingTab] = useState<"address" | "homeless">("address");
+  const [homelessSelected, setHomelessSelected] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
   const [recordNumberWasGenerated, setRecordNumberWasGenerated] = useState(false);
   const [expectCca, setExpectCca] = useState(true);
@@ -101,7 +113,7 @@ export default function NewIntake() {
   const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
   const [sendBusy, setSendBusy] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
-  const [ncTracksTab, setNcTracksTab] = useState<NcTracksTab>("paste");
+  const [ncTracksTab, setNcTracksTab] = useState<NcTracksTab>("upload");
   const [helperNotes, setHelperNotes] = useState("");
   const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
   const [extractedFields, setExtractedFields] = useState<IntakeNoteField[]>([]);
@@ -122,12 +134,22 @@ export default function NewIntake() {
 
   const assignedPreview = assignIntakeContacts(form.email || "", form.phone || "");
   const smsPhone = assignedPreview.error ? "" : assignedPreview.phone;
-  const recordReady = !!(form.recordNumber || "").trim() || canGenerateRecordNumber(recordPanel);
+  const housingPreview = resolveCreateIntakeHousing({
+    addressStreet: form.addressStreet,
+    addressCity: form.addressCity,
+    addressState: form.addressState,
+    livingArrangement: form.livingArrangement,
+    homelessSelected,
+  });
+  const packetEmailEnabled = canOfferCompletedPacketEmail({
+    packetContextLoaded,
+    packetReady,
+    packetContextError: !!packetContextError,
+  });
   const intakeReadiness = buildNewIntakeReadiness({
     fullName: form.fullName,
     dob: form.dob,
     contactReady: !assignedPreview.error && !!(assignedPreview.phone || assignedPreview.email),
-    recordReady,
     packetContextLoaded,
     packetContextError: !!packetContextError,
     packetReady,
@@ -196,11 +218,15 @@ export default function NewIntake() {
     const quickPatch: Record<string, string> = {};
     let useAddress = false;
     let useHomeless = false;
+    let openDetails = false;
+    let openAdvanced = false;
     for (const field of fields) {
       const target = NOTE_TARGETS[field.key];
       if (!target) continue;
       const current = (target.kind === "form" ? form[target.key] : quickAnswers[target.key]) || "";
       if (onlyIfEmpty && current.trim()) continue;
+      if (DETAILS_NOTE_KEYS.has(field.key)) openDetails = true;
+      if (ADVANCED_NOTE_KEYS.has(field.key)) openAdvanced = true;
       if (target.kind === "form") {
         formPatch[target.key] = field.value;
         if (target.key === "addressStreet" || target.key === "addressCity" || target.key === "addressState") useAddress = true;
@@ -211,8 +237,11 @@ export default function NewIntake() {
     }
     if (Object.keys(formPatch).length) setForm((existing) => ({ ...existing, ...formPatch }));
     if (Object.keys(quickPatch).length) setQuickAnswers((existing) => ({ ...existing, ...quickPatch }));
-    if (useHomeless) setHousingTab("homeless");
-    else if (useAddress) setHousingTab("address");
+    if (useHomeless) setHomelessSelected(true);
+    else if (useAddress) setHomelessSelected(false);
+    if (openDetails) setDetailsOpen(true);
+    if (openAdvanced) setAdvancedOpen(true);
+    if (formPatch.phone) setSendSmsAfterCreate(true);
   }
 
   function ingestHelperNotes(notes: string, fillEmpty: boolean) {
@@ -352,9 +381,7 @@ export default function NewIntake() {
     const missing = intakeReadiness.items.find((item) => !item.ready)?.key;
     const targetId = missing === "identity"
       ? (!(form.fullName || "").trim() ? "new-intake-fullName" : "new-intake-dob")
-      : missing === "contact"
-        ? "new-intake-phone"
-        : "new-intake-record-panel";
+      : "new-intake-phone";
     const target = document.getElementById(targetId) as HTMLElement | null;
     target?.scrollIntoView({ behavior: "smooth", block: "center" });
     window.setTimeout(() => target?.focus({ preventScroll: true }), 250);
@@ -383,16 +410,13 @@ export default function NewIntake() {
       }, 0);
       return;
     }
-    if (!(nextForm.recordNumber || "").trim() && !canGenerateRecordNumber(recordPanel)) {
-      setForm((current) => ({ ...current, ...nextForm }));
-      setError("Choose an insurance panel that can generate a Record#, or enter the official Record#.");
-      window.setTimeout(() => {
-        const target = document.getElementById("new-intake-record-panel");
-        target?.scrollIntoView({ behavior: "smooth", block: "center" });
-        (target as HTMLElement | null)?.focus({ preventScroll: true });
-      }, 0);
-      return;
-    }
+    const housing = resolveCreateIntakeHousing({
+      addressStreet: nextForm.addressStreet,
+      addressCity: nextForm.addressCity,
+      addressState: nextForm.addressState,
+      livingArrangement: nextForm.livingArrangement || form.livingArrangement,
+      homelessSelected,
+    });
     setForm((current) => ({ ...current, ...nextForm, email: assigned.email, phone: assigned.phone }));
     setIsCreating(true);
     try {
@@ -403,9 +427,12 @@ export default function NewIntake() {
         phone: assigned.phone,
         providerChoicePlan: recordPanel,
         referralSource,
-        livingArrangement: housingTab === "homeless" ? "Homeless" : nextForm.livingArrangement || form.livingArrangement || "",
+        livingArrangement: housing.livingArrangement,
+        addressStreet: housing.addressStreet,
+        addressCity: housing.addressCity,
+        addressState: housing.addressState,
         expectCca,
-        autoEmailProviderPacket,
+        autoEmailProviderPacket: packetEmailEnabled && autoEmailProviderPacket,
       };
       const res = await fetch("/api/intakes", {
         method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
@@ -555,11 +582,9 @@ export default function NewIntake() {
     ? (smsPhone && sendSmsAfterCreate ? "Creating and texting the link..." : "Creating intake...")
     : packetContextError
       ? "Sign in to create an intake"
-    : smsPhone && sendSmsAfterCreate
+    : smsPhone
       ? "Create and text the link"
-      : smsPhone
-        ? "Create intake — review before texting"
-        : "Create intake";
+      : "Create intake";
 
   return (
     <main className="mx-auto max-w-xl p-4 pb-28 sm:p-6">
@@ -621,16 +646,63 @@ export default function NewIntake() {
             )}
           </div>
         )}
+        <section id="new-intake-paste" className="mb-4 rounded-xl border border-brand/20 bg-brand-light/20 p-4">
+          <h2 className="font-bold text-slate-900">Paste CCA / quick notes</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Paste first, confirm the chips, then create. Empty identity, address, phone, and emergency-contact fields fill automatically. Confirmed fields are not overwritten unless you choose replace.
+          </p>
+          <label className="mt-3 block">
+            <span className="label">Quick notes</span>
+            <textarea
+              className="input min-h-[120px]"
+              value={helperNotes}
+              onChange={(e) => ingestHelperNotes(e.target.value, false)}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData("text");
+                if (!pasted) return;
+                const target = e.currentTarget;
+                const start = target.selectionStart ?? helperNotes.length;
+                const end = target.selectionEnd ?? helperNotes.length;
+                e.preventDefault();
+                ingestHelperNotes(helperNotes.slice(0, start) + pasted + helperNotes.slice(end), true);
+              }}
+              placeholder={"Label: value, one per line\nName:\nDOB:\nAddress:\nPhone:\nEmergency contact:\nMID:"}
+            />
+          </label>
+          {extractedFields.length > 0 && (
+            <div className="mt-3 rounded-lg border border-brand/20 bg-white p-3">
+              <p className="text-sm font-semibold text-slate-800">Extracted from notes — confirm each value</p>
+              <p className="mt-1 text-xs text-slate-500">Empty fields are filled automatically. Confirmed fields are not overwritten unless you choose replace.</p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                {extractedFields.map((field) => {
+                  const current = noteFieldCurrentValue(field).trim();
+                  const applied = current === field.value.trim();
+                  const occupied = !!current && !applied;
+                  return (
+                    <button
+                      key={`${field.key}:${field.value}`}
+                      type="button"
+                      className={applied ? "chip chip-on" : "chip"}
+                      onClick={() => applyNoteField(field)}
+                    >
+                      {field.label}: {field.value}
+                      {applied ? " (applied)" : occupied ? " (replace)" : " (use)"}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </section>
         <div id="new-intake-basics" className="scroll-mt-28 grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {FIELDS.filter(([key]) => !GENERIC_FIELD_SKIP.has(key)).map(([key, label, type]) => (
+          {FIELDS.filter(([key]) => IDENTITY_KEYS.has(key)).map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
               <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
               <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
                 required={key === "fullName" || key === "dob"}
                 max={key === "dob" ? new Date().toISOString().slice(0, 10) : undefined}
-                autoComplete={key === "fullName" ? "name" : key === "dob" ? "bday" : key === "location" ? "address-level2" : "off"}
-                autoCapitalize={key === "midNumber" ? "characters" : key === "fullName" || key === "location" ? "words" : undefined}
-                spellCheck={key === "midNumber" ? false : undefined}
+                autoComplete={key === "fullName" ? "name" : key === "dob" ? "bday" : "off"}
+                autoCapitalize={key === "fullName" ? "words" : undefined}
                 enterKeyHint="next"
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
             </div>
@@ -656,8 +728,10 @@ export default function NewIntake() {
                   aria-describedby="new-intake-contact-help"
                   value={form.phone || ""}
                   onChange={(e) => {
-                    setForm((f) => ({ ...f, phone: e.target.value }));
-                    setSendSmsAfterCreate(false);
+                    const phone = e.target.value;
+                    setForm((f) => ({ ...f, phone }));
+                    const assigned = assignIntakeContacts(form.email || "", phone);
+                    setSendSmsAfterCreate(!!assigned.phone && !assigned.error);
                     if (contactError) setContactError("");
                   }}
                   placeholder="10-digit cell"
@@ -677,8 +751,10 @@ export default function NewIntake() {
                   aria-describedby="new-intake-contact-help"
                   value={form.email || ""}
                   onChange={(e) => {
-                    setForm((f) => ({ ...f, email: e.target.value }));
-                    setSendSmsAfterCreate(false);
+                    const email = e.target.value;
+                    setForm((f) => ({ ...f, email }));
+                    const assigned = assignIntakeContacts(email, form.phone || "");
+                    setSendSmsAfterCreate(!!assigned.phone && !assigned.error);
                     if (contactError) setContactError("");
                   }}
                   placeholder="Optional email"
@@ -709,172 +785,82 @@ export default function NewIntake() {
               </div>
             )}
           </div>
-          <label>
-            <span className="label">Referral source</span>
-            <select className="input" value={referralSource} onChange={(e) => setReferralSource(e.target.value)}>
-              <option value="">Select referral source</option>
-              {REFERRAL_SOURCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-            </select>
+        </div>
+        <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
+          <label className="flex min-h-11 items-start gap-3 text-sm font-semibold text-amber-950">
+            <input
+              type="checkbox"
+              className="mt-0.5 h-5 w-5 shrink-0"
+              checked={homelessSelected}
+              onChange={(event) => setHomelessSelected(event.target.checked)}
+            />
+            <span>Homeless / no fixed address</span>
           </label>
-        </div>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <h2 className="font-bold text-slate-900">Address &amp; housing</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Add a confirmed address to save the client time. If the client has no fixed address, use the homeless tab instead and do not enter a made-up street address.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Housing status">
-            {[
-              ["address", "Address"],
-              ["homeless", "Homeless / no fixed address"],
-            ].map(([key, label]) => (
-              <button key={key} id={`housing-tab-${key}`} type="button" role="tab"
-                aria-selected={housingTab === key} aria-controls="housing-tabpanel"
-                tabIndex={housingTab === key ? 0 : -1}
-                onClick={() => setHousingTab(key as "address" | "homeless")}
-                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${housingTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-                {label}
-              </button>
-            ))}
-          </div>
-          <div id="housing-tabpanel" role="tabpanel" aria-labelledby={`housing-tab-${housingTab}`}>
-            {housingTab === "address" ? (
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                {(["addressStreet", "addressCity", "addressState"] as const).map((key) => (
-                  <label key={key}>
-                    <span className="label">{key === "addressStreet" ? "Street address" : key === "addressCity" ? "City" : "State"}</span>
-                    <input className="input" name={key} value={form[key] || ""}
-                      autoComplete={key === "addressStreet" ? "street-address" : key === "addressCity" ? "address-level2" : "address-level1"}
-                      onChange={(e) => setForm((current) => ({ ...current, [key]: e.target.value }))}
-                      placeholder={key === "addressState" ? "NC" : ""} />
-                  </label>
-                ))}
-              </div>
-            ) : (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                <p className="font-semibold text-amber-900">Homeless / no fixed address selected</p>
-                <p className="mt-1 text-sm text-amber-800">The packet will mark the client as homeless, skip the street-address requirement, and let the client continue without repeating that question.</p>
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label>
-                    <span className="label">City or area (optional)</span>
-                    <input className="input" name="addressCity" value={form.addressCity || ""} autoComplete="address-level2"
-                      onChange={(e) => setForm((current) => ({ ...current, addressCity: e.target.value }))} />
-                  </label>
-                  <label>
-                    <span className="label">State (optional)</span>
-                    <input className="input" name="addressState" value={form.addressState || ""} autoComplete="address-level1"
-                      onChange={(e) => setForm((current) => ({ ...current, addressState: e.target.value }))} placeholder="NC" />
-                  </label>
-                </div>
-                <input type="hidden" name="livingArrangement" value="Homeless" />
-              </div>
-            )}
-          </div>
-        </div>
-        <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
-          <h2 className="font-bold text-brand">Record number</h2>
-          <p className="mt-1 text-sm text-slate-600">
-            Auto-generate a Record# in the format <b>PANEL-12345</b>, or look up the official number.
-            The five digits are random and the server checks for duplicates within this provider.
-          </p>
-          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Record number method">
-            <button id="record-tab-generate" type="button" role="tab" aria-selected={recordTab === "generate"}
-              aria-controls="record-tabpanel" tabIndex={recordTab === "generate" ? 0 : -1}
-              onClick={() => selectRecordTab("generate")}
-              className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-              Auto-generate
-            </button>
-            <button id="record-tab-lookup" type="button" role="tab" aria-selected={recordTab === "lookup"}
-              aria-controls="record-tabpanel" tabIndex={recordTab === "lookup" ? 0 : -1}
-              onClick={() => selectRecordTab("lookup")}
-              className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-              Panel lookup
-            </button>
-          </div>
-          <div id="record-tabpanel" role="tabpanel" aria-labelledby={`record-tab-${recordTab}`}>
-            {recordTab === "generate" ? (
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                <label>
-                  <span className="label">Insurance panel</span>
-                  <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                    <option value="">Select panel</option>
-                    {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
-                      <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
-                    ))}
-                  </select>
-                </label>
-                <button type="button" className="btn-secondary" disabled={!recordPanel} onClick={generateRecordNumber}>Generate Record#</button>
-              </div>
-            ) : (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
-                <label className="mt-3 block">
-                  <span className="label">Insurance panel</span>
-                  <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                    <option value="">Select lookup panel</option>
-                    {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
-                      <option key={plan} value={plan}>{plan}</option>
-                    ))}
-                  </select>
-                </label>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
-                    <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
-                      {link.label} lookup
-                    </a>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-          <label className="mt-3 block">
-            <span className="label">Record#</span>
-            <input className="input" name="recordNumber" value={form.recordNumber || ""}
-              onChange={(e) => {
-                setRecordNumberWasGenerated(false);
-                setForm((current) => ({ ...current, recordNumber: e.target.value }));
-              }}
-              placeholder={recordTab === "lookup" ? "Enter the official lookup Record#" : "Generate or type one"} />
-          </label>
-          {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
-          <p className="mt-2 text-xs text-slate-500">Only Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345, and Carolina Complete = CC-12345 use the generator. Other panels require their official Record#.</p>
-        </div>
-        <div id="new-intake-optional" className="scroll-mt-28 mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div>
-            <h2 className="font-bold text-slate-900">NC Tracks starter info</h2>
-            <p className="mt-1 text-sm text-slate-600">
-              Best workflow: create the link fast, but if you already have NC Tracks open you can
-              start that work here. Quick-fill stays on this screen while you switch tabs.
+          {housingPreview.homeless ? (
+            <p className="mt-2 text-sm text-amber-800">
+              Street is blank, so this intake uses the no-fixed-address path. The packet will mark the client as homeless, skip the street-address requirement, and let the client continue without repeating that question. Open Details only if you have a confirmed street.
             </p>
-          </div>
-          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="NC Tracks starter options">
-            {([
-              ["paste", "Paste"],
-              ["upload", "Upload"],
-              ["howto", "How it works"],
-              ["nctracks", "Open NC Tracks"],
-            ] as const).map(([key, label]) => (
-              <button
-                key={key}
-                id={`nctracks-tab-${key}`}
-                type="button"
-                role="tab"
-                aria-selected={ncTracksTab === key}
-                aria-controls="nctracks-tabpanel"
-                tabIndex={ncTracksTab === key ? 0 : -1}
-                onClick={() => selectNcTracksTab(key)}
-                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${
-                  ncTracksTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {label}
-              </button>
+          ) : (
+            <p className="mt-2 text-sm text-amber-800">Check this if the client has no fixed address. Do not enter a made-up street.</p>
+          )}
+          {housingPreview.homeless && <input type="hidden" name="livingArrangement" value="Homeless" />}
+        </div>
+        <details
+          id="new-intake-details"
+          className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
+          open={detailsOpen}
+          onToggle={(event) => setDetailsOpen((event.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer font-bold text-slate-900">Details</summary>
+          <p className="mt-1 text-sm text-slate-600">MID, location, guardian, referral, address extras, and Quick-fill. Stays filled even when collapsed.</p>
+          <div className="mt-3 grid grid-cols-1 gap-4 sm:grid-cols-2">
+            {FIELDS.filter(([key]) => DETAILS_FORM_KEYS.has(key)).map(([key, label, type]) => (
+              <div key={key} className={key === "guardianName" ? "sm:col-span-2" : ""}>
+                <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
+                <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
+                  autoComplete={key === "location" ? "address-level2" : key === "guardianEmail" ? "email" : key === "guardianPhone" ? "tel" : "off"}
+                  autoCapitalize={key === "midNumber" ? "characters" : key === "location" || key === "guardianName" ? "words" : undefined}
+                  spellCheck={key === "midNumber" ? false : undefined}
+                  placeholder={key === "location" ? "Office or city" : undefined}
+                  enterKeyHint="next"
+                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
+              </div>
             ))}
+            <label>
+              <span className="label">Referral source</span>
+              <select className="input" value={referralSource} onChange={(e) => setReferralSource(e.target.value)}>
+                <option value="">Select referral source</option>
+                {REFERRAL_SOURCE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+              </select>
+            </label>
           </div>
-          <details open className="mt-4 rounded-lg border border-brand/20 bg-white p-3">
-            <summary className="cursor-pointer list-none">
-              <span className="font-semibold text-brand">Quick-fill common answers</span>
-              <span className="ml-2 text-xs text-slate-500">Optional - stays visible when you switch NC Tracks tabs</span>
-            </summary>
+          <div className="mt-4 rounded-lg border border-slate-200 bg-white p-3">
+            <h3 className="font-semibold text-slate-900">Address extras</h3>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+              {(["addressStreet", "addressCity", "addressState"] as const).map((key) => (
+                <label key={key} className={key === "addressStreet" ? "sm:col-span-3" : ""}>
+                  <span className="label">{key === "addressStreet" ? "Street address" : key === "addressCity" ? "City" : "State"}</span>
+                  <input className="input" name={key} value={form[key] || ""}
+                    autoComplete={key === "addressStreet" ? "street-address" : key === "addressCity" ? "address-level2" : "address-level1"}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      setForm((current) => ({ ...current, [key]: value }));
+                      if (key === "addressStreet" && value.trim()) setHomelessSelected(false);
+                    }}
+                    placeholder={key === "addressState" ? DEFAULT_INTAKE_STATE : key === "addressStreet" ? "Leave blank if no fixed address" : ""} />
+                </label>
+              ))}
+            </div>
+            {!housingPreview.homeless && (
+              <label className="mt-3 block">
+                <span className="label">Living arrangement</span>
+                <input className="input" name="livingArrangement" value={form.livingArrangement || ""}
+                  onChange={(e) => setForm((current) => ({ ...current, livingArrangement: e.target.value }))} />
+              </label>
+            )}
+          </div>
+          <div className="mt-4 rounded-lg border border-brand/20 bg-white p-3">
+            <p className="font-semibold text-brand">Quick-fill common answers</p>
             <p className="mt-2 text-xs text-slate-600">Use only answers confirmed by the client or records. When you create the intake, these answers are saved to the packet and the client can skip those SMS questions.</p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
               <label>
@@ -921,7 +907,7 @@ export default function NewIntake() {
               </label>
               <label>
                 <span className="label">PCP name</span>
-                <input className="input" value={quickAnswers.pcp_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_name: e.target.value }))} placeholder="Name from NC Tracks" />
+                <input className="input" value={quickAnswers.pcp_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_name: e.target.value }))} placeholder="Name from records" />
               </label>
               <label>
                 <span className="label">PCP phone</span>
@@ -936,93 +922,150 @@ export default function NewIntake() {
                 <input className="input" value={quickAnswers.ec1_cell_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_cell_phone: e.target.value }))} placeholder="10-digit number from the record" />
               </label>
             </div>
-          </details>
-          <div id="nctracks-tabpanel" role="tabpanel" aria-labelledby={`nctracks-tab-${ncTracksTab}`}>
-          {ncTracksTab === "upload" && (
-            <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-white p-4">
-              <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
-                {ncTracksFile ? "Replace NC Tracks file" : "Choose NC Tracks screenshot / card / PDF"}
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="application/pdf,image/*"
-                  onChange={(e) => setNcTracksFile(e.target.files?.[0] || null)}
-                />
-              </label>
-              <p className="mt-2 text-sm text-slate-600">
-                Upload a screenshot, photo, or PDF from Downloads. After the intake is created, the app
-                scans it and fills MID, PCP, Medicaid plan, and other matching helper fields.
-              </p>
-              {ncTracksFile && <p className="mt-2 text-sm font-semibold text-slate-700">{ncTracksFile.name}</p>}
+          </div>
+        </details>
+        <details
+          id="new-intake-advanced"
+          className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
+          open={advancedOpen}
+          onToggle={(event) => setAdvancedOpen((event.currentTarget as HTMLDetailsElement).open)}
+        >
+          <summary className="cursor-pointer font-bold text-slate-900">Advanced</summary>
+          <p className="mt-1 text-sm text-slate-600">Record#, insurance lookup, and NC Tracks. Leave closed to create the link without scrolling past them. A Record# is generated if you skip this.</p>
+          <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
+            <h3 className="font-bold text-brand">Record number</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Auto-generate a Record# in the format <b>PANEL-12345</b>, or look up the official number.
+              The five digits are random and the server checks for duplicates within this provider.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Record number method">
+              <button id="record-tab-generate" type="button" role="tab" aria-selected={recordTab === "generate"}
+                aria-controls="record-tabpanel" tabIndex={recordTab === "generate" ? 0 : -1}
+                onClick={() => selectRecordTab("generate")}
+                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                Auto-generate
+              </button>
+              <button id="record-tab-lookup" type="button" role="tab" aria-selected={recordTab === "lookup"}
+                aria-controls="record-tabpanel" tabIndex={recordTab === "lookup" ? 0 : -1}
+                onClick={() => selectRecordTab("lookup")}
+                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+                Panel lookup
+              </button>
             </div>
-          )}
-          {ncTracksTab === "paste" && (
-            <div className="mt-4 space-y-3">
-              <label className="block">
-                <span className="label">Quick notes</span>
-                <span className="mt-1 block text-xs text-slate-500">Paste a CCA or NC Tracks block. Extracted name, DOB, address, phone, emergency contact, and MID appear as chips to confirm.</span>
-                <textarea
-                  className="input min-h-[120px]"
-                  value={helperNotes}
-                  onChange={(e) => ingestHelperNotes(e.target.value, false)}
-                  onPaste={(e) => {
-                    const pasted = e.clipboardData.getData("text");
-                    if (!pasted) return;
-                    const target = e.currentTarget;
-                    const start = target.selectionStart ?? helperNotes.length;
-                    const end = target.selectionEnd ?? helperNotes.length;
-                    e.preventDefault();
-                    ingestHelperNotes(helperNotes.slice(0, start) + pasted + helperNotes.slice(end), true);
-                  }}
-                  placeholder={"Label: value, one per line\nName:\nDOB:\nAddress:\nPhone:\nEmergency contact:\nMID:"}
-                />
-              </label>
-              {extractedFields.length > 0 && (
-                <div className="rounded-lg border border-brand/20 bg-white p-3">
-                  <p className="text-sm font-semibold text-slate-800">Extracted from notes — confirm each value</p>
-                  <p className="mt-1 text-xs text-slate-500">Empty fields are filled automatically. Confirmed fields are not overwritten unless you choose replace.</p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {extractedFields.map((field) => {
-                      const current = noteFieldCurrentValue(field).trim();
-                      const applied = current === field.value.trim();
-                      const occupied = !!current && !applied;
-                      return (
-                        <button
-                          key={`${field.key}:${field.value}`}
-                          type="button"
-                          className={applied ? "chip chip-on" : "chip"}
-                          onClick={() => applyNoteField(field)}
-                        >
-                          {field.label}: {field.value}
-                          {applied ? " (applied)" : occupied ? " (replace)" : " (use)"}
-                        </button>
-                      );
-                    })}
+            <div id="record-tabpanel" role="tabpanel" aria-labelledby={`record-tab-${recordTab}`}>
+              {recordTab === "generate" ? (
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                  <label>
+                    <span className="label">Insurance panel</span>
+                    <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                      <option value="">Select panel</option>
+                      {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
+                        <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
+                      ))}
+                    </select>
+                  </label>
+                  <button type="button" className="btn-secondary" disabled={!recordPanel} onClick={generateRecordNumber}>Generate Record#</button>
+                </div>
+              ) : (
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                  <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
+                  <label className="mt-3 block">
+                    <span className="label">Insurance panel</span>
+                    <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                      <option value="">Select lookup panel</option>
+                      {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
+                        <option key={plan} value={plan}>{plan}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
+                      <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
+                        {link.label} lookup
+                      </a>
+                    ))}
                   </div>
                 </div>
               )}
             </div>
-          )}
-          {ncTracksTab === "howto" && (
-            <div className="mt-4 rounded-lg bg-white p-4 text-sm text-slate-600">
-              The app cannot safely read another signed-in browser tab by itself. The good workflows are:
-              open NC Tracks in a new tab, upload a card / PDF to scan, or paste quick notes. If your
-              approved NC Tracks integration is connected later, the intake page also has an automatic
-              lookup button.
-            </div>
-          )}
-          {ncTracksTab === "nctracks" && (
-            <div className="mt-4 rounded-lg bg-white p-4 text-sm text-slate-600">
-              NC Tracks opens in a new tab. Copy Recipient ID, PCP, and plan details back here, or upload a screenshot.
-              <div className="mt-3">
-                <a className="btn-secondary px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank" rel="noreferrer">
-                  Open NC Tracks again
-                </a>
-              </div>
-            </div>
-          )}
+            <label className="mt-3 block">
+              <span className="label">Record#</span>
+              <input className="input" name="recordNumber" value={form.recordNumber || ""}
+                onChange={(e) => {
+                  setRecordNumberWasGenerated(false);
+                  setForm((current) => ({ ...current, recordNumber: e.target.value }));
+                }}
+                placeholder={recordTab === "lookup" ? "Enter the official lookup Record#" : "Leave blank to auto-generate"} />
+            </label>
+            {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
+            <p className="mt-2 text-xs text-slate-500">Only Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345, and Carolina Complete = CC-12345 use the generator. Other panels require their official Record#. Skipping this generates a TEMP Record#.</p>
           </div>
-        </div>
+          <div id="new-intake-optional" className="scroll-mt-28 mt-4 rounded-xl border border-slate-200 bg-white p-4">
+            <h3 className="font-bold text-slate-900">NC Tracks</h3>
+            <p className="mt-1 text-sm text-slate-600">
+              Upload a card or open NC Tracks if you already have it. Paste stays at the top of this page.
+            </p>
+            <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="NC Tracks starter options">
+              {([
+                ["upload", "Upload"],
+                ["howto", "How it works"],
+                ["nctracks", "Open NC Tracks"],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  id={`nctracks-tab-${key}`}
+                  type="button"
+                  role="tab"
+                  aria-selected={ncTracksTab === key}
+                  aria-controls="nctracks-tabpanel"
+                  tabIndex={ncTracksTab === key ? 0 : -1}
+                  onClick={() => selectNcTracksTab(key)}
+                  className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${
+                    ncTracksTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            <div id="nctracks-tabpanel" role="tabpanel" aria-labelledby={`nctracks-tab-${ncTracksTab}`}>
+            {ncTracksTab === "upload" && (
+              <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+                <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
+                  {ncTracksFile ? "Replace NC Tracks file" : "Choose NC Tracks screenshot / card / PDF"}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="application/pdf,image/*"
+                    onChange={(e) => setNcTracksFile(e.target.files?.[0] || null)}
+                  />
+                </label>
+                <p className="mt-2 text-sm text-slate-600">
+                  Upload a screenshot, photo, or PDF from Downloads. After the intake is created, the app
+                  scans it and fills MID, PCP, Medicaid plan, and other matching helper fields.
+                </p>
+                {ncTracksFile && <p className="mt-2 text-sm font-semibold text-slate-700">{ncTracksFile.name}</p>}
+              </div>
+            )}
+            {ncTracksTab === "howto" && (
+              <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
+                The app cannot safely read another signed-in browser tab by itself. The good workflows are:
+                paste quick notes at the top of this page, upload a card / PDF to scan, or open NC Tracks in a new tab.
+              </div>
+            )}
+            {ncTracksTab === "nctracks" && (
+              <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
+                NC Tracks opens in a new tab. Copy Recipient ID, PCP, and plan details back to Paste at the top, or upload a screenshot.
+                <div className="mt-3">
+                  <a className="btn-secondary px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank" rel="noreferrer">
+                    Open NC Tracks again
+                  </a>
+                </div>
+              </div>
+            )}
+            </div>
+          </div>
+        </details>
         <label className="mt-4 flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
           <input type="checkbox" className="mt-0.5 h-5 w-5" checked={expectCca}
             onChange={(e) => setExpectCca(e.target.checked)} />
@@ -1030,22 +1073,24 @@ export default function NewIntake() {
           taps + consents + signature). The clinician&apos;s CCA will fill in the rest when you
           upload it in the <b>Add CCA</b> section on the client&apos;s page. Uncheck for the full question set.</span>
         </label>
-        <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
-          <summary className="cursor-pointer font-semibold text-slate-800">More options</summary>
-          <label className="mt-3 flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
-            <input type="checkbox" className="mt-0.5 h-5 w-5" checked={autoEmailProviderPacket}
-              onChange={(e) => setAutoEmailProviderPacket(e.target.checked)} />
-            <span>
-              <b>Email completed packet to provider</b> - after the client signs and the packet is generated,
-              email the completed PDF to the provider email on file. This stays off unless you turn it on.
-              {!packetReady && packetContextLoaded && (
-                <span className="mt-1 block font-semibold text-amber-800">
-                  The provider packet is not approved yet, so this cannot send a completed PDF until packet setup is finished.
-                </span>
-              )}
-            </span>
-          </label>
-        </details>
+        <label className={`mt-3 flex items-start gap-3 rounded-lg border p-3 text-sm ${packetEmailEnabled ? "border-slate-200 bg-slate-50 text-slate-600" : "border-slate-200 bg-slate-100 text-slate-500"}`}>
+          <input
+            type="checkbox"
+            className="mt-0.5 h-5 w-5"
+            checked={packetEmailEnabled && autoEmailProviderPacket}
+            disabled={!packetEmailEnabled}
+            onChange={(e) => setAutoEmailProviderPacket(e.target.checked)}
+          />
+          <span>
+            <b>Email completed packet to provider</b> - after the client signs and the packet is generated,
+            email the completed PDF to the provider email on file. This stays off unless you turn it on.
+            {!packetEmailEnabled && (
+              <span className="mt-1 block font-semibold text-amber-800">
+                Disabled until this provider&apos;s packet is approved and active. You can still create the intake and collect answers.
+              </span>
+            )}
+          </span>
+        </label>
         {error && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
             <p className="text-sm font-semibold text-red-700">{error}</p>

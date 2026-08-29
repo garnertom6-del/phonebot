@@ -7,7 +7,7 @@ import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoEmailProviderPacketEnabled, autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
-import { canGenerateRecordNumber, insuranceSummary, recordNumberPrefix } from "@/lib/insurancePlans";
+import { insuranceSummary, recordNumberPrefix, resolveCreateRecordNumber } from "@/lib/insurancePlans";
 import { buildDashboardReadiness } from "@/lib/dashboardWorkflow";
 import {
   evaluatePacketFreshness,
@@ -202,7 +202,11 @@ export async function POST(req: NextRequest) {
     if (deny) return deny;
     const raw = await req.json();
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
-    if (!recordNumber && canGenerateRecordNumber(raw?.providerChoicePlan || "")) {
+    const resolvedRecord = resolveCreateRecordNumber(recordNumber, raw?.providerChoicePlan || "");
+    if (resolvedRecord.error) {
+      return NextResponse.json({ error: resolvedRecord.error }, { status: 400 });
+    }
+    if (resolvedRecord.shouldGenerate) {
       for (let attempt = 0; attempt < 20; attempt++) {
         const candidate = generatedRecordNumber(raw?.providerChoicePlan);
         const used = await prisma.client.findFirst({
@@ -214,12 +218,12 @@ export async function POST(req: NextRequest) {
           break;
         }
       }
+    } else {
+      recordNumber = resolvedRecord.recordNumber;
     }
     if (!recordNumber) {
       return NextResponse.json({
-        error: raw?.providerChoicePlan
-          ? "Enter the panel's official Record# manually. Only BCBS, United Health Care, AmeriHealth, and Carolina Complete use the generator."
-          : "Choose an insurance panel and enter its Record#, or use the generator for BCBS, United Health Care, AmeriHealth, or Carolina Complete.",
+        error: "Couldn't generate a Record#. Enter one in Advanced and try again.",
       }, { status: 400 });
     }
     const parsed = newIntakeSchema.safeParse({

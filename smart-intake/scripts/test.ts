@@ -39,6 +39,12 @@ import {
 } from "../src/lib/intakeContacts";
 import { extractIntakeNoteFields, parseHelperNotes } from "../src/lib/parseIntakeNotes";
 import { buildNewIntakeReadiness } from "../src/lib/newIntakeReadiness";
+import {
+  canOfferCompletedPacketEmail,
+  defaultIntakeLocation,
+  resolveCreateIntakeHousing,
+} from "../src/lib/newIntakeHousing";
+import { makeRecordNumber, resolveCreateRecordNumber } from "../src/lib/insurancePlans";
 import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
@@ -611,14 +617,13 @@ async function main() {
     fullName: "",
     dob: "",
     contactReady: false,
-    recordReady: false,
     packetContextLoaded: true,
     packetReady: false,
   });
   assert.equal(emptyIntakeReadiness.completedRequired, 0);
   assert.equal(emptyIntakeReadiness.ready, false);
   assert.equal(emptyIntakeReadiness.packet.tone, "warning");
-  const missingRecordReadiness = buildNewIntakeReadiness({
+  const identityAndContactReady = buildNewIntakeReadiness({
     fullName: "Workflow Test",
     dob: "01/01/2000",
     contactReady: true,
@@ -626,14 +631,13 @@ async function main() {
     packetContextLoaded: true,
     packetReady: true,
   });
-  assert.equal(missingRecordReadiness.completedRequired, 2);
-  assert.equal(missingRecordReadiness.totalRequired, 3);
-  assert.equal(missingRecordReadiness.ready, false);
-  assert.equal(missingRecordReadiness.title, "Finish 1 required step");
+  assert.equal(identityAndContactReady.completedRequired, 2);
+  assert.equal(identityAndContactReady.totalRequired, 2);
+  assert.equal(identityAndContactReady.ready, true);
+  assert.equal(identityAndContactReady.title, "Ready to create the secure link");
   assert.equal(
     buildNewIntakeReadiness({
       contactReady: false,
-      recordReady: false,
       packetContextLoaded: true,
       packetContextError: true,
       packetReady: false,
@@ -644,14 +648,13 @@ async function main() {
     fullName: "Workflow Test",
     dob: "01/01/2000",
     contactReady: true,
-    recordReady: true,
     packetContextLoaded: true,
     packetReady: true,
   });
-  assert.equal(readyIntakeReadiness.completedRequired, 3);
+  assert.equal(readyIntakeReadiness.completedRequired, 2);
   assert.equal(readyIntakeReadiness.ready, true);
   assert.equal(readyIntakeReadiness.title, "Ready to create the secure link");
-  ok("create-intake readiness matches identity, contact, and Record# server requirements");
+  ok("create-intake readiness requires identity and contact, not Record#");
   assert.equal(
     newIntakeSchema.safeParse({
       fullName: "No Contact",
@@ -776,6 +779,53 @@ async function main() {
   assert.equal(parseHelperNotes("Recipient ID: SAMPLEMID01").mid_number, "SAMPLEMID01");
   assert.equal(parseHelperNotes("PCP phone: 3365550100").pcp_phone, "3365550100");
   ok("pasted CCA / NC Tracks notes parse into confirmable name, DOB, address, phone, emergency, and MID fields");
+
+  assert.equal(defaultIntakeLocation(undefined), "");
+  assert.equal(defaultIntakeLocation("Greensboro"), "Greensboro");
+  assert.equal(defaultIntakeLocation("  High Point  "), "High Point");
+  assert.equal(defaultIntakeLocation(""), "");
+  const blankStreetHousing = resolveCreateIntakeHousing({ addressState: "NC" });
+  assert.equal(blankStreetHousing.homeless, true);
+  assert.equal(blankStreetHousing.livingArrangement, "Homeless");
+  assert.equal(blankStreetHousing.addressStreet, "");
+  assert.equal(blankStreetHousing.addressState, "NC");
+  const filledStreetHousing = resolveCreateIntakeHousing({
+    addressStreet: "100 Example Ave",
+    addressCity: "High Point",
+    addressState: "NC",
+  });
+  assert.equal(filledStreetHousing.homeless, false);
+  assert.equal(filledStreetHousing.livingArrangement, "");
+  assert.equal(filledStreetHousing.addressStreet, "100 Example Ave");
+  const explicitHomelessClearsStreet = resolveCreateIntakeHousing({
+    addressStreet: "100 Example Ave",
+    homelessSelected: true,
+  });
+  assert.equal(explicitHomelessClearsStreet.homeless, true);
+  assert.equal(explicitHomelessClearsStreet.addressStreet, "");
+  assert.equal(explicitHomelessClearsStreet.livingArrangement, "Homeless");
+  assert.equal(
+    missingRequired({
+      client_full_name: "Sample Client",
+      dob: "1980-01-15",
+      living_arrangement: "Homeless",
+    }, true).some((item) => item.key === "address_street"),
+    false,
+    "blank street on the homeless path must not block required-field checks",
+  );
+  assert.equal(canOfferCompletedPacketEmail({ packetContextLoaded: true, packetReady: false }), false);
+  assert.equal(canOfferCompletedPacketEmail({ packetContextLoaded: true, packetReady: true }), true);
+  assert.equal(canOfferCompletedPacketEmail({ packetContextLoaded: true, packetReady: true, packetContextError: true }), false);
+  const tempRecord = resolveCreateRecordNumber("", "");
+  assert.equal(tempRecord.shouldGenerate, true);
+  assert.equal(tempRecord.error, undefined);
+  assert.ok(makeRecordNumber("").startsWith("TEMP-"));
+  const lookupRecord = resolveCreateRecordNumber("", "Alliance");
+  assert.equal(lookupRecord.shouldGenerate, false);
+  assert.ok(lookupRecord.error);
+  const bcbsRecord = resolveCreateRecordNumber("", "Blue Cross Blue Shield");
+  assert.equal(bcbsRecord.shouldGenerate, true);
+  ok("create-intake layout helpers: no Greensboro default, blank street is homeless, packet email stays off until approved, Record# can auto-generate");
   assert.equal(
     buildDashboardReadiness({
       status: "SIGNED",
