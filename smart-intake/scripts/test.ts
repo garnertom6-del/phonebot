@@ -32,6 +32,12 @@ import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from ".
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
+import {
+  assignIntakeContacts,
+  formatUsPhoneDisplay,
+  INVALID_CONTACT_MESSAGE,
+} from "../src/lib/intakeContacts";
+import { extractIntakeNoteFields, parseHelperNotes } from "../src/lib/parseIntakeNotes";
 import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
@@ -647,6 +653,83 @@ async function main() {
     false,
     "short phone numbers must be rejected",
   );
+  const phoneInEmailField = newIntakeSchema.parse({
+    fullName: "Cell In Email Box",
+    dob: "01/01/2000",
+    recordNumber: "WORKFLOW-CELL",
+    email: "3365550142",
+  });
+  assert.equal(phoneInEmailField.phone, "3365550142");
+  assert.equal(phoneInEmailField.email, "");
+  ok("a 10-digit NC number typed in the email box is stored as the SMS phone");
+  const formattedPhoneInEmail = newIntakeSchema.parse({
+    fullName: "Formatted Cell",
+    dob: "01/01/2000",
+    recordNumber: "WORKFLOW-CELL2",
+    email: "(336) 555-0142",
+  });
+  assert.equal(formattedPhoneInEmail.phone, "(336) 555-0142");
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Garbage Contact",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-JUNK",
+      email: "notanemail@@x",
+    }).success,
+    false,
+    "junk that is not a phone or email cannot become the SMS destination",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Mixed Junk Phone",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-JUNK2",
+      phone: "notanemail@@x",
+    }).success,
+    false,
+    "garbage in the phone box is rejected",
+  );
+  assert.equal(
+    newIntakeSchema.safeParse({
+      fullName: "Letters With Digits",
+      dob: "01/01/2000",
+      recordNumber: "WORKFLOW-JUNK3",
+      phone: "hello3365550142world",
+    }).success,
+    false,
+    "a phone must be digits and phone punctuation only",
+  );
+  assert.equal(
+    assignIntakeContacts("3365550142", "").phone,
+    "3365550142",
+  );
+  assert.equal(assignIntakeContacts("notanemail@@x", "").error, INVALID_CONTACT_MESSAGE);
+  assert.equal(formatUsPhoneDisplay("3365550142"), "(336) 555-0142");
+  ok("create-intake contact fields accept a phone in either box and reject junk SMS destinations");
+
+  const extractedNotes = extractIntakeNoteFields(
+    [
+      "Name: Sample Client",
+      "DOB: 01/15/1980",
+      "Address: 100 Example Ave, Greensboro, NC",
+      "Phone: 3365550142",
+      "Emergency contact: Example Guardian 3365550199",
+      "MID: SAMPLEMID01",
+    ].join("\n"),
+  );
+  const extractedByKey = Object.fromEntries(extractedNotes.map((field) => [field.key, field.value]));
+  assert.equal(extractedByKey.client_full_name, "Sample Client");
+  assert.equal(extractedByKey.dob, "1980-01-15");
+  assert.equal(extractedByKey.address_street, "100 Example Ave");
+  assert.equal(extractedByKey.address_city, "Greensboro");
+  assert.equal(extractedByKey.address_state, "NC");
+  assert.equal(extractedByKey.client_phone_cell, "3365550142");
+  assert.equal(extractedByKey.ec1_name, "Example Guardian");
+  assert.equal(extractedByKey.ec1_cell_phone, "3365550199");
+  assert.equal(extractedByKey.mid_number, "SAMPLEMID01");
+  assert.equal(parseHelperNotes("Recipient ID: SAMPLEMID01").mid_number, "SAMPLEMID01");
+  assert.equal(parseHelperNotes("PCP phone: 3365550100").pcp_phone, "3365550100");
+  ok("pasted CCA / NC Tracks notes parse into confirmable name, DOB, address, phone, emergency, and MID fields");
   assert.equal(
     buildDashboardReadiness({
       status: "SIGNED",
