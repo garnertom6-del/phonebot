@@ -109,6 +109,10 @@ export default function NewIntake() {
   const [setupStatus, setSetupStatus] = useState("");
   const [setupStatusKind, setSetupStatusKind] = useState<"success" | "error" | "info">("info");
   const [providerName, setProviderName] = useState("Provider");
+  // Remember which provider this page was opened for. The save request sends it
+  // so a master admin who switches providers in another tab cannot save this
+  // client under the wrong agency.
+  const [providerId, setProviderId] = useState("");
   const [providerPhone, setProviderPhone] = useState("");
   const [packetName, setPacketName] = useState("");
   const [packetPageCount, setPacketPageCount] = useState<number | null>(null);
@@ -138,7 +142,7 @@ export default function NewIntake() {
     fetch("/api/intakes/context").then(async (res) => {
       const body = await readResponse(res) as {
         error?: string;
-        provider?: { name?: string; phone?: string };
+        provider?: { id?: string; name?: string; phone?: string };
         packet?: { name?: string; pageCount?: number | null; ready?: boolean; state?: string; message?: string };
         access?: { canManageProvider?: boolean; packetSetupHref?: string | null };
       };
@@ -150,6 +154,7 @@ export default function NewIntake() {
         return;
       }
       setProviderName(body.provider?.name || "Provider");
+      setProviderId(body.provider?.id || "");
       setProviderPhone(body.provider?.phone || "");
       setPacketName(body.packet?.name || `${body.provider?.name || "Provider"} Client Intake Package`);
       setPacketPageCount(typeof body.packet?.pageCount === "number" ? body.packet.pageCount : null);
@@ -338,7 +343,9 @@ export default function NewIntake() {
         }
       } else {
         setSendStatusKind("error");
-        setSendStatus(`Send failed: ${body.error || body.failed?.join("; ") || res.status}`);
+        // Show the carrier/provider reason first (e.g. Twilio 30034 "needs A2P 10DLC
+        // registration") - the generic body.error hides why the text was refused.
+        setSendStatus(`Send failed: ${body.failed?.length ? body.failed.join("; ") : body.error || res.status}`);
       }
     } catch {
       setSendStatusKind("error");
@@ -399,6 +406,7 @@ export default function NewIntake() {
       const requestBody = {
         ...form,
         ...nextForm,
+        providerId,
         email: assigned.email,
         phone: assigned.phone,
         providerChoicePlan: recordPanel,
