@@ -9,7 +9,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
-import { parseCcaReview } from "@/lib/ccaReview";
+import { clientCcaAttestationReady, parseCcaReview } from "@/lib/ccaReview";
 import { completionReadinessForIntake } from "@/lib/completionReadiness";
 import { clientLinkRenewalData } from "@/lib/tokens";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "@/lib/clientDetails";
@@ -42,7 +42,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
           updatedAt: true,
         },
       },
-      uploadedDocuments: { select: { id: true, docType: true, fileName: true, createdAt: true, reviewJson: true } },
+      uploadedDocuments: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, docType: true, fileName: true, createdAt: true, reviewJson: true },
+      },
       generatedPdfs: {
         orderBy: { createdAt: "desc" },
         select: { id: true, createdAt: true, sha256: true, packetVersion: true, contentRevision: true },
@@ -84,6 +87,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     createdAt: document.createdAt,
     ccaReview: parseCcaReview(document.reviewJson),
   }));
+  const latestCca = intake.uploadedDocuments.find((document) => document.docType.toUpperCase() === "CCA");
+  const missingOptions = {
+    skipClinicalAssessmentAttestation: !clientCcaAttestationReady(latestCca?.reviewJson),
+  };
   const followUps = intake.followUps.map((followUp) => ({
     status: followUp.status,
     recipientRole: followUp.recipientRole,
@@ -103,8 +110,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     answers,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),
-    missingRequired: missingRequired(answers, signed, provider),
-    missingOptional: missingOptional(answers),
+    missingRequired: missingRequired(answers, signed, provider, missingOptions),
+    missingOptional: missingOptional(answers, missingOptions),
     signatureStatuses: generationReadiness?.signatureStatuses || buildSignatureStatuses(intake.signatures),
     generationReadiness,
     packetFreshness,

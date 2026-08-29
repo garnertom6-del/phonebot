@@ -17,7 +17,7 @@ export interface CertificateSigner {
   signedDate: string;
   dobVerified?: boolean;
   ip?: string | null;
-  createdAt?: Date | null;
+  capturedAt?: Date | null;
 }
 
 export interface CertificateInfo {
@@ -67,7 +67,7 @@ export async function appendCertificatePage(
     line(`${ROLE_LABELS[s.role] || s.role}: ${s.printedName}` +
       (s.relationship && s.relationship !== "client" ? ` (${s.relationship})` : ""), { size: 10, gap: 14 });
     line(`  Signed ${s.signedDate}` +
-      (s.createdAt ? ` (recorded ${s.createdAt.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} ET)` : "") +
+      (s.capturedAt ? ` (recorded ${s.capturedAt.toLocaleTimeString("en-US", { timeZone: "America/New_York", hour: "numeric", minute: "2-digit" })} ET)` : "") +
       (s.ip ? ` from IP ${s.ip}` : "") +
       (s.dobVerified ? " - identity confirmed by date of birth" : ""), { size: 9, gap: 16 });
   }

@@ -136,11 +136,16 @@ export function isQuestionRequired(q: Pick<Question, "key" | "required">, answer
 
 export interface MissingField { key: string; label: string; section?: string }
 
+export type MissingRequiredOptions = {
+  skipClinicalAssessmentAttestation?: boolean;
+};
+
 /** Required items still missing before a client can submit. */
 export function missingRequired(
   answers: Answers,
   hasClientSignature: boolean,
   provider?: { name?: string | null; slug?: string | null } | string | null,
+  options: MissingRequiredOptions = {},
 ): MissingField[] {
   const catalogId = questionCatalogId(typeof provider === "string" ? provider : provider);
   const missing: MissingField[] = [];
@@ -160,6 +165,7 @@ export function missingRequired(
   for (const s of SECTIONS) {
     for (const q of s.questions) {
       if (!questionVisibleInCatalog(q, catalogId)) continue;
+      if (q.key === "consent_cca" && options.skipClinicalAssessmentAttestation) continue;
       if (s.key === "welcome" || q.key === "intake_mode" || q.staffOnly || q.type === "info" || q.type === "heading") continue;
       if (!isQuestionRequired(q, answers) || seen.has(q.key) || !askIfSatisfied(q.askIf, answers)) continue;
       const v = answers[q.key];
@@ -175,7 +181,7 @@ export function missingRequired(
 }
 
 /** Every unanswered client-visible question, plus key staff helper blanks, grouped for the staff checklist. */
-export function missingOptional(answers: Answers): MissingField[] {
+export function missingOptional(answers: Answers, options: MissingRequiredOptions = {}): MissingField[] {
   const out: MissingField[] = [];
   const staffReviewKeys = new Set([
     "record_number", "mid_number", "race", "ethnicity", "marital_status", "employment_status",
@@ -189,6 +195,7 @@ export function missingOptional(answers: Answers): MissingField[] {
       // This controls the client questionnaire mode; it is not a packet
       // field staff need to resolve during preflight.
       if (q.key === "intake_mode") continue;
+      if (q.key === "consent_cca" && options.skipClinicalAssessmentAttestation) continue;
       if (q.staffOnly) continue;
       if (!q.essential && !q.required && !staffReviewKeys.has(q.key)) continue;
       if (q.type === "info" || q.type === "heading") continue;

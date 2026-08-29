@@ -26,10 +26,14 @@ const UPLOAD_TYPES = [
   ["standing_orders", "Physician standing orders"],
 ] as const;
 
-export default function ClientQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed }: {
+export default function ClientQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string;
   initialAnswers: Answers; initialStatus: string;
   signed: { client?: boolean; guardian?: boolean };
+  ccaAttestationReady?: boolean;
+  progressVersion?: string;
+  resignMode?: "assessment" | "record" | null;
+  reviewQuestionKeys?: string[];
 }) {
   const branding = { name: providerName, phone: supportPhone };
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
@@ -42,23 +46,34 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const [done, setDone] = useState(["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus));
   const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
   const [uploadStatus, setUploadStatus] = useState<Record<string, string>>({});
+  const isResign = initialStatus === "NEEDS_REVIEW" && !!resignMode;
+  const isAssessmentResign = isResign && resignMode === "assessment" && ccaAttestationReady;
+  const recordReviewKeys = useMemo(
+    () => new Set(isResign && resignMode === "record" ? reviewQuestionKeys : []),
+    [isResign, resignMode, reviewQuestionKeys],
+  );
   const answersRef = useRef(answers);
   answersRef.current = answers;
   const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // what the server already has - saves send only the diff
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
-  const progressKey = `smart-intake-full-progress:${token}`;
+  const progressKey = `smart-intake-full-progress:v2:${token}:${progressVersion}:${resignMode || "initial"}:${reviewQuestionKeys.join(",")}`;
 
   const fastMode = answers.intake_mode === "Fast Intake - required questions first";
   const steps: Section[] = useMemo(() => {
     const catalogId = questionCatalogId(providerName);
     const visible = SECTIONS.map((section) => ({
       ...section,
-      questions: section.questions.filter((question) => questionVisibleInCatalog(question, catalogId)),
+      questions: section.questions.filter((question) => (
+        questionVisibleInCatalog(question, catalogId)
+        && (!isAssessmentResign || question.key === "consent_cca")
+        && (!recordReviewKeys.size || recordReviewKeys.has(question.key))
+        && (question.key !== "consent_cca" || ccaAttestationReady)
+      )),
     })).filter((section) => section.questions.length);
-    const base = fastMode ? visible.filter((s) => s.fastIntake) : visible;
+    const base = isResign ? visible : fastMode ? visible.filter((s) => s.fastIntake) : visible;
     return [...base, { key: "__signature", title: "Signature & Submit", questions: [] }];
-  }, [fastMode, providerName]);
+  }, [fastMode, providerName, ccaAttestationReady, isAssessmentResign, isResign, recordReviewKeys]);
   const step = steps[Math.min(stepIdx, steps.length - 1)];
 
   // Keep the current section when a phone briefly leaves the page for its camera.
@@ -92,7 +107,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
       !q.staffOnly &&
       askIfSatisfied(q.askIf, answers) &&
       !(q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") &&
-      !isQuestionPrefilledForClient(q, prefilledRef.current));
+      (recordReviewKeys.has(q.key) || !isQuestionPrefilledForClient(q, prefilledRef.current)));
 
   const set = (key: string, value: Answers[string]) =>
     setAnswers((a) => ({ ...a, [key]: value }));
@@ -160,12 +175,23 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
 
   async function captureSignature(role: "client" | "guardian",
     data: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
+    if (isResign) {
+      const saved = await save();
+      if (!saved) {
+        setError("We could not save your review. Check your connection and try again.");
+        return;
+      }
+    }
     const relationship = data.relationship || (role === "guardian" ? "guardian" : "client");
     const res = await fetch(`/api/intake/${token}/signature`, {
       method: "POST", headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role, ...data, relationship }),
     });
-    if (res.ok) { setHasSignature(true); setError(""); }
+    if (res.ok) {
+      setHasSignature(true);
+      setError("");
+      if (isResign) setDone(true);
+    }
     else setError((await res.json()).error || "Signature failed");
   }
 
@@ -197,8 +223,11 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
           <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
           <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
           <p className="mt-2 text-slate-600">
-          {providerDisplayName(providerName)} got your answers. Our team will review them and finish
-          your paperwork. Questions? Call {providerPhone(supportPhone, providerName)}.
+          {isAssessmentResign
+            ? "Your updated assessment acknowledgment and signature were saved. Your provider can continue the review."
+            : isResign
+              ? "Your review and updated signature were saved. Your provider can continue the packet."
+            : `${providerDisplayName(providerName)} got your answers. Our team will review them and finish your paperwork. Questions? Call ${providerPhone(supportPhone, providerName)}.`}
           </p>
         </div>
       );

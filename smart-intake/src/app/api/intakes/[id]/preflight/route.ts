@@ -12,6 +12,7 @@ import {
   type PreflightFinding,
 } from "@/lib/intakePreflight";
 import { missingRequired, missingOptional } from "@/lib/validation";
+import { clientCcaAttestationReady } from "@/lib/ccaReview";
 
 export const maxDuration = 90;
 
@@ -23,16 +24,23 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     include: {
       client: { select: { fullName: true, dob: true } },
       signatures: { select: { role: true } },
-      uploadedDocuments: { select: { docType: true } },
+      uploadedDocuments: {
+        where: { docType: "CCA" },
+        orderBy: { createdAt: "desc" },
+        select: { docType: true, reviewJson: true },
+      },
     },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const hasClientSignature = intake.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
+  const missingOptions = {
+    skipClinicalAssessmentAttestation: !clientCcaAttestationReady(intake.uploadedDocuments[0]?.reviewJson),
+  };
   const missing = {
-    required: missingRequired(answers, hasClientSignature, provider),
-    optional: missingOptional(answers),
+    required: missingRequired(answers, hasClientSignature, provider, missingOptions),
+    optional: missingOptional(answers, missingOptions),
   };
   const input = {
     answers,

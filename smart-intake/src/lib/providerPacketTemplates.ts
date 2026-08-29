@@ -7,7 +7,11 @@ import { mergedMap } from "./fillPdf";
 import { prisma } from "./prisma";
 import { isValidProviderPacketMappingScore } from "./packetMappingScore";
 import { fileExists, readFile } from "./storage";
-import { mappedSignatureSlotsFromFields, type SignatureSlotKey } from "@/lib/signatureStatus";
+import {
+  mappedSignatureSlotsFromFields,
+  requiredSignatureSlotsFromFields,
+  type SignatureSlotKey,
+} from "@/lib/signatureStatus";
 
 export const DEFAULT_PACKET_TEMPLATE_NAME = "Moore Divine Care Client Intake Package";
 
@@ -110,6 +114,9 @@ export class ProviderPacketNotReadyError extends Error {
 export const WELLIANCE_PACKET_SHA256 =
   "c8034d405c28865d3018e7a85785ab57143cffd8465d45a06409b3c64f7242ec";
 
+export const MOORE_DIVINE_PACKET_SHA256 =
+  "fa7f082ae3b251f605417b77202ff384fd68e67f9ebee1b1778b8fd640cfff12";
+
 export function packetTemplateSha256(bytes: Buffer | Uint8Array): string {
   return createHash("sha256").update(bytes).digest("hex");
 }
@@ -170,6 +177,13 @@ const ESSENTIAL_WELLNESS_HEADER_SOURCE_SET = new Set<string>(ESSENTIAL_WELLNESS_
 
 function compactPacketLabel(value: string | null | undefined): string {
   return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/** Match the reviewed 43-page source exactly before applying its coordinates. */
+export function isMooreDivinePacket(identity: PacketTemplateIdentity): boolean {
+  return identity.pageCount === PACKET_MAP.pageCount
+    && compactPacketLabel(identity.originalFileName) === compactPacketLabel(TEMPLATE_FILE)
+    && identity.sha256?.toLowerCase() === MOORE_DIVINE_PACKET_SHA256;
 }
 
 /**
@@ -294,6 +308,10 @@ export function packetFieldsForTemplate(
   }
 
   if (isPrayersOfCarePacket(identity)) {
+    return repairKnownPacketPlacements(mergedMap(overrides), identity.pageCount);
+  }
+
+  if (isMooreDivinePacket(identity)) {
     return repairKnownPacketPlacements(mergedMap(overrides), identity.pageCount);
   }
 
@@ -714,28 +732,30 @@ export async function requireProviderPacketForCompletion(providerId: string): Pr
  * Signature roles this provider's packet actually maps, without loading the PDF.
  * Unknown packets use stored mappings only so another provider's form is not inferred.
  */
-export async function mappedSignatureSlotsForProvider(
+export async function signatureSlotProfileForProvider(
   providerId: string,
   templateId?: string | null,
-): Promise<SignatureSlotKey[] | undefined> {
+): Promise<{ mappedSlots?: SignatureSlotKey[]; requiredSlots: SignatureSlotKey[] }> {
   const resolvedTemplateId = templateId ?? (await providerPacketReadiness(providerId)).templateId;
-  if (!resolvedTemplateId) return undefined;
+  if (!resolvedTemplateId) return { mappedSlots: undefined, requiredSlots: [] };
   const template = await prisma.pdfTemplate.findFirst({
     where: { id: resolvedTemplateId, providerId },
     select: {
       name: true,
       originalFileName: true,
       pageCount: true,
+      filePath: true,
       fieldMappings: { select: { fieldKey: true, page: true, data: true } },
     },
   });
-  if (!template) return undefined;
+  if (!template) return { mappedSlots: undefined, requiredSlots: [] };
   const overrides = parseMappings(template.fieldMappings);
   const identity = {
     name: template.name,
     originalFileName: template.originalFileName,
     pageCount: template.pageCount,
     providerSpecific: true as const,
+    sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
   };
   const label = `${template.name} ${template.originalFileName || ""}`.toLowerCase();
   let fields = overrides;
@@ -746,12 +766,22 @@ export async function mappedSignatureSlotsForProvider(
       fields = packetFieldsForTemplate(identity, overrides);
     } else if (isEssentialWellnessPacket(identity)) {
       fields = completeEssentialWellnessPdfMap(overrides, template.pageCount);
-    } else if (template.pageCount === PACKET_MAP.pageCount && label.includes("moore divine")) {
-      fields = packetFieldsForTemplate({ ...identity, providerSpecific: false }, overrides);
+    } else if (isMooreDivinePacket(identity)) {
+      fields = packetFieldsForTemplate(identity, overrides);
     }
   } catch {
     fields = overrides;
   }
   const slots = mappedSignatureSlotsFromFields(fields);
-  return slots.length ? slots : undefined;
+  return {
+    mappedSlots: slots.length ? slots : undefined,
+    requiredSlots: requiredSignatureSlotsFromFields(fields),
+  };
+}
+
+export async function mappedSignatureSlotsForProvider(
+  providerId: string,
+  templateId?: string | null,
+): Promise<SignatureSlotKey[] | undefined> {
+  return (await signatureSlotProfileForProvider(providerId, templateId)).mappedSlots;
 }

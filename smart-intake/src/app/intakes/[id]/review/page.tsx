@@ -14,7 +14,13 @@ import SignaturePad from "@/components/SignaturePad";
 type Answers = Record<string, string | boolean | number | string[]>;
 type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
 type SignatureRecord = { role: string; printedName: string; signedDate: string };
-type SignatureStatus = { key: string; state: "captured" | "missing" | "invalid"; reason: string; signedDate?: string };
+type SignatureStatus = {
+  key: string;
+  state: "captured" | "missing" | "invalid";
+  reason: string;
+  required: boolean;
+  signedDate?: string;
+};
 
 const SIGNER_OPTIONS: { role: StaffSignatureRole; label: string; padLabel: string }[] = [
   { role: "staff", label: "QP / Qualified Professional", padLabel: "QP / Qualified Professional signature" },
@@ -128,7 +134,15 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   function selectMissingStaffSignatures() {
     if (isSigning) return;
-    setSelectedSignerRoles(CARE_TEAM_ROLES.filter((role) => !signatures.some((signature) => signature.role === role)));
+    const roleForStatusKey: Partial<Record<string, StaffSignatureRole>> = {
+      staff_qp: "staff",
+      witness: "witness",
+      medical_director: "medicalDirector",
+    };
+    setSelectedSignerRoles(signatureStatuses
+      .filter((status) => status.required && status.state !== "captured")
+      .map((status) => roleForStatusKey[status.key])
+      .filter((role): role is StaffSignatureRole => !!role));
   }
 
   function startSigning() {
@@ -282,7 +296,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary px-3 py-1.5 text-sm" disabled={isSigning} onClick={selectMissingStaffSignatures}>
-            Select missing staff signatures
+            Select required re-signatures
           </button>
           <button type="button" className="btn-ghost px-3 py-1.5 text-sm" disabled={isSigning} onClick={selectCareTeam}>
             Select QP + clinician + witness

@@ -27,3 +27,17 @@ export function parseCcaReview(value: string | null | undefined): CcaReview | nu
     return null;
   }
 }
+
+/**
+ * The client may only attest to a clinical assessment after the source names
+ * the clinician and assessment date and the accuracy scan has no major error.
+ * This prevents a new intake from asking the client to affirm a meeting or
+ * assessment that has not happened yet.
+ */
+export function clientCcaAttestationReady(value: string | null | undefined): boolean {
+  const review = parseCcaReview(value);
+  return !!review
+    && !!review.sourceClinician.trim()
+    && !!review.assessmentDate.trim()
+    && review.majorErrors.length === 0;
+}
