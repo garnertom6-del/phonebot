@@ -84,7 +84,12 @@ import {
 } from "../src/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions, validateFollowUpSubmission } from "../src/lib/clientFollowUp";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
-import { deliveryDashboardFlash, hasSmsDeliveryFailure } from "../src/lib/dashboardFlash";
+import {
+  createdIntakeDashboardHref,
+  dashboardTabFromQuery,
+  deliveryDashboardFlash,
+  hasSmsDeliveryFailure,
+} from "../src/lib/dashboardFlash";
 import {
   buildRulePreflight,
   groundedCorrectionOptionsFromAi,
@@ -593,6 +598,13 @@ async function main() {
   assert(hasSmsDeliveryFailure(["sms to saved contact: blocked (30034)"]));
   assert(!hasSmsDeliveryFailure(["email to saved contact: blocked"]));
   assert(deliveryDashboardFlash(["email accepted"], ["sms failed"])?.message.includes("Manual sending"));
+  assert.equal(dashboardTabFromQuery("waiting"), "waiting");
+  assert.equal(dashboardTabFromQuery("unknown"), null);
+  assert.equal(
+    createdIntakeDashboardHref("intake-123", "provider 456"),
+    "/dashboard?tab=waiting&created=intake-123&providerId=provider+456#intake-intake-123",
+  );
+  ok("created intakes return to the correct provider and visible waiting queue");
   ok("successful delivery returns to the dashboard without storing contact details");
 
   assert(needsStaffAction("SIGNED"), "signed intakes must remain in the staff action queue");
