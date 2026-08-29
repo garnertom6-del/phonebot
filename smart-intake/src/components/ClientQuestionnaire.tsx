@@ -45,6 +45,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
   const [done, setDone] = useState(["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus));
   const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
+  const [submitting, setSubmitting] = useState(false);
   const [uploadStatus, setUploadStatus] = useState<Record<string, string>>({});
   const isResign = initialStatus === "NEEDS_REVIEW" && !!resignMode;
   const isAssessmentResign = isResign && resignMode === "assessment" && ccaAttestationReady;
@@ -161,16 +162,24 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   }
 
   async function submit() {
+    if (submitting) return;
     setError("");
-    const saved = await save();
-    if (!saved) {
-      setError("We could not save your latest answers. Check your connection and try again.");
-      return;
+    setSubmitting(true);
+    try {
+      const saved = await save();
+      if (!saved) {
+        setError("We could not save your latest answers. Check your connection and try again.");
+        return;
+      }
+      const res = await fetch(`/api/intake/${token}`, { method: "POST" });
+      const body = await res.json().catch(() => ({}));
+      if (res.ok) { setDone(true); setMissing([]); }
+      else { setError(body.error || "Could not submit"); setMissing(body.missing || []); }
+    } catch {
+      setError("We could not send your answers. Check your connection and try again.");
+    } finally {
+      setSubmitting(false);
     }
-    const res = await fetch(`/api/intake/${token}`, { method: "POST" });
-    const body = await res.json();
-    if (res.ok) { setDone(true); setMissing([]); }
-    else { setError(body.error || "Could not submit"); setMissing(body.missing || []); }
   }
 
   async function captureSignature(role: "client" | "guardian",
@@ -272,7 +281,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
         </div>
 
         {step.key === "__signature" && (
-          <SignatureStep answers={answers} hasSignature={hasSignature}
+          <SignatureStep answers={answers} hasSignature={hasSignature} submitting={submitting}
             onCapture={captureSignature} onSubmit={submit} missing={missing} />
         )}
       </div>
@@ -351,7 +360,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       <div>{label}
         <div className="flex flex-wrap gap-2">
           {(q.options || []).map((opt) => (
-            <button key={opt} type="button" onClick={() => set(q.key, opt)}
+            <button key={opt} type="button" onClick={() => set(q.key, opt)} aria-pressed={v === opt}
               className={`chip ${v === opt ? "chip-on" : ""}`}>{opt}</button>
           ))}
         </div>
@@ -364,7 +373,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       <div>{label}
         <div className="flex flex-wrap gap-2">
           {(q.options || []).map((opt) => (
-            <button key={opt} type="button"
+            <button key={opt} type="button" aria-pressed={arr.includes(opt)}
               onClick={() => set(q.key, arr.includes(opt) ? arr.filter((x) => x !== opt) : [...arr, opt])}
               className={`chip ${arr.includes(opt) ? "chip-on" : ""}`}>{opt}</button>
           ))}
@@ -411,8 +420,8 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
   );
 }
 
-function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: {
-  answers: Answers; hasSignature: boolean;
+function SignatureStep({ answers, hasSignature, submitting, onCapture, onSubmit, missing }: {
+  answers: Answers; hasSignature: boolean; submitting: boolean;
   onCapture: (role: "client" | "guardian", d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) => Promise<void>;
   onSubmit: () => void; missing: { key: string; label: string }[];
 }) {
@@ -459,8 +468,8 @@ function SignatureStep({ answers, hasSignature, onCapture, onSubmit, missing }: 
           <ul className="list-inside list-disc">{missing.map((m) => <li key={m.key}>{m.label}</li>)}</ul>
         </div>
       )}
-      <button className="btn-primary w-full" disabled={!hasSignature && signedRoles.length === 0} onClick={onSubmit}>
-        Send my answers
+      <button className="btn-primary w-full" disabled={submitting || (!hasSignature && signedRoles.length === 0)} onClick={onSubmit}>
+        {submitting ? "Sending..." : "Send my answers"}
       </button>
     </div>
   );

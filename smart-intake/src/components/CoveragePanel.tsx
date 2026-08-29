@@ -34,10 +34,14 @@ export default function CoveragePanel({ intakeId }: { intakeId: string }) {
   const [state, setState] = useState<State | null>(null);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
+  const [loadError, setLoadError] = useState(false);
 
   const refresh = useCallback(async () => {
-    const r = await fetch(`/api/intakes/${intakeId}/eligibility`);
-    if (r.ok) setState(await r.json());
+    try {
+      const r = await fetch(`/api/intakes/${intakeId}/eligibility`);
+      if (r.ok) { setState(await r.json()); setLoadError(false); }
+      else setLoadError(true);
+    } catch { setLoadError(true); }
   }, [intakeId]);
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -51,7 +55,15 @@ export default function CoveragePanel({ intakeId }: { intakeId: string }) {
     } finally { setBusy(false); }
   }
 
-  if (!state) return null;
+  if (!state) {
+    if (!loadError) return null; // still loading
+    return (
+      <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+        <span className="font-semibold">NC Medicaid (NC Tracks):</span> coverage status could not be loaded.{" "}
+        <button type="button" className="font-semibold underline" onClick={() => { void refresh(); }}>Try again</button>
+      </div>
+    );
+  }
   const s = state.snapshot;
 
   return (

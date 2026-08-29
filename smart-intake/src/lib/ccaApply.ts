@@ -4,6 +4,7 @@ import { mergeCcaAnswers } from "./ccaExtract";
 import type { Answers } from "./fillPdf";
 import { loadAnswers, nonMaterialAnswerKeys, saveAnswers, syncStructuredRows } from "./intakeData";
 import { questionByKey } from "./validation";
+import { formatDateForPeople, normalizeDateInput } from "./normalizeDateInput";
 
 export class CcaSignaturesWouldInvalidateError extends Error {
   code = "SIGNATURES_WOULD_INVALIDATE" as const;
@@ -56,12 +57,21 @@ export async function applyCcaAnswers(opts: {
   const withDefaults = applyOperationalDefaults({ ...current, ...merged });
   const ccaDate = opts.extracted.cca_assessment_date;
   if (typeof ccaDate === "string" && ccaDate.trim()) {
-    for (const key of ["assess_date", "initial_assessment_date"]) {
-      withDefaults[key] = ccaDate;
-      if (!filled.includes(key)) filled.push(key);
+    // assess_date is printed text; initial_assessment_date is a date box that
+    // only shows YYYY-MM-DD, so each gets the shape it can display
+    const ccaIso = normalizeDateInput(ccaDate);
+    withDefaults.assess_date = formatDateForPeople(ccaDate) || ccaDate;
+    if (!filled.includes("assess_date")) filled.push("assess_date");
+    if (ccaIso) {
+      withDefaults.initial_assessment_date = ccaIso;
+      if (!filled.includes("initial_assessment_date")) filled.push("initial_assessment_date");
     }
   }
-  const materialKeys = materialCcaChanges(current, withDefaults);
+  // Only values the CCA actually brings in get saved (the `filled` list). Count a
+  // change as material only when it is one of those keys, so a re-scan that adds
+  // nothing new does not prompt to re-sign for a no-op.
+  const filledSet = new Set(filled);
+  const materialKeys = materialCcaChanges(current, withDefaults).filter((key) => filledSet.has(key));
   const capturedSignatures = await prisma.signature.count({
     where: { intakeId: opts.intakeId, invalidatedAt: null },
   });

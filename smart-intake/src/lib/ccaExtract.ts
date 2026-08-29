@@ -8,6 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 import type { CcaReview } from "./ccaReview";
+import { formatDateForPeople, isDatePlaceholder, normalizeDateInput } from "./normalizeDateInput";
 
 export function ccaConfigured(): boolean {
   return !!process.env.ANTHROPIC_API_KEY;
@@ -128,6 +129,16 @@ function normalizeValue(q: Question, value: unknown): Answers[string] | undefine
   if (!text) return undefined;
   if ((q.type === "radio" || q.type === "yesno") && q.options) {
     return matchOption(text, q.options);
+  }
+  // Date boxes (<input type="date">) only display YYYY-MM-DD. A CCA often
+  // prints 10.21.2026 or "none"; store a real date in the shape the box
+  // understands and drop word-forms so a blank shows blank, not "none".
+  if (q.type === "date") {
+    return normalizeDateInput(text) || undefined;
+  }
+  if (/_date$/.test(q.key)) {
+    if (isDatePlaceholder(text)) return undefined;
+    return formatDateForPeople(text) || text;
   }
   return text;
 }
@@ -279,8 +290,12 @@ export async function extractFromCca(
   setCcaWorkflowDefaults(extracted);
   // the CCA's own assessment date beats "today" for the assessment blanks
   if (extracted.cca_assessment_date) {
-    for (const k of ["assess_date", "initial_assessment_date"]) {
-      if (!extracted[k]) extracted[k] = extracted.cca_assessment_date;
+    const assessmentIso = normalizeDateInput(extracted.cca_assessment_date);
+    // initial_assessment_date is a date box (needs YYYY-MM-DD); assess_date is
+    // printed text (MM/DD/YYYY reads naturally on the packet)
+    if (!extracted.initial_assessment_date && assessmentIso) extracted.initial_assessment_date = assessmentIso;
+    if (!extracted.assess_date) {
+      extracted.assess_date = formatDateForPeople(extracted.cca_assessment_date) || extracted.cca_assessment_date;
     }
   }
   return { extracted, fieldCount: Object.keys(extracted).length, review };

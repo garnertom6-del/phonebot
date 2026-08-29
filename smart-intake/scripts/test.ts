@@ -10,6 +10,8 @@
  *  8. Sample completed PDFs exist
  */
 import assert from "assert";
+import { normalizeDateInput, formatDateForPeople, isDatePlaceholder } from "../src/lib/normalizeDateInput";
+import { normalizeDate as normRecordDate, normalizeIdentityName as normRecordName } from "../src/lib/recordIntegrity";
 import fs from "fs";
 import path from "path";
 import bcrypt from "bcryptjs";
@@ -2050,6 +2052,33 @@ async function main() {
   const schema = fs.readFileSync(path.join(process.cwd(), "prisma/schema.prisma"), "utf8");
   assert(schema.includes('@@unique([providerId, recordNumber], name: "provider_record_number")'));
   ok("provider+recordNumber uniqueness is prepared for SQLite");
+
+  assert.equal(normalizeDateInput("10.21.2026"), "2026-10-21");
+  assert.equal(normalizeDateInput("01/21/2026"), "2026-01-21");
+  assert.equal(normalizeDateInput("Oct 21, 2026"), "2026-10-21");
+  assert.equal(normalizeDateInput("10212026"), "2026-10-21");
+  assert.equal(normalizeDateInput("02/30/2026"), "", "impossible date is rejected");
+  assert.equal(normalizeDateInput("none"), "");
+  assert.equal(normalizeDateInput("Pending (verify)"), "");
+  assert.equal(normalizeDateInput("10/21/2026 (verify)"), "2026-10-21");
+  assert.equal(normalizeDateInput("1212026"), "", "ambiguous 7-digit form stays blank");
+  assert.equal(formatDateForPeople("10.21.2026"), "10/21/2026");
+  assert(isDatePlaceholder("N/A") && !isDatePlaceholder("10/21/2026"));
+  {
+    const normDay = (v: string) => (v ? normalizeDateInput(v) || v : "");
+    const sameDay = new Set(["2026-10-21", "10/21/2026", "10.21.2026"].map(normDay));
+    assert.equal(sameDay.size, 1, "one calendar day in three spellings must not trip the preflight date warning");
+  }
+  ok("CCA dates in dot/slash/word form normalise to YYYY-MM-DD; matching days no longer trigger a false date warning");
+
+  // Identity checks (packet-generation gate + preflight) must treat the same day
+  // and the legal-name(preferred) shape as a match, not a dead-end mismatch.
+  assert.equal(normRecordDate("2026-10-21"), normRecordDate("10/21/2026"), "ISO and US DOB are the same day");
+  assert.equal(normRecordDate("2026-1-2"), normRecordDate("01/02/2026"));
+  assert.notEqual(normRecordDate("2026-10-21"), normRecordDate("10/22/2026"), "different days stay different");
+  assert.equal(normRecordName("John Snipes (Johnny)"), normRecordName("john snipes"), "preferred-name suffix is ignored");
+  assert.notEqual(normRecordName("Markey Washington Jr"), normRecordName("Markey Washington"), "distinct names stay distinct");
+  ok("DOB/name identity normalisers agree across gate and preflight (no false identity block)");
 
   console.log(`\nAll ${passed} checks passed ✓`);
 }

@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 import type { MissingField } from "./validation";
+import { normalizeDateInput } from "./normalizeDateInput";
+import { normalizeDate, normalizeIdentityName } from "./recordIntegrity";
 
 export type PreflightSeverity = "error" | "warning" | "info";
 
@@ -151,7 +153,10 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
   }
 
   const answerName = clean(input.answers.client_full_name);
-  if (answerName && input.client.fullName && answerName.toLowerCase() !== input.client.fullName.toLowerCase()) {
+  // Compare like the readiness gate does: ignore case and a "(preferred)" suffix,
+  // so the exact legal-name(preferred) shape the CCA extractor produces does not
+  // raise a spurious identity error that pushes staff to a signature-invalidating fix.
+  if (answerName && input.client.fullName && normalizeIdentityName(answerName) !== normalizeIdentityName(input.client.fullName)) {
     const useRecordName = correctionOption(
       input,
       "use_intake_record_name",
@@ -171,7 +176,8 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
   }
 
   const answerDob = clean(input.answers.dob);
-  if (answerDob && input.client.dob && answerDob !== input.client.dob) {
+  // Same calendar day in two formats (2026-10-21 vs 10/21/2026) is not a mismatch.
+  if (answerDob && input.client.dob && normalizeDate(answerDob) !== normalizeDate(input.client.dob)) {
     const useRecordDob = correctionOption(
       input,
       "use_intake_record_dob",
@@ -191,7 +197,11 @@ export function buildRulePreflight(input: RuleInput): PreflightFinding[] {
   }
 
   const dateKeys = ["intake_date", "screening_date", "initial_assessment_date", "cca_assessment_date"];
-  const dateValues = unique(dateKeys.map((key) => clean(input.answers[key])));
+  // compare calendar dates, not spellings: 2026-10-21 and 10/21/2026 are the same day
+  const dateValues = unique(dateKeys.map((key) => {
+    const raw = clean(input.answers[key]);
+    return raw ? (normalizeDateInput(raw) || raw) : "";
+  }));
   if (dateValues.length > 1) {
     const intakeDate = clean(input.answers.intake_date);
     const alignIntakeDates = intakeDate

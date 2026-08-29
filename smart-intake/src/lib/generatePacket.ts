@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { fillPacket } from "@/lib/fillPdf";
-import { consentsFromAnswers, loadAnswers, loadSignatures } from "@/lib/intakeData";
+import { consentsFromAnswers, loadAnswers, loadSignatures, nonMaterialAnswerKeys } from "@/lib/intakeData";
 import { saveFile } from "@/lib/storage";
 import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
@@ -12,6 +12,7 @@ import {
   mappedSignatureSlotsFromFields,
   requiredSignatureSlotsFromFields,
 } from "@/lib/signatureStatus";
+import { normalizeDate as normalizeRecordDate, normalizeIdentityName as normalizeRecordIdentityName } from "@/lib/recordIntegrity";
 import { extractPdfText } from "@/lib/pdfText";
 
 export class PacketIdentityMismatchError extends Error {
@@ -33,29 +34,22 @@ function normalizedName(value: unknown): string {
   return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
 }
 
-function normalizedIdentityName(value: unknown): string {
-  return normalizedName(value).replace(/\s*\([^)]*\)\s*$/, "").trim();
-}
-
-function normalizedDate(value: unknown): string {
-  const raw = String(value || "").trim();
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
-  return iso ? `${iso[1]}${iso[2]}${iso[3]}` : raw.replace(/\D/g, "");
-}
-
 function assertPacketIdentity(
   intake: { client: { fullName: string; dob: string } },
   answers: Record<string, unknown>,
 ) {
   const answerName = normalizedName(answers.client_full_name);
   const recordName = normalizedName(intake.client.fullName);
-  const identityNameMatch = normalizedIdentityName(answerName) === normalizedIdentityName(recordName);
+  const identityNameMatch = normalizeRecordIdentityName(answerName) === normalizeRecordIdentityName(recordName);
   const nameMismatch = !!(answerName && recordName && !identityNameMatch);
   if (nameMismatch) {
     throw new PacketIdentityMismatchError(intake.client.fullName, String(answers.client_full_name));
   }
-  const answerDob = normalizedDate(answers.dob);
-  const recordDob = normalizedDate(intake.client.dob);
+  // Use the same date/name normalizers the readiness gate uses, so a client
+  // record typed as 10/21/2026 and a date-box answer of 2026-10-21 are treated
+  // as the same day instead of dead-ending generation with an identity error.
+  const answerDob = normalizeRecordDate(answers.dob);
+  const recordDob = normalizeRecordDate(intake.client.dob);
   if (answerDob && recordDob && answerDob !== recordDob) {
     throw new Error(
       `Packet identity check failed: client DOB does not match the intake record. Review the DOB before generating.`,
@@ -101,6 +95,11 @@ export async function generatePacketForIntake(
   answers.provider_staff_signature_label = `${providerName} Staff Signature`;
   answers.provider_staff_witness_label = `${providerName} Staff Witness:`;
   const signatures = await loadSignatures(intake.id);
+  const latestMaterialAnswer = await prisma.intakeAnswer.findFirst({
+    where: { intakeId: intake.id, key: { notIn: nonMaterialAnswerKeys() } },
+    orderBy: { updatedAt: "desc" },
+    select: { updatedAt: true },
+  });
   const consents = consentsFromAnswers(answers);
   const packetTemplate = await requireProviderPacketForCompletion(intake.providerId!);
   const result = await fillPacket({
@@ -113,6 +112,7 @@ export async function generatePacketForIntake(
   const signatureStatuses = buildSignatureStatuses(intake.signatures, {
     client: intake.client,
     currentContentRevision: intake.contentRevision,
+    latestMaterialUpdatedAt: latestMaterialAnswer?.updatedAt,
     mappedSlots: mappedSignatureSlotsFromFields(packetTemplate.fields),
     requiredSlots: requiredSignatureSlotsFromFields(packetTemplate.fields),
   });
@@ -151,10 +151,16 @@ export async function generatePacketForIntake(
       name: intake.provider?.name,
       phone: intake.provider?.phone,
     }));
+  // Only sign-off rows that are still valid at this content revision are drawn
+  // on the packet, so the certificate must list those same rows - not a
+  // superseded/invalidated signature the pages never show.
+  const validSignatureRows = intake.signatures.filter((s) => (
+    Object.prototype.hasOwnProperty.call(signatures, s.role)
+  ));
   const { pdfBytes, sha256 } = await appendCertificatePage(result.pdfBytes, {
     clientName: packetClientName,
     providerName: intake.provider?.name || undefined,
-    signers: intake.signatures.map((s) => ({
+    signers: validSignatureRows.map((s) => ({
       role: s.role,
       printedName: s.printedName,
       relationship: s.relationship,
@@ -190,11 +196,13 @@ export async function generatePacketForIntake(
   if (signed && intake.status !== "COMPLETED") {
     await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
   }
+  const warningCount = result.warnings?.length || 0;
   await audit("pdf_generated", {
     providerId: intake.providerId || undefined,
     intakeId: intake.id,
     userId,
-    detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`,
+    detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`
+      + (warningCount ? `; ${warningCount} field(s) could not be drawn and were left blank: ${result.warnings!.slice(0, 10).join("; ")}` : ""),
   });
   return {
     filled: result.filled,
