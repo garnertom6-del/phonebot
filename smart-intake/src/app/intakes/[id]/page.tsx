@@ -1010,11 +1010,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             )}
           </div>
         </div>
-        {!generationReady && generationBlockers.length > 0 && caseStatus.tone === "warn" && (
-          <p className="mt-2 text-xs opacity-80">
-            Next packet gate: {generationBlockers[0]?.message}
-          </p>
-        )}
       </section>
       <WorkflowSteps steps={caseStatus.steps} />
       <PacketChecklistChips
@@ -1033,8 +1028,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </ul>
         </div>
       )}
-      <MoodPanel answers={d.answers} />
-      <CoveragePanel intakeId={i.id} />
       {note && (
         <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand" role="status" aria-live="polite">
           {note}
@@ -1815,6 +1808,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </ul>
         </div>
       </div>
+      <MoodPanel answers={d.answers} />
+      <CoveragePanel intakeId={i.id} />
     </main>
   );
 }
