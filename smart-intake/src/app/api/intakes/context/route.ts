@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
-import { requireStaff } from "@/lib/staffGuard";
+import { isMasterUser, requireStaff } from "@/lib/staffGuard";
 
 function cleanPacketLabel(value: string): string {
   return value.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").trim();
@@ -13,10 +13,12 @@ function packetDisplayName(providerName: string, packetName: string | null): str
 }
 
 export async function GET() {
-  const { provider, deny } = await requireStaff();
+  const { user, provider, membership, deny } = await requireStaff();
   if (deny) return deny;
 
   const packet = await providerPacketReadiness(provider!.id);
+  const isMaster = isMasterUser(user!);
+  const canManageProvider = isMaster || membership?.role === "PROVIDER_ADMIN";
   return NextResponse.json({
     provider: {
       id: provider!.id,
@@ -31,6 +33,12 @@ export async function GET() {
       ready: packet.ready,
       state: packet.state,
       message: packet.message,
+    },
+    access: {
+      canManageProvider,
+      packetSetupHref: canManageProvider
+        ? (isMaster ? "/master/dashboard#provider-packet-setup" : "/provider/settings")
+        : null,
     },
   });
 }
