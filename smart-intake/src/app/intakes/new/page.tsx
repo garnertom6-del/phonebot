@@ -2,8 +2,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
-import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
-import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
+import { intakeMailtoHref, intakeShareMessage } from "@/lib/shareLinks";
+import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
 import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
@@ -16,6 +16,7 @@ import {
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
 import { buildNewIntakeReadiness } from "@/lib/newIntakeReadiness";
+import ComputerSmsActions from "@/components/ComputerSmsActions";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -96,7 +97,6 @@ export default function NewIntake() {
   const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
-  const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
   const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
   const [sendBusy, setSendBusy] = useState(false);
@@ -431,17 +431,15 @@ export default function NewIntake() {
     const deliveryContacts = clientDeliveryContacts({
       phone: form.phone,
       email: form.email,
+      guardianName: form.guardianName,
       guardianPhone: form.guardianPhone,
       guardianEmail: form.guardianEmail,
-    });
+    }, form.guardianName ? { is_minor_or_incompetent: "Yes" } : {});
     const phone = deliveryContacts.phone?.value || "";
     const email = deliveryContacts.email?.value || "";
     const message = intakeShareMessage(result.clientLink, providerName, providerPhone);
     const hasContact = !!(phone || email);
-    const recipientSummary = [
-      deliveryContacts.phone ? `SMS to ${deliveryContacts.phone.role} at ${deliveryContacts.phone.value}` : "",
-      deliveryContacts.email ? `email to ${deliveryContacts.email.role} at ${deliveryContacts.email.value}` : "",
-    ].filter(Boolean).join("; ");
+    const recipientSummary = deliveryContactsSummary(deliveryContacts);
     return (
       <main className="mx-auto max-w-xl p-6">
         <div className="card">
@@ -489,9 +487,25 @@ export default function NewIntake() {
                   Add a client or guardian phone number or email on the intake page before sending.
                 </p>
               )}
+              {phone && (
+                <div className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <ComputerSmsActions
+                    intakeId={result.id}
+                    purpose="intake"
+                    phone={phone}
+                    role={deliveryContacts.phone?.role}
+                    message={message}
+                    link={result.clientLink}
+                    onStatus={(status) => {
+                      setSendStatus(status);
+                      setSendStatusKind("info");
+                    }}
+                  />
+                </div>
+              )}
               <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
                 <summary className="cursor-pointer font-semibold text-slate-800">
-                  Manual sending &amp; message preview
+                  Message preview and other send options
                 </summary>
                 <p className="mt-3 break-all whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{message}</p>
                 <p className="mt-2 text-xs text-slate-500">
@@ -501,17 +515,6 @@ export default function NewIntake() {
                   <button className="btn-ghost" onClick={async () => {
                     await navigator.clipboard.writeText(result.clientLink); setCopied(true);
                   }}>{copied ? "Link copied" : "Copy client link"}</button>
-                  <button className="btn-ghost" onClick={async () => {
-                    await navigator.clipboard.writeText(message); setMessageCopied(true);
-                  }}>{messageCopied ? "Message copied" : "Copy SMS message"}</button>
-                  {phone && (
-                    <a
-                      className="btn-ghost text-center"
-                      href={intakeSmsHref(phone, result.clientLink, providerName, providerPhone)}
-                    >
-                      Open SMS on this computer
-                    </a>
-                  )}
                   {email && (
                     <a
                       className="btn-ghost text-center"
