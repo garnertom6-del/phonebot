@@ -3,10 +3,11 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, Suspense } from "react";
-import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
+import { matchesDashboardTab, needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { consumeDashboardFlash } from "@/lib/dashboardFlash";
+import { displayClientName, displayRecordNumber, humanFieldLabel } from "@/lib/fieldLabels";
 
 interface Row {
   id: string;
@@ -40,6 +41,8 @@ interface Row {
     guardianPhone?: string;
   };
   missingRequired: { key: string; label: string }[];
+  checklistMissing?: { key: string; label: string }[];
+  expectCca?: boolean;
   linkSentAt?: string;
   lastLinkOpenedAt?: string | null;
   reminderCount?: number;
@@ -134,12 +137,7 @@ function displayDateTime(value?: string | null): string {
 }
 
 function rowMatchesTab(row: Row, tab: string) {
-  const tabDef = TABS.find((item) => item.key === tab);
-  if (tab === "archived") return !!row.archived;
-  if (row.archived) return false;
-  if (!tabDef || tab === "all") return true;
-  if (tabDef.matches) return tabDef.matches(row);
-  return tabDef.statuses.includes(row.status);
+  return matchesDashboardTab(row, tab);
 }
 
 function rowSearchText(row: Row) {
@@ -159,7 +157,7 @@ function rowSearchText(row: Row) {
 }
 
 function rowNeedsStaffAction(row: Row): boolean {
-  return needsStaffAction(row.status);
+  return needsStaffAction(row.status, row.readiness);
 }
 
 function csvCell(value: unknown): string {
@@ -477,7 +475,13 @@ function Dashboard() {
   }
 
   const trimmedSearch = search.trim().toLowerCase();
-  const filteredRows = rows?.filter((row) => rowMatchesTab(row, tab) && (!trimmedSearch || rowSearchText(row).includes(trimmedSearch))) ?? null;
+  const searchAllActive = !!trimmedSearch && tab !== "archived";
+  const filteredRows = rows?.filter((row) => {
+    const matchesSearch = !trimmedSearch || rowSearchText(row).includes(trimmedSearch);
+    if (!matchesSearch) return false;
+    if (searchAllActive) return !row.archived;
+    return rowMatchesTab(row, tab);
+  }) ?? null;
 
   const activeRows = rows?.filter((row) => !row.archived) ?? [];
   const totalCount = activeRows.length;
@@ -514,7 +518,7 @@ function Dashboard() {
         row.ccaDetail || "",
         row.packetState === "current" ? "Current" : row.packetState === "stale" ? "Outdated" : "Not generated",
         row.missingRequired.length,
-        row.missingRequired.map((item) => item.label).join("; "),
+        row.missingRequired.map((item) => humanFieldLabel(item.key, item.label)).join("; "),
         row.completionBlockers.map((item) => item.message).join("; "),
         row.copiesSentAt ? displayDateTime(row.copiesSentAt) : "Not sent",
         row.autoSendCopies ? "On" : "Off",
@@ -577,13 +581,13 @@ function Dashboard() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {!readOnly && <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>}
+            {!readOnly && rows && <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>}
             {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master: providers &amp; packets</Link>}
             {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider: packet settings</Link>}
             <details className="relative [&>summary::-webkit-details-marker]:hidden">
               <summary className="btn-secondary cursor-pointer list-none bg-white/15 text-white hover:bg-white/25">More tools</summary>
               <div className="absolute right-0 z-30 mt-2 grid min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-xl">
-                {!readOnly && <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
+                {!readOnly && rows && <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
                 {(isMaster || canManageProvider) && <Link href="/admin/users" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Staff logins</Link>}
                 {isMaster && <Link href="/admin/pdf-mapping" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">PDF mapping</Link>}
                 {isMaster && <a href="/api/admin/backup?confirmPhi=yes" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100" onClick={(event) => {
@@ -646,7 +650,14 @@ function Dashboard() {
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold text-slate-900">Find the right intake fast</h2>
-            <p className="text-sm text-slate-500">Search by client, MID, contact info, insurance, or the client&apos;s main concern.</p>
+            <p className="text-sm text-slate-500">
+              Search by client, MID, contact info, insurance, or the client&apos;s main concern.
+              {searchAllActive
+                ? " Search looks across all active intakes, not only this tab."
+                : tab === "archived"
+                  ? " Search is limited to archived intakes while that tab is selected."
+                  : " Search is limited to the selected tab until you type a query."}
+            </p>
           </div>
           <p className="text-sm text-slate-500">
             Showing <span className="font-semibold text-slate-700">{filteredRows?.length ?? 0}</span> of{" "}
@@ -726,8 +737,9 @@ function Dashboard() {
 
         {filteredRows?.map((row) => {
           const latestTouch = row.lastActivityAt || row.submittedAt || row.createdAt;
-          const missingPreview = row.missingRequired.length
-            ? row.missingRequired.slice(0, 3).map((item) => item.label).join(", ")
+          const missingItems = row.checklistMissing || row.missingRequired;
+          const missingPreview = missingItems.length
+            ? missingItems.slice(0, 3).map((item) => humanFieldLabel(item.key, item.label)).join(", ")
             : "Everything required is in.";
           const statusLabel = STATUS_LABELS[row.status] || row.status.replaceAll("_", " ");
           const rowBusy = busyRowIds.has(row.id);
@@ -765,7 +777,7 @@ function Dashboard() {
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
                     <Link href={`/intakes/${row.id}`} className="inline-flex min-h-11 items-center text-2xl font-bold tracking-tight text-brand hover:underline">
-                      {row.client.fullName}
+                      {displayClientName(row.client.fullName)}
                     </Link>
                     <span className={`badge ${STATUS_COLORS[row.status] || "bg-slate-200 text-slate-700"}`}>{statusLabel}</span>
                     {row.docusignEnvelopeId && <span className="badge bg-emerald-50 text-emerald-700">DocuSign sent</span>}
@@ -783,7 +795,7 @@ function Dashboard() {
               </div>
 
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                <MetaCard label="DOB / Record" value={`${displayDate(row.client.dob)} • ${row.client.recordNumber || "No record #"}`} />
+                <MetaCard label="DOB / Record" value={`${displayDate(row.client.dob)} • ${displayRecordNumber(row.client.recordNumber)}`} />
                 <MetaCard label="MID / Insurance type" value={`${row.client.midNumber || "No MID"} • ${row.insuranceSummary || "Coverage not recorded"}`} />
                 <MetaCard label="Contact" value={[row.client.phone, row.client.email].filter(Boolean).join(" • ") || "No phone or email saved"} />
                 <MetaCard label="Guardian" value={row.client.guardianName || "No guardian on file"} />
@@ -844,9 +856,9 @@ function Dashboard() {
 
               <div className="mt-4 rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Missing required items</p>
-                <p className={`mt-2 text-sm ${row.missingRequired.length ? "text-rose-700" : "font-semibold text-emerald-700"}`}>
+                <p className={`mt-2 text-sm ${missingItems.length ? "text-rose-700" : "font-semibold text-emerald-700"}`}>
                   {missingPreview}
-                  {row.missingRequired.length > 3 ? ` + ${row.missingRequired.length - 3} more` : ""}
+                  {missingItems.length > 3 ? ` + ${missingItems.length - 3} more` : ""}
                 </p>
                 <div className={`mt-3 rounded-lg border px-3 py-2 ${
                   row.readiness.tone === "warn"

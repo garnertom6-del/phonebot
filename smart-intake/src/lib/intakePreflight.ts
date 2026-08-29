@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { questionByKey } from "@/config/mooreDivineQuestions";
+import { humanFieldLabel } from "@/lib/fieldLabels";
 import type { Answers } from "./fillPdf";
 import type { MissingField } from "./validation";
 
@@ -57,7 +58,92 @@ function unique(values: string[]): string[] {
 }
 
 function fieldLabel(key: string): string {
-  return questionByKey(key)?.label || key.replaceAll("_", " ");
+  return humanFieldLabel(key);
+}
+
+export type PreflightCountSummary = {
+  listedCount: number;
+  attentionCount: number;
+  suggestionCount: number;
+  resolvedCount: number;
+  bannerText: string;
+};
+
+function isOpenFinding(finding: Pick<PreflightFinding, "severity"> & {
+  overridden?: boolean;
+  resolved?: string | boolean;
+}): boolean {
+  return !finding.overridden && finding.resolved !== "overridden" && finding.resolved !== "corrected";
+}
+
+/** Banner math must add up to the listed finding rows. */
+export function summarizePreflightFindings(
+  findings: Array<Pick<PreflightFinding, "severity"> & { overridden?: boolean; resolved?: string | boolean }>,
+): PreflightCountSummary {
+  const listedCount = findings.length;
+  const resolvedCount = findings.filter((finding) => !isOpenFinding(finding)).length;
+  const open = findings.filter(isOpenFinding);
+  const attentionCount = open.filter((finding) => finding.severity !== "info").length;
+  const suggestionCount = open.filter((finding) => finding.severity === "info").length;
+  const parts: string[] = [];
+  if (attentionCount) {
+    parts.push(`${attentionCount} need attention`);
+  }
+  if (suggestionCount) {
+    parts.push(`${suggestionCount} ${suggestionCount === 1 ? "is a suggestion" : "are suggestions"}`);
+  }
+  if (resolvedCount) {
+    parts.push(`${resolvedCount} already resolved`);
+  }
+  let bannerText = "";
+  if (listedCount === 0) {
+    bannerText = "";
+  } else if (parts.length === 1 && attentionCount === listedCount) {
+    bannerText = `${attentionCount} item${attentionCount === 1 ? " needs" : "s need"} attention before the packet is ready.`;
+  } else {
+    bannerText = `${listedCount} finding${listedCount === 1 ? "" : "s"} listed: ${parts.join(", ")}.`;
+  }
+  return { listedCount, attentionCount, suggestionCount, resolvedCount, bannerText };
+}
+
+function phonesMatch(left: string, right: string): boolean {
+  const digits = (value: string) => value.replace(/\D/g, "").replace(/^1(?=\d{10}$)/, "");
+  const a = digits(left);
+  const b = digits(right);
+  return !!a && a === b;
+}
+
+/** Form copy invites "same as cell unless different" — matching numbers are not a defect. */
+export function isBenignSameAsCellFinding(
+  finding: Pick<PreflightFinding, "title" | "detail" | "fieldKeys">,
+  answers: Answers,
+): boolean {
+  const keys = finding.fieldKeys || [];
+  const blob = `${finding.title} ${finding.detail} ${keys.join(" ")}`.toLowerCase();
+  const talksAboutSame = /same|identical|duplicate|match|matches|both/.test(blob);
+  const home = clean(answers.client_phone_home);
+  const cell = clean(answers.client_phone_cell);
+  const homeAndCell = keys.includes("client_phone_home") || keys.includes("client_phone_cell")
+    || /home phone/.test(blob);
+  if (homeAndCell && home && cell && phonesMatch(home, cell) && (talksAboutSame || keys.includes("client_phone_home"))) {
+    return true;
+  }
+  const ecHome = clean(answers.ec1_home_phone);
+  const ecCell = clean(answers.ec1_cell_phone);
+  const emergencyPhones = keys.includes("ec1_home_phone") || keys.includes("ec1_cell_phone");
+  if (emergencyPhones && ecHome && ecCell && phonesMatch(ecHome, ecCell) && talksAboutSame) {
+    return true;
+  }
+  return false;
+}
+
+function withFieldLabels(finding: PreflightFinding): PreflightFinding {
+  const fieldKeys = finding.fieldKeys || [];
+  if (!fieldKeys.length) return finding;
+  return {
+    ...finding,
+    fieldLabels: fieldKeys.map((key, index) => humanFieldLabel(key, finding.fieldLabels?.[index])),
+  };
 }
 
 function correctionUpdate(
@@ -251,7 +337,7 @@ function answerSnapshot(answers: Answers): string {
     Object.entries(answers)
       .filter(([, value]) => value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0))
       .map(([key, value]) => [key, {
-        label: questionByKey(key)?.label || key,
+        label: humanFieldLabel(key),
         value: clean(value).slice(0, 300),
       }]),
   ));
@@ -368,10 +454,20 @@ export function mergePreflightFindings(
       .filter((finding) => authoritativeRuleKeys.has(finding.key))
       .flatMap((finding) => finding.fieldKeys || []),
   );
-  return [
+  const merged = [
     ...ruleFindings,
     ...aiFindings.filter((finding) => !(finding.fieldKeys || []).some((key) => authoritativeFields.has(key))),
   ];
+  return merged.map(withFieldLabels);
+}
+
+export function mergePreflightFindingsForAnswers(
+  ruleFindings: PreflightFinding[],
+  aiFindings: PreflightFinding[],
+  answers: Answers,
+): PreflightFinding[] {
+  return mergePreflightFindings(ruleFindings, aiFindings)
+    .filter((finding) => !isBenignSameAsCellFinding(finding, answers));
 }
 
 export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding[]> {
@@ -385,6 +481,7 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
       "Review only for documentation completeness, identity/date conflicts, duplicate or contradictory service information, and items staff should verify. " +
       "You are not a clinician and must not diagnose, determine eligibility, recommend a level of care, create an answer, or say that a packet is legally or clinically compliant. " +
       "Do not flag transition/discharge fields (dis_*), future treatment-plan signature rows (otp_*), or other information that is only completed when a client leaves the program. " +
+      "Do not flag home phone matching cell phone; the form says to use the same number unless the home phone is different. The same rule applies to emergency-contact home vs cell. " +
       "Return only concerns supported by the supplied data. If a field is not present, say it is missing or leave it to the rule checks. " +
       "Give each concern a short stable key using lowercase letters and underscores so staff can override that exact concern. " +
       "Every finding must be a short, actionable suggestion for a human reviewer. Keep each detail under 280 characters. " +
@@ -425,6 +522,15 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
       ? item.fieldKeys.map(String).filter((key) => knownKeys.has(key)).slice(0, 8)
       : [];
     const correctionOptions = groundedCorrectionOptionsFromAi(item.correctionOptions, input);
-    return [{ key: `ai_${rawKey}`, severity, title, detail, fieldKeys, source: "ai", correctionOptions }];
+    return [{
+      key: `ai_${rawKey}`,
+      severity,
+      title,
+      detail,
+      fieldKeys,
+      fieldLabels: fieldKeys.map((key) => humanFieldLabel(key)),
+      source: "ai",
+      correctionOptions,
+    }];
   });
 }

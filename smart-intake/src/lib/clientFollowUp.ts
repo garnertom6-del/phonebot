@@ -5,6 +5,7 @@ import {
   type Question,
 } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied } from "@/lib/validation";
+import { humanFieldLabel } from "@/lib/fieldLabels";
 const FOLLOW_UP_TYPES = new Set<QType>([
   "text",
   "textarea",
@@ -106,7 +107,7 @@ export function clientFollowUpQuestions(
     seen.add(key);
     questions.push({
       key,
-      label: question.label,
+      label: humanFieldLabel(question.key, question.label),
       type: question.type,
       options: questionOptions(question),
       placeholder: question.placeholder,

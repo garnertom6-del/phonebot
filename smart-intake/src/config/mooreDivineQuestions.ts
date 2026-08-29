@@ -400,6 +400,7 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "survey_q1", label: "I got into the program within timeframes that were explained to me", type: "survey" },
       { key: "survey_q2", label: "The staff was courteous, professional, and explained services in a way I understood", type: "survey" },
+      { key: "survey_q3", label: "The staff explained orientation, my rights, and how to ask questions", type: "survey" },
       { key: "survey_q4", label: "I was allowed and encouraged to provide input about my presenting problems and history", type: "survey" },
       { key: "survey_q5", label: "I was informed whether I qualified and whether the agency could provide recommended services", type: "survey" },
       { key: "survey_q6", label: "I participated in my treatment plan and understood goals, time limits, and the discharge plan", type: "survey" },

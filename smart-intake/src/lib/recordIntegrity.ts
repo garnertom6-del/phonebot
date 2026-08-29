@@ -1,5 +1,6 @@
 import { isPlausiblePhone } from "@/lib/intakeContacts";
 import { parseHelperNotes } from "@/lib/parseIntakeNotes";
+import { humanFieldLabel } from "@/lib/fieldLabels";
 import type { Answers } from "@/lib/fillPdf";
 
 export type ClientIdentity = {
@@ -181,7 +182,7 @@ export function buildRecordConflicts(answers: Answers, client: ClientIdentity): 
         conflicts,
         `helper_${key}_conflict`,
         "warning",
-        `${key.replaceAll("_", " ")} conflicts with Quick Notes`,
+        `${humanFieldLabel(key)} conflicts with Quick Notes`,
         "Quick Notes and the saved answer disagree. Confirm the source and keep one verified value.",
         [key, "staff_helper_notes"],
       );

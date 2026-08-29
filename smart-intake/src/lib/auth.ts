@@ -9,7 +9,9 @@ const SECRET = () => {
   }
   return secret || "dev-secret-change-me";
 };
-const COOKIE = "mdc_session";
+import { SESSION_COOKIE_NAME } from "./staffPageGate";
+
+const COOKIE = SESSION_COOKIE_NAME;
 
 function sign(payload: string): string {
   return crypto.createHmac("sha256", SECRET()).update(payload).digest("base64url");

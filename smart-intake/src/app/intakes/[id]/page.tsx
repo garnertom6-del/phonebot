@@ -27,6 +27,9 @@ import {
 } from "@/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
+import { displayClientName, humanFieldLabel } from "@/lib/fieldLabels";
+import { summarizePreflightFindings } from "@/lib/intakePreflight";
+import { buildStaffRequiredChecklist } from "@/lib/staffRequiredChecklist";
 
 type PreflightFinding = {
   key: string;
@@ -104,6 +107,7 @@ interface Detail {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
     submittedAt?: string | null;
     docusignEnvelopeId?: string | null;
+    expectCca?: boolean;
     provider?: { name: string; phone?: string | null } | null;
     client: {
       fullName: string;
@@ -356,10 +360,17 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       : "",
   ].filter(Boolean).join(" and ");
   const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
-  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
+  const preflightSummary = summarizePreflightFindings(preflight?.findings || []);
+  const preflightBlockingCount = preflightSummary.attentionCount;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
   const preflightCorrectedCount = preflight?.findings.filter((finding) => finding.resolved === "corrected").length ?? 0;
   const preflightIsClear = !!preflight && preflightBlockingCount === 0;
+  const checklistRequired = buildStaffRequiredChecklist({
+    missingRequired: d.missingRequired,
+    expectCca: i.expectCca !== false,
+    hasCca,
+    signatureStatuses: d.signatureStatuses || [],
+  });
   const missingClientFieldKeys = [...new Set([
     ...d.missingRequired.map((field) => field.key),
     ...d.missingOptional.map((field) => field.key),
@@ -845,7 +856,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   function generateRecordNumberFromPanel(form: HTMLFormElement) {
     const panel = String(new FormData(form).get("provider_choice_plan") || "").trim();
     if (!panel) {
-      setNote("Choose the insurance type first, then generate the Record#.");
+      const section = document.getElementById("staff-insurance-panel");
+      if (section instanceof HTMLDetailsElement) section.open = true;
+      const select = form.elements.namedItem("provider_choice_plan");
+      if (select instanceof HTMLSelectElement) {
+        select.focus();
+        select.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setNote("The insurance panel is open. Choose the plan, then generate the Record#.");
       return;
     }
     if (!canGenerateRecordNumber(panel)) {
@@ -897,12 +915,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold">{i.client.fullName}</h1>
+          <h1 className="text-2xl font-bold">{displayClientName(i.client.fullName)}</h1>
           <p className="text-sm text-slate-500">
             DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status{" "}
             <b>{({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
               NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}</b>{" "}
-            - {d.missingRequired.length === 0 ? "Intake required fields complete" : `${d.percentComplete}% of answers filled`}
+            - {checklistRequired.length === 0 ? "Intake required fields complete" : `${d.percentComplete}% of answers filled`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -1246,10 +1264,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               )}
               {!!(followUpQuestions.length || deferredFollowUpQuestions.length) && (
                 <button
-                  className="btn-ghost px-4 py-2 text-sm"
+                  className="btn-ghost px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-60"
                   type="button"
-                  disabled={preflightBusy}
+                  disabled={preflightBusy || !originalClientIntakeFinished}
+                  title={originalClientIntakeFinished
+                    ? "Run preflight and record an override for leftover blanks"
+                    : "Available after the client or guardian signs the original intake."}
                   onClick={() => {
+                    if (!originalClientIntakeFinished) return;
                     void runPreflight();
                     window.setTimeout(() => document.getElementById("preflight-review")?.scrollIntoView({
                       behavior: "smooth",
@@ -1259,6 +1281,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 >
                   Review / override blanks
                 </button>
+              )}
+              {!!(followUpQuestions.length || deferredFollowUpQuestions.length) && !originalClientIntakeFinished && (
+                <p className="w-full text-sm font-semibold text-amber-900">
+                  Review / override blanks stays paused until the original client intake is signed.
+                </p>
               )}
             </div>
           </div>
@@ -1452,7 +1479,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 </div>
               ) : (
                 <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
-                  <p className="font-bold">{preflightBlockingCount} item{preflightBlockingCount === 1 ? " needs" : "s need"} attention before the packet is ready.</p>
+                  <p className="font-bold">{preflightSummary.bannerText}</p>
                   {preflightCorrectedCount > 0 && <p className="mt-1 text-sm font-semibold text-emerald-900">{preflightCorrectedCount} item{preflightCorrectedCount === 1 ? " is" : "s are"} corrected and removed from the attention count. Rerun the review to verify the saved changes.</p>}
                   <p className="mt-1 text-sm">{preflight.message}</p>
                 </div>
@@ -1477,7 +1504,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                     {finding.fieldKeys?.slice(0, 8).map((key, fieldIndex) => (
                       <Link key={key} className="font-semibold underline"
                         href={`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}&return=preflight`}>
-                        {finding.fieldLabels?.[fieldIndex] || (fieldIndex === 0 ? "Review in form" : key)}
+                        {humanFieldLabel(key, finding.fieldLabels?.[fieldIndex])}
                       </Link>
                     ))}
                     {!finding.overridden && !finding.resolved && finding.severity !== "info" && (
@@ -1622,7 +1649,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </div>
             </HelperGroup>
 
-            <HelperGroup title="Insurance, referral & services" description="Use confirmed plan, referral, and requested-service information.">
+            <HelperGroup id="staff-insurance-panel" title="Insurance, referral & services" description="Use confirmed plan, referral, and requested-service information.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
                 <HelperSelect name="has_medicaid" label="Medicaid" value={d.answers.has_medicaid ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
@@ -1754,7 +1781,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             )}
           </form>
         </div>
-        <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
+        <MissingFieldsPanel required={checklistRequired} optional={d.missingOptional} />
         <div className="card">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <h3 className="mb-2 font-bold">Signatures</h3>
@@ -1911,10 +1938,11 @@ function HelperGroup({
   title,
   description,
   defaultOpen = false,
+  id,
   children,
-}: { title: string; description: string; defaultOpen?: boolean; children: ReactNode }) {
+}: { title: string; description: string; defaultOpen?: boolean; id?: string; children: ReactNode }) {
   return (
-    <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3" open={defaultOpen}>
+    <details id={id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3" open={defaultOpen}>
       <summary className="cursor-pointer list-none">
         <span className="font-semibold text-slate-800">{title}</span>
         <span className="ml-2 text-xs text-slate-500">{description}</span>

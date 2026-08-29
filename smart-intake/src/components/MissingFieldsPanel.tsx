@@ -1,3 +1,5 @@
+import { humanFieldLabel } from "@/lib/fieldLabels";
+
 interface Missing { key: string; label: string; section?: string }
 
 export default function MissingFieldsPanel({ required, optional }: { required: Missing[]; optional: Missing[] }) {
@@ -10,7 +12,7 @@ export default function MissingFieldsPanel({ required, optional }: { required: M
         <>
           <p className="mb-1 text-sm font-semibold text-red-600">Required before completion ({required.length}):</p>
           <ul className="mb-3 list-inside list-disc text-sm text-red-700">
-            {required.map((m) => <li key={m.key}>{m.label}</li>)}
+            {required.map((m) => <li key={m.key}>{humanFieldLabel(m.key, m.label)}</li>)}
           </ul>
         </>
       )}
@@ -20,7 +22,7 @@ export default function MissingFieldsPanel({ required, optional }: { required: M
             Key unanswered packet items to review ({optional.length})
           </summary>
           <ul className="mt-2 max-h-64 list-inside list-disc overflow-y-auto text-xs text-slate-500">
-            {optional.map((m) => <li key={m.key}>{m.section ? `${m.section}: ` : ""}{m.label}</li>)}
+            {optional.map((m) => <li key={m.key}>{m.section ? `${m.section}: ` : ""}{humanFieldLabel(m.key, m.label)}</li>)}
           </ul>
         </details>
       )}
