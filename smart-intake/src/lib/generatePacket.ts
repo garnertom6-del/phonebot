@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { Prisma } from "@prisma/client";
+import { randomUUID } from "crypto";
 import { audit } from "@/lib/auditLog";
 import { fillPacket } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures, nonMaterialAnswerKeys } from "@/lib/intakeData";
@@ -74,6 +76,51 @@ function assertRenderedPacketText(text: string, expectedClientName: string, prov
       `Packet template check failed: the rendered packet contains older provider text. No packet was generated. To fix it, upload the correct clean ${providerName} packet in Master Dashboard > Provider Packet Setup, activate/approve that packet, then try Generate Completed Packet again.`,
     );
   }
+}
+
+const PACKET_VERSION_RETRY_LIMIT = 5;
+
+function retryablePacketVersionError(error: unknown): boolean {
+  return error instanceof Prisma.PrismaClientKnownRequestError
+    && (error.code === "P2002" || error.code === "P2034");
+}
+
+async function createVersionedPdfRecord(input: {
+  intakeId: string;
+  filePath: string;
+  sha256: string;
+  contentRevision: number;
+}): Promise<number> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < PACKET_VERSION_RETRY_LIMIT; attempt += 1) {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        const latestVersion = await tx.generatedPdf.findFirst({
+          where: { intakeId: input.intakeId },
+          orderBy: { packetVersion: "desc" },
+          select: { packetVersion: true },
+        });
+        const packetVersion = (latestVersion?.packetVersion || 0) + 1;
+        await tx.generatedPdf.create({
+          data: {
+            intakeId: input.intakeId,
+            filePath: input.filePath,
+            sha256: input.sha256,
+            packetVersion,
+            contentRevision: input.contentRevision,
+          },
+        });
+        return packetVersion;
+      });
+    } catch (error) {
+      if (!retryablePacketVersionError(error) || attempt === PACKET_VERSION_RETRY_LIMIT - 1) throw error;
+      lastError = error;
+      const exponential = Math.min(20 * (2 ** attempt), 250);
+      const jitter = Math.floor(Math.random() * 25);
+      await new Promise((resolve) => setTimeout(resolve, exponential + jitter));
+    }
+  }
+  throw lastError || new Error("Could not reserve a packet version.");
 }
 
 export async function generatePacketForIntake(
@@ -175,22 +222,13 @@ export async function generatePacketForIntake(
     consentLabels,
     generatedAt: new Date(),
   });
-  const rel = `generated/${intake.id}/${Date.now()}-intake-packet.pdf`;
+  const rel = `generated/${intake.id}/${Date.now()}-${randomUUID()}-intake-packet.pdf`;
   saveFile(rel, Buffer.from(pdfBytes));
-  const latestVersion = await prisma.generatedPdf.findFirst({
-    where: { intakeId: intake.id },
-    orderBy: { packetVersion: "desc" },
-    select: { packetVersion: true },
-  });
-  const packetVersion = (latestVersion?.packetVersion || 0) + 1;
-  await prisma.generatedPdf.create({
-    data: {
-      intakeId: intake.id,
-      filePath: rel,
-      sha256,
-      packetVersion,
-      contentRevision: intake.contentRevision,
-    },
+  const packetVersion = await createVersionedPdfRecord({
+    intakeId: intake.id,
+    filePath: rel,
+    sha256,
+    contentRevision: intake.contentRevision,
   });
   const signed = signatures.client || signatures.guardian;
   if (signed && intake.status !== "COMPLETED") {

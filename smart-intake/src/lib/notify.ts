@@ -3,6 +3,8 @@
  * console. Production adapters for SendGrid/Twilio are wired but inactive
  * until env vars are set - see COWORKER_HANDOFF.md.
  */
+import { appBaseUrl } from "./baseUrl";
+import { prisma } from "./prisma";
 import { intakeProcessExplanation, providerDisplayName, providerPhone } from "./providerBranding";
 import { intakeOrientationAudioLine } from "./intakeOrientation";
 import { followUpShareMessage, intakeShareMessage, signatureShareMessage } from "./shareLinks";
@@ -13,6 +15,8 @@ export interface NotifyResult {
   ok: boolean;
   demo: boolean;
   detail: string;
+  deliveryStatus?: "pending" | "delivered" | "failed";
+  messageSid?: string;
 }
 
 export async function captureNotifyResult(
@@ -29,6 +33,7 @@ export async function captureNotifyResult(
       ok: false,
       demo: false,
       detail: "The delivery provider could not be reached. Try again shortly.",
+      deliveryStatus: "failed",
     };
   }
 }
@@ -43,6 +48,18 @@ type TwilioMessage = {
 };
 
 type ClientLinkPurpose = "intake" | "signature";
+
+type SmsPurpose = "intake_link" | "signature_reminder" | "follow_up" | "provider_portal" | "completed_copies";
+
+type SmsDeliveryContext = {
+  intakeId?: string;
+  providerId?: string;
+  purpose: SmsPurpose;
+};
+
+const MAX_PROVIDER_ATTEMPTS = 4;
+const MAX_RETRY_DELAY_MS = 5_000;
+const FINAL_TWILIO_STATUSES = new Set(["delivered", "read", "failed", "undelivered", "canceled"]);
 
 function normalizeUsPhone(value: string): string {
   const trimmed = value.trim();
@@ -67,6 +84,39 @@ function wait(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function maskedSmsRecipient(value: string): string {
+  const digits = value.replace(/\D/g, "");
+  return digits ? `ending ${digits.slice(-4)}` : "masked";
+}
+
+function retryAfterMs(res: Response): number | null {
+  const value = res.headers.get("retry-after")?.trim();
+  if (!value) return null;
+  const seconds = Number(value);
+  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
+  const date = Date.parse(value);
+  return Number.isFinite(date) ? Math.max(0, date - Date.now()) : null;
+}
+
+async function fetchWithBackoff(
+  input: string,
+  init: RequestInit,
+  opts: { retryServerErrors?: boolean } = {},
+): Promise<Response> {
+  for (let attempt = 0; attempt < MAX_PROVIDER_ATTEMPTS; attempt += 1) {
+    const response = await fetch(input, init);
+    const retryable = response.status === 429
+      || (opts.retryServerErrors === true && response.status >= 500 && response.status <= 599);
+    if (!retryable || attempt === MAX_PROVIDER_ATTEMPTS - 1) return response;
+    await response.arrayBuffer().catch(() => undefined);
+    const exponential = Math.min(300 * (2 ** attempt), 2_400);
+    const jitter = Math.floor(Math.random() * Math.max(1, Math.floor(exponential / 3)));
+    const delay = Math.min(retryAfterMs(response) ?? exponential + jitter, MAX_RETRY_DELAY_MS);
+    await wait(delay);
+  }
+  throw new Error("Delivery provider retry loop ended unexpectedly.");
+}
+
 function twilioFailureDetail(message: TwilioMessage): string {
   if (message.error_code === 30034) {
     return "Twilio blocked this SMS: the phone number needs A2P 10DLC registration before US carriers will deliver it (30034).";
@@ -77,36 +127,197 @@ function twilioFailureDetail(message: TwilioMessage): string {
   return `${status}${code}${text}`;
 }
 
-async function fetchTwilioMessage(sid: string, accountSid: string, auth: string): Promise<TwilioMessage | null> {
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${sid}.json`, {
-    headers: { Authorization: `Basic ${auth}` },
-  });
-  if (!res.ok) return null;
-  return await res.json().catch(() => null) as TwilioMessage | null;
+async function fetchTwilioMessage(
+  messageSid: string,
+  accountSid: string,
+  auth: string,
+): Promise<TwilioMessage | null> {
+  const response = await fetchWithBackoff(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages/${messageSid}.json`,
+    { headers: { Authorization: `Basic ${auth}` } },
+    { retryServerErrors: true },
+  );
+  if (!response.ok) return null;
+  return await response.json().catch(() => null) as TwilioMessage | null;
 }
 
-async function twilioSmsResult(res: Response, accountSid: string, auth: string): Promise<{ ok: boolean; detail: string }> {
-  const message = await res.json().catch(() => null) as TwilioMessage | null;
-  if (!res.ok || !message) {
-    return { ok: false, detail: message?.message || message?.error_message || `Twilio returned ${res.status}` };
+function tokenFromLink(link: string, segment: string): string | null {
+  try {
+    const parts = new URL(link).pathname.split("/").filter(Boolean);
+    const index = parts.indexOf(segment);
+    return index >= 0 ? parts[index + 1] || null : null;
+  } catch {
+    return null;
   }
-  if (message.status === "failed" || message.status === "undelivered") {
-    return { ok: false, detail: twilioFailureDetail(message) };
-  }
-  if (message.sid) {
-    for (const delay of [800, 1200, 2000]) {
-      await wait(delay);
-      const latest = await fetchTwilioMessage(message.sid, accountSid, auth);
-      if (!latest) continue;
-      if (latest.status === "failed" || latest.status === "undelivered") {
-        return { ok: false, detail: twilioFailureDetail(latest) };
-      }
-      if (latest.status === "delivered") {
-        return { ok: true, detail: "delivered by Twilio" };
-      }
+}
+
+async function smsContextForLink(link: string, purpose: SmsPurpose): Promise<SmsDeliveryContext> {
+  const followUpToken = tokenFromLink(link, "follow-up");
+  if (followUpToken) {
+    const followUp = await prisma.intakeFollowUp.findUnique({
+      where: { token: followUpToken },
+      select: { intake: { select: { id: true, providerId: true } } },
+    });
+    if (followUp) {
+      return {
+        purpose,
+        intakeId: followUp.intake.id,
+        providerId: followUp.intake.providerId || undefined,
+      };
     }
   }
-  return { ok: true, detail: "queued by Twilio" };
+  const intakeToken = tokenFromLink(link, "intake") || tokenFromLink(link, "copies");
+  if (intakeToken) {
+    const intake = await prisma.intake.findUnique({
+      where: { token: intakeToken },
+      select: { id: true, providerId: true },
+    });
+    if (intake) {
+      return { purpose, intakeId: intake.id, providerId: intake.providerId || undefined };
+    }
+  }
+  return { purpose };
+}
+
+async function sendTwilioSms(to: string, body: string, context: SmsDeliveryContext): Promise<NotifyResult> {
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const token = process.env.TWILIO_AUTH_TOKEN;
+  const from = process.env.TWILIO_FROM_NUMBER;
+  if (!accountSid || !token || !from) {
+    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
+    return {
+      channel: "sms",
+      to,
+      ok: false,
+      demo: true,
+      detail: "SMS is not configured in Render",
+      deliveryStatus: "failed",
+    };
+  }
+
+  const normalizedTo = normalizeUsPhone(to);
+  const delivery = await prisma.messageDelivery.create({
+    data: {
+      intakeId: context.intakeId,
+      providerId: context.providerId,
+      purpose: context.purpose,
+      recipient: maskedSmsRecipient(normalizedTo),
+      status: "pending",
+    },
+  });
+  const callbackUrl = new URL("/api/webhooks/twilio-status", `${appBaseUrl().replace(/\/$/, "")}/`);
+  callbackUrl.searchParams.set("deliveryId", delivery.id);
+  const auth = Buffer.from(`${accountSid}:${token}`).toString("base64");
+  let response: Response;
+  try {
+    // A 429 means Twilio rejected the attempt before accepting a message, so it
+    // is safe to retry. Twilio documents message-creation POSTs as
+    // non-idempotent after 5xx; retrying those can send duplicate texts.
+    response = await fetchWithBackoff(
+      `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Messages.json`,
+      {
+        method: "POST",
+        headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          To: normalizedTo,
+          From: normalizeUsPhone(from),
+          Body: body,
+          StatusCallback: callbackUrl.toString(),
+        }),
+      },
+      { retryServerErrors: false },
+    );
+  } catch (error) {
+    await prisma.messageDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: "failed",
+        errorMessage: error instanceof Error ? error.message.slice(0, 500) : "Twilio request failed",
+        isFinal: true,
+        finalAt: new Date(),
+        lastStatusAt: new Date(),
+      },
+    });
+    throw error;
+  }
+
+  const message = await response.json().catch(() => null) as TwilioMessage | null;
+  if (!response.ok || !message) {
+    const detail = message?.message || message?.error_message || `Twilio returned ${response.status}`;
+    await prisma.messageDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: "failed",
+        errorCode: message?.code ? String(message.code) : String(response.status),
+        errorMessage: detail.slice(0, 500),
+        isFinal: true,
+        finalAt: new Date(),
+        lastStatusAt: new Date(),
+      },
+    });
+    return { channel: "sms", to, ok: false, demo: false, detail, deliveryStatus: "failed" };
+  }
+
+  if (!message.sid) {
+    await prisma.messageDelivery.update({
+      where: { id: delivery.id },
+      data: {
+        status: "failed",
+        errorMessage: "Twilio accepted the request without returning a message SID.",
+        isFinal: true,
+        finalAt: new Date(),
+        lastStatusAt: new Date(),
+      },
+    });
+    return {
+      channel: "sms",
+      to,
+      ok: false,
+      demo: false,
+      detail: "Twilio did not return a trackable message ID.",
+      deliveryStatus: "failed",
+    };
+  }
+  const latest = FINAL_TWILIO_STATUSES.has((message.status || "").toLowerCase())
+    ? message
+    : await fetchTwilioMessage(message.sid, accountSid, auth).catch(() => null) || message;
+  const status = (latest.status || "queued").toLowerCase();
+  const failed = status === "failed" || status === "undelivered" || status === "canceled";
+  const delivered = status === "delivered" || status === "read";
+  const final = FINAL_TWILIO_STATUSES.has(status);
+  await prisma.messageDelivery.updateMany({
+    where: { id: delivery.id, isFinal: false },
+    data: {
+      messageSid: message.sid,
+      status,
+      errorCode: latest.error_code ? String(latest.error_code) : null,
+      errorMessage: latest.error_message?.slice(0, 500) || null,
+      isFinal: final,
+      deliveredAt: delivered ? new Date() : null,
+      finalAt: final ? new Date() : null,
+      lastStatusAt: new Date(),
+    },
+  });
+  if (failed) {
+    return {
+      channel: "sms",
+      to,
+      ok: false,
+      demo: false,
+      detail: twilioFailureDetail(latest),
+      deliveryStatus: "failed",
+      messageSid: message.sid,
+    };
+  }
+  return {
+    channel: "sms",
+    to,
+    ok: true,
+    demo: false,
+    detail: delivered ? "delivery confirmed by Twilio" : `pending Twilio delivery confirmation (${status})`,
+    deliveryStatus: delivered ? "delivered" : "pending",
+    messageSid: message.sid,
+  };
 }
 
 export async function sendClientLinkEmail(
@@ -163,24 +374,14 @@ export async function sendClientLinkSms(
   supportPhone?: string | null,
   purpose: ClientLinkPurpose = "intake",
 ): Promise<NotifyResult> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
   const body = purpose === "signature"
     ? signatureShareMessage(link, providerName, supportPhone)
     : intakeShareMessage(link, providerName, supportPhone);
-  if (!sid || !token || !from) {
-    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
-    return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
-  }
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ To: normalizeUsPhone(to), From: normalizeUsPhone(from), Body: body }),
-  });
-  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
-  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
+  const context = await smsContextForLink(
+    link,
+    purpose === "signature" ? "signature_reminder" : "intake_link",
+  );
+  return sendTwilioSms(to, body, context);
 }
 
 export async function sendFollowUpEmail(
@@ -228,25 +429,8 @@ export async function sendFollowUpSms(
   providerName?: string | null,
   supportPhone?: string | null,
 ): Promise<NotifyResult> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
-  if (!sid || !token || !from) {
-    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
-    return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
-  }
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      To: normalizeUsPhone(to),
-      From: normalizeUsPhone(from),
-      Body: followUpShareMessage(link, providerName, supportPhone),
-    }),
-  });
-  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
-  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
+  const context = await smsContextForLink(link, "follow_up");
+  return sendTwilioSms(to, followUpShareMessage(link, providerName, supportPhone), context);
 }
 
 export async function sendProviderPortalEmail(to: string, providerName: string, link: string): Promise<NotifyResult> {
@@ -271,22 +455,8 @@ export async function sendProviderPortalEmail(to: string, providerName: string, 
 }
 
 export async function sendProviderPortalSms(to: string, providerName: string, link: string): Promise<NotifyResult> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
   const body = `${providerName}: your secure provider workspace is ready. Sign in to review assigned client intakes: ${link}`;
-  if (!sid || !token || !from) {
-    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
-    return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
-  }
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ To: normalizeUsPhone(to), From: normalizeUsPhone(from), Body: body }),
-  });
-  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
-  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
+  return sendTwilioSms(to, body, { purpose: "provider_portal" });
 }
 
 export async function sendCopiesLinkEmail(
@@ -333,23 +503,13 @@ export async function sendCopiesLinkSms(
   link: string,
   providerName?: string | null,
   _supportPhone?: string | null,
+  deliveryContext?: { intakeId: string; providerId: string },
 ): Promise<NotifyResult> {
-  const sid = process.env.TWILIO_ACCOUNT_SID;
-  const token = process.env.TWILIO_AUTH_TOKEN;
-  const from = process.env.TWILIO_FROM_NUMBER;
   const body = `${providerDisplayName(providerName)}: your completed intake copies are ready. View or save them here: ${link}\nSTOP to opt out.`;
-  if (!sid || !token || !from) {
-    console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
-    return { channel: "sms", to, ok: false, demo: true, detail: "SMS is not configured in Render" };
-  }
-  const auth = Buffer.from(`${sid}:${token}`).toString("base64");
-  const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}/Messages.json`, {
-    method: "POST",
-    headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({ To: normalizeUsPhone(to), From: normalizeUsPhone(from), Body: body }),
-  });
-  const result = res.ok ? await twilioSmsResult(res, sid, auth) : { ok: false, detail: await responseText(res) };
-  return { channel: "sms", to, ok: result.ok, demo: false, detail: result.detail };
+  const context = deliveryContext
+    ? { ...deliveryContext, purpose: "completed_copies" as const }
+    : await smsContextForLink(link, "completed_copies");
+  return sendTwilioSms(to, body, context);
 }
 
 export async function sendCompletedPacketEmail(
