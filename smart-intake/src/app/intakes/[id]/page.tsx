@@ -1724,11 +1724,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 </div>
                 <details className="rounded-lg border border-amber-200 bg-amber-50 p-3 md:col-span-3">
                   <summary className="cursor-pointer text-sm font-semibold text-amber-900">Lookup Partners, Vaya, Alliance, or Trillium Record#</summary>
-                  <p className="mt-2 text-xs text-amber-800">These four plans are lookup-only. Open the official page, find the client record, then type that Record# above.</p>
+                  <p className="mt-2 text-xs text-amber-800">These four plans assign their own record numbers. Sign in to the plan&apos;s provider portal, find the member, then type that Record# above.</p>
                   <div className="mt-2 flex flex-wrap gap-2">
                     {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
-                      <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
-                        {link.label} lookup
+                      <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer" title={link.description}>
+                        Open {link.label} portal
                       </a>
                     ))}
                   </div>

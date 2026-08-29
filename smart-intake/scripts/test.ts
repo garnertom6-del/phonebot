@@ -67,7 +67,7 @@ import {
 } from "../src/lib/clientLinkState";
 import { followUpShareMessage, intakeShareMessage, intakeSmsHref, signatureShareMessage } from "../src/lib/shareLinks";
 import { qrSvgData } from "../src/lib/qrSvg";
-import { canGenerateRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode } from "../src/lib/insurancePlans";
+import { canGenerateRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode } from "../src/lib/insurancePlans";
 import {
   clientDeliveryContacts,
   clientFollowUpDeliveryContacts,
@@ -1164,6 +1164,22 @@ async function main() {
   assert.equal(recordNumberMode("Blue Cross Blue Shield"), "generate");
   assert.equal(recordNumberMode(""), "");
   ok("single insurance dropdown groups every plan and matches the Record# rules");
+
+  // Lookup-only plans must point staff at a real provider-portal sign-in, never a
+  // public provider directory (the old links opened "find a provider" pages).
+  const expectedLookupPortals = new Map([
+    ["partners", "https://id.partnersbhm.org/"],
+    ["vaya", "https://providerportal.vayahealth.com/"],
+    ["alliance", "https://providerportal.alliancehealthplan.org/"],
+    ["trillium", "https://www.ncinno.org/Dashboard"],
+  ]);
+  for (const link of RECORD_NUMBER_LOOKUP_LINKS) {
+    assert(link.url.startsWith("https://"), `${link.label}: portal link must be https`);
+    assert(!/provider-search|provider-contact|\/providers\/tp\//.test(link.url), `${link.label}: must be a portal sign-in, not a provider directory`);
+    assert.equal(link.url, expectedLookupPortals.get(link.key), `${link.label}: must use the verified provider-portal sign-in`);
+    assert(link.portal && link.description, `${link.label}: needs a portal name and description`);
+  }
+  ok("lookup-only plans link to provider-portal sign-ins");
 
   const safeFollowUpQuestions = clientFollowUpQuestions(
     ["height", "weight", "consent_hipaa", "staff_receiving_intake"],

@@ -93,7 +93,9 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 
 export default function NewIntake() {
   const router = useRouter();
-  const [form, setForm] = useState<Record<string, string>>({ intakeDate: todayInputDate(), addressState: DEFAULT_INTAKE_STATE });
+  // Leave the date blank during prerender. The mount effect below fills the
+  // browser's current local date so a deployment never freezes this default.
+  const [form, setForm] = useState<Record<string, string>>({ intakeDate: "", addressState: DEFAULT_INTAKE_STATE });
   const [recordPanel, setRecordPanel] = useState("");
   const [referralSource, setReferralSource] = useState("");
   const [homelessSelected, setHomelessSelected] = useState(false);
@@ -132,6 +134,15 @@ export default function NewIntake() {
   const [packetSetupHref, setPacketSetupHref] = useState("");
   const [packetContextError, setPacketContextError] = useState("");
   const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false);
+  // "Today" for the date pickers must be computed in the browser: this page is
+  // pre-rendered once at build time, so a date computed inside the JSX freezes
+  // at the deploy date (the DOB picker was stuck on the last deploy's date).
+  const [today, setToday] = useState("");
+  useEffect(() => {
+    const currentDate = todayInputDate();
+    setToday(currentDate);
+    setForm((current) => current.intakeDate ? current : { ...current, intakeDate: currentDate });
+  }, []);
   const formRef = useRef<HTMLFormElement>(null);
 
   const assignedPreview = assignIntakeContacts(form.email || "", form.phone || "");
@@ -696,7 +707,7 @@ export default function NewIntake() {
               <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
               <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
                 required={key === "fullName" || key === "dob"}
-                max={key === "dob" ? new Date().toISOString().slice(0, 10) : undefined}
+                max={key === "dob" ? (today || undefined) : undefined}
                 autoComplete={key === "fullName" ? "name" : key === "dob" ? "bday" : "off"}
                 autoCapitalize={key === "fullName" ? "words" : undefined}
                 enterKeyHint="next"
@@ -814,6 +825,7 @@ export default function NewIntake() {
               <div key={key} className={key === "guardianName" ? "sm:col-span-2" : ""}>
                 <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
                 <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
+                  max={key === "intakeDate" ? (today || undefined) : undefined}
                   autoComplete={key === "location" ? "address-level2" : key === "guardianEmail" ? "email" : key === "guardianPhone" ? "tel" : "off"}
                   autoCapitalize={key === "midNumber" ? "characters" : key === "location" || key === "guardianName" ? "words" : undefined}
                   spellCheck={key === "midNumber" ? false : undefined}
@@ -952,11 +964,14 @@ export default function NewIntake() {
             )}
             {recordMode === "lookup" && (
               <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                <p className="font-semibold">{recordPanel} assigns the Record#. Look it up, then type it below.</p>
+                <p className="font-semibold">Sign in to {recordPanel}&apos;s provider portal, find the member, then type the record number here.</p>
                 {recordLookupLink && (
-                  <a className="btn-ghost mt-2 inline-flex px-3 py-1.5 text-xs" href={recordLookupLink.url} target="_blank" rel="noreferrer">
-                    Open the {recordLookupLink.label} site
-                  </a>
+                  <>
+                    <a className="btn-ghost mt-2 inline-flex px-3 py-1.5 text-xs" href={recordLookupLink.url} target="_blank" rel="noreferrer" title={recordLookupLink.description}>
+                      Open {recordLookupLink.portal}
+                    </a>
+                    <p className="mt-2 text-xs text-amber-800">{recordLookupLink.description}</p>
+                  </>
                 )}
               </div>
             )}
