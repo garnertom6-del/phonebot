@@ -37,6 +37,7 @@ model Provider {
   intakes      Intake[]
   auditLogs    AuditLog[]
   pdfTemplates PdfTemplate[]
+  messageDeliveries MessageDelivery[]
 }
 
 model UserMembership {
@@ -110,6 +111,7 @@ model Intake {
   substanceUseRows  SubstanceUseRow[]
   treatmentPlanRows TreatmentPlanSignatureRow[]
   followUps         IntakeFollowUp[]
+  messageDeliveries MessageDelivery[]
 
   @@index([providerId])
 }
@@ -230,7 +232,31 @@ model GeneratedPdf {
   contentRevision Int @default(1)
   createdAt DateTime @default(now())
 
-  @@index([intakeId])
+  @@unique([intakeId, packetVersion])
+}
+
+model MessageDelivery {
+  id           String    @id @default(uuid())
+  messageSid   String?   @unique
+  intakeId     String?
+  intake       Intake?   @relation(fields: [intakeId], references: [id], onDelete: SetNull)
+  providerId   String?
+  provider     Provider? @relation(fields: [providerId], references: [id], onDelete: SetNull)
+  channel      String    @default("sms")
+  purpose      String
+  recipient    String // masked destination hint only; never the full phone number
+  status       String    @default("pending")
+  errorCode    String?
+  errorMessage String?
+  isFinal      Boolean   @default(false)
+  deliveredAt  DateTime?
+  finalAt      DateTime?
+  lastStatusAt DateTime  @default(now())
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  @@index([intakeId, purpose, createdAt])
+  @@index([providerId, createdAt])
 }
 
 model AuditLog {
