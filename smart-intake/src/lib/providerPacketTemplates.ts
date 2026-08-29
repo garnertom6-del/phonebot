@@ -7,6 +7,7 @@ import { mergedMap } from "./fillPdf";
 import { prisma } from "./prisma";
 import { isValidProviderPacketMappingScore } from "./packetMappingScore";
 import { fileExists, readFile } from "./storage";
+import { mappedSignatureSlotsFromFields, type SignatureSlotKey } from "@/lib/signatureStatus";
 
 export const DEFAULT_PACKET_TEMPLATE_NAME = "Moore Divine Care Client Intake Package";
 
@@ -707,4 +708,50 @@ export async function requireProviderPacketForCompletion(providerId: string): Pr
       message: `${PROVIDER_PACKET_NOT_READY_MESSAGE} The approved packet file is missing or unreadable; re-upload and approve it before creating completed documents.`,
     }, cause);
   }
+}
+
+/**
+ * Signature roles this provider's packet actually maps, without loading the PDF.
+ * Unknown packets use stored mappings only so another provider's form is not inferred.
+ */
+export async function mappedSignatureSlotsForProvider(
+  providerId: string,
+  templateId?: string | null,
+): Promise<SignatureSlotKey[] | undefined> {
+  const resolvedTemplateId = templateId ?? (await providerPacketReadiness(providerId)).templateId;
+  if (!resolvedTemplateId) return undefined;
+  const template = await prisma.pdfTemplate.findFirst({
+    where: { id: resolvedTemplateId, providerId },
+    select: {
+      name: true,
+      originalFileName: true,
+      pageCount: true,
+      fieldMappings: { select: { fieldKey: true, page: true, data: true } },
+    },
+  });
+  if (!template) return undefined;
+  const overrides = parseMappings(template.fieldMappings);
+  const identity = {
+    name: template.name,
+    originalFileName: template.originalFileName,
+    pageCount: template.pageCount,
+    providerSpecific: true as const,
+  };
+  const label = `${template.name} ${template.originalFileName || ""}`.toLowerCase();
+  let fields = overrides;
+  try {
+    if (template.pageCount === 36 && label.includes("welliance")) {
+      fields = welliancePacketFields();
+    } else if (isPrayersOfCarePacket(identity)) {
+      fields = packetFieldsForTemplate(identity, overrides);
+    } else if (isEssentialWellnessPacket(identity)) {
+      fields = completeEssentialWellnessPdfMap(overrides, template.pageCount);
+    } else if (template.pageCount === PACKET_MAP.pageCount && label.includes("moore divine")) {
+      fields = packetFieldsForTemplate({ ...identity, providerSpecific: false }, overrides);
+    }
+  } catch {
+    fields = overrides;
+  }
+  const slots = mappedSignatureSlotsFromFields(fields);
+  return slots.length ? slots : undefined;
 }

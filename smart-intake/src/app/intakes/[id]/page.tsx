@@ -27,6 +27,8 @@ import {
 } from "@/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
+import { buildCasePageStatus, type CaseWorkflowStep } from "@/lib/staffCaseStatus";
+import { buildPacketChecklistChips } from "@/lib/packetChecklist";
 
 type PreflightFinding = {
   key: string;
@@ -103,6 +105,7 @@ interface Detail {
   intake: {
     id: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
     submittedAt?: string | null;
+    expectCca?: boolean;
     docusignEnvelopeId?: string | null;
     provider?: { name: string; phone?: string | null } | null;
     client: {
@@ -139,7 +142,7 @@ interface Detail {
   missingOptional: { key: string; label: string; section?: string }[];
   signatureStatuses: {
     key: string; label: string; state: "captured" | "missing" | "invalid"; required: boolean;
-    signedDate?: string; reason: string;
+    onPacket?: boolean; signedDate?: string; reason: string;
   }[];
   providerPacketReadiness: {
     ready: boolean;
@@ -321,8 +324,33 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     .sort((a, b) => Date.parse(String(b.createdAt || "")) - Date.parse(String(a.createdAt || "")));
   const latestCca = ccaDocuments[0];
   const hasCca = ccaDocuments.length > 0;
+  const expectCca = i.expectCca !== false;
+  const ccaNeeded = expectCca && !hasCca;
   const ccaReview = latestCca?.ccaReview || null;
   const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
+  const copiesSent = i.auditLogs.some((entry) => entry.event === "copies_link_sent");
+  const reviewed = i.auditLogs.some((entry) => entry.event === "staff_reviewed");
+  const missingAnswerCount = d.missingRequired.filter((field) => field.key !== "signature").length;
+  const caseStatus = buildCasePageStatus({
+    status: i.status,
+    missingRequiredCount: missingAnswerCount,
+    expectCca,
+    hasCca,
+    signatureStatuses: d.signatureStatuses,
+    generatedPdfCount: i.generatedPdfs.length,
+    providerPacketReady: packetReady,
+    copiesSent,
+    reviewed,
+    providerPacketMessage: d.providerPacketReadiness.message,
+  });
+  const packetChecklist = buildPacketChecklistChips({
+    answers: d.answers,
+    uploadedDocuments: i.uploadedDocuments,
+    expectCca,
+    hasCca,
+    signatureStatuses: d.signatureStatuses,
+    provider: i.provider,
+  });
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
   const deliveryContacts = clientDeliveryContacts(i.client);
@@ -412,18 +440,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     return failed.length ? `Delivery was not accepted: ${failed.join("; ")}` : fallback;
   }
 
-  function signatureRoleLabel(role: string): string {
-    const labels: Record<string, string> = {
-      client: "Client",
-      guardian: "Parent / Guardian",
-      staff: "QP / Qualified Professional",
-      clinician: "Clinician",
-      witness: "Witness",
-      medicalDirector: "Medical Director",
-    };
-    return labels[role] || role;
-  }
-
   function ncTracksSuccessText(body: { count?: number; details?: Array<{ label?: string }> }): string {
     const count = Number(body.count || 0);
     const labels = Array.isArray(body.details)
@@ -501,6 +517,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   }
 
   async function sendCopiesLink() {
+    if (!caseStatus.sendCopiesAllowed) {
+      setNote(caseStatus.detail || caseStatus.headline);
+      return;
+    }
     setNote("Sending copies link...");
     setCopiesBusy(true);
     try {
@@ -896,13 +916,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     <main className="mx-auto max-w-5xl p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="min-w-0">
           <h1 className="text-2xl font-bold">{i.client.fullName}</h1>
           <p className="text-sm text-slate-500">
-            DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status{" "}
-            <b>{({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
-              NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}</b>{" "}
-            - {d.missingRequired.length === 0 ? "Intake required fields complete" : `${d.percentComplete}% of answers filled`}
+            DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Chart{" "}
+            {({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
+              NEEDS_REVIEW: "Needs review", SIGNED: "Client signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -926,83 +945,89 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               PDF setup required
             </button>
           )}
-          {["SIGNED", "COMPLETED"].includes(i.status) && (
-            <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
-              {copiesBusy ? "Sending client copies..." : "Send client copies"}
-            </button>
-          )}
-          <button className="btn-ghost" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
-            Email completed PDF to provider {providerPacketEmailEnabled ? "off" : "on"}
-          </button>
-          {packetReady && i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
-            <button className="btn-ghost" onClick={() => { void sendProviderPacketNow(); }}>
-              Email provider now
-            </button>
-          )}
-          <button className="btn-ghost" disabled={!signatureDeliveryReady} title={signatureDeliveryReady ? "Send missing signature fields through DocuSign" : signatureDeliveryBlockers[0]?.message || "Master admin must approve and activate this provider's packet first"} onClick={() => {
-            if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
-            void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ allowStaffSigner: true }),
-            }));
-          }}>
-            Send missing signatures
-          </button>
-          {i.docusignEnvelopeId && (
-            <button className="btn-ghost" onClick={async () => {
-              setNote("Checking DocuSign...");
-              const r = await fetch(`/api/intakes/${i.id}/docusign/status`, { method: "POST" });
-              const b = await r.json().catch(() => ({}));
-              setNote(r.ok ? `DocuSign: ${b.message || b.status}` : b.error || "DocuSign check failed.");
-              load();
-            }}>
-              Check DocuSign status
-            </button>
-          )}
         </div>
       </div>
-      {!packetReady && (
-        <div role="alert" className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
-          <h2 className="font-bold">Provider packet setup required before PDF or DocuSign</h2>
-          <p className="mt-1 text-sm leading-6">{d.providerPacketReadiness.message}</p>
-          <p className="mt-1 text-sm font-semibold">Client answers, uploads, and signatures can continue while the master administrator completes packet setup.</p>
+      <section
+        className={`mt-4 rounded-xl border p-4 ${
+          caseStatus.tone === "good" ? "border-emerald-300 bg-emerald-50 text-emerald-950" :
+          caseStatus.tone === "warn" ? "border-amber-300 bg-amber-50 text-amber-950" :
+          "border-brand/30 bg-brand-light/40 text-slate-900"
+        }`}
+        aria-labelledby="case-status-heading"
+      >
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 id="case-status-heading" className="text-lg font-bold">{caseStatus.headline}</h2>
+            <p className="mt-1 text-sm">{caseStatus.detail}</p>
+          </div>
+          <div className="flex min-w-0 max-w-full flex-wrap gap-2">
+            {caseStatus.sendCopiesAllowed ? (
+              <button className="btn-primary px-3 py-2 text-sm" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
+                {copiesBusy ? "Sending client copies..." : "Send client copies"}
+              </button>
+            ) : (
+              <button
+                className="btn-ghost px-3 py-2 text-sm"
+                disabled
+                title={caseStatus.detail}
+              >
+                Send client copies blocked
+              </button>
+            )}
+            <button
+              className="btn-ghost px-3 py-2 text-sm"
+              disabled={!signatureDeliveryReady}
+              title={signatureDeliveryReady ? "Send missing signature fields through DocuSign" : signatureDeliveryBlockers[0]?.message || caseStatus.detail}
+              onClick={() => {
+                if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
+                void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ allowStaffSigner: true }),
+                }));
+              }}
+            >
+              Send missing signatures
+            </button>
+            <button className="btn-ghost shrink-0 whitespace-nowrap px-3 py-2 text-sm" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
+              Email completed PDF to provider: {providerPacketEmailEnabled ? "On" : "Off"}
+            </button>
+            {packetReady && i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
+              <button className="btn-ghost px-3 py-2 text-sm" onClick={() => { void sendProviderPacketNow(); }}>
+                Email provider now
+              </button>
+            )}
+            {i.docusignEnvelopeId && (
+              <button className="btn-ghost px-3 py-2 text-sm" onClick={async () => {
+                setNote("Checking DocuSign...");
+                const r = await fetch(`/api/intakes/${i.id}/docusign/status`, { method: "POST" });
+                const b = await r.json().catch(() => ({}));
+                setNote(r.ok ? `DocuSign: ${b.message || b.status}` : b.error || "DocuSign check failed.");
+                load();
+              }}>
+                Check DocuSign status
+              </button>
+            )}
+          </div>
+        </div>
+      </section>
+      <WorkflowSteps steps={caseStatus.steps} />
+      <PacketChecklistChips
+        chips={packetChecklist}
+        pcp={d.planCompleteness?.pcp}
+        crisis={d.planCompleteness?.crisis}
+      />
+      <SignatureSlotsRow statuses={d.signatureStatuses} reviewHref={`/intakes/${i.id}/review#staff-signatures`} />
+      {(d.accuracyConflicts?.length || 0) > 0 && (
+        <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-950">
+          <p className="text-sm font-semibold">Cross-section conflicts</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+            {d.accuracyConflicts!.slice(0, 6).map((conflict) => (
+              <li key={conflict.key}><b>{conflict.title}:</b> {conflict.detail}</li>
+            ))}
+          </ul>
         </div>
       )}
-      <section className={`mt-4 rounded-xl border p-4 ${generationReady ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-red-300 bg-red-50 text-red-950"}`} aria-labelledby="readiness-heading">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 id="readiness-heading" className="font-bold">{generationReady ? "Ready to generate a locked packet version" : "Packet generation is blocked"}</h2>
-            <p className="mt-1 text-sm">Content revision {d.generationReadiness?.contentRevision || 1}. Signatures and generated PDFs must match this revision.</p>
-          </div>
-          <span className={`badge ${generationReady ? "bg-emerald-200 text-emerald-900" : "bg-red-200 text-red-900"}`}>{generationReady ? "READY" : `${generationBlockers.length} BLOCKER${generationBlockers.length === 1 ? "" : "S"}`}</span>
-        </div>
-        {!generationReady && (
-          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
-            {generationBlockers.slice(0, 8).map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}
-          </ol>
-        )}
-        {(d.accuracyConflicts?.length || 0) > 0 && (
-          <div className="mt-3 border-t border-current/20 pt-3">
-            <p className="font-semibold">Cross-section conflicts</p>
-            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
-              {d.accuracyConflicts!.slice(0, 6).map((conflict) => (
-                <li key={conflict.key}><b>{conflict.title}:</b> {conflict.detail}</li>
-              ))}
-            </ul>
-          </div>
-        )}
-        {d.planCompleteness && (
-          <div className="mt-3 flex flex-wrap gap-2 border-t border-current/20 pt-3 text-xs font-semibold">
-            <span className="badge bg-white/70 text-slate-800">PCP: {d.planCompleteness.pcp.completed}/{d.planCompleteness.pcp.total}</span>
-            <span className="badge bg-white/70 text-slate-800">Crisis plan: {d.planCompleteness.crisis.completed}/{d.planCompleteness.crisis.total}</span>
-            <span className="font-normal">Plan completeness is tracked separately from intake-packet required fields.</span>
-          </div>
-        )}
-      </section>
-      <WorkflowSteps d={d} />
-      <MoodPanel answers={d.answers} />
-      <CoveragePanel intakeId={i.id} />
       {note && (
         <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand" role="status" aria-live="polite">
           {note}
@@ -1066,7 +1091,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       )}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className={`card ${linkExpired && !linkFinished ? "border-amber-300 bg-amber-50/40" : ""}`}>
+        <div className={`card ${ccaNeeded ? "order-3" : "order-1"} ${linkExpired && !linkFinished ? "border-amber-300 bg-amber-50/40" : ""}`}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h3 className="font-bold">Secure client link</h3>
             <span className={`badge ${
@@ -1162,7 +1187,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </details>
           )}
         </div>
-        <div className="card border-brand/40 bg-brand-light/40">
+        <div className={`card border-brand/40 bg-brand-light/40 ${ccaNeeded ? "order-1" : "order-2"}`}>
           <h3 className="mb-1 font-bold">Add CCA - auto-fill from the clinician&apos;s assessment</h3>
           <p className="mb-3 text-sm text-slate-600">
             Upload the completed Comprehensive Clinical Assessment (PDF or photo, e.g. from your
@@ -1203,7 +1228,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             />
           )}
         </div>
-        <div className="card md:col-span-2 border-sky-200 bg-sky-50/50">
+        <div className={`card md:col-span-2 border-sky-200 bg-sky-50/50 ${ccaNeeded ? "order-2" : "order-3"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="max-w-3xl">
               <h3 className="font-bold text-sky-950">Ask client for missing answers</h3>
@@ -1424,7 +1449,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             If a blank is intentional, run the preflight review below and use <b>Override and continue</b>. The reason is recorded in the audit log.
           </p>
         </div>
-        <div id="preflight-review" className={`card md:col-span-2 ${preflightIsClear ? "border-emerald-500 bg-emerald-100" : "border-emerald-200 bg-emerald-50/40"}`}>
+        <div id="preflight-review" className={`card md:col-span-2 order-4 ${preflightIsClear ? "border-emerald-500 bg-emerald-100" : "border-emerald-200 bg-emerald-50/40"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-bold text-emerald-900">AI preflight review</h3>
@@ -1545,7 +1570,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
-        <div className="card md:col-span-2">
+        <div className="card md:col-span-2 order-4">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-bold">NC Tracks / staff helper info</h3>
@@ -1554,6 +1579,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 Saving a client answer here fills the packet and removes that question
                 from the client&apos;s SMS intake. Consent and signature questions stay with the client.
               </p>
+              {originalClientIntakeFinished && (
+                <p className="mt-2 text-sm text-slate-600">
+                  On a signed case, keep Quick notes and Common answers with{" "}
+                  <Link href={`/intakes/${i.id}/review`} className="font-semibold text-brand underline">Review / edit answers</Link>
+                  {" "}instead of a second form here.
+                </p>
+              )}
             </div>
             <div className="flex flex-wrap gap-2">
               <button className="btn-primary px-3 py-1.5 text-sm" type="button" disabled={ncTracksBusy}
@@ -1581,7 +1613,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             className="mt-4 space-y-3"
             onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
           >
-            <details open className="rounded-xl border border-brand/30 bg-brand-light/30 p-3">
+            <details open={!originalClientIntakeFinished} className="rounded-xl border border-brand/30 bg-brand-light/30 p-3">
               <summary className="cursor-pointer list-none">
                 <span className="font-semibold text-brand">Quick Notes: paste confirmed answers</span>
                 <span className="ml-2 text-xs text-slate-600">Race, veteran status, insurance, PCP, emergency contact, and more</span>
@@ -1592,7 +1624,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
             </details>
 
-            <HelperGroup title="Common client answers" description="Start here to shorten the SMS questions." defaultOpen>
+            <HelperGroup title="Common client answers" description="Start here to shorten the SMS questions." defaultOpen={!originalClientIntakeFinished}>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <HelperSelect name="gender" label="Gender" value={d.answers.gender ?? ""} options={GENDER_OPTIONS} placeholder="Select gender" />
                 <HelperSelect name="race" label="Race" value={d.answers.race ?? ""} options={RACE_OPTIONS} placeholder="Select race" />
@@ -1754,34 +1786,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             )}
           </form>
         </div>
+        <div className="order-4">
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
-        <div className="card">
-          <div className="flex flex-wrap items-start justify-between gap-2">
-            <h3 className="mb-2 font-bold">Signatures</h3>
-            <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-ghost px-3 py-1.5 text-xs">Add / rerun signatures</Link>
-          </div>
-          {i.signatures.length === 0 && <p className="text-sm text-slate-400">None captured yet.</p>}
-          <ul className="text-sm">
-            {i.signatures.map((s) => (
-              <li key={s.role}><b>{signatureRoleLabel(s.role)}</b> - {s.printedName} ({s.signedDate})</li>
-            ))}
-          </ul>
-          <div className="mt-4 space-y-2 border-t border-slate-200 pt-3">
-            {d.signatureStatuses.map((status) => (
-              <div key={status.key} className={`rounded-lg px-3 py-2 text-xs ${
-                status.state === "captured" ? "bg-emerald-50 text-emerald-800" :
-                status.required ? "bg-red-50 text-red-700" : "bg-amber-50 text-amber-800"
-              }`}>
-                <b>{status.label}:</b>{" "}
-                {status.state === "captured"
-                  ? `Captured${status.signedDate ? ` on ${status.signedDate}` : " (date not recorded)"}`
-                  : `${status.state === "invalid" ? "Invalid - re-sign required" : "Missing"} - ${status.reason}`}
-              </div>
-            ))}
-          </div>
-          <p className="mt-2 text-xs text-slate-400">Staff/clinician signatures are added on the review screen.</p>
         </div>
-        <div className="card">
+        <div className="card order-4">
           <h3 className="mb-2 font-bold">Uploaded documents</h3>
           {i.uploadedDocuments.length === 0 && <p className="text-sm text-slate-400">None uploaded.</p>}
           <ul className="space-y-1 text-sm">{i.uploadedDocuments.map((u) => (
@@ -1791,7 +1799,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </li>
           ))}</ul>
         </div>
-        <div className="card md:col-span-2">
+        <div className="card md:col-span-2 order-4">
           <h3 className="mb-2 font-bold">Audit log</h3>
           <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-slate-600">
             {i.auditLogs.map((a) => (
@@ -1800,6 +1808,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </ul>
         </div>
       </div>
+      <MoodPanel answers={d.answers} />
+      <CoveragePanel intakeId={i.id} />
     </main>
   );
 }
@@ -1951,36 +1961,103 @@ function HelperSelect({
 }
 
 /** Numbered guide showing where this intake is in the workflow and what to do next. */
-function WorkflowSteps({ d }: { d: Detail }) {
-  const i = d.intake;
-  const hasCca = i.uploadedDocuments.some((u) => u.docType === "CCA");
-  const reviewed = i.auditLogs.some((a) => a.event === "staff_reviewed");
-  const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
-  const docusignSent = !!i.docusignEnvelopeId || i.auditLogs.some((a) => a.event === "docusign_sent" || a.event === "docusign_completed");
-  const copiesSent = i.auditLogs.some((a) => a.event === "copies_link_sent");
-  const steps = [
-    { label: "Send link", done: i.status !== "NOT_STARTED" },
-    { label: "Client answers", done: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(i.status) },
-    { label: "Add CCA", done: hasCca },
-    { label: "Review answers", done: reviewed },
-    { label: "Generate packet", done: i.generatedPdfs.length > 0 },
-    { label: "Signatures", done: signed },
-    { label: "DocuSign", done: docusignSent || i.status === "COMPLETED" },
-    { label: "Send records", done: copiesSent },
-  ];
-  const current = steps.findIndex((s) => !s.done);
+function WorkflowSteps({ steps }: { steps: CaseWorkflowStep[] }) {
+  const visible = steps.filter((step) => !step.skipped);
+  const current = visible.findIndex((step) => !step.done);
   return (
     <div className="mt-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-2 text-xs">
-      {steps.map((s, idx) => (
-        <span key={s.label}
+      {visible.map((step, idx) => (
+        <span key={step.key}
           className={`flex items-center gap-1 rounded-full px-2 py-1 font-semibold ${
-            s.done ? "bg-emerald-100 text-emerald-700"
+            step.done ? "bg-emerald-100 text-emerald-700"
             : idx === current ? "bg-brand text-white"
             : "bg-slate-100 text-slate-400"}`}>
-          <span>{s.done ? "✓" : idx + 1}</span> {s.label}
+          <span>{step.done ? "✓" : idx + 1}</span> {step.label}
           {idx === current && <span className="font-normal">← next</span>}
         </span>
       ))}
+    </div>
+  );
+}
+
+function PacketChecklistChips({
+  chips,
+  pcp,
+  crisis,
+}: {
+  chips: ReturnType<typeof buildPacketChecklistChips>;
+  pcp?: { completed: number; total: number };
+  crisis?: { completed: number; total: number };
+}) {
+  const tone = (state: string) => (
+    state === "keep" ? "bg-emerald-100 text-emerald-800" :
+    state === "na" ? "bg-slate-100 text-slate-600" :
+    "bg-amber-100 text-amber-900"
+  );
+  const mark = (state: string) => (
+    state === "keep" ? "Keep" : state === "na" ? "N/A" : "Missing"
+  );
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Packet checklist</p>
+      <div className="mt-2 flex flex-wrap gap-2">
+        {chips.map((chip) => (
+          <span key={chip.key} className={`badge ${tone(chip.state)}`}>
+            {chip.label}: {mark(chip.state)}
+          </span>
+        ))}
+        {pcp && <span className="badge bg-white text-slate-700 ring-1 ring-slate-200">PCP plan: {pcp.completed}/{pcp.total}</span>}
+        {crisis && <span className="badge bg-white text-slate-700 ring-1 ring-slate-200">Crisis plan: {crisis.completed}/{crisis.total}</span>}
+      </div>
+    </div>
+  );
+}
+
+function SignatureSlotsRow({
+  statuses,
+  reviewHref,
+}: {
+  statuses: Detail["signatureStatuses"];
+  reviewHref: string;
+}) {
+  return (
+    <div className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Signatures</p>
+        <Link href={reviewHref} className="btn-ghost px-3 py-1.5 text-xs">Add / rerun signatures</Link>
+      </div>
+      <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+        {statuses.map((status) => {
+          const captured = status.state === "captured";
+          const na = !captured && status.onPacket === false;
+          const blocked = !captured && status.required;
+          return (
+            <div
+              key={status.key}
+              className={`rounded-lg px-3 py-2 text-xs ${
+                captured ? "bg-emerald-50 text-emerald-800" :
+                na ? "bg-slate-50 text-slate-600" :
+                blocked ? "bg-red-50 text-red-700" :
+                "bg-amber-50 text-amber-800"
+              }`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <b>{status.label}</b>
+                <span className="font-semibold">
+                  {captured ? "Captured" : na ? "N/A" : status.state === "invalid" ? "Re-sign" : "Missing"}
+                </span>
+              </div>
+              <p className="mt-1">
+                {captured
+                  ? (status.signedDate ? `On ${status.signedDate}` : "Date not recorded")
+                  : na
+                    ? "Not on this packet"
+                    : status.reason}
+              </p>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

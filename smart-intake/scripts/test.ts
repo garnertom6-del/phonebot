@@ -57,7 +57,9 @@ import { questionCatalogId } from "../src/config/mooreDivineQuestions";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
-import { buildSignatureStatuses } from "../src/lib/signatureStatus";
+import { buildSignatureStatuses, mappedSignatureSlotsFromFields, missingRequiredSignatures } from "../src/lib/signatureStatus";
+import { buildCasePageStatus } from "../src/lib/staffCaseStatus";
+import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
 import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
 import { acceptableOverrideReason } from "../src/lib/overrideReason";
 import {
@@ -968,6 +970,124 @@ async function main() {
   assert.equal(acceptableOverrideReason("test"), false);
   assert.equal(acceptableOverrideReason("Verified from the signed CCA source document."), true);
   ok("signature identity/version locking, conflict detection, conditional plan completeness, and override quality gates");
+
+  const clientOnlyStatuses = buildSignatureStatuses([{
+    role: "client",
+    printedName: "Sample Client",
+    signedDate: "08/01/2026",
+  }]);
+  const signedMissingStaff = buildCasePageStatus({
+    status: "SIGNED",
+    missingRequiredCount: 0,
+    expectCca: true,
+    hasCca: true,
+    signatureStatuses: clientOnlyStatuses,
+    generatedPdfCount: 1,
+    providerPacketReady: true,
+    copiesSent: false,
+    reviewed: true,
+  });
+  assert.equal(signedMissingStaff.headline, "Need Staff / QP signature");
+  assert.equal(signedMissingStaff.sendCopiesAllowed, false);
+  assert.equal(signedMissingStaff.steps.find((step) => step.key === "generate")?.done, true);
+  assert.equal(signedMissingStaff.steps.find((step) => step.key === "signatures")?.done, false);
+  assert.equal(/packet complete|all required complete|^signed$/i.test(signedMissingStaff.headline), false);
+
+  const ccaMissingWithPdf = buildCasePageStatus({
+    status: "SIGNED",
+    missingRequiredCount: 0,
+    expectCca: true,
+    hasCca: false,
+    signatureStatuses: buildSignatureStatuses([
+      { role: "client", printedName: "Sample Client", signedDate: "08/01/2026" },
+      { role: "staff", printedName: "QP Example", signedDate: "08/01/2026" },
+    ]),
+    generatedPdfCount: 1,
+    providerPacketReady: true,
+    copiesSent: false,
+    reviewed: true,
+  });
+  assert.equal(ccaMissingWithPdf.headline, "Need CCA");
+  assert.equal(ccaMissingWithPdf.steps.find((step) => step.key === "generate")?.done, false);
+  assert.equal(ccaMissingWithPdf.steps.find((step) => step.key === "cca")?.done, false);
+  assert.equal(ccaMissingWithPdf.sendCopiesAllowed, false);
+
+  const noCcaProvider = buildCasePageStatus({
+    status: "SIGNED",
+    missingRequiredCount: 0,
+    expectCca: false,
+    hasCca: false,
+    signatureStatuses: buildSignatureStatuses([
+      { role: "client", printedName: "Sample Client", signedDate: "08/01/2026" },
+      { role: "staff", printedName: "QP Example", signedDate: "08/01/2026" },
+    ]),
+    generatedPdfCount: 1,
+    providerPacketReady: true,
+    copiesSent: false,
+    reviewed: true,
+  });
+  assert.equal(noCcaProvider.headline, "Ready to send copies");
+  assert.equal(noCcaProvider.steps.find((step) => step.key === "cca")?.skipped, true);
+  assert.equal(noCcaProvider.sendCopiesAllowed, true);
+
+  const mappedWitness = buildSignatureStatuses([], {
+    mappedSlots: ["client_guardian", "staff_qp", "witness", "medical_director"],
+  });
+  assert.equal(mappedWitness.find((status) => status.key === "witness")?.required, true);
+  assert.equal(mappedWitness.find((status) => status.key === "medical_director")?.required, true);
+  assert.deepEqual(
+    missingRequiredSignatures(mappedWitness).map((status) => status.label),
+    ["Client / guardian", "Staff / QP", "Witness", "Medical Director"],
+  );
+  const threeStaffMissing = buildCasePageStatus({
+    status: "SIGNED",
+    missingRequiredCount: 0,
+    expectCca: true,
+    hasCca: true,
+    signatureStatuses: buildSignatureStatuses(
+      [{ role: "client", printedName: "Sample Client", signedDate: "08/01/2026" }],
+      { mappedSlots: ["client_guardian", "staff_qp", "witness", "medical_director"] },
+    ),
+    generatedPdfCount: 1,
+    providerPacketReady: true,
+    copiesSent: false,
+    reviewed: true,
+  });
+  assert.equal(threeStaffMissing.headline, "Need Staff / QP, Witness, and Medical Director signatures");
+  assert.equal(threeStaffMissing.sendCopiesAllowed, false);
+  assert.deepEqual(
+    mappedSignatureSlotsFromFields([
+      { type: "signature", role: "witness" },
+      { type: "signature_small", role: "medicalDirector" },
+      { type: "text", role: "staff" },
+    ]),
+    ["witness", "medical_director"],
+  );
+
+  const checklist = buildPacketChecklistChips({
+    answers: { staff_chk_social_history: "Yes", medications: "None reported", consent_hipaa: true },
+    uploadedDocuments: [],
+    expectCca: true,
+    hasCca: false,
+    signatureStatuses: clientOnlyStatuses,
+    provider: "Essential Wellness",
+  });
+  assert.equal(checklist.find((chip) => chip.key === "social_history")?.state, "keep");
+  assert.equal(checklist.find((chip) => chip.key === "cca")?.state, "missing");
+  assert.equal(checklist.find((chip) => chip.key === "medications")?.state, "keep");
+  assert.equal(checklist.find((chip) => chip.key === "birth_id")?.state, "missing");
+  assert.equal(checklist.find((chip) => chip.key === "signatures")?.state, "missing");
+  assert.equal(
+    buildPacketChecklistChips({
+      answers: { staff_chk_psych_eval: "No" },
+      uploadedDocuments: [{ docType: "CCA" }],
+      expectCca: false,
+      hasCca: false,
+      signatureStatuses: clientOnlyStatuses,
+    }).find((chip) => chip.key === "psych_eval")?.state,
+    "na",
+  );
+  ok("staff case page status, CCA-first generate step, packet checklist chips, and packet-mapped signatures");
   ok("provider dashboard workflow and delivery settings");
 
   // 1. staff login
