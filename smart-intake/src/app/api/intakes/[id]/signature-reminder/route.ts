@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import {
   captureNotifyResult,
@@ -28,7 +28,7 @@ function failedLabel(result: NotifyResult): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
 
   let intake = await prisma.intake.findFirst({

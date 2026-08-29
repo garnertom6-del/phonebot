@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { generatePacketForIntake, PacketIdentityMismatchError } from "@/lib/generatePacket";
 import { ProviderPacketNotReadyError } from "@/lib/providerPacketTemplates";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const readiness = await generationReadinessForIntake(params.id, provider!.id);
   if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });

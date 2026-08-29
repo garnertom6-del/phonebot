@@ -16,6 +16,11 @@ import bcrypt from "bcryptjs";
 import { PrismaClient } from "@prisma/client";
 import { NextRequest } from "next/server";
 import { fillPacket, loadTemplateBytes, resolveValue } from "../src/lib/fillPdf";
+import { wrapText, sanitizePdfText } from "../src/lib/pdfCoordinates";
+import { messageForPdfPreviewFailure, parsePdfPreviewErrorBody } from "../src/lib/pdfPreviewError";
+import { resolveStaffProvider, resolveStaffProviderForIntake } from "../src/lib/staffProviderScope";
+import { signatureSendHint } from "../src/lib/signatureStatus";
+import { materialCcaChanges } from "../src/lib/ccaApply";
 import {
   packetFieldsForTemplate,
   isMooreDivinePacket,
@@ -65,7 +70,6 @@ import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
 import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
 import { clientCcaAttestationReady } from "../src/lib/ccaReview";
 import { acceptableOverrideReason } from "../src/lib/overrideReason";
-import { sanitizePdfText } from "../src/lib/pdfCoordinates";
 import {
   clientLinkExpired,
   clientLinkMessagingFinished,
@@ -213,6 +217,10 @@ async function main() {
   );
   assert.equal(safeClinicalText, "last-use -> verified Yes; next -> follow-up; unsupported emoji ?");
   assert.doesNotThrow(() => standardFont.widthOfTextAtSize(safeClinicalText, 10));
+  assert.equal(
+    sanitizePdfText("123 “Oak” St — Apt 4B\n10.21.2026 … ✓", standardFont),
+    '123 "Oak" St - Apt 4B 10.21.2026 ... Yes',
+  );
   ok("PDF text safely translates characters outside the standard font");
   const exclusiveDoc = await PDFDocument.create();
   exclusiveDoc.addPage([612, 792]);
@@ -258,6 +266,80 @@ async function main() {
     assert(emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} must stay empty when unanswered`);
   }
   ok("exclusive checkbox fill: Female-only, minor Y-only, medicaid Yes-only, consent true");
+
+  const wrapDoc = await PDFDocument.create();
+  const wrapFont = await wrapDoc.embedFont(StandardFonts.HelveticaBold);
+  const overflowLines = wrapText(`${"neighborhood ".repeat(30)}messy address 10.21.2026`, wrapFont, 9, 70, 2);
+  assert.equal(overflowLines.length, 2);
+  assert(overflowLines[1].endsWith("..."), "overflow wrap must use WinAnsi-safe ellipsis");
+  const messyTemplateDoc = await PDFDocument.create();
+  messyTemplateDoc.addPage([612, 792]);
+  const messyTemplate = await messyTemplateDoc.save();
+  const messyTextField = (
+    fieldKey: string, source: string, y: number, lines: number, width: number,
+  ) => ({
+    page: 1 as const, fieldKey, source, type: "text" as const, x: 40, y, width, height: lines * 12,
+    fontSize: 9, lines, lineHeight: 11, required: false, role: "client" as const, consentKey: null, notes: "",
+  });
+  const messyFill = await fillPacket({
+    answers: {
+      address_street: "482 “Maplewood” Ave — Unit B\nnear the park … 10.21.2026",
+      presenting_problem: `${"needs housing support ".repeat(40)}emoji 😀 and bullets • • •`,
+      intake_date: "10.21.2026",
+    },
+    signatures: {},
+    consents: {},
+    fields: [
+      messyTextField("addr", "address_street", 700, 2, 90),
+      messyTextField("prob", "presenting_problem", 620, 3, 120),
+      { ...messyTextField("dt", "intake_date", 540, 1, 80), type: "date" as const },
+    ],
+    templateBytes: messyTemplate,
+  });
+  assert(messyFill.pdfBytes.length > 100, "pathological answers must still produce a PDF");
+  assert(messyFill.filled >= 2, "sanitized pathological fields should still fill");
+  ok("PDF fill sanitizes Unicode/newlines/odd dates instead of crashing");
+
+  const preview409 = messageForPdfPreviewFailure(409, {
+    code: "PACKET_NOT_CURRENT",
+    error: "Generate the completed packet before downloading the final version.",
+  }, "intake-1");
+  assert.equal(preview409.title, "Generate the packet first");
+  assert(preview409.detail.includes("Generate the completed packet"));
+  const preview500 = messageForPdfPreviewFailure(500, { code: "PDF_FILL_FAILED", error: "WinAnsi cannot encode" }, "intake-1");
+  assert.equal(preview500.title, "Packet preview failed");
+  assert(preview500.detail.includes("WinAnsi"));
+  const preview404 = messageForPdfPreviewFailure(404, { error: "Not found" }, "missing-id");
+  assert.equal(preview404.title, "Packet not found");
+  assert.equal(preview404.backHref, "/dashboard");
+  assert.equal(parsePdfPreviewErrorBody('{"error":"Not found"}')?.error, "Not found");
+  assert.equal(parsePdfPreviewErrorBody(""), null);
+  ok("PDF preview maps 409/500/404 to human messages instead of raw JSON");
+
+  const sendHintCcaWouldHaveBlocked = signatureSendHint({
+    packetReady: true,
+    packetMessage: "Resolve 2 major CCA accuracy issues.",
+    statuses: [{
+      key: "client_guardian", label: "Client / guardian", state: "invalid", required: true, onPacket: true,
+      reason: "Intake content changed after signature capture.",
+    }, {
+      key: "staff_qp", label: "Staff / QP", state: "captured", required: true, onPacket: true, reason: "",
+    }],
+    docusignEnvelopeId: null,
+  });
+  assert.equal(sendHintCcaWouldHaveBlocked.enabled, true);
+  assert(sendHintCcaWouldHaveBlocked.title.includes("re-signed"));
+  assert(!/CCA/i.test(sendHintCcaWouldHaveBlocked.title));
+  ok("Send missing signatures uses the signature reason, not a CCA blocker");
+
+  assert.deepEqual(
+    materialCcaChanges(
+      { presenting_problem: "old", clinician_name: "QP" },
+      { presenting_problem: "new from CCA", clinician_name: "Different QP" },
+    ),
+    ["presenting_problem"],
+  );
+  ok("CCA apply treats clinician credentials as non-material and does not silently invalidate on review-only scans");
 
   const wellianceFields = packetFieldsForTemplate({
     name: "Welliance Care Intake Packet",
@@ -1162,6 +1244,70 @@ async function main() {
   const liveApprovedPacket = await requireProviderPacketForCompletion(approvedProvider!.id);
   assert.equal(liveApprovedPacket.providerSpecific, true);
   assert(liveApprovedPacket.bytes.length > 400000);
+
+  const wellianceProvider = await prisma.provider.findUnique({ where: { slug: "welliance-care" } });
+  assert(wellianceProvider, "seeded Welliance provider missing");
+  const masterByEwSlug = await resolveStaffProvider(user!, { providerSlug: "welliance-care" });
+  assert.equal(masterByEwSlug.ok, true);
+  if (masterByEwSlug.ok) assert.equal(masterByEwSlug.provider.id, wellianceProvider!.id);
+  const masterByMdcSlug = await resolveStaffProvider(user!, { providerSlug: "moore-divine-care" });
+  assert.equal(masterByMdcSlug.ok, true);
+  if (masterByMdcSlug.ok) assert.equal(masterByMdcSlug.provider.id, approvedProvider!.id);
+  const unknownSlug = await resolveStaffProvider(user!, { providerSlug: "not-a-real-provider" });
+  assert.equal(unknownSlug.ok, false);
+  if (!unknownSlug.ok) assert.equal(unknownSlug.status, 404);
+  const filterStaff = await prisma.user.create({
+    data: {
+      email: `provider-filter-${Date.now()}@example.com`,
+      passwordHash: "x",
+      name: "Provider Filter Staff",
+      role: "staff",
+    },
+  });
+  const filterClient = await prisma.client.create({
+    data: {
+      providerId: wellianceProvider!.id,
+      fullName: "Provider Filter Client",
+      dob: "1990-01-01",
+    },
+  });
+  const filterIntake = await prisma.intake.create({
+    data: {
+      providerId: wellianceProvider!.id,
+      clientId: filterClient.id,
+      status: "IN_PROGRESS",
+      token: newIntakeToken(),
+      tokenExpiresAt: tokenExpiry(),
+    },
+  });
+  try {
+    await prisma.userMembership.create({
+      data: { userId: filterStaff.id, providerId: approvedProvider!.id, role: "STAFF", active: true },
+    });
+    const staffLeak = await resolveStaffProvider(filterStaff, { providerSlug: "welliance-care" });
+    assert.equal(staffLeak.ok, false);
+    if (!staffLeak.ok) assert.equal(staffLeak.status, 403);
+    const staffOwn = await resolveStaffProvider(filterStaff, { providerSlug: "moore-divine-care" });
+    assert.equal(staffOwn.ok, true);
+    const masterOpenById = await resolveStaffProviderForIntake(user!, filterIntake.id);
+    assert.equal(masterOpenById.ok, true);
+    if (masterOpenById.ok) assert.equal(masterOpenById.provider.id, wellianceProvider!.id);
+    const staffOpenForeign = await resolveStaffProviderForIntake(filterStaff, filterIntake.id);
+    assert.equal(staffOpenForeign.ok, false);
+    if (!staffOpenForeign.ok) {
+      assert.equal(staffOpenForeign.status, 404);
+      assert.equal(staffOpenForeign.error, "Not found");
+    }
+    const missingIntake = await resolveStaffProviderForIntake(user!, "00000000-0000-0000-0000-000000000000");
+    assert.equal(missingIntake.ok, false);
+    if (!missingIntake.ok) assert.equal(missingIntake.status, 404);
+  } finally {
+    await prisma.intake.deleteMany({ where: { id: filterIntake.id } });
+    await prisma.client.deleteMany({ where: { id: filterClient.id } });
+    await prisma.userMembership.deleteMany({ where: { userId: filterStaff.id } });
+    await prisma.user.deleteMany({ where: { id: filterStaff.id } });
+  }
+  ok("provider slug/id actually filters and master can open a case by id");
 
   await prisma.provider.deleteMany({ where: { slug: "packet-readiness-unready-test" } });
   const unreadyProvider = await prisma.provider.create({

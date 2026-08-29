@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { ccaConfigured, extractFromCca, mergeCcaAnswers } from "@/lib/ccaExtract";
-import { loadAnswers, markIntakeContentChanged, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { ccaConfigured, extractFromCca } from "@/lib/ccaExtract";
 import { readFile } from "@/lib/storage";
-import { questionByKey } from "@/lib/validation";
-import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApply";
 
 export const maxDuration = 300;
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   if (!ccaConfigured()) return NextResponse.json({ error: "Automatic document reading is not configured." }, { status: 400 });
 
@@ -23,7 +21,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const document = intake.uploadedDocuments[0];
   if (!document) return NextResponse.json({ error: "Upload a CCA before asking the system to re-scan it." }, { status: 400 });
 
-  const overwrite = (await req.formData().catch(() => new FormData())).get("overwrite") === "true";
+  const form = await req.formData().catch(() => new FormData());
+  const overwrite = form.get("overwrite") === "true";
+  const confirmInvalidateSignatures = form.get("confirmInvalidateSignatures") === "true";
   let buffer: Buffer;
   try {
     buffer = readFile(document.filePath);
@@ -38,39 +38,35 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ error: error instanceof Error ? error.message : "CCA re-scan failed" }, { status: 502 });
   }
 
+  let applied;
+  try {
+    applied = await applyCcaAnswers({
+      intakeId: intake.id,
+      clientId: intake.clientId,
+      currentMid: intake.client.midNumber,
+      currentRecord: intake.client.recordNumber,
+      currentPhone: intake.client.phone,
+      currentEmail: intake.client.email,
+      extracted: extraction.extracted,
+      overwrite,
+      confirmInvalidateSignatures,
+    });
+  } catch (error) {
+    if (error instanceof CcaSignaturesWouldInvalidateError) {
+      return NextResponse.json({
+        code: error.code,
+        error: error.message,
+        signatureCount: error.signatureCount,
+        changedCount: error.changedCount,
+      }, { status: 409 });
+    }
+    throw error;
+  }
+
   await prisma.uploadedDocument.update({
     where: { id: document.id },
     data: { reviewJson: JSON.stringify(extraction.review) },
   });
-
-  const current = await loadAnswers(intake.id);
-  const { merged, filled, skipped } = mergeCcaAnswers(current, extraction.extracted, overwrite);
-  const withDefaults = applyOperationalDefaults({ ...current, ...merged });
-  const ccaDate = extraction.extracted.cca_assessment_date;
-  if (typeof ccaDate === "string" && ccaDate.trim()) {
-    for (const key of ["assess_date", "initial_assessment_date"]) {
-      withDefaults[key] = ccaDate;
-      if (!filled.includes(key)) filled.push(key);
-    }
-  }
-  let ccaContentVersioned = false;
-  if (filled.length) {
-    const saved = await saveAnswers(intake.id, withDefaults);
-    ccaContentVersioned = saved.changedKeys.length > 0;
-    await syncStructuredRows(intake.id, await loadAnswers(intake.id));
-    await prisma.client.update({
-      where: { id: intake.clientId },
-      data: {
-        midNumber: typeof withDefaults.mid_number === "string" && withDefaults.mid_number.trim() ? withDefaults.mid_number.trim() : intake.client.midNumber,
-        recordNumber: typeof withDefaults.record_number === "string" && withDefaults.record_number.trim() ? withDefaults.record_number.trim() : intake.client.recordNumber,
-        phone: typeof withDefaults.client_phone_cell === "string" && withDefaults.client_phone_cell.trim() ? withDefaults.client_phone_cell.trim() : intake.client.phone,
-        email: typeof withDefaults.client_email === "string" && withDefaults.client_email.trim() ? withDefaults.client_email.trim() : intake.client.email,
-      },
-    });
-  }
-  if (!ccaContentVersioned) {
-    await markIntakeContentChanged(intake.id, "The CCA accuracy review changed after signature capture.");
-  }
   await prisma.intake.update({
     where: { id: intake.id },
     data: {
@@ -82,15 +78,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     providerId: provider!.id,
     intakeId: intake.id,
     userId: user!.id,
-    detail: `${filled.length} fields filled from CCA re-scan (${skipped.length} existing answers kept)`,
+    detail: `${applied.filled.length} fields filled from CCA re-scan (${applied.skipped.length} existing answers kept)`
+      + (applied.signaturesInvalidated ? "; captured signatures marked for re-sign" : ""),
   });
-  const label = (key: string) => questionByKey(key)?.label || key;
   return NextResponse.json({
     ok: true,
-    filled: filled.length,
-    skipped: skipped.length,
+    filled: applied.filled.length,
+    skipped: applied.skipped.length,
     extracted: extraction.fieldCount,
-    filledLabels: filled.map(label).slice(0, 60),
+    filledLabels: applied.filledLabels,
+    signaturesInvalidated: applied.signaturesInvalidated,
     ccaReview: extraction.review,
   });
 }

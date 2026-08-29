@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { sendCompletedPacketToProvider } from "@/lib/sendCompletedCopies";
 
 /** Sends the latest completed packet to the provider's configured email address. */
 export async function POST(req: Request, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const result = await sendCompletedPacketToProvider({
     intakeId: params.id,

@@ -123,6 +123,47 @@ export function missingRequiredSignatures(statuses: SignatureStatus[]): Signatur
   return requiredSignatureStatuses(statuses).filter((status) => status.state !== "captured");
 }
 
+function signatureNeedsAction(status: SignatureStatus): boolean {
+  return (status.required || !!status.onPacket) && status.state !== "captured";
+}
+
+export function signatureSendHint(input: {
+  packetReady: boolean;
+  packetMessage?: string;
+  statuses: SignatureStatus[];
+  docusignEnvelopeId?: string | null;
+}): { enabled: boolean; title: string } {
+  if (!input.packetReady) {
+    return {
+      enabled: false,
+      title: input.packetMessage || "Master admin must approve and activate this provider's packet first.",
+    };
+  }
+  if (input.docusignEnvelopeId) {
+    return {
+      enabled: false,
+      title: "A DocuSign envelope is already in progress. Check DocuSign status instead of sending another.",
+    };
+  }
+  const pending = input.statuses.filter(signatureNeedsAction);
+  if (!pending.length) {
+    return { enabled: false, title: "No missing signatures to send." };
+  }
+  const invalid = pending.filter((status) => status.state === "invalid");
+  if (invalid.length) {
+    const first = invalid[0];
+    return {
+      enabled: true,
+      title: `${first.label} needs to be re-signed: ${first.reason}`,
+    };
+  }
+  const labels = pending.map((status) => status.label).join(", ");
+  return {
+    enabled: true,
+    title: `Send missing signature fields through DocuSign (${labels}).`,
+  };
+}
+
 /**
  * Explains each signature slot without treating unmapped clinical signatures
  * as client errors. Packet-mapped witness / medical director slots are required

@@ -177,6 +177,7 @@ function Dashboard() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const providerIdFromUrl = searchParams.get("providerId");
+  const providerSlugFromUrl = searchParams.get("providerSlug");
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
@@ -197,7 +198,10 @@ function Dashboard() {
   const load = useCallback(async (_activeTab: string = "all", preserveNotice = false) => {
     setRefreshing(true);
     try {
-      const query = providerIdFromUrl ? `?providerId=${encodeURIComponent(providerIdFromUrl)}` : "";
+      const params = new URLSearchParams();
+      if (providerIdFromUrl) params.set("providerId", providerIdFromUrl);
+      if (providerSlugFromUrl) params.set("providerSlug", providerSlugFromUrl);
+      const query = params.toString() ? `?${params.toString()}` : "";
       const response = await fetch(`/api/intakes${query}`);
       if (response.status === 401) {
         router.push("/provider");
@@ -220,28 +224,32 @@ function Dashboard() {
     } finally {
       setRefreshing(false);
     }
-  }, [router, providerIdFromUrl]);
-
-  useEffect(() => {
-    if (!providerIdFromUrl) return;
-    void fetch("/api/provider-context", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ providerId: providerIdFromUrl }),
-    });
-  }, [providerIdFromUrl]);
+  }, [router, providerIdFromUrl, providerSlugFromUrl]);
 
   useEffect(() => {
     let active = true;
-    void load(tab).then(() => {
+    async function boot() {
+      if (providerIdFromUrl || providerSlugFromUrl) {
+        await fetch("/api/provider-context", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            ...(providerIdFromUrl ? { providerId: providerIdFromUrl } : {}),
+            ...(providerSlugFromUrl ? { providerSlug: providerSlugFromUrl } : {}),
+          }),
+        });
+      }
+      if (!active) return;
+      await load(tab);
       if (!active) return;
       const flash = consumeDashboardFlash();
       if (!flash) return;
       setNoticeKind(flash.kind);
       setNote(flash.message);
-    });
+    }
+    void boot();
     return () => { active = false; };
-  }, [load, tab]);
+  }, [load, tab, providerIdFromUrl, providerSlugFromUrl]);
 
   function showNote(message: string, timeout = 4500, kind: "success" | "warning" | "error" = "success") {
     setNoticeKind(kind);

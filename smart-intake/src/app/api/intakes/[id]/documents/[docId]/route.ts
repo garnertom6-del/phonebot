@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff } from "@/lib/staffGuard";
+import { requireStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { fileExists, readFile } from "@/lib/storage";
 
@@ -15,7 +15,7 @@ const SAFE_MIME = new Set([
 export async function GET(
   _req: Request, { params }: { params: { id: string; docId: string } },
 ) {
-  const { user, provider, deny } = await requireStaff();
+  const { user, provider, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const doc = await prisma.uploadedDocument.findFirst({
     where: { id: params.docId, intakeId: params.id, intake: { providerId: provider!.id } },

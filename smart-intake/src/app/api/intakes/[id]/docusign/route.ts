@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { sendIntakeToDocuSign } from "@/lib/sendDocuSign";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const readiness = await generationReadinessForIntake(params.id, provider!.id, { allowMissingSignatures: true });
   if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });

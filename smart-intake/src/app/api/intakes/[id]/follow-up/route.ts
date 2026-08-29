@@ -16,7 +16,7 @@ import {
   type NotifyResult,
 } from "@/lib/notify";
 import { prisma } from "@/lib/prisma";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { newIntakeToken, tokenExpiry } from "@/lib/tokens";
 
 const requestSchema = z.object({
@@ -52,7 +52,7 @@ function failedLabel(result: NotifyResult): string {
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const parsed = requestSchema.safeParse(await req.json().catch(() => ({})));
   if (!parsed.success) {

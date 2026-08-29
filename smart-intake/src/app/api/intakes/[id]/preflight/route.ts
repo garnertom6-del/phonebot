@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -17,7 +17,7 @@ import { clientCcaAttestationReady } from "@/lib/ccaReview";
 export const maxDuration = 90;
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },

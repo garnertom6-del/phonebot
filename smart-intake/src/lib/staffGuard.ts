@@ -1,83 +1,73 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { currentUser } from "./auth";
-import { prisma } from "./prisma";
+import { isMasterUser, resolveStaffProvider, resolveStaffProviderForIntake } from "./staffProviderScope";
 
+export { isMasterUser } from "./staffProviderScope";
 export const SELECTED_PROVIDER_COOKIE = "mdc_provider";
 
-export function isMasterUser(user: { role?: string | null }) {
-  const role = String(user.role || "").trim().toLowerCase();
-  return role === "master" || role === "admin" || role === "master_admin";
+const PROVIDER_COOKIE = {
+  httpOnly: true,
+  sameSite: "lax" as const,
+  secure: process.env.NODE_ENV === "production",
+  path: "/",
+  maxAge: 12 * 60 * 60,
+};
+
+export function attachSelectedProviderCookie(response: NextResponse, providerId: string) {
+  response.cookies.set(SELECTED_PROVIDER_COOKIE, providerId, PROVIDER_COOKIE);
+  return response;
 }
 
-export async function requireStaff(opts?: { providerId?: string | null; write?: boolean }) {
+export async function requireStaff(opts?: {
+  providerId?: string | null;
+  providerSlug?: string | null;
+  intakeId?: string | null;
+  write?: boolean;
+}) {
   const user = await currentUser();
   if (!user) {
-    return { user: null, deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
-  }
-  const requestedProviderId = opts?.providerId?.trim() || "";
-  const selectedProviderId = requestedProviderId || cookies().get(SELECTED_PROVIDER_COOKIE)?.value;
-
-  // Master users can work across providers; the selected cookie scopes their
-  // intake routes without granting access to an inactive or unknown provider.
-  if (selectedProviderId && isMasterUser(user)) {
-    const selectedProvider = await prisma.provider.findFirst({
-      where: { id: selectedProviderId, status: "ACTIVE" },
-    });
-    if (selectedProvider) {
-      return { user, provider: selectedProvider, membership: null, deny: null };
-    }
+    return { user: null, provider: null, membership: null, deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   }
 
-  let membership = await prisma.userMembership.findFirst({
-    where: {
-      userId: user.id,
-      active: true,
-      ...(selectedProviderId ? { providerId: selectedProviderId } : {}),
-      provider: { status: "ACTIVE" },
-    },
-    include: { provider: true },
-    orderBy: { createdAt: "asc" },
-  });
-  // A provider can be removed, deactivated, or recreated while a browser still
-  // holds its old selected-provider cookie. Do not strand a valid staff user on
-  // a permanent 403 in that case. An explicit providerId remains strict; only
-  // a stale cookie falls back to the user's first active membership.
-  if (!membership && selectedProviderId && !requestedProviderId) {
-    membership = await prisma.userMembership.findFirst({
-      where: {
-        userId: user.id,
-        active: true,
-        provider: { status: "ACTIVE" },
-      },
-      include: { provider: true },
-      orderBy: { createdAt: "asc" },
+  const scoped = opts?.intakeId
+    ? await resolveStaffProviderForIntake(user, opts.intakeId)
+    : await resolveStaffProvider(user, {
+      providerId: opts?.providerId,
+      providerSlug: opts?.providerSlug,
+      fallbackProviderId: cookies().get(SELECTED_PROVIDER_COOKIE)?.value,
     });
-  }
-  if (!membership) {
+
+  if (!scoped.ok) {
     return {
       user,
       provider: null,
       membership: null,
-      deny: NextResponse.json(
-        { error: "No active provider dashboard is assigned to this account." },
-        { status: 403 },
-      ),
+      deny: NextResponse.json({ error: scoped.error }, { status: scoped.status }),
     };
   }
-  if (opts?.write && membership.role === "REVIEWER") {
+
+  if (opts?.write && scoped.membership?.role === "REVIEWER") {
     return {
       user,
-      provider: membership.provider,
-      membership,
+      provider: scoped.provider,
+      membership: scoped.membership,
       deny: NextResponse.json({ error: "Reviewer accounts are read-only." }, { status: 403 }),
     };
   }
-  return { user, provider: membership.provider, membership, deny: null };
+  return { user, provider: scoped.provider, membership: scoped.membership, deny: null };
 }
 
 export async function requireWritableStaff() {
   return requireStaff({ write: true });
+}
+
+export async function requireStaffForIntake(intakeId: string, opts?: { write?: boolean }) {
+  return requireStaff({ ...opts, intakeId });
+}
+
+export async function requireWritableStaffForIntake(intakeId: string) {
+  return requireStaff({ write: true, intakeId });
 }
 
 export async function requireMaster() {

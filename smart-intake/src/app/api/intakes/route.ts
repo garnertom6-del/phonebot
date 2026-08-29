@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { isMasterUser, requireStaff } from "@/lib/staffGuard";
+import { isMasterUser, requireStaff, attachSelectedProviderCookie } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -33,7 +33,11 @@ function stringValue(value: unknown): string {
 export async function GET(req: NextRequest) {
   try {
     const requestedProviderId = req.nextUrl.searchParams.get("providerId");
-    const { user, provider, membership, deny } = await requireStaff({ providerId: requestedProviderId });
+    const requestedProviderSlug = req.nextUrl.searchParams.get("providerSlug");
+    const { user, provider, membership, deny } = await requireStaff({
+      providerId: requestedProviderId,
+      providerSlug: requestedProviderSlug,
+    });
     if (deny) return deny;
     const providerPacket = await providerPacketReadiness(provider!.id);
     // Lean list query: no signature image blobs, no per-row follow-up queries.
@@ -212,7 +216,7 @@ export async function GET(req: NextRequest) {
         presentingProblem: stringValue(answers.presenting_problem) || stringValue(answers.mh_history) || "No main concern recorded yet.",
       };
     });
-    return NextResponse.json({
+    const response = NextResponse.json({
       intakes: rows,
       provider: { id: provider!.id, name: provider!.name, slug: provider!.slug },
       providerPacketReadiness: providerPacket,
@@ -220,6 +224,7 @@ export async function GET(req: NextRequest) {
       canManageProvider: isMasterUser(user!) || membership?.role === "PROVIDER_ADMIN",
       readOnly: membership?.role === "REVIEWER",
     });
+    return attachSelectedProviderCookie(response, provider!.id);
   } catch (error) {
     console.error("GET /api/intakes failed", error);
     return NextResponse.json({ error: "Couldn't load the intake list right now." }, { status: 500 });

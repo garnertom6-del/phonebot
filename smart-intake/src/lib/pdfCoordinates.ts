@@ -13,6 +13,7 @@ const PDF_TEXT_REPLACEMENTS: Record<string, string> = {
   "\u2012": "-",
   "\u2013": "-",
   "\u2014": "-",
+  "\u2015": "-",
   "\u2212": "-",
   "\u2190": "<-",
   "\u2192": "->",
@@ -21,19 +22,52 @@ const PDF_TEXT_REPLACEMENTS: Record<string, string> = {
   "\u2705": "Yes",
   "\u2715": "X",
   "\u274c": "X",
+  "\u2611": "",
+  "\u2018": "'",
+  "\u2019": "'",
+  "\u201A": "'",
+  "\u201B": "'",
+  "\u201C": '"',
+  "\u201D": '"',
+  "\u201E": '"',
+  "\u201F": '"',
+  "\u2032": "'",
+  "\u2033": '"',
+  "\u2026": "...",
+  "\u2022": "-",
+  "\u00B7": "-",
+  "\u202F": " ",
+  "\u2007": " ",
+  "\u2009": " ",
+  "\uFEFF": "",
+  "\uFB00": "ff",
+  "\uFB01": "fi",
+  "\uFB02": "fl",
+  "\uFB03": "ffi",
+  "\uFB04": "ffl",
 };
 
 /**
  * Standard PDF fonts use WinAnsi and throw when clinical notes contain
- * characters such as non-breaking hyphens, arrows, or emoji. Preserve every
- * encodable character, translate common symbols, and use a visible fallback
- * instead of failing the whole packet preview or generation request.
+ * ligatures, checkmarks, emoji, or other CCA-imported Unicode. Translate
+ * common symbols, then keep only characters the font can encode so a single
+ * glyph cannot 500 the whole packet preview.
  */
-export function sanitizePdfText(text: string, font: PDFFont): string {
+export function sanitizePdfText(text: unknown, font: PDFFont): string {
+  const raw = text == null
+    ? ""
+    : Array.isArray(text)
+      ? text.map((item) => String(item)).join(", ")
+      : String(text);
+  const flattened = raw.normalize("NFC")
+    .replace(/\r\n|\r|\n/g, " ")
+    .replace(/\t/g, " ")
+    .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, "");
   let safe = "";
-  for (const character of String(text || "").normalize("NFC")) {
-    const replacement = PDF_TEXT_REPLACEMENTS[character]
-      ?? (/^[\r\n\t]$/.test(character) ? " " : character);
+  for (const character of flattened) {
+    const replacement = Object.prototype.hasOwnProperty.call(PDF_TEXT_REPLACEMENTS, character)
+      ? PDF_TEXT_REPLACEMENTS[character]
+      : character;
     for (const candidate of replacement) {
       try {
         font.encodeText(candidate);
@@ -43,19 +77,28 @@ export function sanitizePdfText(text: string, font: PDFFont): string {
       }
     }
   }
-  return safe;
+  return safe.replace(/ {2,}/g, " ").trim();
+}
+
+function textWidth(font: PDFFont, text: string, size: number): number {
+  try {
+    return font.widthOfTextAtSize(text, size);
+  } catch {
+    const safe = sanitizePdfText(text, font);
+    return safe ? font.widthOfTextAtSize(safe, size) : 0;
+  }
 }
 
 /** Wrap text to fit a width; returns at most maxLines lines (last line ellipsized). */
 export function wrapText(
   text: string, font: PDFFont, fontSize: number, width: number, maxLines: number,
 ): string[] {
-  const words = sanitizePdfText(text, font).replace(/\s+/g, " ").trim().split(" ");
+  const words = sanitizePdfText(text, font).replace(/\s+/g, " ").trim().split(" ").filter(Boolean);
   const lines: string[] = [];
   let cur = "";
   for (const w of words) {
     const candidate = cur ? cur + " " + w : w;
-    if (font.widthOfTextAtSize(candidate, fontSize) <= width || !cur) {
+    if (textWidth(font, candidate, fontSize) <= width || !cur) {
       cur = candidate;
     } else {
       lines.push(cur);
@@ -64,12 +107,12 @@ export function wrapText(
     }
   }
   if (cur && lines.length < maxLines) lines.push(cur);
-  if (lines.length === maxLines && font.widthOfTextAtSize(lines[maxLines - 1], fontSize) > width) {
+  if (lines.length === maxLines && textWidth(font, lines[maxLines - 1], fontSize) > width) {
     let last = lines[maxLines - 1];
-    while (last.length > 1 && font.widthOfTextAtSize(last + "…", fontSize) > width) {
+    while (last.length > 1 && textWidth(font, last + "...", fontSize) > width) {
       last = last.slice(0, -1);
     }
-    lines[maxLines - 1] = last + "…";
+    lines[maxLines - 1] = `${last}...`;
   }
   return lines;
 }
@@ -78,6 +121,6 @@ export function wrapText(
 export function fitFontSize(text: string, font: PDFFont, start: number, width: number): number {
   const safeText = sanitizePdfText(text, font);
   let size = start;
-  while (size > 5 && font.widthOfTextAtSize(safeText, size) > width) size -= 0.5;
+  while (size > 5 && textWidth(font, safeText, size) > width) size -= 0.5;
   return size;
 }
