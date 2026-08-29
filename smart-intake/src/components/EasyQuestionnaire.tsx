@@ -14,6 +14,7 @@ import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import { humanFieldLabel } from "@/lib/fieldLabels";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -26,7 +27,7 @@ interface FlatQ { q: Question; sectionKey: string; sectionTitle: string }
 
 /** Plain-language helpers (fall back to the original packet wording). */
 const easyQ = (q: Question, providerName?: string, supportPhone?: string) =>
-  brandText(EASY[q.key]?.q ?? q.label, { name: providerName, phone: supportPhone });
+  brandText(EASY[q.key]?.q ?? humanFieldLabel(q.key, q.label), { name: providerName, phone: supportPhone });
 const easyHelp = (q: Question, providerName?: string, supportPhone?: string) =>
   brandText(EASY[q.key]?.help ?? q.help, { name: providerName, phone: supportPhone });
 const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?: string) =>
@@ -548,7 +549,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   /* ---- consent: friendly summary + full text + agree/skip ---- */
   if (q.type === "consent") {
     const simple = brandText(
-      EASY[q.key]?.consentSimple ?? `This form is called "${q.label}". Please read the whole form below before you agree.`,
+      EASY[q.key]?.consentSimple ?? `This form is called "${humanFieldLabel(q.key, q.label)}". Please read the whole form below before you agree.`,
       { name: providerName, phone: supportPhone },
     );
     return (

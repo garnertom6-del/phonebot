@@ -9,6 +9,8 @@ import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoEmailProviderPacketEnabled, autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
 import { insuranceSummary, recordNumberPrefix, resolveCreateRecordNumber } from "@/lib/insurancePlans";
 import { buildDashboardReadiness } from "@/lib/dashboardWorkflow";
+import { buildStaffRequiredChecklist } from "@/lib/staffRequiredChecklist";
+import { humanFieldLabel } from "@/lib/fieldLabels";
 import {
   evaluatePacketFreshness,
   packetFreshnessIgnoredAnswerKeys,
@@ -148,7 +150,10 @@ export async function GET(req: NextRequest) {
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
       const providerPacketLog = i.auditLogs.find((a) => a.event === "provider_packet_email_sent");
-      const required = missingRequired(answers, signed, provider);
+      const required = missingRequired(answers, signed, provider).map((field) => ({
+        ...field,
+        label: humanFieldLabel(field.key, field.label),
+      }));
       const hasCca = i.uploadedDocuments.length > 0;
       const storedPdf = i.generatedPdfs.find((pdf) => fileExists(pdf.filePath)) || null;
       const packet = evaluatePacketFreshness({
@@ -179,6 +184,13 @@ export async function GET(req: NextRequest) {
         submittedAt: i.submittedAt, createdAt: i.createdAt,
         percentComplete: percentComplete(answers),
         missingRequired: required,
+        checklistMissing: buildStaffRequiredChecklist({
+          missingRequired: required,
+          expectCca: i.expectCca,
+          hasCca,
+          signatureStatuses,
+        }),
+        expectCca: i.expectCca,
         hasPdf: packet.state !== "missing",
         packetState: packet.state,
         packetGeneratedAt: packet.generatedAt,

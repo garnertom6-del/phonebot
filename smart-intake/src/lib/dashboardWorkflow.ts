@@ -25,12 +25,61 @@ type DashboardWorkflowInput = {
   providerPacketReady: boolean;
 };
 
+export type DashboardQueueRow = {
+  status: string;
+  archived?: boolean;
+  readiness?: Pick<DashboardReadiness, "tone" | "state">;
+  hasCca?: boolean;
+  completionReady?: boolean;
+};
+
+/**
+ * Needs staff action is open staff work only. Completed intakes never belong
+ * here, even when a stale packet or missing CCA still shows a warn next-step.
+ * Not-started and in-progress intakes stay in Waiting on client.
+ */
 export function needsStaffAction(
   status: string,
   readiness?: Pick<DashboardReadiness, "tone" | "state">,
 ): boolean {
-  if (readiness?.tone === "warn") return true;
-  return NEEDS_ACTION_STATUSES.includes(status as (typeof NEEDS_ACTION_STATUSES)[number]);
+  if (status === "COMPLETED") return false;
+  if (NEEDS_ACTION_STATUSES.includes(status as (typeof NEEDS_ACTION_STATUSES)[number])) return true;
+  if (status === "NOT_STARTED" || status === "IN_PROGRESS") return false;
+  return readiness?.tone === "warn";
+}
+
+export function matchesDashboardTab(row: DashboardQueueRow, tab: string): boolean {
+  if (tab === "archived") return !!row.archived;
+  if (row.archived) return false;
+  switch (tab) {
+    case "action":
+      return needsStaffAction(row.status, row.readiness);
+    case "waiting":
+      return row.status === "NOT_STARTED" || row.status === "IN_PROGRESS";
+    case "signed":
+      return row.status === "SIGNED";
+    case "done":
+      return row.status === "COMPLETED";
+    case "packet":
+      return row.status !== "COMPLETED" && !!row.completionReady;
+    case "cca":
+      return !!row.hasCca;
+    case "copies":
+      return row.status === "SIGNED" || row.status === "COMPLETED";
+    case "all":
+      return true;
+    default:
+      return true;
+  }
+}
+
+export function countDashboardTab(rows: DashboardQueueRow[], tab: string): number {
+  return rows.filter((row) => matchesDashboardTab(row, tab)).length;
+}
+
+/** Card, tab, and visible list must share this count when search is empty. */
+export function staffActionQueueCount(rows: DashboardQueueRow[]): number {
+  return countDashboardTab(rows, "action");
 }
 
 /** Count intakes that belong in the shared staff-review queue. Archived rows must be omitted before calling this. */

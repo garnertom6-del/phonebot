@@ -45,7 +45,7 @@ import {
   resolveCreateIntakeHousing,
 } from "../src/lib/newIntakeHousing";
 import { makeRecordNumber, resolveCreateRecordNumber } from "../src/lib/insurancePlans";
-import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
+import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary, matchesDashboardTab, staffActionQueueCount, countDashboardTab } from "../src/lib/dashboardWorkflow";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
 import { packetDisplayStatus as packetMapperStatus } from "../src/lib/mappingStatus";
@@ -79,7 +79,14 @@ import {
   buildRulePreflight,
   groundedCorrectionOptionsFromAi,
   mergePreflightFindings,
+  mergePreflightFindingsForAnswers,
+  summarizePreflightFindings,
+  isBenignSameAsCellFinding,
 } from "../src/lib/intakePreflight";
+import { displayClientName, humanFieldLabel, looksLikeFieldKey } from "../src/lib/fieldLabels";
+import { buildStaffRequiredChecklist } from "../src/lib/staffRequiredChecklist";
+import { unauthenticatedStaffRedirect } from "../src/lib/staffPageGate";
+import { questionByKey } from "../src/config/mooreDivineQuestions";
 import {
   GET as getClientIntakeByToken,
   PATCH as saveClientIntakeByToken,
@@ -484,8 +491,12 @@ async function main() {
   assert(!needsStaffAction("IN_PROGRESS"), "in-progress intakes belong in the waiting-on-client queue");
   assert(!needsStaffAction("COMPLETED"), "completed intakes must leave the staff action queue");
   assert(
-    needsStaffAction("COMPLETED", { tone: "warn", state: "Upload the CCA" }),
-    "missing CCA or a stale packet must still appear in Needs staff action",
+    !needsStaffAction("COMPLETED", { tone: "warn", state: "Upload the CCA" }),
+    "Completed stays out of Needs staff action even when CCA or the packet still needs work",
+  );
+  assert(
+    !needsStaffAction("COMPLETED", { tone: "warn", state: "Add the Staff / QP signature" }),
+    "Completed stays out of Needs staff action when a signature next-step is still showing",
   );
   assert.equal(
     staffReviewCountFromSummary({ NEEDS_REVIEW: 5, SIGNED: 2, SUBMITTED: 4, COMPLETED: 9, IN_PROGRESS: 3 }),
@@ -501,7 +512,123 @@ async function main() {
   const dashboardStaffReview = ["SUBMITTED", "SUBMITTED", "SUBMITTED", "SUBMITTED", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "NEEDS_REVIEW", "SIGNED", "SIGNED"]
     .filter((status) => needsStaffAction(status)).length;
   assert.equal(listStaffReview, dashboardStaffReview, "list row, next-action copy, and /dashboard share one staff-review definition");
+
+  const queueRows = [
+    { status: "NEEDS_REVIEW" },
+    { status: "NEEDS_REVIEW" },
+    { status: "NEEDS_REVIEW" },
+    { status: "NEEDS_REVIEW" },
+    { status: "NEEDS_REVIEW" },
+    { status: "SIGNED" },
+    { status: "SIGNED" },
+    { status: "SUBMITTED" },
+    { status: "COMPLETED", readiness: { tone: "warn" as const, state: "Upload the CCA" } },
+    { status: "COMPLETED", readiness: { tone: "warn" as const, state: "Add the Staff / QP signature" } },
+    { status: "COMPLETED", readiness: { tone: "good" as const, state: "Completed" } },
+    { status: "IN_PROGRESS" },
+    { status: "NOT_STARTED" },
+    { status: "NEEDS_REVIEW", archived: true },
+  ];
+  const actionList = queueRows.filter((row) => matchesDashboardTab(row, "action"));
+  const actionCount = staffActionQueueCount(queueRows);
+  assert.equal(actionCount, 8, "Needs staff action is 5 review + 2 signed + 1 submitted");
+  assert.equal(actionList.length, actionCount, "card, tab, and list share one Needs staff action count");
+  assert.equal(countDashboardTab(queueRows, "action"), actionList.length);
+  assert(actionList.every((row) => row.status !== "COMPLETED"), "Needs staff action never includes Completed");
+  assert.equal(countDashboardTab(queueRows, "done"), 3, "Completed tab still lists completed rows");
+  assert.equal(countDashboardTab(queueRows, "archived"), 1);
   ok("one staff-review helper is used for the list, next-action copy, and dashboard");
+
+  const dashboardLayout = fs.readFileSync(path.join(process.cwd(), "src", "app", "dashboard", "layout.tsx"), "utf8");
+  assert(dashboardLayout.includes("currentUser()"), "dashboard layout checks the session on the server");
+  assert(dashboardLayout.includes('redirect("/provider")'), "dashboard layout sends unsigned visitors to provider sign-in");
+  assert.equal(unauthenticatedStaffRedirect("/dashboard", false), "/provider");
+  assert.equal(unauthenticatedStaffRedirect("/dashboard", true), null);
+  assert.equal(unauthenticatedStaffRedirect("/provider", false), null);
+  const middlewareSrc = fs.readFileSync(path.join(process.cwd(), "src", "middleware.ts"), "utf8");
+  assert(middlewareSrc.includes("unauthenticatedStaffRedirect"), "middleware blocks the /dashboard HTML flash");
+  ok("unauthenticated /dashboard never renders the staff caseload");
+
+  assert.equal(humanFieldLabel("ec1_cell_phone"), "Contact 1 - cell phone");
+  assert.equal(humanFieldLabel("survey_q3"), "The staff explained orientation, my rights, and how to ask questions");
+  assert.equal(humanFieldLabel("sa_primary_diagnosis"), "Primary diagnosis");
+  assert.equal(humanFieldLabel("c_axis1"), "Axis I (on file)");
+  assert.equal(humanFieldLabel("provider_choice_plan"), "Which plan covers you? (marked on the Provider Choice form)");
+  assert.equal(humanFieldLabel("services_requested"), "Which services are you interested in?");
+  assert(!looksLikeFieldKey(humanFieldLabel("ec1_cell_phone")));
+  assert(!looksLikeFieldKey(humanFieldLabel("unknown_packet_field")));
+  assert(!humanFieldLabel("unknown_packet_field").includes("_"));
+  assert.equal(questionByKey("survey_q3")?.label, "The staff explained orientation, my rights, and how to ask questions");
+  assert.equal(displayClientName(""), "No name on file");
+  assert.equal(displayClientName("[MISSING]"), "No name on file");
+  assert.equal(displayClientName("MISSING"), "No name on file");
+  ok("staff and client labels never show raw field keys");
+
+  const checklistWithCcaAndSig = buildStaffRequiredChecklist({
+    missingRequired: [],
+    expectCca: true,
+    hasCca: false,
+    signatureStatuses: [
+      { key: "client_guardian", label: "Client / guardian", state: "captured", required: true },
+      { key: "staff_qp", label: "Staff / QP", state: "missing", required: true },
+      { key: "witness", label: "Witness", state: "missing", required: false },
+      { key: "medical_director", label: "Medical Director", state: "missing", required: false },
+    ],
+  });
+  assert(checklistWithCcaAndSig.some((item) => item.key === "cca"), "missing CCA stays on the required checklist");
+  assert(checklistWithCcaAndSig.some((item) => item.key === "signature_staff_qp"), "missing Staff/QP stays on the required checklist");
+  assert(!checklistWithCcaAndSig.some((item) => item.key === "signature_witness"), "unmapped witness is not required");
+  const completeChecklist = buildStaffRequiredChecklist({
+    missingRequired: [],
+    expectCca: true,
+    hasCca: true,
+    signatureStatuses: [
+      { key: "client_guardian", label: "Client / guardian", state: "captured", required: true },
+      { key: "staff_qp", label: "Staff / QP", state: "captured", required: true },
+    ],
+  });
+  assert.equal(completeChecklist.length, 0, "checklist is complete only when answers, CCA, and required signatures are in");
+  ok("checklist completeness matches CCA and required signatures");
+
+  const preflightRows = [
+    { severity: "error" as const, title: "CCA has not been uploaded" },
+    { severity: "warning" as const, title: "Date of birth does not match" },
+    { severity: "warning" as const, title: "Required intake items need attention" },
+    { severity: "info" as const, title: "Emergency cell phone" },
+    { severity: "info" as const, title: "Diagnosis list" },
+    { severity: "info" as const, title: "Primary diagnosis" },
+    { severity: "info" as const, title: "Secondary diagnosis" },
+    { severity: "info" as const, title: "Axis I" },
+    { severity: "info" as const, title: "Services requested" },
+  ];
+  const preflightSummary = summarizePreflightFindings(preflightRows);
+  assert.equal(preflightSummary.listedCount, 9);
+  assert.equal(preflightSummary.attentionCount, 3);
+  assert.equal(preflightSummary.suggestionCount, 6);
+  assert(preflightSummary.bannerText.includes("9"));
+  assert(preflightSummary.bannerText.includes("3"));
+  assert(preflightSummary.bannerText.includes("6"));
+  assert.equal(
+    preflightSummary.attentionCount + preflightSummary.suggestionCount + preflightSummary.resolvedCount,
+    preflightSummary.listedCount,
+  );
+  ok("preflight banner counts match listed findings");
+
+  assert(isBenignSameAsCellFinding({
+    title: "Home phone matches cell",
+    detail: "The home phone is the same as the cell phone.",
+    fieldKeys: ["client_phone_home", "client_phone_cell"],
+  }, { client_phone_home: "3365550100", client_phone_cell: "(336) 555-0100" }));
+  const droppedSamePhone = mergePreflightFindingsForAnswers([], [{
+    key: "ai_home_matches_cell",
+    severity: "warning",
+    title: "Home phone matches cell",
+    detail: "The numbers are identical.",
+    fieldKeys: ["client_phone_home", "client_phone_cell"],
+    source: "ai",
+  }], { client_phone_home: "3365550100", client_phone_cell: "3365550100" });
+  assert.equal(droppedSamePhone.length, 0, "same-as-cell home phone is not a defect");
+  ok("home phone matching cell is not flagged");
 
   const searchProviders = [
     { name: "Empower Wellness", slug: "empower", packetFileNames: ["MooreDivineCare_Intake_Packet-1.pdf"] },

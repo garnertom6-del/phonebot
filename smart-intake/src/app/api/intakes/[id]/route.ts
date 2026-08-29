@@ -5,6 +5,8 @@ import { requireStaff, requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, saveAnswersInTransaction, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
+import { humanFieldLabel } from "@/lib/fieldLabels";
+import { buildStaffRequiredChecklist } from "@/lib/staffRequiredChecklist";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
@@ -98,14 +100,29 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     createdAt: followUp.createdAt,
   }));
   const packetReadiness = await providerPacketReadiness(provider!.id);
+  const requiredMissing = missingRequired(answers, signed, provider).map((field) => ({
+    ...field,
+    label: humanFieldLabel(field.key, field.label),
+  }));
+  const optionalMissing = missingOptional(answers).map((field) => ({
+    ...field,
+    label: humanFieldLabel(field.key, field.label),
+  }));
+  const signatureStatuses = generationReadiness?.signatureStatuses || buildSignatureStatuses(intake.signatures);
   return NextResponse.json({
     intake: { ...intake, uploadedDocuments, followUps },
     answers,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),
-    missingRequired: missingRequired(answers, signed, provider),
-    missingOptional: missingOptional(answers),
-    signatureStatuses: generationReadiness?.signatureStatuses || buildSignatureStatuses(intake.signatures),
+    missingRequired: requiredMissing,
+    missingOptional: optionalMissing,
+    checklistMissing: buildStaffRequiredChecklist({
+      missingRequired: requiredMissing,
+      expectCca: intake.expectCca,
+      hasCca: uploadedDocuments.some((document) => document.docType.toUpperCase() === "CCA"),
+      signatureStatuses,
+    }),
+    signatureStatuses,
     generationReadiness,
     packetFreshness,
     accuracyConflicts: generationReadiness?.conflicts || [],

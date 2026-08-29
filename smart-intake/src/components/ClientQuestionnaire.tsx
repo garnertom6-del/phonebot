@@ -11,6 +11,7 @@ import { SECTIONS, isQuestionPrefilledForClient, questionCatalogId, questionVisi
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import { humanFieldLabel } from "@/lib/fieldLabels";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -131,7 +132,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
       if (isQuestionRequired(q, answers)) {
         const v = answers[q.key];
         if (v === undefined || v === "" || (Array.isArray(v) && !v.length) || v === false) {
-          setError(`Please answer: ${q.label}`);
+          setError(`Please answer: ${humanFieldLabel(q.key, q.label)}`);
           return;
         }
       }
@@ -278,7 +279,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
   if (q.type === "consent" && q.key === "consent_tailored_plan") {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="font-semibold">{brandText(q.label, branding)}</p>
+        <p className="font-semibold">{brandText(humanFieldLabel(q.key, q.label), branding)}</p>
         <details className="mt-1">
           <summary className="cursor-pointer text-sm text-brand">Read more about this section</summary>
           <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
@@ -298,7 +299,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
   if (q.type === "consent") {
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <p className="font-semibold">{brandText(q.label, branding)}</p>
+        <p className="font-semibold">{brandText(humanFieldLabel(q.key, q.label), branding)}</p>
         <details className="mt-1">
           <summary className="cursor-pointer text-sm text-brand">Read more about this section</summary>
           <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
@@ -313,7 +314,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
   }
   const label = (
       <label className="label">
-        {brandText(q.label, branding)} {q.required && <span className="text-red-500">*</span>}
+        {brandText(humanFieldLabel(q.key, q.label), branding)} {q.required && <span className="text-red-500">*</span>}
         {q.help && <span className="block font-normal text-xs text-slate-400">{brandText(q.help, branding)}</span>}
       </label>
     );

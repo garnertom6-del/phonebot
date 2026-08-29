@@ -7,7 +7,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import {
   buildRulePreflight,
   aiPreflightConfigured,
-  mergePreflightFindings,
+  mergePreflightFindingsForAnswers,
   runAiPreflight,
   type PreflightFinding,
 } from "@/lib/intakePreflight";
@@ -44,14 +44,14 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     expectCca: intake.expectCca,
   };
   const ruleFindings: PreflightFinding[] = buildRulePreflight(input);
-  let findings = ruleFindings;
+  let findings = mergePreflightFindingsForAnswers(ruleFindings, [], answers);
   let aiUsed = false;
   let aiMessage = aiPreflightConfigured()
     ? "AI review completed alongside the automatic checks."
     : "Automatic checks completed. AI review is not configured on the server yet.";
   if (aiPreflightConfigured()) {
     try {
-      findings = mergePreflightFindings(ruleFindings, await runAiPreflight(input));
+      findings = mergePreflightFindingsForAnswers(ruleFindings, await runAiPreflight(input), answers);
       aiUsed = true;
     } catch (error) {
       aiMessage = error instanceof Error ? `Automatic checks completed; AI review was unavailable: ${error.message}` : "Automatic checks completed; AI review was unavailable.";
