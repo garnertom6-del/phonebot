@@ -1,15 +1,16 @@
-import { prisma } from "@/lib/prisma";
-import { applyOperationalDefaults } from "@/lib/answerDefaults";
-import { loadAnswers } from "@/lib/intakeData";
-import { missingRequired, type MissingField } from "@/lib/validation";
+import type { MissingField } from "@/lib/validation";
 import {
   packetFreshnessForIntake,
   type PacketFreshness,
   type PacketFreshnessState,
 } from "@/lib/packetFreshness";
-import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
+import {
+  generationReadinessForIntake,
+  type GenerationBlockerCode,
+} from "@/lib/generationReadiness";
 
 export type CompletionBlockerCode =
+  | GenerationBlockerCode
   | "archived"
   | "not_submitted"
   | "required_fields"
@@ -87,42 +88,17 @@ export async function completionReadinessForIntake(
   intakeId: string,
   providerId: string,
 ): Promise<(CompletionReadiness & { packet: PacketFreshness }) | null> {
-  const intake = await prisma.intake.findFirst({
-    where: { id: intakeId, providerId },
-    include: {
-      signatures: { select: { role: true } },
-      uploadedDocuments: {
-        where: { docType: "CCA" },
-        select: { id: true },
-        take: 1,
-      },
-      auditLogs: {
-        where: { event: "docusign_completed" },
-        select: { id: true },
-        take: 1,
-      },
-    },
-  });
-  if (!intake) return null;
-
-  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
-  const hasClientSignature = intake.auditLogs.length > 0 || intake.signatures.some((signature) =>
-    signature.role === "client" || signature.role === "guardian");
-  const hasStaffSignature = intake.signatures.some((signature) => signature.role === "staff");
-  const packet = await packetFreshnessForIntake(intake.id);
-  const providerPacket = await providerPacketReadiness(providerId);
-  const provider = await prisma.provider.findUnique({ where: { id: providerId }, select: { name: true, slug: true } });
-  const readiness = buildCompletionReadiness({
-    archived: intake.archived,
-    submittedAt: intake.submittedAt,
-    missingRequired: missingRequired(answers, hasClientSignature, provider),
-    expectCca: intake.expectCca,
-    hasCca: intake.uploadedDocuments.length > 0,
-    hasStaffSignature,
-    providerPacketReady: providerPacket.ready,
-    providerPacketMessage: providerPacket.message,
-    packetState: packet.state,
-  });
-
-  return { ...readiness, packet };
+  const generation = await generationReadinessForIntake(intakeId, providerId);
+  if (!generation) return null;
+  const packet = await packetFreshnessForIntake(intakeId);
+  const blockers: CompletionBlocker[] = generation.blockers.map((blocker) => ({
+    code: blocker.code,
+    message: blocker.message,
+  }));
+  if (packet.state === "missing") {
+    blockers.push({ code: "packet_missing", message: "Generate the completed packet." });
+  } else if (packet.state === "stale") {
+    blockers.push({ code: "packet_stale", message: "Answers, signatures, or the packet template changed. Generate a new packet version." });
+  }
+  return { ready: blockers.length === 0, blockers, packetState: packet.state, packet };
 }

@@ -57,6 +57,40 @@ export const RECORD_NUMBER_LOOKUP_PLAN_OPTIONS = INSURANCE_PLAN_MAP
   .filter((item) => LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(item.key))
   .map((item) => item.providerChoice);
 
+/** Plans with no dedicated generator or lookup here; staff may type the official Record#. */
+export const RECORD_NUMBER_MANUAL_PLAN_OPTIONS = INSURANCE_PLAN_MAP
+  .filter((item) => !GENERATOR_RECORD_NUMBER_KEYS.has(item.key) && !LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(item.key))
+  .map((item) => item.providerChoice);
+
+/**
+ * The one insurance dropdown on the Create Intake page, grouped by what happens
+ * to the Record#. Every plan in PROVIDER_CHOICE_PLAN_OPTIONS appears in exactly
+ * one group (checked by scripts/test.ts).
+ */
+export const RECORD_NUMBER_PLAN_GROUPS: ReadonlyArray<{ label: string; plans: string[] }> = [
+  { label: "Generates a Record# for you", plans: RECORD_NUMBER_GENERATOR_PLAN_OPTIONS },
+  { label: "Look up the official Record# on the plan's site", plans: RECORD_NUMBER_LOOKUP_PLAN_OPTIONS },
+  { label: "Type the official Record# or use a temporary one", plans: RECORD_NUMBER_MANUAL_PLAN_OPTIONS },
+];
+
+export type RecordNumberMode = "generate" | "lookup" | "manual";
+
+/** How the Record# is obtained for a plan; "" when no known plan is chosen. */
+export function recordNumberMode(value: string): RecordNumberMode | "" {
+  const plan = matchingPlan(value);
+  if (!plan) return "";
+  if (GENERATOR_RECORD_NUMBER_KEYS.has(plan.key)) return "generate";
+  if (LOOKUP_ONLY_RECORD_NUMBER_KEYS.has(plan.key)) return "lookup";
+  return "manual";
+}
+
+/** The official lookup site for a lookup-only plan, or null for every other plan. */
+export function recordNumberLookupLink(value: string): (typeof RECORD_NUMBER_LOOKUP_LINKS)[number] | null {
+  const plan = matchingPlan(value);
+  if (!plan) return null;
+  return RECORD_NUMBER_LOOKUP_LINKS.find((link) => link.key === plan.key) || null;
+}
+
 function text(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }

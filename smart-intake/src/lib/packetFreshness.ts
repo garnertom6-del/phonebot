@@ -19,15 +19,21 @@ const IGNORED_ANSWER_KEYS = [
   "auto_email_provider_packet",
   "hipaa_copy",
   "welcome_letter_ack",
+  "staff_helper_notes",
+  "clinician_name",
+  "c_clinician",
+  "cca_provider_credentials",
+  "dis_prepared_by",
   ...Object.values(ELIGIBILITY_KEYS),
   STAFF_PREFILLED_CLIENT_FIELDS_KEY,
 ];
 
 export function evaluatePacketFreshness(input: {
-  latestPdf?: { id: string; filePath?: string | null; createdAt: Date } | null;
+  latestPdf?: { id: string; filePath?: string | null; createdAt: Date; contentRevision?: number | null } | null;
   latestAnswerUpdatedAt?: Date | null;
   latestSignatureUpdatedAt?: Date | null;
   packetTemplateUpdatedAt?: Date | null;
+  currentContentRevision?: number | null;
 }): PacketFreshness {
   const latestPdf = input.latestPdf || null;
   const sourceDates = [input.latestAnswerUpdatedAt, input.latestSignatureUpdatedAt, input.packetTemplateUpdatedAt]
@@ -47,7 +53,11 @@ export function evaluatePacketFreshness(input: {
   }
 
   return {
-    state: sourceUpdatedAt && sourceUpdatedAt.getTime() > latestPdf.createdAt.getTime()
+    state: (
+      input.currentContentRevision != null
+      && latestPdf.contentRevision != null
+      && latestPdf.contentRevision !== input.currentContentRevision
+    ) || (sourceUpdatedAt && sourceUpdatedAt.getTime() > latestPdf.createdAt.getTime())
       ? "stale"
       : "current",
     pdfId: latestPdf.id,
@@ -62,7 +72,7 @@ export async function packetFreshnessForIntake(intakeId: string): Promise<Packet
     prisma.generatedPdf.findMany({
       where: { intakeId },
       orderBy: { createdAt: "desc" },
-      select: { id: true, filePath: true, createdAt: true },
+      select: { id: true, filePath: true, createdAt: true, contentRevision: true },
       take: 5,
     }),
     prisma.intakeAnswer.findFirst({
@@ -77,7 +87,7 @@ export async function packetFreshnessForIntake(intakeId: string): Promise<Packet
     }),
     prisma.intake.findUnique({
       where: { id: intakeId },
-      select: { providerId: true },
+      select: { providerId: true, contentRevision: true },
     }),
   ]);
   const latestPdf = pdfCandidates.find((candidate) => fileExists(candidate.filePath)) || null;
@@ -93,6 +103,7 @@ export async function packetFreshnessForIntake(intakeId: string): Promise<Packet
     latestAnswerUpdatedAt: latestAnswer?.updatedAt,
     latestSignatureUpdatedAt: latestSignatureAudit?.createdAt,
     packetTemplateUpdatedAt,
+    currentContentRevision: intake?.contentRevision,
   });
 }
 

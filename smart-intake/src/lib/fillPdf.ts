@@ -179,6 +179,14 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
   for (const f of input.fields ?? mergedMap(input.overrides)) {
     const page = pages[f.page - 1];
     if (!page) continue;
+    if (f.source === "@pdf_page_label") {
+      if (f.type === "whiteout_text") {
+        page.drawRectangle({ x: f.x, y: f.y, width: f.width, height: f.height, color: rgb(1, 1, 1) });
+      }
+      drawTextField(page, f, `Page ${f.page} of ${pages.length}`, bold);
+      filled++;
+      continue;
+    }
     // The final discharge summary is completed at discharge, not during
     // intake. Keep its prepared-by line blank in every generated packet.
     if (f.fieldKey === "dis_prepared") {

@@ -58,12 +58,16 @@ import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
 import { buildSignatureStatuses } from "../src/lib/signatureStatus";
+import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
+import { acceptableOverrideReason } from "../src/lib/overrideReason";
 import {
   clientLinkExpired,
   clientLinkMessagingFinished,
   reminderCooldownSeconds,
 } from "../src/lib/clientLinkState";
-import { followUpShareMessage, intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
+import { followUpShareMessage, intakeShareMessage, intakeSmsHref, signatureShareMessage } from "../src/lib/shareLinks";
+import { qrSvgData } from "../src/lib/qrSvg";
+import { canGenerateRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode } from "../src/lib/insurancePlans";
 import {
   clientDeliveryContacts,
   clientFollowUpDeliveryContacts,
@@ -778,6 +782,9 @@ async function main() {
   assert.equal(extractedByKey.mid_number, "SAMPLEMID01");
   assert.equal(parseHelperNotes("Recipient ID: SAMPLEMID01").mid_number, "SAMPLEMID01");
   assert.equal(parseHelperNotes("PCP phone: 3365550100").pcp_phone, "3365550100");
+  const phoneOnlyEmergency = parseHelperNotes("Emergency contact: 3365550199");
+  assert.equal(phoneOnlyEmergency.ec1_name, undefined, "a phone-only emergency contact must not populate the name field");
+  assert.equal(phoneOnlyEmergency.ec1_cell_phone, "3365550199");
   ok("pasted CCA / NC Tracks notes parse into confirmable name, DOB, address, phone, emergency, and MID fields");
 
   assert.equal(defaultIntakeLocation(undefined), "");
@@ -862,6 +869,14 @@ async function main() {
     "stale",
     "activating a provider packet must invalidate an older generated PDF",
   );
+  assert.equal(
+    evaluatePacketFreshness({
+      latestPdf: { id: "pdf-1", createdAt: packetCreatedAt, contentRevision: 3 },
+      currentContentRevision: 4,
+    }).state,
+    "stale",
+    "a generated packet must be stale when its bound content revision is not current",
+  );
   const blockedCompletion = buildCompletionReadiness({
     archived: false,
     submittedAt: packetCreatedAt,
@@ -906,6 +921,53 @@ async function main() {
     buildSignatureStatuses([]).find((status) => status.key === "staff_qp")?.required,
     true,
   );
+  const integrityClient = { fullName: "Sample Client", dob: "1980-01-15", guardianName: "Example Guardian" };
+  assert.equal(signatureIntegrity({
+    role: "client",
+    printedName: "Different Person",
+    relationship: "client",
+    contentRevision: 4,
+  }, integrityClient, 4).valid, false, "client signature names must match the identity record");
+  assert.equal(signatureIntegrity({
+    role: "client",
+    printedName: "Sample Client",
+    relationship: "client",
+    createdAt: "2026-08-01T12:00:00Z",
+    updatedAt: "2026-08-29T12:00:00Z",
+  }, integrityClient, 4, "2026-08-03T12:00:00Z").valid, false, "legacy signatures must use the original capture time, not a migration-added update time");
+  assert.equal(buildSignatureStatuses([{
+    role: "client",
+    printedName: "Sample Client",
+    signedDate: "08/01/2026",
+    relationship: "client",
+    contentRevision: 3,
+  }], { client: integrityClient, currentContentRevision: 4 }).find((status) => status.key === "client_guardian")?.state, "invalid");
+  assert.equal(buildSignatureStatuses([{
+    role: "client",
+    printedName: "Sample Client",
+    signedDate: "08/01/2026",
+    relationship: "client",
+    contentRevision: 3,
+  }, {
+    role: "guardian",
+    printedName: "Example Guardian",
+    signedDate: "08/02/2026",
+    relationship: "guardian",
+    contentRevision: 4,
+  }], { client: integrityClient, currentContentRevision: 4 }).find((status) => status.key === "client_guardian")?.state, "captured", "a current guardian signature must take priority over a stale client signature");
+  const accuracyConflicts = buildRecordConflicts({
+    client_full_name: "Sample Client",
+    dob: "1980-01-15",
+    ec1_name: "3365550199",
+    employment_status: "Employed",
+    staff_helper_notes: "Employment status: Not in Labor Force",
+  }, integrityClient);
+  assert(accuracyConflicts.some((conflict) => conflict.key === "emergency_name_is_phone"));
+  assert(accuracyConflicts.some((conflict) => conflict.key === "helper_employment_status_conflict"));
+  assert.equal(buildPlanCompleteness({ crisis_warning_signs: "Pacing" }).crisis.state, "incomplete");
+  assert.equal(acceptableOverrideReason("test"), false);
+  assert.equal(acceptableOverrideReason("Verified from the signed CCA source document."), true);
+  ok("signature identity/version locking, conflict detection, conditional plan completeness, and override quality gates");
   ok("provider dashboard workflow and delivery settings");
 
   // 1. staff login
@@ -1072,6 +1134,36 @@ async function main() {
   assert(followUpMessage.includes("STOP to opt out"), "follow-up SMS must include opt-out wording");
   assert(!/height|weight|hospital|diagnos|medicat/i.test(followUpMessage), "follow-up SMS must not name missing or health fields");
   assert(!followUpMessage.includes(`${followUpLink}.`), "punctuation must not be attached to the follow-up URL");
+
+  // Manual "send it by hand" fallback: sms: links must open on both iPhone and
+  // Android (the ?&body= form) and carry the +1 country code so a QR scan works.
+  const smsLink = intakeSmsHref("(336) 555-0100", clientLink, "Test Provider", "336-555-0100");
+  assert(smsLink.startsWith("sms:+13365550100?&body="), `sms link must be E.164 with ?&body= (got ${smsLink.slice(0, 40)})`);
+  assert.equal(decodeURIComponent(smsLink.split("?&body=")[1]), intakeMessage, "sms link body must be the exact client message");
+  const linkQr = qrSvgData(clientLink);
+  assert(linkQr && linkQr.size >= 21 && linkQr.size % 4 === 1, "secure-link QR must be a valid QR size (21 + 4n modules)");
+  assert(linkQr!.path.startsWith("M0 0h7v1h-7z"), "QR must start with the top-left finder pattern row");
+  const smsQr = qrSvgData(smsLink);
+  assert(smsQr && smsQr.size > linkQr!.size, "sms QR carries more data than the bare link QR");
+  assert.equal(qrSvgData("   "), null, "empty text produces no QR");
+  ok("send-it-by-hand links and QR codes are well formed");
+
+  // One insurance dropdown on Create New Intake: every plan is in exactly one
+  // group, and each plan's Record# mode agrees with the generator/lookup rules.
+  const groupedPlans = RECORD_NUMBER_PLAN_GROUPS.flatMap((group) => group.plans);
+  assert.deepEqual([...groupedPlans].sort(), [...PROVIDER_CHOICE_PLAN_OPTIONS].sort(), "plan groups must cover every plan exactly once");
+  assert.equal(new Set(groupedPlans).size, groupedPlans.length, "no plan may appear in two groups");
+  for (const plan of PROVIDER_CHOICE_PLAN_OPTIONS) {
+    const mode = recordNumberMode(plan);
+    assert(mode, `${plan} must have a Record# mode`);
+    assert.equal(mode === "generate", canGenerateRecordNumber(plan), `${plan}: generate mode must match canGenerateRecordNumber`);
+    assert.equal(!!recordNumberLookupLink(plan), mode === "lookup", `${plan}: lookup link only for lookup-only plans`);
+  }
+  assert.equal(recordNumberMode("Vaya"), "lookup");
+  assert.equal(recordNumberMode("Healthy Blue"), "manual");
+  assert.equal(recordNumberMode("Blue Cross Blue Shield"), "generate");
+  assert.equal(recordNumberMode(""), "");
+  ok("single insurance dropdown groups every plan and matches the Record# rules");
 
   const safeFollowUpQuestions = clientFollowUpQuestions(
     ["height", "weight", "consent_hipaa", "staff_receiving_intake"],
@@ -1301,14 +1393,57 @@ async function main() {
     );
     assert.equal(
       (await prisma.intake.findUnique({ where: { id: followUpIntake.id } }))?.status,
-      "SIGNED",
-      "client follow-up must preserve signed status so the original intake stays closed",
+      "NEEDS_REVIEW",
+      "post-signature follow-up content must require a fresh signature",
+    );
+    assert(
+      (await prisma.signature.findUnique({
+        where: { intakeId_role: { intakeId: followUpIntake.id, role: "client" } },
+      }))?.invalidatedAt,
+      "the prior client signature must retain an invalidation record",
     );
     const originalLinkAfterFollowUp = await getClientIntakeByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
       { params: { token: followUpIntake.token } },
     );
-    assert.equal(originalLinkAfterFollowUp.status, 409, "follow-up must not reopen the original signed intake");
+    assert.equal(originalLinkAfterFollowUp.status, 200, "invalidated content must reopen only for review and re-signing");
+    const identityMismatchAfterFollowUp = await saveClientSignatureByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "client",
+          imageData: "data:image/png;base64,iVBORw0KGgo=",
+          printedName: "Different Person",
+          relationship: "client",
+          signedDate: "08/29/2026",
+          dobCheck: "1990-01-01",
+        }),
+      }),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(identityMismatchAfterFollowUp.status, 409, "a different printed identity must not replace the signature");
+    const replacementSignature = await saveClientSignatureByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          role: "client",
+          imageData: "data:image/png;base64,iVBORw0KGgo=",
+          printedName: followUpClient.fullName,
+          relationship: "client",
+          signedDate: "08/29/2026",
+          dobCheck: followUpClient.dob,
+        }),
+      }),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(replacementSignature.status, 200, "the current matching identity must be able to re-sign");
+    const originalLinkAfterReplacementSignature = await getClientIntakeByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
+      { params: { token: followUpIntake.token } },
+    );
+    assert.equal(originalLinkAfterReplacementSignature.status, 409, "a current replacement signature must close the client link again");
     const autosaveAfterSubmit = await saveClientIntakeByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`, {
         method: "PATCH",
@@ -1317,16 +1452,7 @@ async function main() {
       }),
       { params: { token: followUpIntake.token } },
     );
-    assert.equal(autosaveAfterSubmit.status, 409, "submitted client token must not autosave answers");
-    const signatureAfterSubmit = await saveClientSignatureByToken(
-      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({}),
-      }),
-      { params: { token: followUpIntake.token } },
-    );
-    assert.equal(signatureAfterSubmit.status, 409, "submitted client token must not replace a signature");
+    assert.equal(autosaveAfterSubmit.status, 409, "a current re-signed client token must not autosave answers");
     const uploadAfterSubmit = await uploadClientDocumentByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/upload`, {
         method: "POST",
@@ -1345,7 +1471,7 @@ async function main() {
     assert.equal(
       originalLinkAfterStaffStatusChange.status,
       409,
-      "submitted signature must keep the original client link closed after a staff status change",
+      "a current signature must keep the client link closed after a status-only staff review change",
     );
 
     const replayFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {

@@ -95,6 +95,7 @@ model Intake {
   submittedAt        DateTime?
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
+  contentRevision    Int       @default(1) // material answer/client/CCA changes; signatures bind to this revision
 
   answers           IntakeAnswer[]
   sections          IntakeSection[]
@@ -169,9 +170,16 @@ model Signature {
   relationship String? // client | parent | guardian | legalRepresentative
   signedDate   String
   dobVerified  Boolean  @default(false) // signer confirmed the client's DOB
+  contentRevision Int? // intake content revision this signature approved
+  subjectNameSnapshot String? // client/guardian identity bound at capture time
+  subjectDobSnapshot  String? // client DOB bound at capture time
+  signerUserId String? // authenticated staff user for staff-side signatures
+  invalidatedAt DateTime?
+  invalidatedReason String?
   ip           String?
   userAgent    String?
   createdAt    DateTime @default(now())
+  updatedAt    DateTime @default(now()) @updatedAt
 
   @@unique([intakeId, role])
 }
@@ -218,6 +226,8 @@ model GeneratedPdf {
   intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
   filePath  String
   sha256    String? // fingerprint of the packet pages (certificate page excluded)
+  packetVersion Int @default(1)
+  contentRevision Int @default(1)
   createdAt DateTime @default(now())
 
   @@index([intakeId])

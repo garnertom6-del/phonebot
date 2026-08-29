@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import SignaturePadLib from "signature_pad";
 
 interface Props {
@@ -79,7 +79,24 @@ function croppedSignatureDataUrl(canvas: HTMLCanvasElement): string {
   return out.toDataURL("image/png");
 }
 
+function typedSignatureDataUrl(name: string): string {
+  const canvas = document.createElement("canvas");
+  canvas.width = 1200;
+  canvas.height = 260;
+  const context = canvas.getContext("2d");
+  if (!context) return "";
+  context.fillStyle = "#050505";
+  context.font = "italic 96px Georgia, serif";
+  context.textBaseline = "middle";
+  context.fillText(name, 40, canvas.height / 2, canvas.width - 80);
+  return canvas.toDataURL("image/png");
+}
+
 export default function SignaturePad({ onCapture, defaultName = "", roleLabel, expectedRole = "client", askDob = false }: Props) {
+  const fieldId = useId();
+  const nameId = `${fieldId}-name`;
+  const dobId = `${fieldId}-dob`;
+  const dateId = `${fieldId}-date`;
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const padRef = useRef<SignaturePadLib | null>(null);
   const defaultRelationship = expectedRole === "guardian" ? "guardian" : "client";
@@ -89,6 +106,7 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
   const [signedDate, setSignedDate] = useState(new Date().toLocaleDateString("en-US"));
   const [dobCheck, setDobCheck] = useState("");
   const [error, setError] = useState("");
+  const [signatureMode, setSignatureMode] = useState<"draw" | "type">("draw");
 
   useEffect(() => { setPrintedName(defaultName); }, [defaultName]);
   useEffect(() => { setRelationship(defaultRelationship); }, [defaultRelationship]);
@@ -123,10 +141,12 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
     if (expectedRole === "guardian" && relationship === "client") {
       return setError("Please choose Parent, Legal Guardian, or Legal Representative.");
     }
-    if (padRef.current?.isEmpty()) return setError("Please draw your signature above.");
+    if (signatureMode === "draw" && padRef.current?.isEmpty()) return setError("Please draw your signature above, or choose Type my signature.");
     const canvas = canvasRef.current;
     onCapture({
-      imageData: canvas ? croppedSignatureDataUrl(canvas) : padRef.current!.toDataURL("image/png"),
+      imageData: signatureMode === "type"
+        ? typedSignatureDataUrl(printedName.trim())
+        : canvas ? croppedSignatureDataUrl(canvas) : padRef.current!.toDataURL("image/png"),
       printedName: printedName.trim(),
       relationship: isStaffSide ? undefined : relationship,
       signedDate,
@@ -137,36 +157,46 @@ export default function SignaturePad({ onCapture, defaultName = "", roleLabel, e
   return (
     <div className="card">
       {roleLabel && <p className="mb-2 text-sm font-semibold text-brand">{roleLabel}</p>}
-      <canvas ref={canvasRef} className="w-full touch-none rounded-lg border-2 border-dashed border-slate-300 bg-white" style={{ height: PAD_HEIGHT }} />
-      <div className="mt-2 flex gap-2">
-        <button type="button" className="btn-ghost px-3 py-1.5 text-sm" onClick={() => padRef.current?.clear()}>Clear</button>
+      <fieldset>
+        <legend className="label">Signature method</legend>
+        <div className="flex flex-wrap gap-2">
+          <button type="button" className={signatureMode === "draw" ? "btn-primary px-3 py-1.5 text-sm" : "btn-ghost px-3 py-1.5 text-sm"} aria-pressed={signatureMode === "draw"} onClick={() => setSignatureMode("draw")}>Draw my signature</button>
+          <button type="button" className={signatureMode === "type" ? "btn-primary px-3 py-1.5 text-sm" : "btn-ghost px-3 py-1.5 text-sm"} aria-pressed={signatureMode === "type"} onClick={() => setSignatureMode("type")}>Type my signature</button>
+        </div>
+      </fieldset>
+      <div className={signatureMode === "draw" ? "mt-3" : "sr-only"} aria-hidden={signatureMode !== "draw"}>
+        <canvas ref={canvasRef} aria-label={`${roleLabel || "Signer"} drawing area`} className="w-full touch-none rounded-lg border-2 border-dashed border-slate-300 bg-white" style={{ height: PAD_HEIGHT }} />
+        <div className="mt-2 flex gap-2">
+          <button type="button" className="btn-ghost px-3 py-1.5 text-sm" onClick={() => padRef.current?.clear()}>Clear drawing</button>
+        </div>
       </div>
-      <label className="label mt-4">Printed name of person signing</label>
-      <input className="input" value={printedName} onChange={(e) => setPrintedName(e.target.value)} />
-      <label className="label mt-3">I am signing as</label>
+      <label htmlFor={nameId} className="label mt-4">Printed name of person signing</label>
+      <input id={nameId} className="input" required value={printedName} onChange={(e) => setPrintedName(e.target.value)} />
+      <p className="label mt-3" id={`${fieldId}-relationship`}>I am signing as</p>
       {isStaffSide ? (
         <div className="inline-flex rounded-full bg-brand px-4 py-2 text-sm font-semibold text-white">
           {STAFF_ROLE_LABELS[expectedRole]}
         </div>
       ) : (
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2" role="group" aria-labelledby={`${fieldId}-relationship`}>
           {RELATIONSHIPS.map((r) => (
-            <button key={r.value} type="button" onClick={() => setRelationship(r.value)}
+            <button key={r.value} type="button" aria-pressed={relationship === r.value} onClick={() => setRelationship(r.value)}
               className={`chip ${relationship === r.value ? "chip-on" : ""}`}>{r.label}</button>
           ))}
         </div>
       )}
       {askDob && (
         <>
-          <label className="label mt-3">Client&apos;s date of birth (identity check)</label>
-          <input className="input max-w-[220px]" placeholder="MM / DD / YYYY" inputMode="numeric"
+          <label htmlFor={dobId} className="label mt-3">Client&apos;s date of birth (identity check)</label>
+          <input id={dobId} className="input max-w-[220px]" required placeholder="MM / DD / YYYY" inputMode="numeric"
             maxLength={10} autoComplete="bday"
             value={dobCheck} onChange={(e) => setDobCheck(formatDobInput(e.target.value))} />
         </>
       )}
-      <label className="label mt-3">Date</label>
-      <input className="input max-w-[200px]" value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
-      {error && <p className="mt-2 text-sm text-red-600">{error}</p>}
+      <label htmlFor={dateId} className="label mt-3">Date</label>
+      <input id={dateId} className="input max-w-[200px]" required value={signedDate} onChange={(e) => setSignedDate(e.target.value)} />
+      {signatureMode === "type" && <p className="mt-2 text-sm text-slate-600">Your printed name below will be rendered as the electronic signature when you accept.</p>}
+      {error && <p className="mt-2 text-sm text-red-600" role="alert">{error}</p>}
       <button type="button" className="btn-primary mt-4 w-full" onClick={accept}>Accept signature</button>
     </div>
   );

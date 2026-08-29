@@ -7,3 +7,7 @@ prisma/dev.db*
 .env.local
 .env.*.local
 storage/
+
+# Local verification outputs; never deploy test databases or rendered packets.
+tmp/
+prisma/codex-*.db

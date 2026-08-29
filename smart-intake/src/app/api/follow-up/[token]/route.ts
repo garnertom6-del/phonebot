@@ -8,11 +8,7 @@ import {
   parseFollowUpFieldKeys,
   validateFollowUpSubmission,
 } from "@/lib/clientFollowUp";
-import {
-  clientSubmissionFinished,
-  hasClientOrGuardianSignature,
-} from "@/lib/clientSubmissionState";
-import { loadAnswers, syncStructuredRowsInTransaction } from "@/lib/intakeData";
+import { loadAnswers, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
 import { prisma } from "@/lib/prisma";
 import type { Answers } from "@/lib/fillPdf";
 
@@ -45,6 +41,18 @@ function answersFromRows(rows: Array<{ key: string; value: string }>): Answers {
     }
   }
   return answers;
+}
+
+function wasSubmittedWithClientSignature(intake: {
+  submittedAt: Date | null;
+  status: string;
+  signatures: Array<{ role: string }>;
+}) {
+  return !!intake.submittedAt
+    && intake.status !== "NOT_STARTED"
+    && intake.signatures.some((signature) => (
+      signature.role === "client" || signature.role === "guardian"
+    ));
 }
 
 function unavailableResponse(
@@ -96,8 +104,7 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     return unavailableResponse("This intake is already closed. Contact your provider if you need help.", "INTAKE_CLOSED", 409, provider);
   }
   if (
-    !clientSubmissionFinished(followUp.intake)
-    || !hasClientOrGuardianSignature(followUp.intake.signatures)
+    !wasSubmittedWithClientSignature(followUp.intake)
   ) {
     return unavailableResponse("The original intake must be signed before this follow-up can be used.", "INTAKE_NOT_SIGNED", 409, provider);
   }
@@ -148,10 +155,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   if (followUp.intake.status === "COMPLETED" || followUp.intake.archived) {
     return unavailableResponse("This intake is already closed. Contact your provider if you need help.", "INTAKE_CLOSED", 409, provider);
   }
-  if (
-    !clientSubmissionFinished(followUp.intake)
-    || !hasClientOrGuardianSignature(followUp.intake.signatures)
-  ) {
+  if (!wasSubmittedWithClientSignature(followUp.intake)) {
     return unavailableResponse("The original intake must be signed before this follow-up can be used.", "INTAKE_NOT_SIGNED", 409, provider);
   }
   if (followUp.intake.docusignEnvelopeId) {
@@ -232,8 +236,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       });
       if (
         !currentIntake
-        || !clientSubmissionFinished(currentIntake)
-        || !hasClientOrGuardianSignature(currentIntake.signatures)
+        || !wasSubmittedWithClientSignature(currentIntake)
       ) {
         throw new FollowUpClosedError("The signed intake is no longer available for follow-up.");
       }
@@ -267,13 +270,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       );
       if (!latestValidated.ok) throw new Error(latestValidated.error);
 
-      for (const [key, value] of Object.entries(latestValidated.answers)) {
-        await tx.intakeAnswer.upsert({
-          where: { intakeId_key: { intakeId: followUp.intakeId, key } },
-          create: { intakeId: followUp.intakeId, key, value: JSON.stringify(value) },
-          update: { value: JSON.stringify(value) },
-        });
-      }
+      await saveAnswersInTransaction(tx, followUp.intakeId, latestValidated.answers, {
+        invalidationReason: "Client follow-up answers changed after signature capture.",
+      });
       const merged = { ...latestRaw, ...latestValidated.answers };
       await syncStructuredRowsInTransaction(tx, followUp.intakeId, merged);
       const clientPatch = clientRecordPatchFromAnswerPatch(

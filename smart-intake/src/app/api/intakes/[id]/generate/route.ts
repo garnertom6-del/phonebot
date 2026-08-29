@@ -2,16 +2,23 @@ import { NextRequest, NextResponse } from "next/server";
 import { requireWritableStaff } from "@/lib/staffGuard";
 import { generatePacketForIntake, PacketIdentityMismatchError } from "@/lib/generatePacket";
 import { ProviderPacketNotReadyError } from "@/lib/providerPacketTemplates";
+import { generationReadinessForIntake } from "@/lib/generationReadiness";
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const { user, provider, deny } = await requireWritableStaff();
   if (deny) return deny;
-  const body = await req.json().catch(() => ({})) as { allowIdentityMismatch?: boolean };
+  const readiness = await generationReadinessForIntake(params.id, provider!.id);
+  if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  if (!readiness.ready) {
+    return NextResponse.json({
+      code: "INTAKE_NOT_READY",
+      error: "Resolve the readiness blockers before generating the completed packet.",
+      blockers: readiness.blockers,
+    }, { status: 409 });
+  }
   let result: Awaited<ReturnType<typeof generatePacketForIntake>>;
   try {
-    result = await generatePacketForIntake(params.id, user!.id, provider!.id, {
-      allowNameMismatch: body.allowIdentityMismatch === true,
-    });
+    result = await generatePacketForIntake(params.id, user!.id, provider!.id);
   } catch (error) {
     const message = error instanceof Error ? error.message : "Packet generation failed";
     if (error instanceof PacketIdentityMismatchError) {
@@ -20,7 +27,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         error: message,
         recordName: error.recordName,
         answerName: error.answerName,
-        canOverride: true,
+        canOverride: false,
       }, { status: 409 });
     }
     if (error instanceof ProviderPacketNotReadyError) {

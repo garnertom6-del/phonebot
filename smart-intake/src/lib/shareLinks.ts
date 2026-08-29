@@ -40,8 +40,21 @@ export function followUpShareMessage(
 function smsRecipient(phone?: string | null): string {
   const text = (phone || "").trim();
   if (!text) return "";
+  const digits = text.replace(/\D/g, "");
+  // Normalize US numbers to E.164 so the sms: link works when it is scanned
+  // from a QR code on a phone whose default region is not set.
+  if (digits.length === 10) return `+1${digits}`;
+  if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
   const leadingPlus = text.startsWith("+") ? "+" : "";
-  return leadingPlus + text.replace(/\D/g, "");
+  return leadingPlus + digits;
+}
+
+/**
+ * sms: links differ by platform: iOS wants `sms:number&body=`, Android wants
+ * `sms:number?body=`. The `?&body=` form is read correctly by both.
+ */
+function smsHref(phone: string | null | undefined, body: string): string {
+  return `sms:${smsRecipient(phone)}?&body=${encodeURIComponent(body)}`;
 }
 
 export function intakeSmsHref(
@@ -50,7 +63,7 @@ export function intakeSmsHref(
   providerName?: string | null,
   supportPhone?: string | null,
 ): string {
-  return `sms:${smsRecipient(phone)}?body=${encodeURIComponent(intakeShareMessage(link, providerName, supportPhone))}`;
+  return smsHref(phone, intakeShareMessage(link, providerName, supportPhone));
 }
 
 export function intakeMailtoHref(
@@ -72,7 +85,7 @@ export function intakeMailtoHref(
 }
 
 export function copiesSmsHref(phone: string | null | undefined, link: string, providerName?: string | null): string {
-  return `sms:${smsRecipient(phone)}?body=${encodeURIComponent(`${copiesShareMessage(link, providerName)} STOP to opt out.`)}`;
+  return smsHref(phone, `${copiesShareMessage(link, providerName)} STOP to opt out.`);
 }
 
 export function copiesMailtoHref(
@@ -93,7 +106,7 @@ export function followUpSmsHref(
   providerName?: string | null,
   supportPhone?: string | null,
 ): string {
-  return `sms:${smsRecipient(phone)}?body=${encodeURIComponent(followUpShareMessage(link, providerName, supportPhone))}`;
+  return smsHref(phone, followUpShareMessage(link, providerName, supportPhone));
 }
 
 export function followUpMailtoHref(

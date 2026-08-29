@@ -10,10 +10,6 @@ import { brandText } from "@/lib/providerBranding";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { extractPdfText } from "@/lib/pdfText";
 
-export interface GeneratePacketOptions {
-  allowNameMismatch?: boolean;
-}
-
 export class PacketIdentityMismatchError extends Error {
   code = "IDENTITY_MISMATCH" as const;
   recordName: string;
@@ -46,13 +42,12 @@ function normalizedDate(value: unknown): string {
 function assertPacketIdentity(
   intake: { client: { fullName: string; dob: string } },
   answers: Record<string, unknown>,
-  options: { allowNameMismatch?: boolean } = {},
 ) {
   const answerName = normalizedName(answers.client_full_name);
   const recordName = normalizedName(intake.client.fullName);
   const identityNameMatch = normalizedIdentityName(answerName) === normalizedIdentityName(recordName);
   const nameMismatch = !!(answerName && recordName && !identityNameMatch);
-  if (nameMismatch && !options.allowNameMismatch) {
+  if (nameMismatch) {
     throw new PacketIdentityMismatchError(intake.client.fullName, String(answers.client_full_name));
   }
   const answerDob = normalizedDate(answers.dob);
@@ -62,7 +57,6 @@ function assertPacketIdentity(
       `Packet identity check failed: client DOB does not match the intake record. Review the DOB before generating.`,
     );
   }
-  return { nameMismatch };
 }
 
 function assertRenderedPacketText(text: string, expectedClientName: string, providerName: string) {
@@ -88,7 +82,6 @@ export async function generatePacketForIntake(
   intakeId: string,
   userId: string,
   providerId?: string,
-  options: GeneratePacketOptions = {},
 ) {
   const intake = await prisma.intake.findFirst({
     where: { id: intakeId, ...(providerId ? { providerId } : {}) },
@@ -97,18 +90,8 @@ export async function generatePacketForIntake(
   if (!intake) return null;
 
   const answers = await loadAnswers(intake.id);
-  const identity = assertPacketIdentity(intake, answers, options);
-  const packetClientName = identity.nameMismatch
-    ? String(answers.client_full_name || intake.client.fullName)
-    : intake.client.fullName;
-  if (identity.nameMismatch && options.allowNameMismatch) {
-    await audit("packet_identity_override", {
-      providerId: intake.providerId || undefined,
-      intakeId: intake.id,
-      userId,
-      detail: "Staff confirmed a client-name mismatch before packet generation",
-    });
-  }
+  assertPacketIdentity(intake, answers);
+  const packetClientName = intake.client.fullName;
   const providerName = intake.provider?.name?.trim() || "Provider";
   answers.provider_name = providerName;
   answers.provider_staff_signature_label = `${providerName} Staff Signature`;
@@ -123,7 +106,10 @@ export async function generatePacketForIntake(
     templateBytes: packetTemplate.bytes,
     fields: packetTemplate.fields,
   });
-  const signatureStatuses = buildSignatureStatuses(intake.signatures);
+  const signatureStatuses = buildSignatureStatuses(intake.signatures, {
+    client: intake.client,
+    currentContentRevision: intake.contentRevision,
+  });
   const signatureFieldKeys = new Set(
     packetTemplate.fields
       .filter((field) => field.type === "signature" || field.type === "signature_small")
@@ -175,7 +161,21 @@ export async function generatePacketForIntake(
   });
   const rel = `generated/${intake.id}/${Date.now()}-intake-packet.pdf`;
   saveFile(rel, Buffer.from(pdfBytes));
-  await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel, sha256 } });
+  const latestVersion = await prisma.generatedPdf.findFirst({
+    where: { intakeId: intake.id },
+    orderBy: { packetVersion: "desc" },
+    select: { packetVersion: true },
+  });
+  const packetVersion = (latestVersion?.packetVersion || 0) + 1;
+  await prisma.generatedPdf.create({
+    data: {
+      intakeId: intake.id,
+      filePath: rel,
+      sha256,
+      packetVersion,
+      contentRevision: intake.contentRevision,
+    },
+  });
   const signed = signatures.client || signatures.guardian;
   if (signed && intake.status !== "COMPLETED") {
     await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
@@ -186,5 +186,11 @@ export async function generatePacketForIntake(
     userId,
     detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`,
   });
-  return { filled: result.filled, skipped: result.skipped.length, signatureAudit };
+  return {
+    filled: result.filled,
+    skipped: result.skipped.length,
+    signatureAudit,
+    packetVersion,
+    contentRevision: intake.contentRevision,
+  };
 }

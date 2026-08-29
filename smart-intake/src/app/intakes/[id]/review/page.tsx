@@ -8,12 +8,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
-import { askIfSatisfied } from "@/lib/validation";
+import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import SignaturePad from "@/components/SignaturePad";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
 type SignatureRecord = { role: string; printedName: string; signedDate: string };
+type SignatureStatus = { key: string; state: "captured" | "missing" | "invalid"; reason: string; signedDate?: string };
 
 const SIGNER_OPTIONS: { role: StaffSignatureRole; label: string; padLabel: string }[] = [
   { role: "staff", label: "QP / Qualified Professional", padLabel: "QP / Qualified Professional signature" },
@@ -30,12 +31,14 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [note, setNote] = useState("");
   const [selectedSignerRoles, setSelectedSignerRoles] = useState<StaffSignatureRole[]>([]);
   const [signatures, setSignatures] = useState<SignatureRecord[]>([]);
+  const [signatureStatuses, setSignatureStatuses] = useState<SignatureStatus[]>([]);
   const [sameSignatureForSelected, setSameSignatureForSelected] = useState(true);
   const [activeSignerIndex, setActiveSignerIndex] = useState(0);
   const [isSigning, setIsSigning] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [returningToPreflight, setReturningToPreflight] = useState(false);
+  const [dirtyKeys, setDirtyKeys] = useState<string[]>([]);
 
   const load = useCallback(() => {
     fetch(`/api/intakes/${params.id}`).then(async (r) => {
@@ -52,6 +55,8 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       setAnswers(d.answers);
       setClientName(d.intake.client.fullName);
       setSignatures(Array.isArray(d.intake.signatures) ? d.intake.signatures : []);
+      setSignatureStatuses(Array.isArray(d.signatureStatuses) ? d.signatureStatuses : []);
+      setDirtyKeys([]);
       setLoaded(true);
     });
   }, [params.id]);
@@ -78,16 +83,20 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     return () => window.clearTimeout(timer);
   }, [loaded]);
 
-  const set = (k: string, v: Answers[string]) => setAnswers((a) => ({ ...a, [k]: v }));
+  const set = (k: string, v: Answers[string]) => {
+    setAnswers((a) => ({ ...a, [k]: v }));
+    setDirtyKeys((current) => current.includes(k) ? current : [...current, k]);
+  };
 
   async function save() {
     if (saving) return;
     setSaving(true);
     setNote("Saving...");
     try {
+      const answerPatch = Object.fromEntries(dirtyKeys.map((key) => [key, answers[key]]));
       const r = await fetch(`/api/intakes/${params.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers, status: "NEEDS_REVIEW" }),
+        body: JSON.stringify({ answers: answerPatch, status: "NEEDS_REVIEW" }),
       });
       const body = await r.json().catch(() => ({} as { error?: string }));
       if (!r.ok) {
@@ -123,6 +132,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   }
 
   function startSigning() {
+    if (dirtyKeys.length) {
+      setNote("Save your answer changes before capturing signatures so each signature is tied to the current version.");
+      return;
+    }
     if (!selectedSignerRoles.length) {
       setNote("Select at least one staff role before starting signatures.");
       return;
@@ -177,15 +190,38 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   if (!loaded) return <main className="p-10 text-center text-slate-400">Loading...</main>;
 
+  const sectionProgress = SECTIONS.map((section) => {
+    const visible = section.questions.filter((question) => (
+      question.type !== "info" && question.type !== "heading" && askIfSatisfied(question.askIf, answers)
+    ));
+    const completed = visible.filter((question) => {
+      const value = answers[question.key];
+      return value !== undefined && value !== "" && value !== null && !(Array.isArray(value) && value.length === 0);
+    }).length;
+    return { key: section.key, title: section.title, completed, total: visible.length };
+  });
+
   return (
     <main className="mx-auto max-w-4xl p-6 pb-24">
       <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
       <h1 className="mt-1 text-2xl font-bold">Review & edit - {clientName}</h1>
       <p className="text-sm text-slate-500">Client answers first, then staff-only sections. Everything here fills the packet PDF.</p>
 
+      <nav className="card mt-4" aria-label="Review section navigation">
+        <h2 className="font-bold text-brand">Jump to a section</h2>
+        <div className="mt-2 flex flex-wrap gap-2">
+          {sectionProgress.map((section) => (
+            <a key={section.key} href={`#review-${section.key}`} className="btn-ghost px-3 py-1.5 text-xs">
+              {section.title}: {section.completed}/{section.total}
+            </a>
+          ))}
+          <a href="#staff-signatures" className="btn-ghost px-3 py-1.5 text-xs">Staff signatures</a>
+        </div>
+      </nav>
+
       {SECTIONS.map((s) => (
-        <details key={s.key} className="card mt-3" open={s.key === "basic"}>
-          <summary className="cursor-pointer font-bold text-brand">{s.title} (client)</summary>
+        <details id={`review-${s.key}`} key={s.key} className="card mt-3 scroll-mt-4" open={s.key === "basic"}>
+          <summary className="cursor-pointer font-bold text-brand">{s.title} (client) - {sectionProgress.find((section) => section.key === s.key)?.completed}/{sectionProgress.find((section) => section.key === s.key)?.total}</summary>
           <div className="mt-3 space-y-3">
             {s.questions.filter((q) => askIfSatisfied(q.askIf, answers)).map((q) => (
               <EditField key={q.key} q={q} answers={answers} set={set} />
@@ -216,13 +252,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             { role: "medicalDirector", label: "Medical Director", note: "Use only when the form requires it." },
           ].map((item) => {
             const found = signatures.find((signature) => signature.role === item.role || (item.role === "client" && signature.role === "guardian"));
+            const statusKey = item.role === "client" ? "client_guardian" : item.role === "staff" ? "staff_qp" : item.role === "medicalDirector" ? "medical_director" : item.role;
+            const integrity = signatureStatuses.find((status) => status.key === statusKey);
+            const captured = integrity ? integrity.state === "captured" : !!found;
+            const invalid = integrity?.state === "invalid";
             return (
-              <div key={item.role} className={`rounded-lg border p-2 text-sm ${found ? "border-emerald-200 bg-emerald-50" : "border-amber-200 bg-amber-50"}`}>
+              <div key={item.role} className={`rounded-lg border p-2 text-sm ${captured ? "border-emerald-200 bg-emerald-50" : invalid ? "border-red-300 bg-red-50" : "border-amber-200 bg-amber-50"}`}>
                 <div className="flex items-center justify-between gap-2">
                   <b>{item.label}</b>
-                  <span className={`text-xs font-semibold ${found ? "text-emerald-700" : "text-amber-700"}`}>{found ? "Captured" : "Missing"}</span>
+                  <span className={`text-xs font-semibold ${captured ? "text-emerald-700" : invalid ? "text-red-700" : "text-amber-700"}`}>{captured ? "Captured" : invalid ? "Invalid - re-sign" : "Missing"}</span>
                 </div>
-                <p className="mt-1 text-xs text-slate-600">{found ? `${found.printedName} (${found.signedDate})` : item.note}</p>
+                <p className="mt-1 text-xs text-slate-600">{invalid ? integrity?.reason : found ? `${found.printedName} (${found.signedDate})` : item.note}</p>
               </div>
             );
           })}
@@ -288,10 +328,12 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
 function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k: string, v: Answers[string]) => void }) {
   const v = answers[q.key];
+  const inputId = `review-field-${q.key}`;
+  const required = isQuestionRequired(q, answers) && askIfSatisfied(q.askIf, answers);
   if (q.type === "consent") {
     return (
-      <label data-field-key={q.key} className="flex items-center gap-2 text-sm">
-        <input type="checkbox" className="h-4 w-4" checked={v === true} onChange={(e) => set(q.key, e.target.checked)} />
+      <label htmlFor={inputId} data-field-key={q.key} className="flex items-center gap-2 text-sm">
+        <input id={inputId} type="checkbox" className="h-4 w-4" required={required} checked={v === true} onChange={(e) => set(q.key, e.target.checked)} />
         <span><b>Consent:</b> {q.label}</span>
       </label>
     );
@@ -299,43 +341,43 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
   if (q.type === "radio" || q.type === "yesno" || q.type === "survey") {
     const opts = q.type === "survey" ? ["1", "2", "3"] : q.options || [];
     return (
-      <div data-field-key={q.key}>
-        <label className="label">{q.label}</label>
-        <div className="flex flex-wrap gap-1.5">
+      <fieldset data-field-key={q.key} aria-required={required}>
+        <legend id={`${inputId}-legend`} className="label">{q.label}{required ? " *" : ""}</legend>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby={`${inputId}-legend`}>
           {opts.map((o) => (
-            <button key={o} type="button" className={`chip px-3 py-1 text-xs ${v === o ? "chip-on" : ""}`}
+            <button key={o} type="button" aria-pressed={v === o} className={`chip px-3 py-1 text-xs ${v === o ? "chip-on" : ""}`}
               onClick={() => set(q.key, v === o ? "" : o)}>{o}</button>
           ))}
         </div>
-      </div>
+      </fieldset>
     );
   }
   if (q.type === "chips") {
     const arr = Array.isArray(v) ? v : [];
     return (
-      <div data-field-key={q.key}>
-        <label className="label">{q.label}</label>
-        <div className="flex flex-wrap gap-1.5">
+      <fieldset data-field-key={q.key} aria-required={required}>
+        <legend id={`${inputId}-legend`} className="label">{q.label}{required ? " *" : ""}</legend>
+        <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby={`${inputId}-legend`}>
           {(q.options || []).map((o) => (
-            <button key={o} type="button" className={`chip px-3 py-1 text-xs ${arr.includes(o) ? "chip-on" : ""}`}
+            <button key={o} type="button" aria-pressed={arr.includes(o)} className={`chip px-3 py-1 text-xs ${arr.includes(o) ? "chip-on" : ""}`}
               onClick={() => set(q.key, arr.includes(o) ? arr.filter((x) => x !== o) : [...arr, o])}>{o}</button>
           ))}
         </div>
-      </div>
+      </fieldset>
     );
   }
   if (q.type === "textarea") {
     return (
       <div data-field-key={q.key}>
-        <label className="label">{q.label}</label>
-        <textarea className="input min-h-[70px]" value={String(v ?? "")} onChange={(e) => set(q.key, e.target.value)} />
+        <label htmlFor={inputId} className="label">{q.label}{required ? " *" : ""}</label>
+        <textarea id={inputId} className="input min-h-[70px]" required={required} value={String(v ?? "")} onChange={(e) => set(q.key, e.target.value)} />
       </div>
     );
   }
   return (
     <div data-field-key={q.key}>
-      <label className="label">{q.label}</label>
-      <input className="input" type={q.type === "date" ? "date" : "text"} value={String(v ?? "")}
+      <label htmlFor={inputId} className="label">{q.label}{required ? " *" : ""}</label>
+      <input id={inputId} className="input" required={required} type={q.type === "date" ? "date" : "text"} value={String(v ?? "")}
         onChange={(e) => set(q.key, e.target.value)} />
     </div>
   );

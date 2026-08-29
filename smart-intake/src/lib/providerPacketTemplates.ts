@@ -161,6 +161,106 @@ function isPrayersOfCarePacket(identity: PacketTemplateIdentity): boolean {
   return identity.pageCount === 39 && (label.includes("prayer") || label.includes("poc"));
 }
 
+const ESSENTIAL_WELLNESS_PACKET_FILE = "ewcintakeformpdf";
+const ESSENTIAL_WELLNESS_HEADER_SOURCES = [
+  "client_full_name", "dob", "mid_number", "record_number", "intake_date", "location",
+] as const;
+const ESSENTIAL_WELLNESS_HEADER_SOURCE_SET = new Set<string>(ESSENTIAL_WELLNESS_HEADER_SOURCES);
+
+function compactPacketLabel(value: string | null | undefined): string {
+  return String(value || "").toLowerCase().replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * This is intentionally an exact packet-family check. It must not make an
+ * arbitrary 39-page provider upload inherit another provider's coordinates.
+ */
+export function isEssentialWellnessPacket(identity: PacketTemplateIdentity): boolean {
+  return identity.pageCount === 39
+    && compactPacketLabel(identity.originalFileName) === ESSENTIAL_WELLNESS_PACKET_FILE;
+}
+
+function mappingSourceKey(source: string): string {
+  return source.split(/[=~]/, 1)[0];
+}
+
+function isEssentialWellnessHeaderField(field: FieldMapping): boolean {
+  return ESSENTIAL_WELLNESS_HEADER_SOURCE_SET.has(mappingSourceKey(field.source))
+    && field.y >= 650
+    && (field.type === "text" || field.type === "date");
+}
+
+/**
+ * The reviewed Essential Wellness map predates complete repeated-header
+ * coverage. Use the most complete saved header row as the coordinate
+ * prototype, preserve every reviewed per-page placement, and fill only a
+ * missing header cell. No unrelated Moore Divine mappings are inherited.
+ */
+export function completeEssentialWellnessPdfMap(
+  fields: FieldMapping[],
+  pageCount: number,
+): FieldMapping[] {
+  const result = fields
+    .filter((field) => field.page >= 1 && field.page <= pageCount)
+    .map((field) => ({ ...field }));
+  const candidates = result.filter(isEssentialWellnessHeaderField);
+  const candidatesByPage = new Map<number, Map<string, FieldMapping>>();
+  for (const field of candidates) {
+    const pageFields = candidatesByPage.get(field.page) || new Map<string, FieldMapping>();
+    const source = mappingSourceKey(field.source);
+    if (!pageFields.has(source)) pageFields.set(source, field);
+    candidatesByPage.set(field.page, pageFields);
+  }
+
+  const prototype = [...candidatesByPage.entries()]
+    .sort(([pageA, fieldsA], [pageB, fieldsB]) => fieldsB.size - fieldsA.size || pageA - pageB)[0]?.[1];
+  if (prototype && prototype.size >= 2 && prototype.has("client_full_name")) {
+    const occupied = new Set(candidates.map((field) => `${field.page}:${mappingSourceKey(field.source)}`));
+    for (let page = 1; page <= pageCount; page++) {
+      for (const [source, field] of prototype) {
+        const slot = `${page}:${source}`;
+        if (occupied.has(slot)) continue;
+        result.push({
+          ...field,
+          page,
+          fieldKey: `ewc_header_${source}_p${page}`,
+          required: false,
+          role: "auto",
+          consentKey: null,
+          notes: `Essential Wellness repeated identity header copied from page ${field.page}`,
+        });
+        occupied.add(slot);
+      }
+    }
+  }
+
+  // The source Word export visibly reports a 38-page total even though this
+  // exact packet contains 39 PDF pages. Cover only that centered footer cell
+  // and render the authoritative PDF page count from the loaded document.
+  for (let page = 1; page <= pageCount; page++) {
+    if (result.some((field) => field.page === page && field.source === "@pdf_page_label")) continue;
+    result.push({
+      page,
+      fieldKey: `ewc_pdf_page_number_p${page}`,
+      source: "@pdf_page_label",
+      type: "whiteout_text",
+      x: 246,
+      y: 10,
+      width: 120,
+      height: 14,
+      fontSize: 8,
+      lines: 1,
+      lineHeight: 10,
+      required: false,
+      role: "auto",
+      consentKey: null,
+      notes: "Authoritative PDF page count for the 39-page Essential Wellness packet",
+      align: "center",
+    });
+  }
+  return result;
+}
+
 function mergeKnownPacketMap(base: FieldMapping[], overrides: FieldMapping[]): FieldMapping[] {
   const byKey = new Map(base.map((candidate) => [candidate.fieldKey, candidate]));
   for (const override of overrides) {
@@ -205,6 +305,18 @@ export function packetFieldsForTemplate(
   }
 
   return repairKnownPacketPlacements(mergedMap(overrides), identity.pageCount);
+}
+
+/** Fields used to render a packet. Runtime-only repairs stay out of the saved
+ * provider map so opening the mapper cannot silently persist generated rows. */
+export function packetFillFieldsForTemplate(
+  identity: PacketTemplateIdentity,
+  overrides: FieldMapping[] = [],
+): FieldMapping[] {
+  const fields = packetFieldsForTemplate(identity, overrides);
+  return isEssentialWellnessPacket(identity)
+    ? completeEssentialWellnessPdfMap(fields, identity.pageCount)
+    : fields;
 }
 
 /**
@@ -541,7 +653,7 @@ export async function providerPacketReadiness(providerId: string): Promise<Provi
 function packetSelectionFromTemplate(template: TemplateRow): PacketTemplateSelection {
   const overrides = parseMappings(template.fieldMappings);
   const bytes = loadTemplateFile(template.filePath);
-  const fields = packetFieldsForTemplate({
+  const fields = packetFillFieldsForTemplate({
     name: template.name,
     originalFileName: template.originalFileName,
     pageCount: template.pageCount,

@@ -4,6 +4,7 @@ import { requireWritableStaff } from "@/lib/staffGuard";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { generatePacketForIntake } from "@/lib/generatePacket";
 import { prisma } from "@/lib/prisma";
+import { generationReadinessForIntake } from "@/lib/generationReadiness";
 
 export async function POST(req: NextRequest) {
   const { user, provider, deny } = await requireWritableStaff();
@@ -60,7 +61,12 @@ export async function POST(req: NextRequest) {
       let packetError: string | undefined;
       if (shouldGenerateDraftPackets) {
         try {
-          packet = await generatePacketForIntake(item.id, user!.id, provider!.id);
+          const readiness = await generationReadinessForIntake(item.id, provider!.id);
+          if (!readiness?.ready) {
+            packetError = "Draft preview is available from the intake page; a locked packet version waits for submission, review, current signatures, and preflight.";
+          } else {
+            packet = await generatePacketForIntake(item.id, user!.id, provider!.id);
+          }
         } catch (error) {
           packetError = error instanceof Error ? error.message : "Packet generation failed";
         }
