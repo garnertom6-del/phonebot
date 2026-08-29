@@ -7,7 +7,7 @@ import fs from "fs";
 import path from "path";
 import { PDFDocument, PDFFont, PDFPage, StandardFonts, rgb } from "pdf-lib";
 import { PACKET_MAP, TEMPLATE_FILE, type FieldMapping } from "@/config/mooreDivinePacketMap";
-import { wrapText, fitFontSize } from "./pdfCoordinates";
+import { wrapText, fitFontSize, sanitizePdfText } from "./pdfCoordinates";
 import {
   SignatureContext, SignatureRecord, drawSignature, embedSignatureImages,
   initialsFromName, signatureForRole,
@@ -23,13 +23,14 @@ const INK = rgb(0.07, 0.12, 0.35);
 function drawTextField(
   page: PDFPage, f: FieldMapping, text: string, font: PDFFont,
 ) {
-  if (!text) return;
+  const safeText = sanitizePdfText(text, font);
+  if (!safeText) return;
   // baselines are lifted a few points so text floats just above the printed
   // underlines instead of touching them
   const flowTotal = f.flowLines ?? f.lines;
   const start = f.startLine ?? 0;
   if (f.lines > 1 || flowTotal > f.lines || start > 0) {
-    const lines = wrapText(text, font, f.fontSize, f.width, flowTotal)
+    const lines = wrapText(safeText, font, f.fontSize, f.width, flowTotal)
       .slice(start, start + f.lines);
     lines.forEach((line, i) => {
       page.drawText(line, {
@@ -38,8 +39,8 @@ function drawTextField(
       });
     });
   } else {
-    const size = fitFontSize(text, font, f.fontSize, f.width);
-    let t = text;
+    const size = fitFontSize(safeText, font, f.fontSize, f.width);
+    let t = safeText;
     while (t.length > 1 && font.widthOfTextAtSize(t, size) > f.width) t = t.slice(0, -1);
     const x = f.align === "center"
       ? f.x + Math.max(0, (f.width - font.widthOfTextAtSize(t, size)) / 2)
@@ -77,6 +78,7 @@ function drawCenteredX(page: PDFPage, f: FieldMapping, font: PDFFont) {
 }
 
 function drawCenteredInitials(page: PDFPage, f: FieldMapping, initials: string, font: PDFFont) {
+  initials = sanitizePdfText(initials, font);
   let size = Math.min(f.fontSize || 9, f.height || 10);
   while (size > 5 && font.widthOfTextAtSize(initials, size) > f.width) size -= 0.5;
   const width = font.widthOfTextAtSize(initials, size);
