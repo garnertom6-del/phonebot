@@ -1,11 +1,18 @@
 interface Missing { key: string; label: string; section?: string }
 
 export default function MissingFieldsPanel({ required, optional }: { required: Missing[]; optional: Missing[] }) {
+  const requiredComplete = required.length === 0;
   return (
     <div className="card">
       <h3 className="mb-2 font-bold">Missing field checklist</h3>
-      {required.length === 0 ? (
-        <p className="mb-2 text-sm font-semibold text-emerald-600">All required items complete</p>
+      {requiredComplete ? (
+        optional.length > 0 ? (
+          <p className="mb-2 text-sm font-semibold text-slate-700">
+            Required answers are filled. {optional.length} other packet item{optional.length === 1 ? "" : "s"} still blank.
+          </p>
+        ) : (
+          <p className="mb-2 text-sm font-semibold text-emerald-600">Required answers are filled</p>
+        )
       ) : (
         <>
           <p className="mb-1 text-sm font-semibold text-red-600">Required before completion ({required.length}):</p>
@@ -17,7 +24,7 @@ export default function MissingFieldsPanel({ required, optional }: { required: M
       {optional.length > 0 && (
         <details>
           <summary className="cursor-pointer text-sm font-semibold text-slate-600">
-            Key unanswered packet items to review ({optional.length})
+            Other unanswered packet items ({optional.length})
           </summary>
           <ul className="mt-2 max-h-64 list-inside list-disc overflow-y-auto text-xs text-slate-500">
             {optional.map((m) => <li key={m.key}>{m.section ? `${m.section}: ` : ""}{m.label}</li>)}

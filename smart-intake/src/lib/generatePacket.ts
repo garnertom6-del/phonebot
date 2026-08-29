@@ -7,7 +7,7 @@ import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 import { requireProviderPacketForCompletion } from "@/lib/providerPacketTemplates";
 import { brandText } from "@/lib/providerBranding";
-import { buildSignatureStatuses } from "@/lib/signatureStatus";
+import { buildSignatureStatuses, mappedSignatureSlotsFromFields } from "@/lib/signatureStatus";
 import { extractPdfText } from "@/lib/pdfText";
 
 export class PacketIdentityMismatchError extends Error {
@@ -109,6 +109,7 @@ export async function generatePacketForIntake(
   const signatureStatuses = buildSignatureStatuses(intake.signatures, {
     client: intake.client,
     currentContentRevision: intake.contentRevision,
+    mappedSlots: mappedSignatureSlotsFromFields(packetTemplate.fields),
   });
   const signatureFieldKeys = new Set(
     packetTemplate.fields
@@ -116,11 +117,13 @@ export async function generatePacketForIntake(
       .map((field) => field.fieldKey),
   );
   const skippedSignatureSlots = result.skipped.filter((fieldKey) => signatureFieldKeys.has(fieldKey));
-  const missingSignatureStatuses = signatureStatuses.filter((status) => status.state === "missing");
+  const missingSignatureStatuses = signatureStatuses.filter((status) => (
+    status.state !== "captured" && status.required
+  ));
   const signatureAudit = {
     captured: signatureStatuses.filter((status) => status.state === "captured").length,
     missing: missingSignatureStatuses.length,
-    requiredMissing: missingSignatureStatuses.filter((status) => status.required).length,
+    requiredMissing: missingSignatureStatuses.length,
     missingLabels: missingSignatureStatuses.map((status) => status.label),
     mappedSignatureSlots: signatureFieldKeys.size,
     skippedSignatureSlots: skippedSignatureSlots.length,

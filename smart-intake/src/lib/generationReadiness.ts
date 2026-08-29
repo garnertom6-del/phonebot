@@ -6,7 +6,7 @@ import { buildRulePreflight, type PreflightFinding } from "@/lib/intakePreflight
 import { buildSignatureStatuses, type SignatureStatus } from "@/lib/signatureStatus";
 import { buildPlanCompleteness, buildRecordConflicts, type RecordConflict } from "@/lib/recordIntegrity";
 import { parseCcaReview, type CcaReview } from "@/lib/ccaReview";
-import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
+import { mappedSignatureSlotsForProvider, providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { acceptableOverrideReason } from "@/lib/overrideReason";
 
 export type GenerationBlockerCode =
@@ -104,10 +104,12 @@ export async function generationReadinessForIntake(
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
   const latestSignatureAt = maxDate(intake.signatures.map((signature) => signature.updatedAt || signature.createdAt));
   const sourceUpdatedAt = maxDate([latestMaterialAnswer?.updatedAt, latestSignatureAt, intake.uploadedDocuments[0]?.createdAt]);
+  const mappedSlots = await mappedSignatureSlotsForProvider(providerId, providerPacket.templateId);
   const signatureStatuses = buildSignatureStatuses(intake.signatures, {
     client: intake.client,
     currentContentRevision: intake.contentRevision,
     latestMaterialUpdatedAt: latestMaterialAnswer?.updatedAt,
+    mappedSlots,
   });
   const clientSignature = capturedRequiredStatus(signatureStatuses, "client_guardian");
   const staffSignature = capturedRequiredStatus(signatureStatuses, "staff_qp");
