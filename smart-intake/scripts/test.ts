@@ -46,6 +46,7 @@ import {
   firstFilledText,
   housingNeedsAttention,
   looksLikeGeneratedRecordNumber,
+  packetPackageTitle,
   providerDisplayName,
   staffIntakeAnswerCompleteLabel,
   staffIntakePrimaryAction,
@@ -796,6 +797,8 @@ async function main() {
   assert.equal(providerDisplayName("Essential Wellness Care Inc."), "Essential Wellness Care Inc.");
   assert.equal(providerDisplayName("", "Essential Wellness Care Inc. Client Intake Package"), "Essential Wellness Care Inc.");
   assert.equal(providerDisplayName("", ""), "This provider");
+  assert.equal(packetPackageTitle("Moore Divine Care, Inc.", "Client Intake Package"), "Moore Divine Care, Inc. Client Intake Package");
+  assert.equal(packetPackageTitle("Essential Wellness Care Inc.", "Essential Wellness Care Inc. Client Intake Package"), "Essential Wellness Care Inc. Client Intake Package");
   assert.equal(looksLikeGeneratedRecordNumber("BCBS-97588"), true);
   assert.equal(looksLikeGeneratedRecordNumber("SAMPLEMID01"), false);
   assert.equal(detectMidRecordMixup("BCBS-97588", "ZZ").mixed, true);

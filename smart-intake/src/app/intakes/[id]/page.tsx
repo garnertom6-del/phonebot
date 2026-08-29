@@ -32,6 +32,7 @@ import {
   displayIntakeLocation,
   firstFilledText,
   housingNeedsAttention,
+  packetPackageTitle,
   providerDisplayName,
   staffIntakeAnswerCompleteLabel,
   staffIntakePrimaryAction,
@@ -942,7 +943,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     <main className="mx-auto max-w-5xl p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
       <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
-        {i.packageName || `${providerName} Client Intake Package`}
+        {packetPackageTitle(i.provider?.name, i.packageName)}
       </p>
       <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
         <div>

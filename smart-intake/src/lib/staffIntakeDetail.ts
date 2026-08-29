@@ -43,6 +43,15 @@ export function providerDisplayName(
   return "This provider";
 }
 
+export function packetPackageTitle(
+  providerName?: string | null,
+  packageName?: string | null,
+): string {
+  const pkg = (packageName || "").trim();
+  if (pkg && !/^client intake package$/i.test(pkg)) return pkg;
+  return `${providerDisplayName(providerName, packageName)} Client Intake Package`;
+}
+
 export function looksLikeGeneratedRecordNumber(value?: string | null): boolean {
   return GENERATED_RECORD_NUMBER_RE.test((value || "").trim());
 }
