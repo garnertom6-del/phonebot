@@ -15,6 +15,7 @@ import {
   extractIntakeNoteFields,
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
+import { buildNewIntakeReadiness } from "@/lib/newIntakeReadiness";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -36,7 +37,7 @@ const QUICK_NOTE_RACE_OPTIONS = [
   "American Indian or Alaska Native", "Asian", "Black or African American",
   "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
 ];
-const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male"];
+const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
 const QUICK_NOTE_ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
 const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
 const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
@@ -114,27 +115,50 @@ export default function NewIntake() {
   const [packetReady, setPacketReady] = useState(true);
   const [packetReadinessMessage, setPacketReadinessMessage] = useState("");
   const [packetContextLoaded, setPacketContextLoaded] = useState(false);
+  const [packetSetupHref, setPacketSetupHref] = useState("");
+  const [packetContextError, setPacketContextError] = useState("");
 
   const assignedPreview = assignIntakeContacts(form.email || "", form.phone || "");
   const smsPhone = assignedPreview.error ? "" : assignedPreview.phone;
+  const intakeReadiness = buildNewIntakeReadiness({
+    fullName: form.fullName,
+    dob: form.dob,
+    contactReady: !assignedPreview.error && !!(assignedPreview.phone || assignedPreview.email),
+    packetContextLoaded,
+    packetContextError: !!packetContextError,
+    packetReady,
+  });
 
   useEffect(() => {
     let active = true;
     fetch("/api/intakes/context").then(async (res) => {
       const body = await readResponse(res) as {
+        error?: string;
         provider?: { name?: string; phone?: string };
-        packet?: { name?: string; pageCount?: number | null; ready?: boolean; message?: string };
+        packet?: { name?: string; pageCount?: number | null; ready?: boolean; state?: string; message?: string };
+        access?: { canManageProvider?: boolean; packetSetupHref?: string | null };
       };
-      if (!res.ok || !active) return;
+      if (!active) return;
+      if (!res.ok) {
+        setPacketReady(false);
+        setPacketContextError(body.error || "Provider context could not be loaded. Sign in again before creating an intake.");
+        setPacketContextLoaded(true);
+        return;
+      }
       setProviderName(body.provider?.name || "Provider");
       setProviderPhone(body.provider?.phone || "");
       setPacketName(body.packet?.name || `${body.provider?.name || "Provider"} Client Intake Package`);
       setPacketPageCount(typeof body.packet?.pageCount === "number" ? body.packet.pageCount : null);
       setPacketReady(body.packet?.ready !== false);
       setPacketReadinessMessage(body.packet?.message || "");
+      setPacketSetupHref(body.access?.canManageProvider ? (body.access.packetSetupHref || "") : "");
       setPacketContextLoaded(true);
     }).catch(() => {
-      if (active) setPacketContextLoaded(true);
+      if (active) {
+        setPacketReady(false);
+        setPacketContextError("Provider context could not be loaded. Refresh the page or sign in again before creating an intake.");
+        setPacketContextLoaded(true);
+      }
     });
     return () => { active = false; };
   }, []);
@@ -492,23 +516,70 @@ export default function NewIntake() {
 
   const submitLabel = isCreating
     ? (smsPhone ? "Creating and texting the link..." : "Creating intake...")
+    : packetContextError
+      ? "Sign in to create an intake"
     : smsPhone
       ? "Create and text the link"
       : "Create intake";
 
   return (
-    <main className="mx-auto max-w-xl p-6">
+    <main className="mx-auto max-w-xl p-4 sm:p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
-      <form onSubmit={submit} className="card mt-3" noValidate>
+      <form method="post" onSubmit={submit} className="card mt-3" noValidate>
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
-        <p className="mb-4 min-h-[1.25rem] text-sm text-slate-500">
-          {packetContextLoaded ? `Package: ${packetName}${packetPageCount ? ` (${packetPageCount} pages)` : ""}` : ""}
-        </p>
-        {!packetReady && packetContextLoaded && (
+        <div className="mb-4 flex min-h-[1.75rem] flex-wrap items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
+          <span>
+            {packetContextError
+              ? "Provider context unavailable"
+              : packetContextLoaded
+              ? `${packetReady ? "Approved package" : "Uploaded packet (not active)"}: ${packetName}${packetPageCount ? ` (${packetPageCount} pages)` : ""}`
+              : "Checking provider packet status…"}
+          </span>
+          {packetContextLoaded && !packetContextError && (
+            <span className={`badge ${packetReady ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}`}>
+              {packetReady ? "Ready" : "Setup pending"}
+            </span>
+          )}
+        </div>
+        <section aria-labelledby="new-intake-readiness-title" className="mb-4 rounded-xl border border-brand/20 bg-brand-light/30 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 id="new-intake-readiness-title" className="font-bold text-slate-900">{intakeReadiness.title}</h2>
+            <span className="badge bg-white text-brand">
+              {intakeReadiness.completedRequired}/{intakeReadiness.totalRequired} required
+            </span>
+          </div>
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            {intakeReadiness.items.map((item) => (
+              <div key={item.key} className="flex items-start gap-2 rounded-lg bg-white p-3 text-sm">
+                <span aria-hidden="true" className={item.ready ? "text-emerald-600" : "text-slate-400"}>{item.ready ? "✓" : "○"}</span>
+                <span>
+                  <span className="block font-semibold text-slate-800">{item.label}</span>
+                  <span className="text-xs text-slate-500">{item.help}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className={`mt-3 text-xs font-semibold ${intakeReadiness.packet.tone === "warning" ? "text-amber-800" : intakeReadiness.packet.tone === "success" ? "text-emerald-700" : "text-slate-500"}`}>
+            Packet: {intakeReadiness.packet.label}
+          </p>
+        </section>
+        {packetContextError && (
+          <div role="alert" className="mb-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">
+            <p className="font-bold">Provider context unavailable</p>
+            <p className="mt-1">{packetContextError}</p>
+            <Link href="/provider" className="btn-secondary mt-3 px-3 py-2 text-sm">Open provider sign in</Link>
+          </div>
+        )}
+        {!packetReady && packetContextLoaded && !packetContextError && (
           <div role="alert" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <p className="font-bold">Provider packet setup required before PDF or DocuSign</p>
             <p className="mt-1 leading-6">{packetReadinessMessage}</p>
             <p className="mt-1 font-semibold">You can still create this intake, send the secure link, and collect the client&apos;s answers.</p>
+            {packetSetupHref && (
+              <Link href={packetSetupHref} className="btn-ghost mt-3 border-amber-400 bg-white px-3 py-2 text-sm text-amber-950">
+                Open packet setup
+              </Link>
+            )}
           </div>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
@@ -528,7 +599,7 @@ export default function NewIntake() {
               Email is optional. One of phone or email is required.
             </p>
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <label>
+              <label htmlFor="new-intake-phone">
                 <span className="label">Client cell (SMS)</span>
                 <input
                   className="input"
@@ -547,7 +618,7 @@ export default function NewIntake() {
                   placeholder="10-digit cell"
                 />
               </label>
-              <label>
+              <label htmlFor="new-intake-email">
                 <span className="label">Client email</span>
                 <input
                   className="input"
@@ -592,47 +663,53 @@ export default function NewIntake() {
           <p className="mt-1 text-sm text-slate-600">
             Add a confirmed address to save the client time. If the client has no fixed address, use the homeless tab instead and do not enter a made-up street address.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Housing status">
             {[
               ["address", "Address"],
               ["homeless", "Homeless / no fixed address"],
             ].map(([key, label]) => (
-              <button key={key} type="button" onClick={() => setHousingTab(key as "address" | "homeless")}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${housingTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+              <button key={key} id={`housing-tab-${key}`} type="button" role="tab"
+                aria-selected={housingTab === key} aria-controls="housing-tabpanel"
+                tabIndex={housingTab === key ? 0 : -1}
+                onClick={() => setHousingTab(key as "address" | "homeless")}
+                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${housingTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
                 {label}
               </button>
             ))}
           </div>
-          {housingTab === "address" ? (
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-              {(["addressStreet", "addressCity", "addressState"] as const).map((key) => (
-                <label key={key}>
-                  <span className="label">{key === "addressStreet" ? "Street address" : key === "addressCity" ? "City" : "State"}</span>
-                  <input className="input" name={key} value={form[key] || ""}
-                    onChange={(e) => setForm((current) => ({ ...current, [key]: e.target.value }))}
-                    placeholder={key === "addressState" ? "NC" : ""} />
-                </label>
-              ))}
-            </div>
-          ) : (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="font-semibold text-amber-900">Homeless / no fixed address selected</p>
-              <p className="mt-1 text-sm text-amber-800">The packet will mark the client as homeless, skip the street-address requirement, and let the client continue without repeating that question.</p>
-              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <label>
-                  <span className="label">City or area (optional)</span>
-                  <input className="input" name="addressCity" value={form.addressCity || ""}
-                    onChange={(e) => setForm((current) => ({ ...current, addressCity: e.target.value }))} />
-                </label>
-                <label>
-                  <span className="label">State (optional)</span>
-                  <input className="input" name="addressState" value={form.addressState || ""}
-                    onChange={(e) => setForm((current) => ({ ...current, addressState: e.target.value }))} placeholder="NC" />
-                </label>
+          <div id="housing-tabpanel" role="tabpanel" aria-labelledby={`housing-tab-${housingTab}`}>
+            {housingTab === "address" ? (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
+                {(["addressStreet", "addressCity", "addressState"] as const).map((key) => (
+                  <label key={key}>
+                    <span className="label">{key === "addressStreet" ? "Street address" : key === "addressCity" ? "City" : "State"}</span>
+                    <input className="input" name={key} value={form[key] || ""}
+                      autoComplete={key === "addressStreet" ? "street-address" : key === "addressCity" ? "address-level2" : "address-level1"}
+                      onChange={(e) => setForm((current) => ({ ...current, [key]: e.target.value }))}
+                      placeholder={key === "addressState" ? "NC" : ""} />
+                  </label>
+                ))}
               </div>
-              <input type="hidden" name="livingArrangement" value="Homeless" />
-            </div>
-          )}
+            ) : (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="font-semibold text-amber-900">Homeless / no fixed address selected</p>
+                <p className="mt-1 text-sm text-amber-800">The packet will mark the client as homeless, skip the street-address requirement, and let the client continue without repeating that question.</p>
+                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <label>
+                    <span className="label">City or area (optional)</span>
+                    <input className="input" name="addressCity" value={form.addressCity || ""} autoComplete="address-level2"
+                      onChange={(e) => setForm((current) => ({ ...current, addressCity: e.target.value }))} />
+                  </label>
+                  <label>
+                    <span className="label">State (optional)</span>
+                    <input className="input" name="addressState" value={form.addressState || ""} autoComplete="address-level1"
+                      onChange={(e) => setForm((current) => ({ ...current, addressState: e.target.value }))} placeholder="NC" />
+                  </label>
+                </div>
+                <input type="hidden" name="livingArrangement" value="Homeless" />
+              </div>
+            )}
+          </div>
         </div>
         <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
           <h2 className="font-bold text-brand">Record number</h2>
@@ -640,50 +717,56 @@ export default function NewIntake() {
             Auto-generate a Record# in the format <b>PANEL-12345</b>, or look up the official number.
             The five digits are random and the server checks for duplicates within this provider.
           </p>
-          <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => selectRecordTab("generate")}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Record number method">
+            <button id="record-tab-generate" type="button" role="tab" aria-selected={recordTab === "generate"}
+              aria-controls="record-tabpanel" tabIndex={recordTab === "generate" ? 0 : -1}
+              onClick={() => selectRecordTab("generate")}
+              className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
               Auto-generate
             </button>
-            <button type="button" onClick={() => selectRecordTab("lookup")}
-              className={`rounded-full px-3 py-1.5 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
+            <button id="record-tab-lookup" type="button" role="tab" aria-selected={recordTab === "lookup"}
+              aria-controls="record-tabpanel" tabIndex={recordTab === "lookup" ? 0 : -1}
+              onClick={() => selectRecordTab("lookup")}
+              className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
               Panel lookup
             </button>
           </div>
-          {recordTab === "generate" ? (
-            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-              <label>
-                <span className="label">Insurance panel</span>
-                <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                  <option value="">Select panel</option>
-                  {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
-                    <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
-            </div>
-          ) : (
-            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-              <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
-              <label className="mt-3 block">
-                <span className="label">Insurance panel</span>
-                <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                  <option value="">Select lookup panel</option>
-                  {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
-                    <option key={plan} value={plan}>{plan}</option>
-                  ))}
-                </select>
-              </label>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
-                  <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
-                    {link.label} lookup
-                  </a>
-                ))}
+          <div id="record-tabpanel" role="tabpanel" aria-labelledby={`record-tab-${recordTab}`}>
+            {recordTab === "generate" ? (
+              <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
+                <label>
+                  <span className="label">Insurance panel</span>
+                  <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                    <option value="">Select panel</option>
+                    {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
+                      <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
+                    ))}
+                  </select>
+                </label>
+                <button type="button" className="btn-secondary" disabled={!recordPanel} onClick={generateRecordNumber}>Generate Record#</button>
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
+                <label className="mt-3 block">
+                  <span className="label">Insurance panel</span>
+                  <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                    <option value="">Select lookup panel</option>
+                    {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
+                      <option key={plan} value={plan}>{plan}</option>
+                    ))}
+                  </select>
+                </label>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
+                    <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
+                      {link.label} lookup
+                    </a>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
           <label className="mt-3 block">
             <span className="label">Record#</span>
             <input className="input" name="recordNumber" value={form.recordNumber || ""}
@@ -704,7 +787,7 @@ export default function NewIntake() {
               start that work here. Quick-fill stays on this screen while you switch tabs.
             </p>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="NC Tracks starter options">
             {([
               ["paste", "Paste"],
               ["upload", "Upload"],
@@ -713,9 +796,14 @@ export default function NewIntake() {
             ] as const).map(([key, label]) => (
               <button
                 key={key}
+                id={`nctracks-tab-${key}`}
                 type="button"
+                role="tab"
+                aria-selected={ncTracksTab === key}
+                aria-controls="nctracks-tabpanel"
+                tabIndex={ncTracksTab === key ? 0 : -1}
                 onClick={() => selectNcTracksTab(key)}
-                className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
+                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${
                   ncTracksTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"
                 }`}
               >
@@ -790,6 +878,7 @@ export default function NewIntake() {
               </label>
             </div>
           </details>
+          <div id="nctracks-tabpanel" role="tabpanel" aria-labelledby={`nctracks-tab-${ncTracksTab}`}>
           {ncTracksTab === "upload" && (
             <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-white p-4">
               <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
@@ -873,6 +962,7 @@ export default function NewIntake() {
               </div>
             </div>
           )}
+          </div>
         </div>
         <label className="mt-4 flex items-start gap-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
           <input type="checkbox" className="mt-0.5 h-5 w-5" checked={expectCca}
@@ -907,7 +997,7 @@ export default function NewIntake() {
             )}
           </div>
         )}
-        <button className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-70" disabled={isCreating}>
+        <button type="submit" className="btn-primary mt-5 min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70" disabled={isCreating || !!packetContextError}>
           {submitLabel}
         </button>
         {smsPhone && (

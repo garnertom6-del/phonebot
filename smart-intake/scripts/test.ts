@@ -38,6 +38,7 @@ import {
   INVALID_CONTACT_MESSAGE,
 } from "../src/lib/intakeContacts";
 import { extractIntakeNoteFields, parseHelperNotes } from "../src/lib/parseIntakeNotes";
+import { buildNewIntakeReadiness } from "../src/lib/newIntakeReadiness";
 import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
@@ -606,6 +607,36 @@ async function main() {
     true,
     "new-intake validation must retain provider packet email choice",
   );
+  const emptyIntakeReadiness = buildNewIntakeReadiness({
+    fullName: "",
+    dob: "",
+    contactReady: false,
+    packetContextLoaded: true,
+    packetReady: false,
+  });
+  assert.equal(emptyIntakeReadiness.completedRequired, 0);
+  assert.equal(emptyIntakeReadiness.ready, false);
+  assert.equal(emptyIntakeReadiness.packet.tone, "warning");
+  assert.equal(
+    buildNewIntakeReadiness({
+      contactReady: false,
+      packetContextLoaded: true,
+      packetContextError: true,
+      packetReady: false,
+    }).packet.label,
+    "Provider context unavailable",
+  );
+  const readyIntakeReadiness = buildNewIntakeReadiness({
+    fullName: "Workflow Test",
+    dob: "01/01/2000",
+    contactReady: true,
+    packetContextLoaded: true,
+    packetReady: true,
+  });
+  assert.equal(readyIntakeReadiness.completedRequired, 2);
+  assert.equal(readyIntakeReadiness.ready, true);
+  assert.equal(readyIntakeReadiness.title, "Ready to create the secure link");
+  ok("create-intake readiness separates required link fields from packet readiness");
   assert.equal(
     newIntakeSchema.safeParse({
       fullName: "No Contact",
