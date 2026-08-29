@@ -5,8 +5,8 @@ import { missingOptional, missingRequired } from "@/lib/validation";
 import { buildRulePreflight, type PreflightFinding } from "@/lib/intakePreflight";
 import { buildSignatureStatuses, type SignatureStatus } from "@/lib/signatureStatus";
 import { buildPlanCompleteness, buildRecordConflicts, type RecordConflict } from "@/lib/recordIntegrity";
-import { parseCcaReview, type CcaReview } from "@/lib/ccaReview";
-import { mappedSignatureSlotsForProvider, providerPacketReadiness } from "@/lib/providerPacketTemplates";
+import { clientCcaAttestationReady, parseCcaReview, type CcaReview } from "@/lib/ccaReview";
+import { providerPacketReadiness, signatureSlotProfileForProvider } from "@/lib/providerPacketTemplates";
 import { acceptableOverrideReason } from "@/lib/overrideReason";
 
 export type GenerationBlockerCode =
@@ -102,30 +102,36 @@ export async function generationReadinessForIntake(
   if (!intake) return null;
 
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
-  const latestSignatureAt = maxDate(intake.signatures.map((signature) => signature.updatedAt || signature.createdAt));
-  const sourceUpdatedAt = maxDate([latestMaterialAnswer?.updatedAt, latestSignatureAt, intake.uploadedDocuments[0]?.createdAt]);
-  const mappedSlots = await mappedSignatureSlotsForProvider(providerId, providerPacket.templateId);
+  // Preflight checks the packet content and CCA. Signature validity has its
+  // own gate, so capturing a QP signature must not make a just-completed
+  // preflight stale and send staff around the workflow again.
+  const sourceUpdatedAt = maxDate([latestMaterialAnswer?.updatedAt, intake.uploadedDocuments[0]?.createdAt]);
+  const signatureSlotProfile = await signatureSlotProfileForProvider(providerId, providerPacket.templateId);
   const signatureStatuses = buildSignatureStatuses(intake.signatures, {
     client: intake.client,
     currentContentRevision: intake.contentRevision,
     latestMaterialUpdatedAt: latestMaterialAnswer?.updatedAt,
-    mappedSlots,
+    mappedSlots: signatureSlotProfile.mappedSlots,
+    requiredSlots: signatureSlotProfile.requiredSlots,
   });
   const clientSignature = capturedRequiredStatus(signatureStatuses, "client_guardian");
   const staffSignature = capturedRequiredStatus(signatureStatuses, "staff_qp");
   const hasValidClientSignature = clientSignature?.state === "captured";
   const hasValidStaffSignature = staffSignature?.state === "captured";
-  const missing = missingRequired(answers, hasValidClientSignature, intake.provider);
+  const latestCcaReviewJson = intake.uploadedDocuments[0]?.reviewJson;
+  const ccaReview = parseCcaReview(latestCcaReviewJson);
+  const ccaAttestationReady = clientCcaAttestationReady(latestCcaReviewJson);
+  const missingOptions = { skipClinicalAssessmentAttestation: !ccaAttestationReady };
+  const missing = missingRequired(answers, hasValidClientSignature, intake.provider, missingOptions);
   const gateMissing = options.allowMissingSignatures
     ? missing.filter((field) => field.key !== "signature")
     : missing;
   const conflicts = buildRecordConflicts(answers, intake.client);
-  const ccaReview = parseCcaReview(intake.uploadedDocuments[0]?.reviewJson);
   const ruleFindings = buildRulePreflight({
     answers,
     client: intake.client,
     missingRequired: missing,
-    missingOptional: missingOptional(answers),
+    missingOptional: missingOptional(answers, missingOptions),
     hasClientSignature: hasValidClientSignature,
     hasCca: intake.uploadedDocuments.length > 0,
     expectCca: intake.expectCca,
@@ -154,6 +160,14 @@ export async function generationReadinessForIntake(
 
   if (intake.archived) blockers.push({ code: "archived", message: "Restore this intake before generating a packet." });
   if (!intake.submittedAt) blockers.push({ code: "not_submitted", message: "The client intake has not been submitted." });
+  // CCA work precedes signatures. Uploading or re-scanning a CCA changes the
+  // signed content revision, so prompting staff to sign first only creates a
+  // signature that must immediately be invalidated and repeated.
+  if (intake.expectCca && !intake.uploadedDocuments.length) blockers.push({ code: "cca_missing", message: "Upload the current clinician CCA." });
+  if (intake.expectCca && intake.uploadedDocuments.length && !ccaReview) blockers.push({ code: "cca_review_pending", message: "Run and review the CCA accuracy scan before generating." });
+  if (ccaReview?.majorErrors.length) {
+    blockers.push({ code: "cca_accuracy", message: `Resolve ${ccaReview.majorErrors.length} major CCA accuracy issue${ccaReview.majorErrors.length === 1 ? "" : "s"}.` });
+  }
   if (gateMissing.length) {
     blockers.push({
       code: "required_fields",
@@ -164,13 +178,6 @@ export async function generationReadinessForIntake(
   if (!options.allowMissingSignatures) {
     if (clientSignature?.state === "missing") blockers.push({ code: "client_signature_missing", message: "Capture the client or guardian signature." });
     if (clientSignature?.state === "invalid") blockers.push({ code: "client_signature_invalid", message: `Client/guardian signature is not current: ${clientSignature.reason}` });
-    if (staffSignature?.state === "missing") blockers.push({ code: "staff_signature_missing", message: "Capture the Staff / QP signature." });
-    if (staffSignature?.state === "invalid") blockers.push({ code: "staff_signature_invalid", message: `Staff / QP signature is not current: ${staffSignature.reason}` });
-  }
-  if (intake.expectCca && !intake.uploadedDocuments.length) blockers.push({ code: "cca_missing", message: "Upload the current clinician CCA." });
-  if (intake.expectCca && intake.uploadedDocuments.length && !ccaReview) blockers.push({ code: "cca_review_pending", message: "Run and review the CCA accuracy scan before generating." });
-  if (ccaReview?.majorErrors.length) {
-    blockers.push({ code: "cca_accuracy", message: `Resolve ${ccaReview.majorErrors.length} major CCA accuracy issue${ccaReview.majorErrors.length === 1 ? "" : "s"}.` });
   }
   for (const conflict of conflicts.filter((item) => item.severity === "error")) {
     blockers.push({ code: "record_conflict", message: conflict.title, fieldKeys: conflict.fieldKeys });
@@ -179,10 +186,17 @@ export async function generationReadinessForIntake(
     blockers.push({ code: "staff_review_required", message: "Save a staff review after the latest intake-content change." });
   }
   if (!lastPreflight || (sourceUpdatedAt && lastPreflight < sourceUpdatedAt)) {
-    blockers.push({ code: "preflight_required", message: "Run preflight again after the latest answers, CCA, or signatures." });
+    blockers.push({ code: "preflight_required", message: "Run preflight again after the latest answers or CCA change." });
   }
   for (const finding of unresolvedPreflight) {
     blockers.push({ code: "preflight_finding", message: finding.title, fieldKeys: finding.fieldKeys });
+  }
+  // QP signs last, after answers, conflicts, staff review, and preflight are
+  // settled. Otherwise a preflight correction immediately invalidates the QP
+  // signature and forces a needless second signing cycle.
+  if (!options.allowMissingSignatures) {
+    if (staffSignature?.state === "missing") blockers.push({ code: "staff_signature_missing", message: "Capture the Staff / QP signature after staff review and preflight are complete." });
+    if (staffSignature?.state === "invalid") blockers.push({ code: "staff_signature_invalid", message: `Staff / QP signature is not current: ${staffSignature.reason}` });
   }
   if (!providerPacket.ready) blockers.push({ code: "provider_packet_not_ready", message: providerPacket.message });
 

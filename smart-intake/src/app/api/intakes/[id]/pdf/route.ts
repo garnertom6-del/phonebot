@@ -37,19 +37,15 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     throw error;
   }
   const fresh = req.nextUrl.searchParams.get("fresh") === "1";
+  const preview = req.nextUrl.searchParams.get("preview") === "1";
+  const explicitDownload = req.nextUrl.searchParams.get("download") === "1";
   let bytes: Buffer;
   const packet = await packetFreshnessForIntake(intake.id);
-  if (!fresh) {
-    if (packet.state !== "current" || !packet.filePath || !fileExists(packet.filePath)) {
-      return NextResponse.json({
-        code: "PACKET_NOT_CURRENT",
-        error: packet.state === "stale"
-          ? "The saved packet is outdated. Resolve readiness blockers and generate a new version."
-          : "Generate the completed packet before downloading the final version.",
-      }, { status: 409 });
-    }
+  let documentState: "DRAFT_PREVIEW" | "CURRENT_FINAL";
+  if (!fresh && packet.state === "current" && packet.filePath && fileExists(packet.filePath)) {
     bytes = readFile(packet.filePath);
-  } else {
+    documentState = "CURRENT_FINAL";
+  } else if (fresh || preview) {
     const answers = await loadAnswers(intake.id);
     const result = await fillPacket({
       answers,
@@ -59,14 +55,27 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       fields: packetTemplate.fields,
     });
     bytes = Buffer.from(result.pdfBytes);
+    documentState = "DRAFT_PREVIEW";
+  } else {
+      return NextResponse.json({
+        code: "PACKET_NOT_CURRENT",
+        error: packet.state === "stale"
+          ? "The saved packet is outdated. Resolve readiness blockers and generate a new version."
+          : "Generate the completed packet before downloading the final version.",
+      }, { status: 409 });
   }
-  await audit("pdf_downloaded", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
+  await audit(explicitDownload ? "pdf_downloaded" : "pdf_previewed", {
+    providerId: provider!.id,
+    intakeId: intake.id,
+    userId: user!.id,
+    detail: documentState,
+  });
   const name = `${fileSafe(provider!.name)}-Intake-${fileSafe(intake.client.fullName)}.pdf`;
   return new NextResponse(bytes as unknown as BodyInit, {
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${name}"`,
-      "X-Smart-Intake-Document-State": fresh ? "DRAFT_PREVIEW" : "CURRENT_FINAL",
+      "X-Smart-Intake-Document-State": documentState,
     },
   });
 }

@@ -15,7 +15,8 @@ export async function requireStaff(opts?: { providerId?: string | null; write?: 
   if (!user) {
     return { user: null, deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }) };
   }
-  const selectedProviderId = opts?.providerId?.trim() || cookies().get(SELECTED_PROVIDER_COOKIE)?.value;
+  const requestedProviderId = opts?.providerId?.trim() || "";
+  const selectedProviderId = requestedProviderId || cookies().get(SELECTED_PROVIDER_COOKIE)?.value;
 
   // Master users can work across providers; the selected cookie scopes their
   // intake routes without granting access to an inactive or unknown provider.
@@ -28,7 +29,7 @@ export async function requireStaff(opts?: { providerId?: string | null; write?: 
     }
   }
 
-  const membership = await prisma.userMembership.findFirst({
+  let membership = await prisma.userMembership.findFirst({
     where: {
       userId: user.id,
       active: true,
@@ -38,6 +39,21 @@ export async function requireStaff(opts?: { providerId?: string | null; write?: 
     include: { provider: true },
     orderBy: { createdAt: "asc" },
   });
+  // A provider can be removed, deactivated, or recreated while a browser still
+  // holds its old selected-provider cookie. Do not strand a valid staff user on
+  // a permanent 403 in that case. An explicit providerId remains strict; only
+  // a stale cookie falls back to the user's first active membership.
+  if (!membership && selectedProviderId && !requestedProviderId) {
+    membership = await prisma.userMembership.findFirst({
+      where: {
+        userId: user.id,
+        active: true,
+        provider: { status: "ACTIVE" },
+      },
+      include: { provider: true },
+      orderBy: { createdAt: "asc" },
+    });
+  }
   if (!membership) {
     return {
       user,

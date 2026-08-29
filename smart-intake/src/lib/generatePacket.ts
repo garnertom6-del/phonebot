@@ -7,7 +7,11 @@ import { appendCertificatePage } from "@/lib/certificate";
 import { questionByKey } from "@/config/mooreDivineQuestions";
 import { requireProviderPacketForCompletion } from "@/lib/providerPacketTemplates";
 import { brandText } from "@/lib/providerBranding";
-import { buildSignatureStatuses, mappedSignatureSlotsFromFields } from "@/lib/signatureStatus";
+import {
+  buildSignatureStatuses,
+  mappedSignatureSlotsFromFields,
+  requiredSignatureSlotsFromFields,
+} from "@/lib/signatureStatus";
 import { extractPdfText } from "@/lib/pdfText";
 
 export class PacketIdentityMismatchError extends Error {
@@ -110,6 +114,7 @@ export async function generatePacketForIntake(
     client: intake.client,
     currentContentRevision: intake.contentRevision,
     mappedSlots: mappedSignatureSlotsFromFields(packetTemplate.fields),
+    requiredSlots: requiredSignatureSlotsFromFields(packetTemplate.fields),
   });
   const signatureFieldKeys = new Set(
     packetTemplate.fields
@@ -133,7 +138,7 @@ export async function generatePacketForIntake(
     providerId: intake.providerId || undefined,
     intakeId: intake.id,
     userId,
-    detail: `${signatureAudit.captured} captured, ${signatureAudit.missing} role(s) missing, ${signatureAudit.skippedSignatureSlots} PDF signature slot(s) blank`,
+    detail: `${signatureAudit.captured} captured, ${signatureAudit.missing} required role(s) missing, ${signatureAudit.skippedSignatureSlots} optional or inapplicable PDF signature line(s) left blank`,
   });
   assertRenderedPacketText(
     await extractPdfText(result.pdfBytes),
@@ -156,7 +161,9 @@ export async function generatePacketForIntake(
       signedDate: s.signedDate,
       dobVerified: s.dobVerified,
       ip: s.ip,
-      createdAt: s.createdAt,
+      // Signature rows are replaced in place on re-sign. updatedAt is the
+      // current capture time; createdAt belongs to the superseded signature.
+      capturedAt: s.updatedAt,
     })),
     signatureStatuses,
     consentLabels,

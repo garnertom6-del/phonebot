@@ -19,6 +19,10 @@ function IntakeInner({ token }: { token: string }) {
     provider?: { name?: string | null; phone?: string | null } | null;
   }>({ message: "" });
   const [data, setData] = useState<{ clientName: string; status: string; quick?: boolean;
+    ccaAttestationReady?: boolean;
+    resumeVersion?: string;
+    resignMode?: "assessment" | "record" | null;
+    reviewQuestionKeys?: string[];
     provider?: { name?: string | null; phone?: string | null };
     answers: Record<string, string | boolean | number | string[]>;
     signatures: Record<string, { printedName: string }> } | null>(null);
@@ -92,12 +96,20 @@ function IntakeInner({ token }: { token: string }) {
           providerName={data.provider?.name || undefined}
           providerPhone={data.provider?.phone || undefined}
           initialAnswers={data.answers} initialStatus={data.status}
+          ccaAttestationReady={!!data.ccaAttestationReady}
+          progressVersion={data.resumeVersion || "initial"}
+          resignMode={data.resignMode || null}
+          reviewQuestionKeys={data.reviewQuestionKeys || []}
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ) : (
         <EasyQuestionnaire token={token} clientName={data.clientName}
           providerName={data.provider?.name || undefined}
           providerPhone={data.provider?.phone || undefined}
           initialAnswers={data.answers} initialStatus={data.status} quick={!!data.quick}
+          ccaAttestationReady={!!data.ccaAttestationReady}
+          progressVersion={data.resumeVersion || "initial"}
+          resignMode={data.resignMode || null}
+          reviewQuestionKeys={data.reviewQuestionKeys || []}
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ))}
     </>

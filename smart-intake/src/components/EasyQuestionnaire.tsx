@@ -34,22 +34,33 @@ const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?:
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
-function flattenVisible(answers: Answers, prefilledAnswers: Answers, quick: boolean, providerName?: string): FlatQ[] {
+function flattenVisible(
+  answers: Answers,
+  prefilledAnswers: Answers,
+  quick: boolean,
+  ccaAttestationReady: boolean,
+  assessmentResign: boolean,
+  recordReviewKeys: Set<string>,
+  providerName?: string,
+): FlatQ[] {
   const catalogId = questionCatalogId(providerName);
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
-    if (quick && s.key === "insurance") continue;
+    if (quick && s.key === "insurance" && !s.questions.some((q) => recordReviewKeys.has(q.key))) continue;
     for (const q of s.questions) {
+      if (assessmentResign && q.key !== "consent_cca") continue;
+      if (recordReviewKeys.size && !recordReviewKeys.has(q.key)) continue;
       if (!questionVisibleInCatalog(q, catalogId)) continue;
       if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
       // Quick Intake: only the essentials + consents; the clinician's CCA
       // fills the rest after upload by staff.
-      if (quick && !isQuickIntakeQuestion(q)) continue;
+      if (quick && !isQuickIntakeQuestion(q) && !recordReviewKeys.has(q.key)) continue;
       if (quick && q.key === "client_phone_home") continue;
+      if (q.key === "consent_cca" && !ccaAttestationReady) continue;
       if (q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") continue;
       if (!askIfSatisfied(q.askIf, answers)) continue;
-      if (isQuestionPrefilledForClient(q, prefilledAnswers)) continue;
+      if (!recordReviewKeys.has(q.key) && isQuestionPrefilledForClient(q, prefilledAnswers)) continue;
       out.push({ q, sectionKey: s.key, sectionTitle: s.title });
     }
   }
@@ -65,9 +76,10 @@ function isAnswered(v: Answers[string] | undefined): boolean {
 const GATE_KEYS: string[] = [...new Set(
   SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)))];
 
-export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, quick = false }: {
+export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, quick = false, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string; initialAnswers: Answers; initialStatus: string;
-  signed: { client?: boolean; guardian?: boolean }; quick?: boolean;
+  signed: { client?: boolean; guardian?: boolean }; quick?: boolean; ccaAttestationReady?: boolean; progressVersion?: string;
+  resignMode?: "assessment" | "record" | null; reviewQuestionKeys?: string[];
 }) {
   const branding = { name: providerName, phone: supportPhone };
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
@@ -84,11 +96,20 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const [submitError, setSubmitError] = useState("");
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
   const [hasSignature, setHasSignature] = useState(!!(signed.client || signed.guardian));
+  const isResign = initialStatus === "NEEDS_REVIEW" && !!resignMode;
+  const isAssessmentResign = isResign && resignMode === "assessment" && ccaAttestationReady;
+  const recordReviewKeys = useMemo(
+    () => new Set(isResign && resignMode === "record" ? reviewQuestionKeys : []),
+    [isResign, resignMode, reviewQuestionKeys],
+  );
 
   const gateFingerprint = JSON.stringify(GATE_KEYS.map((k) => answers[k]));
   const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const flat = useMemo(() => flattenVisible(answers, prefilledRef.current, quick, providerName), [gateFingerprint, quick, providerName]);
+  const flat = useMemo(
+    () => flattenVisible(answers, prefilledRef.current, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName),
+    [gateFingerprint, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName],
+  );
 
   // Refs so timers (auto-advance) always see the latest state.
   const answersRef = useRef(answers); answersRef.current = answers;
@@ -100,7 +121,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   // what the server already has - autosaves send only the diff, not all 200+ answers
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
 
-  const progressKey = `smart-intake-progress:${token}`;
+  const progressKey = `smart-intake-progress:v2:${token}:${progressVersion}:${resignMode || "initial"}:${reviewQuestionKeys.join(",")}`;
 
   // Camera apps can briefly unload the browser tab on some phones. Store only
   // the current screen and question number so the client can resume safely.
@@ -201,7 +222,11 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     const nextIdx = i + 1;
     setJustPicked(null);
     setNudge("");
-    if (nextIdx >= list.length) { void saveNow("completed"); setPhase("photos"); return; }
+    if (nextIdx >= list.length) {
+      void saveNow("completed");
+      setPhase(isResign ? "signature" : "photos");
+      return;
+    }
     const here = list[i];
     const next = list[nextIdx];
     setIdx(nextIdx);
@@ -216,7 +241,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       setPhase("question");
     }
     window.scrollTo(0, 0);
-  }, [branding, saveNow]);
+  }, [branding, isResign, saveNow]);
 
   const goBack = useCallback(() => {
     setJustPicked(null);
@@ -273,8 +298,8 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   // Safety net: if there is somehow nothing left to ask, go to signing.
   useEffect(() => {
-    if (phase === "question" && flat.length === 0) setPhase("photos");
-  }, [phase, flat.length]);
+    if (phase === "question" && flat.length === 0) setPhase(isResign ? "signature" : "photos");
+  }, [phase, flat.length, isResign]);
 
   /* --------------------------- submit / sign -------------------------- */
 
@@ -285,13 +310,24 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   async function captureSignature(d: { imageData: string; printedName: string; relationship?: string; signedDate: string; dobCheck?: string }) {
     setSubmitError("");
+    if (isResign) {
+      if (saveTimer.current) clearTimeout(saveTimer.current);
+      const saved = await saveNow();
+      if (!saved) {
+        setSubmitError("We could not save your review. Check your connection and try again.");
+        return;
+      }
+    }
     const relationship = d.relationship || (signRole === "guardian" ? "guardian" : "client");
     const res = await fetch(`/api/intake/${token}/signature`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ role: signRole, ...d, relationship }),
     });
-    if (res.ok) setHasSignature(true);
+    if (res.ok) {
+      setHasSignature(true);
+      if (isResign) setPhase("done");
+    }
     else setSubmitError((await res.json()).error || "The signature did not save. Please try again.");
   }
 
@@ -337,7 +373,11 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
           <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
           <h2 className="mt-4 text-3xl font-bold text-brand">You did it!</h2>
           <p className="mt-4 text-xl text-slate-600">
-          {providerDisplayName(providerName)} got your answers. We will call you soon.
+          {isAssessmentResign
+            ? "Your updated acknowledgment and signature were saved. Your provider can continue the review."
+            : isResign
+              ? "Your review and updated signature were saved. Your provider can continue the packet."
+            : `${providerDisplayName(providerName)} got your answers. We will call you soon.`}
           </p>
         <p className="mt-6 text-base text-slate-400">Questions? Call {providerPhone(supportPhone, providerName)}.</p>
         </div>
@@ -352,16 +392,30 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         </p>
         <h2 className="mt-4 text-3xl font-bold text-brand">Hi {firstName}!</h2>
         <p className="mt-5 text-xl leading-relaxed text-slate-700">
-          {intakeProcessExplanation(providerName)}
+          {isAssessmentResign
+            ? "Your provider added the clinician's assessment. Review the assessment acknowledgment and sign again so your signature matches the current record. Your saved intake answers are still here."
+            : isResign
+              ? "Your provider corrected information in your intake. Review the updated item below, then sign again so your signature matches the current record."
+            : intakeProcessExplanation(providerName)}
         </p>
         <p className="mt-3 text-lg leading-relaxed text-slate-500">
-          You can speak or tap to answer. Your answers save as you go.
+          {isAssessmentResign
+            ? "You will only see the new item that needs your attention."
+            : isResign
+              ? recordReviewKeys.size
+                ? "You will only see the client information that changed."
+                : "Your provider will review the staff-only update with you. You only need to sign again."
+            : "You can speak or tap to answer. Your answers save as you go."}
         </p>
         <button type="button" className="btn-primary mt-6 min-h-[72px] w-full text-2xl"
           onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
-          Start my intake
+          {isAssessmentResign ? "Review assessment & sign" : isResign ? "Review updates & sign" : "Start my intake"}
         </button>
-        <p className="mt-2 text-sm font-semibold text-slate-500">Tap Start. You can leave and return with this same private link.</p>
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          {isResign
+            ? "You can leave and return with this same private link until you finish."
+            : "Tap Start. You can leave and return with this same private link."}
+        </p>
         <p className="mt-3 rounded-xl bg-brand-light p-4 text-base leading-relaxed text-brand">
           Some answers may already be filled in by your care team. You will only see the questions that still need an answer.
           Consent and your signature are always completed by you.
@@ -600,20 +654,26 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   /* ---- radio / yesno / survey: big tap buttons, auto-advance ---- */
   if (q.type === "radio" || q.type === "yesno" || q.type === "survey") {
     const options = q.options && q.options.length ? q.options : SURVEY_OPTIONS;
+    if (options.length > 6) {
+      return (
+        <div className="space-y-3">
+          <p className="text-base text-slate-500">Pick one answer from the list.</p>
+          <select
+            aria-label={easyQ(q, providerName, supportPhone)}
+            className="input min-h-[56px] text-lg"
+            value={String(value ?? "")}
+            onChange={(e) => { if (e.target.value) pickAndAdvance(q.key, e.target.value, e.target.value); }}
+          >
+            <option value="">Choose one...</option>
+            {options.map((opt) => (
+              <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
+            ))}
+          </select>
+        </div>
+      );
+    }
     return (
       <div className="space-y-3">
-        {options.length > 6 && (
-          <div className="mb-4">
-            <p className="mb-2 text-base text-slate-500">Tap your answer below, or pick from this list:</p>
-            <select className="input min-h-[56px] text-lg" value={String(value ?? "")}
-              onChange={(e) => { if (e.target.value) pickAndAdvance(q.key, e.target.value, e.target.value); }}>
-              <option value="">Choose one...</option>
-              {options.map((opt) => (
-                  <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
-              ))}
-            </select>
-          </div>
-        )}
         {options.map((opt) => {
           const on = value === opt || justPicked === opt;
           return (

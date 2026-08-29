@@ -52,11 +52,13 @@ export function buildCasePageStatus(input: {
   providerPacketReady: boolean;
   copiesSent: boolean;
   reviewed: boolean;
+  preflightReady?: boolean;
   providerPacketMessage?: string;
 }): CasePageStatus {
   const missingSignatures = missingRequiredSignatures(input.signatureStatuses);
   const signaturesDone = missingSignatures.length === 0;
   const ccaDone = !input.expectCca || input.hasCca;
+  const preflightReady = input.preflightReady ?? true;
   const packetGenerated = input.generatedPdfCount > 0 && ccaDone;
   const sendCopiesAllowed = (
     ["SIGNED", "COMPLETED"].includes(input.status)
@@ -75,6 +77,7 @@ export function buildCasePageStatus(input: {
     },
     { key: "cca", label: "Add CCA", done: input.hasCca, skipped: !input.expectCca },
     { key: "review", label: "Review answers", done: input.reviewed },
+    { key: "preflight", label: "Run preflight", done: preflightReady },
     { key: "signatures", label: "Signatures", done: signaturesDone },
     { key: "generate", label: "Generate packet", done: packetGenerated },
     { key: "send", label: "Send records", done: input.copiesSent },
@@ -116,10 +119,38 @@ export function buildCasePageStatus(input: {
       steps,
     };
   }
-  if (!signaturesDone) {
+  const missingClientSignature = missingSignatures.some((status) => status.key === "client_guardian");
+  if (missingClientSignature) {
     return {
       headline: signatureHeadline(missingSignatures),
       detail: "Send copies stays blocked until the required signature roles for this packet are captured.",
+      tone: "warn",
+      sendCopiesAllowed: false,
+      steps,
+    };
+  }
+  if (!input.reviewed) {
+    return {
+      headline: "Review the latest answers",
+      detail: "Save staff review after the latest packet-content change.",
+      tone: "warn",
+      sendCopiesAllowed: false,
+      steps,
+    };
+  }
+  if (!preflightReady) {
+    return {
+      headline: "Run preflight review",
+      detail: "Resolve or document the latest preflight findings before the QP signs.",
+      tone: "warn",
+      sendCopiesAllowed: false,
+      steps,
+    };
+  }
+  if (!signaturesDone) {
+    return {
+      headline: signatureHeadline(missingSignatures),
+      detail: "Staff review and preflight are complete. Capture the remaining required signature roles.",
       tone: "warn",
       sendCopiesAllowed: false,
       steps,

@@ -27,6 +27,7 @@ export type SignatureStatusContext = {
   currentContentRevision?: number;
   latestMaterialUpdatedAt?: Date | string | null;
   mappedSlots?: SignatureSlotKey[];
+  requiredSlots?: SignatureSlotKey[];
 };
 
 const ALWAYS_ON_PACKET: SignatureSlotKey[] = ["client_guardian", "staff_qp"];
@@ -103,6 +104,17 @@ export function mappedSignatureSlotsFromFields(
   return [...slots];
 }
 
+/**
+ * Signature slots explicitly marked required by the reviewed packet map.
+ * A blank line appearing on a form does not by itself make that signer
+ * applicable to every client (for example, Medical Director or Witness).
+ */
+export function requiredSignatureSlotsFromFields(
+  fields: Array<{ type?: string | null; role?: string | null; required?: boolean | null }>,
+): SignatureSlotKey[] {
+  return mappedSignatureSlotsFromFields(fields.filter((field) => field.required === true));
+}
+
 export function requiredSignatureStatuses(statuses: SignatureStatus[]): SignatureStatus[] {
   return statuses.filter((status) => status.required);
 }
@@ -121,8 +133,18 @@ export function buildSignatureStatuses(
   context?: SignatureStatusContext,
 ): SignatureStatus[] {
   const mappedSlots = context?.mappedSlots;
+  const requiredSlots = context?.requiredSlots;
   const witnessOnPacket = slotOnPacket("witness", mappedSlots);
   const medicalOnPacket = slotOnPacket("medical_director", mappedSlots);
+  // Keep the old mapped-slot behavior for callers that have not supplied a
+  // reviewed required-slot profile. Packet-aware callers pass requiredSlots,
+  // including an empty array when all special-role lines are optional.
+  const witnessRequired = requiredSlots
+    ? requiredSlots.includes("witness")
+    : witnessOnPacket && !!mappedSlots?.includes("witness");
+  const medicalRequired = requiredSlots
+    ? requiredSlots.includes("medical_director")
+    : medicalOnPacket && !!mappedSlots?.includes("medical_director");
   return [
     capturedStatus(
       "client_guardian",
@@ -145,22 +167,26 @@ export function buildSignatureStatuses(
     capturedStatus(
       "witness",
       "Witness",
-      witnessOnPacket && !!mappedSlots?.includes("witness"),
+      witnessRequired,
       witnessOnPacket,
       bestSignature(signatures, ["witness"], context),
       mappedSlots?.includes("witness")
-        ? "This packet has a witness signature line. Staff adds it on the review screen."
+        ? witnessRequired
+          ? "This packet requires a witness signature. Staff adds it on the review screen."
+          : "This packet includes an optional witness line; add it only when applicable."
         : "Not on this packet; add only if the form calls for a witness.",
       context,
     ),
     capturedStatus(
       "medical_director",
       "Medical Director",
-      medicalOnPacket && !!mappedSlots?.includes("medical_director"),
+      medicalRequired,
       medicalOnPacket,
       bestSignature(signatures, ["medicalDirector"], context),
       mappedSlots?.includes("medical_director")
-        ? "This packet has a Medical Director signature line. Staff adds it on the review screen."
+        ? medicalRequired
+          ? "This packet requires a Medical Director signature. Staff adds it on the review screen."
+          : "This packet includes an optional Medical Director line; add it only when applicable."
         : "Not on this packet; add only if the clinical form requires it.",
       context,
     ),

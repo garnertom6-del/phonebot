@@ -18,6 +18,7 @@ import {
   clientSubmissionFinished,
   lockOpenClientIntake,
 } from "@/lib/clientSubmissionState";
+import { clientCcaAttestationReady } from "@/lib/ccaReview";
 
 const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store, max-age=0" };
 
@@ -35,7 +36,13 @@ async function findByToken(token: string) {
     include: {
       client: true,
       provider: true,
-      signatures: { select: { role: true, invalidatedAt: true } },
+      signatures: { select: { role: true, invalidatedAt: true, invalidatedReason: true } },
+      uploadedDocuments: {
+        where: { docType: "CCA" },
+        orderBy: { createdAt: "desc" },
+        take: 1,
+        select: { reviewJson: true },
+      },
     },
   });
   if (!intake) {
@@ -106,6 +113,30 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
     intakeId: intake.id, ip: req.headers.get("x-forwarded-for") ?? undefined,
   });
   const sections = await prisma.intakeSection.findMany({ where: { intakeId: intake.id } });
+  const latestInvalidatedClientSignature = intake.signatures
+    .filter((signature) => ["client", "guardian"].includes(signature.role) && signature.invalidatedAt)
+    .sort((a, b) => (b.invalidatedAt?.getTime() || 0) - (a.invalidatedAt?.getTime() || 0))[0];
+  const resumeVersion = intake.signatures
+    .map((signature) => signature.invalidatedAt)
+    .filter((value): value is Date => value instanceof Date)
+    .sort((a, b) => b.getTime() - a.getTime())[0]
+    ?.toISOString() || "initial";
+  const resignMode = intake.status === "NEEDS_REVIEW" && latestInvalidatedClientSignature
+    ? /\bCCA\b|clinician assessment/i.test(latestInvalidatedClientSignature.invalidatedReason || "")
+      ? "assessment"
+      : "record"
+    : null;
+  const reviewQuestionKeys = resignMode === "record" && latestInvalidatedClientSignature?.invalidatedAt
+    ? (await prisma.intakeAnswer.findMany({
+        where: {
+          intakeId: intake.id,
+          // Answer writes and invalidation happen in the same transaction.
+          // Include later edits made while the signature remains invalid.
+          updatedAt: { gte: new Date(latestInvalidatedClientSignature.invalidatedAt.getTime() - 5_000) },
+        },
+        select: { key: true },
+      })).map((row) => row.key).filter((key) => CLIENT_ANSWER_KEYS.has(key))
+    : [];
   return NextResponse.json(
     {
       clientName: intake.client.fullName,
@@ -115,6 +146,10 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
       },
       status: intake.status,
       quick: intake.expectCca,
+      ccaAttestationReady: clientCcaAttestationReady(intake.uploadedDocuments[0]?.reviewJson),
+      resumeVersion,
+      resignMode,
+      reviewQuestionKeys,
       answers,
       sectionStatus: Object.fromEntries(sections.map((s) => [s.sectionKey, s.status])),
       signatures: Object.fromEntries(Object.entries(sigs).map(([r, s]) => [r, { printedName: s.printedName, signedDate: s.signedDate }])),
@@ -218,7 +253,9 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         (signature.role === "client" || signature.role === "guardian")
         && !signature.invalidatedAt
       ));
-      const missing = missingRequired(answers, hasSignature, intake.provider);
+      const missing = missingRequired(answers, hasSignature, intake.provider, {
+        skipClinicalAssessmentAttestation: !clientCcaAttestationReady(intake.uploadedDocuments[0]?.reviewJson),
+      });
       if (missing.length) throw new MissingSubmitFieldsError(missing);
       // Final submission persists operational defaults but must not invalidate
       // the signature captured for this same submitted snapshot.

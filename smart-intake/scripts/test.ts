@@ -18,7 +18,9 @@ import { NextRequest } from "next/server";
 import { fillPacket, loadTemplateBytes, resolveValue } from "../src/lib/fillPdf";
 import {
   packetFieldsForTemplate,
+  isMooreDivinePacket,
   isValidProviderPacketMappingScore,
+  MOORE_DIVINE_PACKET_SHA256,
   ProviderPacketNotReadyError,
   providerPacketReadiness,
   providerPacketReadinessFromTemplates,
@@ -61,6 +63,7 @@ import { buildSignatureStatuses, mappedSignatureSlotsFromFields, missingRequired
 import { buildCasePageStatus } from "../src/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
 import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
+import { clientCcaAttestationReady } from "../src/lib/ccaReview";
 import { acceptableOverrideReason } from "../src/lib/overrideReason";
 import {
   clientLinkExpired,
@@ -281,6 +284,20 @@ async function main() {
       sha256: "different-layout",
     }),
     [],
+  );
+  const exactMooreIdentity = {
+    name: "Moore Divine Care Client Intake Package",
+    originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+    pageCount: 43,
+    providerSpecific: true,
+    sha256: MOORE_DIVINE_PACKET_SHA256,
+  };
+  assert.equal(isMooreDivinePacket(exactMooreIdentity), true);
+  assert(packetFieldsForTemplate(exactMooreIdentity).length > 100, "the exact approved source must receive its reviewed map");
+  assert.deepEqual(
+    packetFieldsForTemplate({ ...exactMooreIdentity, sha256: "different-layout" }),
+    [],
+    "a renamed or changed 43-page file must not inherit Moore Divine coordinates",
   );
   assert.deepEqual(
     packetFieldsForTemplate({
@@ -661,6 +678,30 @@ async function main() {
   assert.equal(readyIntakeReadiness.ready, true);
   assert.equal(readyIntakeReadiness.title, "Ready to create the secure link");
   ok("create-intake readiness requires identity and contact, not Record#");
+  const validCcaReview = JSON.stringify({
+    sourceClinician: "Test Clinician",
+    assessmentDate: "2026-08-28",
+    prescriptionMedications: [],
+    otcMedications: [],
+    majorErrors: [],
+    warnings: [],
+  });
+  assert.equal(clientCcaAttestationReady(null), false);
+  assert.equal(clientCcaAttestationReady(JSON.stringify({
+    ...JSON.parse(validCcaReview),
+    assessmentDate: "",
+  })), false, "an assessment date is required before client attestation");
+  assert.equal(clientCcaAttestationReady(JSON.stringify({
+    ...JSON.parse(validCcaReview),
+    majorErrors: ["Assessment identity conflict"],
+  })), false, "major CCA accuracy errors block client attestation");
+  assert.equal(clientCcaAttestationReady(validCcaReview), true);
+  const missingWithNoCca = missingRequired({}, true, null, {
+    skipClinicalAssessmentAttestation: true,
+  });
+  assert.equal(missingWithNoCca.some((item) => item.key === "consent_cca"), false);
+  assert.equal(missingRequired({}, true).some((item) => item.key === "consent_cca"), true);
+  ok("CCA client attestation waits for a dated, clinician-identified, major-error-free source");
   assert.equal(
     newIntakeSchema.safeParse({
       fullName: "No Contact",
@@ -1063,6 +1104,14 @@ async function main() {
     ]),
     ["witness", "medical_director"],
   );
+  const optionalMappedClinicalRoles = buildSignatureStatuses([], {
+    mappedSlots: ["client_guardian", "staff_qp", "witness", "medical_director"],
+    requiredSlots: [],
+  });
+  assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "witness")?.onPacket, true);
+  assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "witness")?.required, false);
+  assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "medical_director")?.onPacket, true);
+  assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "medical_director")?.required, false);
 
   const checklist = buildPacketChecklistChips({
     answers: { staff_chk_social_history: "Yes", medications: "None reported", consent_hipaa: true },

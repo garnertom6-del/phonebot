@@ -276,7 +276,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     const focusKey = query.get("focus");
     setNote(returningToPreflight
       ? "Saved. Your preflight checklist is still open; correct the next item and rerun the review when you are ready."
-      : "Staff signature and changes saved successfully. Next step: review the intake/preflight findings, then generate the packet.");
+      : "Staff review and changes saved successfully. Next step: review the intake/preflight findings, then generate the packet.");
     window.history.replaceState({}, "", window.location.pathname);
     if (returningToPreflight) {
       if (focusKey) {
@@ -327,9 +327,16 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const expectCca = i.expectCca !== false;
   const ccaNeeded = expectCca && !hasCca;
   const ccaReview = latestCca?.ccaReview || null;
-  const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
+  const hasClientSignature = d.signatureStatuses.some((status) => (
+    status.key === "client_guardian" && status.state === "captured"
+  ));
   const copiesSent = i.auditLogs.some((entry) => entry.event === "copies_link_sent");
-  const reviewed = i.auditLogs.some((entry) => entry.event === "staff_reviewed");
+  const hasRecordedStaffReview = i.auditLogs.some((entry) => entry.event === "staff_reviewed");
+  const reviewed = hasRecordedStaffReview
+    && !generationBlockers.some((blocker) => blocker.code === "staff_review_required");
+  const preflightReady = !generationBlockers.some((blocker) => (
+    blocker.code === "preflight_required" || blocker.code === "preflight_finding"
+  ));
   const missingAnswerCount = d.missingRequired.filter((field) => field.key !== "signature").length;
   const caseStatus = buildCasePageStatus({
     status: i.status,
@@ -341,6 +348,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     providerPacketReady: packetReady,
     copiesSent,
     reviewed,
+    preflightReady,
     providerPacketMessage: d.providerPacketReadiness.message,
   });
   const packetChecklist = buildPacketChecklistChips({
@@ -1068,21 +1076,24 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       )}
       {lastSignatureAudit && (
         <div className={`mt-3 rounded-xl border p-4 ${
-          lastSignatureAudit.missing || lastSignatureAudit.skippedSignatureSlots
+          lastSignatureAudit.missing
             ? "border-amber-300 bg-amber-50 text-amber-900"
             : "border-emerald-300 bg-emerald-50 text-emerald-900"
         }`} role="status">
           <h2 className="font-bold">Signature audit from the generated packet</h2>
           <p className="mt-1 text-sm">
-            {lastSignatureAudit.captured} signature role{lastSignatureAudit.captured === 1 ? "" : "s"} captured, {lastSignatureAudit.missing} missing, and {lastSignatureAudit.skippedSignatureSlots} PDF signature slot{lastSignatureAudit.skippedSignatureSlots === 1 ? "" : "s"} left blank.
+            {lastSignatureAudit.captured} signature role{lastSignatureAudit.captured === 1 ? "" : "s"} captured and {lastSignatureAudit.missing} required role{lastSignatureAudit.missing === 1 ? " is" : "s are"} missing.
           </p>
+          {lastSignatureAudit.skippedSignatureSlots > 0 && (
+            <p className="mt-1 text-sm">{lastSignatureAudit.skippedSignatureSlots} optional or inapplicable PDF signature line{lastSignatureAudit.skippedSignatureSlots === 1 ? " was" : "s were"} intentionally left blank by the consent and signer-role rules.</p>
+          )}
           {lastSignatureAudit.missingLabels.length > 0 && (
             <p className="mt-1 text-sm">Missing roles: {lastSignatureAudit.missingLabels.join(", ")}.</p>
           )}
           {lastSignatureAudit.missingLabels.includes("Client / guardian") && (
             <p className="mt-1 text-sm font-semibold">Client / guardian signatures are completed through the secure SMS intake, not the staff signature screen.</p>
           )}
-          {(lastSignatureAudit.missing || lastSignatureAudit.skippedSignatureSlots) > 0 && (
+          {lastSignatureAudit.missing > 0 && (
             <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-primary mt-3 inline-block px-3 py-2 text-sm">
               Add / rerun missing signatures
             </Link>
@@ -1157,7 +1168,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 disabled={signatureReminderBusy || clientLinkBusy || hasClientSignature || !hasClientContact}
                 onClick={sendSignatureReminder}
               >
-                {hasClientSignature ? "Client signature saved" : signatureReminderBusy ? "Sending signature reminder..." : "Send signature-only reminder"}
+                {hasClientSignature ? "Client signature saved" : signatureReminderBusy ? "Sending review reminder..." : "Send client review & signature reminder"}
               </button>
             </div>
           )}
@@ -1566,7 +1577,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   )}
                 </div>
               ))}
-              <p className="text-xs text-slate-500">The checklist stays open while you correct several items. Run preflight again when you are ready to verify the saved changes.</p>
+              {preflightBlockingCount > 0 && (
+                <p className="text-xs text-slate-500">The checklist stays open while you correct items. Run preflight again when you are ready to verify the saved changes.</p>
+              )}
             </div>
           )}
         </div>
