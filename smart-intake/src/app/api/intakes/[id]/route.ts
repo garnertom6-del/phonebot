@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
-import { requireStaff, requireWritableStaff } from "@/lib/staffGuard";
+import { attachSelectedProviderCookie, requireStaffForIntake, requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers, saveAnswersInTransaction, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
@@ -19,7 +19,7 @@ import { generationReadinessForIntake } from "@/lib/generationReadiness";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { provider, deny } = await requireStaff();
+  const { provider, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
@@ -105,7 +105,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     createdAt: followUp.createdAt,
   }));
   const packetReadiness = await providerPacketReadiness(provider!.id);
-  return NextResponse.json({
+  const payload = NextResponse.json({
     intake: { ...intake, uploadedDocuments, followUps },
     answers,
     clientLink: `${base}/intake/${intake.token}`,
@@ -119,10 +119,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     planCompleteness: generationReadiness?.planCompleteness || null,
     providerPacketReadiness: packetReadiness,
   });
+  return attachSelectedProviderCookie(payload, provider!.id);
 }
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const body = await req.json();
   const intake = await prisma.intake.findFirst({

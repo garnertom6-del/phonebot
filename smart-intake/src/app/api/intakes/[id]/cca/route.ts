@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { ccaConfigured, extractFromCca, mergeCcaAnswers } from "@/lib/ccaExtract";
-import { loadAnswers, markIntakeContentChanged, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { ccaConfigured, extractFromCca } from "@/lib/ccaExtract";
 import { saveFile } from "@/lib/storage";
-import { questionByKey } from "@/lib/validation";
-import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApply";
 
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   if (!ccaConfigured()) {
     return NextResponse.json(
@@ -28,6 +26,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const form = await req.formData();
   const file = form.get("file") as File | null;
   const overwrite = form.get("overwrite") === "true";
+  const confirmInvalidateSignatures = form.get("confirmInvalidateSignatures") === "true";
   if (!file) return NextResponse.json({ error: "No file uploaded" }, { status: 400 });
   if (file.size > 30 * 1024 * 1024) return NextResponse.json({ error: "File too large (30MB max)" }, { status: 400 });
   const mime = file.type || "application/pdf";
@@ -42,7 +41,34 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "CCA reading failed" }, { status: 502 });
   }
-  // Keep a copy only after the reader succeeds, so failed imports do not look completed.
+
+  let applied;
+  try {
+    applied = await applyCcaAnswers({
+      intakeId: intake.id,
+      clientId: intake.clientId,
+      currentMid: intake.client.midNumber,
+      currentRecord: intake.client.recordNumber,
+      currentPhone: intake.client.phone,
+      currentEmail: intake.client.email,
+      extracted: extraction.extracted,
+      overwrite,
+      confirmInvalidateSignatures,
+    });
+  } catch (error) {
+    if (error instanceof CcaSignaturesWouldInvalidateError) {
+      return NextResponse.json({
+        code: error.code,
+        error: error.message,
+        signatureCount: error.signatureCount,
+        changedCount: error.changedCount,
+      }, { status: 409 });
+    }
+    throw error;
+  }
+
+  // Keep a copy only after answers are applied, so a cancelled signature
+  // warning does not mark the CCA complete.
   const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
   const rel = `uploads/${intake.id}/cca-${Date.now()}-${safeName}`;
   saveFile(rel, buffer);
@@ -57,36 +83,6 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     },
   });
 
-  const current = await loadAnswers(intake.id);
-  const { merged, filled, skipped } = mergeCcaAnswers(current, extraction.extracted, overwrite);
-  const withDefaults = applyOperationalDefaults({ ...current, ...merged });
-  // the CCA states when the assessment really happened - that date beats the
-  // "assume today" default even though the default was saved first
-  const ccaDate = extraction.extracted.cca_assessment_date;
-  if (typeof ccaDate === "string" && ccaDate.trim()) {
-    for (const k of ["assess_date", "initial_assessment_date"]) {
-      withDefaults[k] = ccaDate;
-      if (!filled.includes(k)) filled.push(k);
-    }
-  }
-  let ccaContentVersioned = false;
-  if (filled.length) {
-    const saved = await saveAnswers(intake.id, withDefaults);
-    ccaContentVersioned = saved.changedKeys.length > 0;
-    await syncStructuredRows(intake.id, await loadAnswers(intake.id));
-    await prisma.client.update({
-      where: { id: intake.clientId },
-      data: {
-        midNumber: typeof withDefaults.mid_number === "string" && withDefaults.mid_number.trim() ? withDefaults.mid_number.trim() : intake.client.midNumber,
-        recordNumber: typeof withDefaults.record_number === "string" && withDefaults.record_number.trim() ? withDefaults.record_number.trim() : intake.client.recordNumber,
-        phone: typeof withDefaults.client_phone_cell === "string" && withDefaults.client_phone_cell.trim() ? withDefaults.client_phone_cell.trim() : intake.client.phone,
-        email: typeof withDefaults.client_email === "string" && withDefaults.client_email.trim() ? withDefaults.client_email.trim() : intake.client.email,
-      },
-    });
-  }
-  if (!ccaContentVersioned) {
-    await markIntakeContentChanged(intake.id, "A new CCA source document was added after signature capture.");
-  }
   await prisma.intake.update({
     where: { id: intake.id },
     data: {
@@ -97,16 +93,17 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   await audit("cca_imported", {
     providerId: provider!.id,
     intakeId: intake.id, userId: user!.id,
-    detail: `${filled.length} fields filled from CCA (${skipped.length} kept existing answers)`,
+    detail: `${applied.filled.length} fields filled from CCA (${applied.skipped.length} kept existing answers)`
+      + (applied.signaturesInvalidated ? "; captured signatures marked for re-sign" : ""),
   });
-  const label = (k: string) => questionByKey(k)?.label || k;
   return NextResponse.json({
     ok: true,
-    filled: filled.length,
-    skipped: skipped.length,
+    filled: applied.filled.length,
+    skipped: applied.skipped.length,
     extracted: extraction.fieldCount,
-    filledLabels: filled.map(label).slice(0, 60),
-    skippedLabels: skipped.map(label).slice(0, 30),
+    filledLabels: applied.filledLabels,
+    skippedLabels: applied.skippedLabels,
+    signaturesInvalidated: applied.signaturesInvalidated,
     ccaReview: extraction.review,
   });
 }

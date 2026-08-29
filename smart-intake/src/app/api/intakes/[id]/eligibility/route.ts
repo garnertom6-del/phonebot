@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireStaff, requireWritableStaff } from "@/lib/staffGuard";
+import { requireStaffForIntake, requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, saveAnswers } from "@/lib/intakeData";
 import { applyNcTracksResult } from "@/lib/ncTracksLookup";
@@ -19,7 +19,7 @@ import {
  */
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { provider, deny } = await requireStaff();
+  const { provider, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
@@ -39,7 +39,7 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   if (!nctracksEdiConfigured()) {
     return NextResponse.json(

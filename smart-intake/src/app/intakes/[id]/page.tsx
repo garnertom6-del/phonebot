@@ -25,10 +25,11 @@ import {
   clientDeliveryContactsForRole,
   clientFollowUpDeliveryContacts,
 } from "@/lib/clientDeliveryContacts";
-import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
+import { clientFollowUpQuestions, isBlankFollowUpValue } from "@/lib/clientFollowUp";
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
 import { buildCasePageStatus, type CaseWorkflowStep } from "@/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "@/lib/packetChecklist";
+import { signatureSendHint } from "@/lib/signatureStatus";
 
 type PreflightFinding = {
   key: string;
@@ -205,6 +206,7 @@ const REFERRAL_OPTIONS = REFERRAL_SOURCE_OPTIONS;
 
 export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [d, setD] = useState<Detail | null>(null);
+  const [loadError, setLoadError] = useState<"missing" | "error" | null>(null);
   const [note, setNote] = useState("");
   const [saveAssistBusy, setSaveAssistBusy] = useState(false);
   const [saveAssistMessage, setSaveAssistMessage] = useState("");
@@ -241,16 +243,24 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         window.location.href = "/login";
         return null;
       }
+      if (r.status === 404 || r.status === 403) {
+        setLoadError("missing");
+        setD(null);
+        return null;
+      }
       if (r.ok) {
         const body = await r.json() as Detail;
+        setLoadError(null);
         setD(body);
         if (body.intake.followUps?.[0]?.status === "COMPLETED") setFollowUpResult(null);
         return body;
       } else {
+        setLoadError("error");
         setNote("Could not load this intake. Please refresh or sign in again.");
         return null;
       }
     } catch {
+      setLoadError("error");
       setNote("Could not load this intake. Check your connection and try again.");
       return null;
     }
@@ -301,18 +311,39 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }, [params.id]);
 
-  if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
+  if (loadError === "missing") {
+    return (
+      <main className="mx-auto max-w-lg p-10 text-center">
+        <h1 className="text-2xl font-bold text-slate-900">Intake not found</h1>
+        <p className="mt-2 text-sm text-slate-600">This case does not exist, or your account cannot open it.</p>
+        <Link href="/dashboard" className="btn-primary mt-5 inline-block">Back to dashboard</Link>
+      </main>
+    );
+  }
+  if (!d) {
+    return (
+      <main className="p-10 text-center text-slate-400">
+        {loadError === "error" ? (
+          <div>
+            <p>Could not load this intake.</p>
+            <button className="btn-ghost mt-4" onClick={() => { setLoadError(null); void load(); }}>Try again</button>
+          </div>
+        ) : "Loading..."}
+      </main>
+    );
+  }
   const i = d.intake;
   const packetReady = d.providerPacketReadiness.ready;
   const generationReady = d.generationReadiness?.ready === true;
   const generationBlockers = d.generationReadiness?.blockers || [];
   const finalPacketCurrent = d.packetFreshness?.state === "current";
-  const signatureDeliveryBlockers = generationBlockers.filter((blocker) => {
-    if (["client_signature_missing", "client_signature_invalid", "staff_signature_missing", "staff_signature_invalid"].includes(blocker.code)) return false;
-    if (blocker.code === "required_fields" && blocker.fieldKeys?.every((key) => key === "signature")) return false;
-    return true;
+  const signatureSend = signatureSendHint({
+    packetReady,
+    packetMessage: d.providerPacketReadiness.message,
+    statuses: d.signatureStatuses,
+    docusignEnvelopeId: i.docusignEnvelopeId,
   });
-  const signatureDeliveryReady = packetReady && signatureDeliveryBlockers.length === 0;
+  const capturedSignatureCount = d.signatureStatuses.filter((status) => status.state === "captured").length;
   const firstGenerationBlocker = generationBlockers[0]?.message || "Complete readiness review before generating.";
   const providerName = i.provider?.name || "Moore Divine Care";
   const providerPhone = i.provider?.phone || "";
@@ -414,6 +445,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const latestFollowUpQuestions = latestFollowUp
     ? clientFollowUpQuestions(latestFollowUp.fieldKeys, d.answers, { missingOnly: false })
     : [];
+  const openFollowUpStillBlank = latestFollowUpQuestions.filter((question) => (
+    isBlankFollowUpValue(d.answers[question.key])
+  )).length;
   const latestFollowUpExpired = !!latestFollowUp && Date.parse(latestFollowUp.tokenExpiresAt) <= Date.now();
   const activeFollowUp = !!latestFollowUp
     && latestFollowUp.status === "OPEN"
@@ -459,16 +493,40 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     return `NC Tracks screenshot scanned. Filled ${count} field${count === 1 ? "" : "s"}${labels.length ? `: ${labels.join(", ")}.` : "."}`;
   }
 
-  async function uploadCca(file: File) {
+  async function confirmCcaSignatureRisk(action: string, alreadyConfirmed = false): Promise<boolean> {
+    if (alreadyConfirmed) return true;
+    const captured = capturedSignatureCount;
+    if (!captured) return true;
+    return window.confirm(
+      `This CCA ${action} can change signed answers. ${captured} captured signature${captured === 1 ? "" : "s"} will need to be re-signed if those fields change. Continue?`,
+    );
+  }
+
+  async function uploadCca(file: File, confirmInvalidateSignatures = false) {
+    if (!(await confirmCcaSignatureRisk("apply", confirmInvalidateSignatures))) {
+      setCcaResultKind("info");
+      setCcaResult("CCA apply cancelled. Captured signatures were left in place.");
+      return;
+    }
     setNote("");
     setCcaBusy(true); setCcaResult("Reading the CCA... this can take a minute or two.");
     setCcaResultKind("info");
     const fd = new FormData();
     fd.set("file", file);
     fd.set("overwrite", String(ccaOverwrite));
+    fd.set("confirmInvalidateSignatures", String(confirmInvalidateSignatures));
     const r = await fetch(`/api/intakes/${params.id}/cca`, { method: "POST", body: fd });
     const b = await r.json().catch(() => ({}));
     setCcaBusy(false);
+    if (r.status === 409 && b.code === "SIGNATURES_WOULD_INVALIDATE") {
+      if (window.confirm(b.error || "Applying these CCA answers would require re-signing captured signatures. Continue?")) {
+        await uploadCca(file, true);
+      } else {
+        setCcaResultKind("info");
+        setCcaResult("CCA apply cancelled. Captured signatures were left in place.");
+      }
+      return;
+    }
     if (r.ok) {
       const filled = Number(b.filled || 0);
       const extracted = Number(b.extracted || 0);
@@ -481,7 +539,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         (extracted && extracted !== filled ? ` (${extracted} found in the CCA` +
           (skipped ? `, ${skipped} kept from existing answers` : "") + ")" : "") +
         `. Medication review captured ${medicationCount} medication${medicationCount === 1 ? "" : "s"}.` +
-        ` CCA accuracy review found ${majorErrors} major issue${majorErrors === 1 ? "" : "s"}. Review the separate CCA accuracy section before generating the packet.`);
+        ` CCA accuracy review found ${majorErrors} major issue${majorErrors === 1 ? "" : "s"}. Review the separate CCA accuracy section before generating the packet.` +
+        (b.signaturesInvalidated ? " Captured signatures now need to be re-signed because answers changed." : ""));
       setNote(`CCA uploaded and ${filled} answer${filled === 1 ? "" : "s"} filled automatically.`);
       load();
     } else {
@@ -740,15 +799,30 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }
 
-  async function rescrubCca() {
+  async function rescrubCca(confirmInvalidateSignatures = false) {
+    if (!(await confirmCcaSignatureRisk("re-scan", confirmInvalidateSignatures))) {
+      setCcaResultKind("info");
+      setCcaResult("CCA re-scan cancelled. Captured signatures were left in place.");
+      return;
+    }
     setCcaRescrubBusy(true);
     setCcaResultKind("info");
     setCcaResult("Re-reading the saved CCA with AI...");
     try {
       const form = new FormData();
       form.set("overwrite", String(ccaOverwrite));
+      form.set("confirmInvalidateSignatures", String(confirmInvalidateSignatures));
       const r = await fetch(`/api/intakes/${params.id}/cca/rescrub`, { method: "POST", body: form });
       const body = await r.json().catch(() => ({}));
+      if (r.status === 409 && body.code === "SIGNATURES_WOULD_INVALIDATE") {
+        if (window.confirm(body.error || "This CCA re-scan would require re-signing captured signatures. Continue?")) {
+          await rescrubCca(true);
+        } else {
+          setCcaResultKind("info");
+          setCcaResult("CCA re-scan cancelled. Captured signatures were left in place.");
+        }
+        return;
+      }
       if (!r.ok) {
         setCcaResultKind("error");
         setCcaResult(body.error || "CCA re-scan failed.");
@@ -758,7 +832,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       const review = body.ccaReview as CcaReview | undefined;
       const medicationCount = (review?.prescriptionMedications.length || 0) + (review?.otcMedications.length || 0);
       const majorErrors = review?.majorErrors.length || 0;
-      setCcaResult(`CCA re-scan complete. AI found ${Number(body.extracted || 0)} field${Number(body.extracted || 0) === 1 ? "" : "s"} and updated ${Number(body.filled || 0)} answer${Number(body.filled || 0) === 1 ? "" : "s"}. Medication review captured ${medicationCount} medication${medicationCount === 1 ? "" : "s"}; ${majorErrors} major CCA issue${majorErrors === 1 ? "" : "s"} need attention. Review the separate CCA accuracy section before generating the packet.`);
+      setCcaResult(`CCA re-scan complete. AI found ${Number(body.extracted || 0)} field${Number(body.extracted || 0) === 1 ? "" : "s"} and updated ${Number(body.filled || 0)} answer${Number(body.filled || 0) === 1 ? "" : "s"}. Medication review captured ${medicationCount} medication${medicationCount === 1 ? "" : "s"}; ${majorErrors} major CCA issue${majorErrors === 1 ? "" : "s"} need attention. Review the separate CCA accuracy section before generating the packet.`
+        + (body.signaturesInvalidated ? " Captured signatures now need to be re-signed because answers changed." : ""));
       load();
     } catch {
       setCcaResultKind("error");
@@ -984,8 +1059,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             )}
             <button
               className="btn-ghost px-3 py-2 text-sm"
-              disabled={!signatureDeliveryReady}
-              title={signatureDeliveryReady ? "Send missing signature fields through DocuSign" : signatureDeliveryBlockers[0]?.message || caseStatus.detail}
+              disabled={!signatureSend.enabled}
+              title={signatureSend.title}
               onClick={() => {
                 if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
                 void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
@@ -1322,7 +1397,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <p className="mt-2 text-xs text-slate-500">Plus {followUpQuestions.length - 12} more client-safe question{followUpQuestions.length - 12 === 1 ? "" : "s"}.</p>
               )}
             </div>
-          ) : (
+          ) : followUpInProgress ? null : (
             <p className={`mt-4 rounded-lg p-3 text-sm font-semibold ${
               deferredFollowUpQuestions.length
                 ? "bg-amber-50 text-amber-900"
@@ -1386,7 +1461,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                       : ""}` +
                   `${latestFollowUp.skippedKeys.length ? ` ${latestFollowUp.skippedKeys.length} item${latestFollowUp.skippedKeys.length === 1 ? " was" : "s were"} left for staff to confirm.` : ""}`
                 : activeFollowUp
-                  ? `A private follow-up is active for ${latestFollowUpQuestions.length} question${latestFollowUpQuestions.length === 1 ? "" : "s"}. It expires ${new Date(latestFollowUp.tokenExpiresAt).toLocaleString()}.`
+                  ? openFollowUpStillBlank
+                    ? `A private follow-up is active for ${latestFollowUpQuestions.length} question${latestFollowUpQuestions.length === 1 ? "" : "s"}. It expires ${new Date(latestFollowUp.tokenExpiresAt).toLocaleString()}.`
+                    : "A private follow-up is still open, but those questions now have answers in the chart. Refresh after the client finishes, or ignore this outstanding request."
                   : processingFollowUp
                     ? "The client submitted the follow-up and the answers are being saved. Refresh in a moment."
                   : latestFollowUpExpired

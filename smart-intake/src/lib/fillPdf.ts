@@ -78,11 +78,11 @@ function drawCenteredX(page: PDFPage, f: FieldMapping, font: PDFFont) {
 }
 
 function drawCenteredInitials(page: PDFPage, f: FieldMapping, initials: string, font: PDFFont) {
-  initials = sanitizePdfText(initials, font);
+  const safe = sanitizePdfText(initials, font) || "X";
   let size = Math.min(f.fontSize || 9, f.height || 10);
-  while (size > 5 && font.widthOfTextAtSize(initials, size) > f.width) size -= 0.5;
-  const width = font.widthOfTextAtSize(initials, size);
-  page.drawText(initials, {
+  while (size > 5 && font.widthOfTextAtSize(safe, size) > f.width) size -= 0.5;
+  const width = font.widthOfTextAtSize(safe, size);
+  page.drawText(safe, {
     x: f.x + Math.max(0, (f.width - width) / 2),
     y: f.y + Math.max(0, (f.height - size) / 2) + 1,
     size,
@@ -115,6 +115,7 @@ export interface FillResult {
   pdfBytes: Uint8Array;
   filled: number;
   skipped: string[]; // fieldKeys left blank (no value / consent not given)
+  warnings: string[];
 }
 
 let templateCache: Buffer | null = null;
@@ -178,9 +179,11 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
 
   let filled = 0;
   const skipped: string[] = [];
+  const warnings: string[] = [];
   for (const f of input.fields ?? mergedMap(input.overrides)) {
     const page = pages[f.page - 1];
     if (!page) continue;
+    try {
     if (f.source === "@pdf_page_label") {
       if (f.type === "whiteout_text") {
         page.drawRectangle({ x: f.x, y: f.y, width: f.width, height: f.height, color: rgb(1, 1, 1) });
@@ -275,9 +278,14 @@ export async function fillPacket(input: FillInput): Promise<FillResult> {
       drawTextField(page, f, text, bold);
       filled++;
     } else skipped.push(f.fieldKey);
+    } catch (error) {
+      skipped.push(f.fieldKey);
+      const reason = error instanceof Error ? error.message : "could not be drawn";
+      warnings.push(`${f.fieldKey}: ${reason}`);
+    }
   }
 
   // Keep the original Word/PDF drawing streams readable by older viewers.
   // Object-stream rewriting can make the ruled form render blank or lose lines.
-  return { pdfBytes: await doc.save({ useObjectStreams: false }), filled, skipped };
+  return { pdfBytes: await doc.save({ useObjectStreams: false }), filled, skipped, warnings };
 }

@@ -69,7 +69,7 @@ export function drawSignature(
       height,
     });
   } else {
-    const printedName = sanitizePdfText(match.record.printedName, italicFont);
+    const printedName = sanitizePdfText(match.record.printedName, italicFont) || "Signed";
     let size = Math.min(12, f.height);
     while (size > 6 && italicFont.widthOfTextAtSize(printedName, size) > f.width) {
       size -= 0.5;
