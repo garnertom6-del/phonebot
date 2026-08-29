@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
-import { isMasterUser, requireStaff, requireWritableStaff } from "@/lib/staffGuard";
+import { isMasterUser, requireStaff } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
 import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -198,9 +198,14 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    const { user, provider, deny } = await requireWritableStaff();
-    if (deny) return deny;
     const raw = await req.json();
+    // The Create page sends the provider it was opened for. Scoping the guard to
+    // it (instead of only the selected-provider cookie) stops a master admin who
+    // switched providers in another tab from saving this client under the wrong
+    // agency. requireStaff still checks the user may write to that provider.
+    const pageProviderId = typeof raw?.providerId === "string" ? raw.providerId.trim() : "";
+    const { user, provider, deny } = await requireStaff({ write: true, providerId: pageProviderId || null });
+    if (deny) return deny;
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
     if (!recordNumber && canGenerateRecordNumber(raw?.providerChoicePlan || "")) {
       for (let attempt = 0; attempt < 20; attempt++) {
