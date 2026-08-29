@@ -1,10 +1,10 @@
 "use client";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
@@ -117,13 +117,17 @@ export default function NewIntake() {
   const [packetContextLoaded, setPacketContextLoaded] = useState(false);
   const [packetSetupHref, setPacketSetupHref] = useState("");
   const [packetContextError, setPacketContextError] = useState("");
+  const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false);
+  const formRef = useRef<HTMLFormElement>(null);
 
   const assignedPreview = assignIntakeContacts(form.email || "", form.phone || "");
   const smsPhone = assignedPreview.error ? "" : assignedPreview.phone;
+  const recordReady = !!(form.recordNumber || "").trim() || canGenerateRecordNumber(recordPanel);
   const intakeReadiness = buildNewIntakeReadiness({
     fullName: form.fullName,
     dob: form.dob,
     contactReady: !assignedPreview.error && !!(assignedPreview.phone || assignedPreview.email),
+    recordReady,
     packetContextLoaded,
     packetContextError: !!packetContextError,
     packetReady,
@@ -344,6 +348,18 @@ export default function NewIntake() {
     }
   }
 
+  function focusFirstMissing() {
+    const missing = intakeReadiness.items.find((item) => !item.ready)?.key;
+    const targetId = missing === "identity"
+      ? (!(form.fullName || "").trim() ? "new-intake-fullName" : "new-intake-dob")
+      : missing === "contact"
+        ? "new-intake-phone"
+        : "new-intake-record-panel";
+    const target = document.getElementById(targetId) as HTMLElement | null;
+    target?.scrollIntoView({ behavior: "smooth", block: "center" });
+    window.setTimeout(() => target?.focus({ preventScroll: true }), 250);
+  }
+
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const nextForm = readFieldValues(e.currentTarget, form);
@@ -351,9 +367,30 @@ export default function NewIntake() {
     setError("");
     setContactError("");
     setSetupStatus("");
+    if (!(nextForm.fullName || "").trim() || !(nextForm.dob || "").trim()) {
+      setForm((current) => ({ ...current, ...nextForm }));
+      setError("Add the client's full name and date of birth before creating the secure link.");
+      window.setTimeout(focusFirstMissing, 0);
+      return;
+    }
     if (assigned.error) {
       setForm((current) => ({ ...current, ...nextForm }));
       setContactError(assigned.error);
+      window.setTimeout(() => {
+        const target = document.getElementById("new-intake-phone");
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (target as HTMLElement | null)?.focus({ preventScroll: true });
+      }, 0);
+      return;
+    }
+    if (!(nextForm.recordNumber || "").trim() && !canGenerateRecordNumber(recordPanel)) {
+      setForm((current) => ({ ...current, ...nextForm }));
+      setError("Choose an insurance panel that can generate a Record#, or enter the official Record#.");
+      window.setTimeout(() => {
+        const target = document.getElementById("new-intake-record-panel");
+        target?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (target as HTMLElement | null)?.focus({ preventScroll: true });
+      }, 0);
       return;
     }
     setForm((current) => ({ ...current, ...nextForm, email: assigned.email, phone: assigned.phone }));
@@ -378,7 +415,7 @@ export default function NewIntake() {
         const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean };
         await applyStarterInfo(created.id);
         setResult(created);
-        if (assigned.phone && created.publicLinkReady !== false) {
+        if (assigned.phone && sendSmsAfterCreate && created.publicLinkReady !== false) {
           await sendCreatedLink(created.id);
         }
       }
@@ -515,17 +552,19 @@ export default function NewIntake() {
   }
 
   const submitLabel = isCreating
-    ? (smsPhone ? "Creating and texting the link..." : "Creating intake...")
+    ? (smsPhone && sendSmsAfterCreate ? "Creating and texting the link..." : "Creating intake...")
     : packetContextError
       ? "Sign in to create an intake"
-    : smsPhone
+    : smsPhone && sendSmsAfterCreate
       ? "Create and text the link"
-      : "Create intake";
+      : smsPhone
+        ? "Create intake — review before texting"
+        : "Create intake";
 
   return (
-    <main className="mx-auto max-w-xl p-4 sm:p-6">
+    <main className="mx-auto max-w-xl p-4 pb-28 sm:p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
-      <form method="post" onSubmit={submit} className="card mt-3" noValidate>
+      <form ref={formRef} method="post" onSubmit={submit} className="card mt-3" noValidate>
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
         <div className="mb-4 flex min-h-[1.75rem] flex-wrap items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
           <span>
@@ -582,17 +621,21 @@ export default function NewIntake() {
             )}
           </div>
         )}
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <div id="new-intake-basics" className="scroll-mt-28 grid grid-cols-1 gap-4 sm:grid-cols-2">
           {FIELDS.filter(([key]) => !GENERIC_FIELD_SKIP.has(key)).map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
               <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
               <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
                 required={key === "fullName" || key === "dob"}
                 max={key === "dob" ? new Date().toISOString().slice(0, 10) : undefined}
+                autoComplete={key === "fullName" ? "name" : key === "dob" ? "bday" : key === "location" ? "address-level2" : "off"}
+                autoCapitalize={key === "midNumber" ? "characters" : key === "fullName" || key === "location" ? "words" : undefined}
+                spellCheck={key === "midNumber" ? false : undefined}
+                enterKeyHint="next"
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
             </div>
           ))}
-          <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+          <div id="new-intake-contact" className="scroll-mt-28 sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
             <p className="font-semibold text-slate-900">How to send the secure link</p>
             <p className="mt-1 text-sm text-slate-600">
               Cell is the SMS field. Type a phone in either box and it is treated as a phone.
@@ -607,12 +650,14 @@ export default function NewIntake() {
                   name="phone"
                   type="tel"
                   inputMode="tel"
-                  autoComplete="off"
+                  autoComplete="tel"
+                  enterKeyHint="next"
                   aria-invalid={contactError ? true : undefined}
                   aria-describedby="new-intake-contact-help"
                   value={form.phone || ""}
                   onChange={(e) => {
                     setForm((f) => ({ ...f, phone: e.target.value }));
+                    setSendSmsAfterCreate(false);
                     if (contactError) setContactError("");
                   }}
                   placeholder="10-digit cell"
@@ -626,12 +671,14 @@ export default function NewIntake() {
                   name="email"
                   type="text"
                   inputMode="email"
-                  autoComplete="off"
+                  autoComplete="email"
+                  enterKeyHint="next"
                   aria-invalid={contactError ? true : undefined}
                   aria-describedby="new-intake-contact-help"
                   value={form.email || ""}
                   onChange={(e) => {
                     setForm((f) => ({ ...f, email: e.target.value }));
+                    setSendSmsAfterCreate(false);
                     if (contactError) setContactError("");
                   }}
                   placeholder="Optional email"
@@ -645,9 +692,21 @@ export default function NewIntake() {
               <p className="mt-2 text-sm font-semibold text-red-700" role="alert">{contactError}</p>
             )}
             {smsPhone && (
-              <p className="mt-2 text-sm font-semibold text-brand">
-                SMS will go to {formatUsPhoneDisplay(smsPhone)}
-              </p>
+              <div className="mt-3 rounded-lg border border-blue-200 bg-blue-50 p-3 text-sm text-blue-950">
+                <p className="font-bold">Text destination: {formatUsPhoneDisplay(smsPhone)}</p>
+                <p className="mt-1 text-xs leading-5 text-blue-900">
+                  The text contains the provider name, private link, save-and-return instructions, help number, and STOP wording. It does not contain the client name or health details.
+                </p>
+                <label className="mt-3 flex min-h-11 items-start gap-3 rounded-lg bg-white p-3 font-semibold">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5 h-5 w-5 shrink-0"
+                    checked={sendSmsAfterCreate}
+                    onChange={(event) => setSendSmsAfterCreate(event.target.checked)}
+                  />
+                  <span>I confirmed this mobile number and want to text the link immediately.</span>
+                </label>
+              </div>
             )}
           </div>
           <label>
@@ -711,7 +770,7 @@ export default function NewIntake() {
             )}
           </div>
         </div>
-        <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
+        <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
           <h2 className="font-bold text-brand">Record number</h2>
           <p className="mt-1 text-sm text-slate-600">
             Auto-generate a Record# in the format <b>PANEL-12345</b>, or look up the official number.
@@ -736,7 +795,7 @@ export default function NewIntake() {
               <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
                 <label>
                   <span className="label">Insurance panel</span>
-                  <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                  <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
                     <option value="">Select panel</option>
                     {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
                       <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
@@ -750,7 +809,7 @@ export default function NewIntake() {
                 <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
                 <label className="mt-3 block">
                   <span className="label">Insurance panel</span>
-                  <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                  <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
                     <option value="">Select lookup panel</option>
                     {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
                       <option key={plan} value={plan}>{plan}</option>
@@ -779,7 +838,7 @@ export default function NewIntake() {
           {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
           <p className="mt-2 text-xs text-slate-500">Only Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345, and Carolina Complete = CC-12345 use the generator. Other panels require their official Record#.</p>
         </div>
-        <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
+        <div id="new-intake-optional" className="scroll-mt-28 mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
           <div>
             <h2 className="font-bold text-slate-900">NC Tracks starter info</h2>
             <p className="mt-1 text-sm text-slate-600">
@@ -997,7 +1056,7 @@ export default function NewIntake() {
             )}
           </div>
         )}
-        <button type="submit" className="btn-primary mt-5 min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70" disabled={isCreating || !!packetContextError}>
+        <button type="submit" className="btn-primary mt-5 hidden min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70 sm:block" disabled={isCreating || !!packetContextError}>
           {submitLabel}
         </button>
         {smsPhone && (
@@ -1006,6 +1065,24 @@ export default function NewIntake() {
           </p>
         )}
       </form>
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur sm:hidden"
+        style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+      >
+        <div className="mx-auto flex max-w-xl items-center gap-3">
+          <span className="min-w-[64px] text-center text-xs font-bold text-slate-600" aria-live="polite">
+            {intakeReadiness.completedRequired}/{intakeReadiness.totalRequired}<br />ready
+          </span>
+          <button
+            type="button"
+            className="btn-primary min-h-12 flex-1 disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={isCreating || !!packetContextError}
+            onClick={() => intakeReadiness.ready ? formRef.current?.requestSubmit() : focusFirstMissing()}
+          >
+            {intakeReadiness.ready ? submitLabel : intakeReadiness.title}
+          </button>
+        </div>
+      </div>
     </main>
   );
 }

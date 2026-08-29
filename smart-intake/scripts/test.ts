@@ -611,15 +611,29 @@ async function main() {
     fullName: "",
     dob: "",
     contactReady: false,
+    recordReady: false,
     packetContextLoaded: true,
     packetReady: false,
   });
   assert.equal(emptyIntakeReadiness.completedRequired, 0);
   assert.equal(emptyIntakeReadiness.ready, false);
   assert.equal(emptyIntakeReadiness.packet.tone, "warning");
+  const missingRecordReadiness = buildNewIntakeReadiness({
+    fullName: "Workflow Test",
+    dob: "01/01/2000",
+    contactReady: true,
+    recordReady: false,
+    packetContextLoaded: true,
+    packetReady: true,
+  });
+  assert.equal(missingRecordReadiness.completedRequired, 2);
+  assert.equal(missingRecordReadiness.totalRequired, 3);
+  assert.equal(missingRecordReadiness.ready, false);
+  assert.equal(missingRecordReadiness.title, "Finish 1 required step");
   assert.equal(
     buildNewIntakeReadiness({
       contactReady: false,
+      recordReady: false,
       packetContextLoaded: true,
       packetContextError: true,
       packetReady: false,
@@ -630,13 +644,14 @@ async function main() {
     fullName: "Workflow Test",
     dob: "01/01/2000",
     contactReady: true,
+    recordReady: true,
     packetContextLoaded: true,
     packetReady: true,
   });
-  assert.equal(readyIntakeReadiness.completedRequired, 2);
+  assert.equal(readyIntakeReadiness.completedRequired, 3);
   assert.equal(readyIntakeReadiness.ready, true);
   assert.equal(readyIntakeReadiness.title, "Ready to create the secure link");
-  ok("create-intake readiness separates required link fields from packet readiness");
+  ok("create-intake readiness matches identity, contact, and Record# server requirements");
   assert.equal(
     newIntakeSchema.safeParse({
       fullName: "No Contact",
