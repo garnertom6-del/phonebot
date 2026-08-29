@@ -10,22 +10,21 @@ import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import {
   copiesMailtoHref,
   copiesShareMessage,
-  copiesSmsHref,
   followUpMailtoHref,
   followUpShareMessage,
-  followUpSmsHref,
   intakeMailtoHref,
   intakeShareMessage,
-  intakeSmsHref,
 } from "@/lib/shareLinks";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import {
   clientDeliveryContacts,
   clientDeliveryContactsForRole,
   clientFollowUpDeliveryContacts,
+  deliveryContactsSummary,
 } from "@/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
+import ComputerSmsActions from "@/components/ComputerSmsActions";
 
 type PreflightFinding = {
   key: string;
@@ -301,7 +300,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
-  const deliveryContacts = clientDeliveryContacts(i.client);
+  const deliveryContacts = clientDeliveryContacts(i.client, d.answers);
   const defaultFollowUpDeliveryContacts = clientFollowUpDeliveryContacts(
     i.client,
     d.answers,
@@ -323,14 +322,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const reminderCount = i.auditLogs.filter((entry) => (
     entry.event === "link_reminder_sent" || entry.event === "signature_reminder_sent"
   ) && /(^|;\s*)sent\s/i.test(entry.detail || "")).length;
-  const contactSummary = [
-    deliveryContacts.phone
-      ? `SMS to ${deliveryContacts.phone.role} at ${deliveryContacts.phone.value}`
-      : "",
-    deliveryContacts.email
-      ? `email to ${deliveryContacts.email.role} at ${deliveryContacts.email.value}`
-      : "",
-  ].filter(Boolean).join(" and ");
+  const contactSummary = deliveryContactsSummary(deliveryContacts);
   const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
@@ -950,19 +942,30 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesLink); setNote("Client-copies link copied"); }}>
               Copy records link
             </button>
-            <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesMessage); setNote("Client records text message copied"); }}>
-              Copy text message
-            </button>
-            <a className="btn-primary px-3 py-1.5 text-xs" href={copiesSmsHref(i.client.phone, copiesLink, providerName)}>
-              Open SMS on this computer
-            </a>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink, providerName, providerPhone)}>
-              Open email
-            </a>
+            {deliveryContacts.email && (
+              <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(deliveryContacts.email.value, copiesLink, providerName, providerPhone)}>
+                Open email
+              </a>
+            )}
             <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesLink} target="_blank">
               Open records page
             </a>
           </div>
+          {deliveryContacts.phone && (
+            <div className="mt-3 border-t border-brand/20 pt-3">
+              <ComputerSmsActions
+                compact
+                intakeId={i.id}
+                purpose="copies"
+                phone={deliveryContacts.phone.value}
+                role={deliveryContacts.phone.role}
+                message={`${copiesMessage} STOP to opt out.`}
+                link={copiesLink}
+                onStatus={setNote}
+                onRecorded={() => { void load(); }}
+              />
+            </div>
+          )}
         </div>
       )}
       {identityMismatch && (
@@ -1079,46 +1082,50 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           )}
 
           {!linkFinished && (
-            <details
-              className="mt-3 border-t border-slate-200 pt-3 [&>summary::-webkit-details-marker]:hidden"
-              open={manualSendingOpen}
-              onToggle={(event) => setManualSendingOpen(event.currentTarget.open)}
-            >
-              <summary className="cursor-pointer text-sm font-semibold text-brand">Manual sending &amp; message preview</summary>
+            <>
               {smsFallbackNeeded && (
-                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900" role="alert">
-                  Automatic SMS was not accepted. The secure link is still active. Use Copy SMS message or Open SMS on this computer below to send it manually.
+                <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900" role="alert">
+                  Automatic SMS was not accepted. The secure link is still active. Copy the text or open SMS on this computer below.
                 </p>
               )}
-              <p className="mt-2 break-all whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{clientMessage}</p>
-              <p className="mt-2 text-xs text-slate-500">This preview contains no client name, diagnosis, or intake answers.</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  className="btn-ghost px-3 py-2 text-sm"
-                  disabled={linkExpired}
-                  onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Secure link copied"); }}
-                >
-                  Copy secure link
-                </button>
-                <button
-                  className="btn-ghost px-3 py-2 text-sm"
-                  disabled={linkExpired}
-                  onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Client SMS message copied"); }}
-                >
-                  Copy SMS message
-                </button>
-                {deliveryContacts.phone && !linkExpired && (
-                  <a className="btn-ghost px-3 py-2 text-sm" href={intakeSmsHref(deliveryContacts.phone.value, d.clientLink, providerName, providerPhone)}>
-                    Open SMS on this computer
-                  </a>
-                )}
-                {deliveryContacts.email && !linkExpired && (
-                  <a className="btn-ghost px-3 py-2 text-sm" href={intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone)}>
-                    Open email
-                  </a>
-                )}
-              </div>
-            </details>
+              {deliveryContacts.phone && !linkExpired && (
+                <div className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3">
+                  <ComputerSmsActions
+                    intakeId={i.id}
+                    purpose="intake"
+                    phone={deliveryContacts.phone.value}
+                    role={deliveryContacts.phone.role}
+                    message={clientMessage}
+                    link={d.clientLink}
+                    onStatus={setNote}
+                    onRecorded={() => { void load(); }}
+                  />
+                </div>
+              )}
+              <details
+                className="mt-3 border-t border-slate-200 pt-3 [&>summary::-webkit-details-marker]:hidden"
+                open={manualSendingOpen}
+                onToggle={(event) => setManualSendingOpen(event.currentTarget.open)}
+              >
+                <summary className="cursor-pointer text-sm font-semibold text-brand">Message preview and other send options</summary>
+                <p className="mt-2 break-all whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{clientMessage}</p>
+                <p className="mt-2 text-xs text-slate-500">This preview contains no client name, diagnosis, or intake answers.</p>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  <button
+                    className="btn-ghost px-3 py-2 text-sm"
+                    disabled={linkExpired}
+                    onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Secure link copied"); }}
+                  >
+                    Copy secure link
+                  </button>
+                  {deliveryContacts.email && !linkExpired && (
+                    <a className="btn-ghost px-3 py-2 text-sm" href={intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone)}>
+                      Open email
+                    </a>
+                  )}
+                </div>
+              </details>
+            </>
           )}
         </div>
         <div className="card border-brand/40 bg-brand-light/40">
@@ -1339,7 +1346,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           {followUpLink && (
             <details
               className="mt-3 border-t border-sky-200 pt-3 [&>summary::-webkit-details-marker]:hidden"
-              open={!!followUpResult?.failed.length}
+              open={!!followUpResult?.failed.length || !!followUpDeliveryContacts.phone}
             >
               <summary className="cursor-pointer text-sm font-semibold text-brand">Follow-up link and manual sending</summary>
               <p className="mt-2 break-all rounded-lg bg-white p-3 font-mono text-xs text-slate-700">{followUpLink}</p>
@@ -1358,24 +1365,26 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 >
                   Copy follow-up link
                 </button>
-                <button
-                  className="btn-ghost px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => { await navigator.clipboard.writeText(followUpMessage); setNote("Follow-up SMS message copied."); }}
-                >
-                  Copy SMS message
-                </button>
-                {followUpDeliveryContacts.phone && (
-                  <a className="btn-ghost px-3 py-2 text-sm" href={followUpSmsHref(followUpDeliveryContacts.phone.value, followUpLink, providerName, providerPhone)}>
-                    Open SMS on this computer
-                  </a>
-                )}
                 {followUpDeliveryContacts.email && (
                   <a className="btn-ghost px-3 py-2 text-sm" href={followUpMailtoHref(followUpDeliveryContacts.email.value, followUpLink, providerName, providerPhone)}>
                     Open email
                   </a>
                 )}
               </div>
+              {followUpDeliveryContacts.phone && (
+                <div className="mt-3">
+                  <ComputerSmsActions
+                    intakeId={i.id}
+                    purpose="follow-up"
+                    phone={followUpDeliveryContacts.phone.value}
+                    role={followUpDeliveryContacts.phone.role}
+                    message={followUpMessage}
+                    link={followUpLink}
+                    onStatus={setNote}
+                    onRecorded={() => { void load(); }}
+                  />
+                </div>
+              )}
             </details>
           )}
 

@@ -57,10 +57,11 @@ import {
   clientLinkMessagingFinished,
   reminderCooldownSeconds,
 } from "../src/lib/clientLinkState";
-import { followUpShareMessage, intakeShareMessage, signatureShareMessage } from "../src/lib/shareLinks";
+import { followUpShareMessage, intakeShareMessage, intakeSmsHref, signatureShareMessage, smsHref, smsRecipient, detectSmsPlatform, deviceLikelyOpensSms, isUnreachableClientLink } from "../src/lib/shareLinks";
 import {
   clientDeliveryContacts,
   clientFollowUpDeliveryContacts,
+  deliveryContactsSummary,
 } from "../src/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions, validateFollowUpSubmission } from "../src/lib/clientFollowUp";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/clientDetails";
@@ -1014,6 +1015,27 @@ async function main() {
     assert(!/diagnos|medicat|mental health|substance/i.test(message), "client SMS must avoid health details");
     assert(!message.includes(`${clientLink}.`), "punctuation must not be attached to the secure URL");
   }
+  assert.equal(smsRecipient("(336) 555-0141"), "+13365550141");
+  assert.equal(smsRecipient("336-555-0141"), "+13365550141");
+  assert.equal(smsRecipient("13365550141"), "+13365550141");
+  assert.equal(smsRecipient("+1 (336) 555-0141"), "+13365550141");
+  assert.equal(smsRecipient("+44 7700 900123"), "+447700900123");
+  assert.equal(detectSmsPlatform("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"), "ios");
+  assert.equal(detectSmsPlatform("Mozilla/5.0 (Linux; Android 14)"), "android");
+  assert.equal(detectSmsPlatform("Mozilla/5.0 (X11; Linux x86_64) Chrome/120"), "unknown");
+  assert.equal(deviceLikelyOpensSms("Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X)"), true);
+  assert.equal(deviceLikelyOpensSms("Mozilla/5.0 (X11; Linux x86_64) Chrome/120"), false);
+  const iosHref = intakeSmsHref("336-555-0141", clientLink, "Test Provider", "336-555-0100", "ios");
+  const androidHref = intakeSmsHref("336-555-0141", clientLink, "Test Provider", "336-555-0100", "android");
+  const desktopHref = intakeSmsHref("336-555-0141", clientLink, "Test Provider", "336-555-0100");
+  assert(iosHref.startsWith("sms:+13365550141&body="), "iOS SMS links must use &body=");
+  assert(androidHref.startsWith("sms:+13365550141?body="), "Android SMS links must use ?body=");
+  assert(desktopHref.startsWith("sms:+13365550141?&body="), "desktop SMS links must use ?&body=");
+  assert(iosHref.includes(encodeURIComponent(clientLink)), "SMS href must include the encoded client link");
+  assert(!iosHref.includes("Angela"), "SMS href must not include a client name");
+  assert.equal(smsHref("", "hello"), "");
+  assert.equal(isUnreachableClientLink("http://localhost:3000/intake/token"), true);
+  assert.equal(isUnreachableClientLink("https://mdc-smart-intake.onrender.com/intake/token"), false);
   assert(intakeMessage.includes("Save and return"), "intake SMS must explain save-and-return");
   assert(signatureMessage.includes("answers are saved"), "signature reminder must reassure the client");
   const followUpLink = "https://example.test/follow-up/random-token";
@@ -1097,6 +1119,27 @@ async function main() {
     guardianPhone: "336-555-0103",
   });
   assert.equal(clientPreferredContacts.phone?.value, "336-555-0102");
+  const youthContacts = clientDeliveryContacts({
+    phone: "336-555-0126",
+    guardianName: "Erica Sample",
+    guardianPhone: "336-555-0125",
+  }, { is_minor_or_incompetent: "Yes" });
+  assert.equal(youthContacts.phone?.role, "guardian");
+  assert.equal(youthContacts.phone?.value, "336-555-0125");
+  assert(deliveryContactsSummary(youthContacts).includes("guardian"));
+  assert(deliveryContactsSummary(youthContacts).includes("(336) 555-0125"));
+  const youthClientFallback = clientDeliveryContacts({
+    phone: "336-555-0126",
+    guardianName: "Erica Sample",
+  }, { is_minor_or_incompetent: "Yes" });
+  assert.equal(youthClientFallback.phone?.role, "client");
+  assert.equal(youthClientFallback.phone?.value, "336-555-0126");
+  const adultWithGuardianNameNo = clientDeliveryContacts({
+    phone: "336-555-0102",
+    guardianName: "Parent",
+    guardianPhone: "336-555-0103",
+  }, { is_minor_or_incompetent: "No" });
+  assert.equal(adultWithGuardianNameNo.phone?.value, "336-555-0102");
   const adultFollowUpContacts = clientFollowUpDeliveryContacts({
     phone: "336-555-0104",
     guardianEmail: "guardian@example.com",

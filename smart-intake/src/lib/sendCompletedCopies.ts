@@ -12,6 +12,7 @@ import {
 } from "./completedCopies";
 import { sendCompletedPacketEmail, sendCopiesLinkEmail, sendCopiesLinkSms, type NotifyResult } from "./notify";
 import { answeredClientFields } from "./clientAnswerSync";
+import { clientDeliveryContacts } from "./clientDeliveryContacts";
 import { fileExists, readFile } from "./storage";
 import { packetFreshnessForIntake } from "./packetFreshness";
 import {
@@ -108,8 +109,15 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   const answers = await loadAnswers(intake.id);
   const answeredClient = answeredClientFields(answers);
   const clientName = intake.client.fullName || answeredClient.fullName;
-  const email = intake.client.email || answeredClient.email;
-  const phone = intake.client.phone || answeredClient.phone;
+  const contacts = clientDeliveryContacts({
+    phone: intake.client.phone || answeredClient.phone,
+    email: intake.client.email || answeredClient.email,
+    guardianName: intake.client.guardianName || answeredClient.guardianName,
+    guardianPhone: intake.client.guardianPhone || answeredClient.guardianPhone,
+    guardianEmail: intake.client.guardianEmail || answeredClient.guardianEmail,
+  }, answers);
+  const email = contacts.email?.value;
+  const phone = contacts.phone?.value;
   if (email) {
     attempts.push(await sendCopiesLinkEmail(email, clientName, link, intake.provider?.name, intake.provider?.phone));
   }
@@ -129,7 +137,7 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
     detail: [
       sent.length ? `sent ${sent.join(", ")}` : "",
       failed.length ? `failed ${failed.join(", ")}` : "",
-    ].filter(Boolean).join("; ") || "no client email or phone on file",
+    ].filter(Boolean).join("; ") || "no client or guardian email or phone on file",
   });
 
   return {
