@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { REQUIRED_FOR_SUBMIT, SECTIONS, questionByKey, questionCatalogId, questionVisibleInCatalog, type AskIf, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
+import { assignIntakeContacts, isPlausiblePhone } from "./intakeContacts";
 
 export const loginSchema = z.object({
   email: z.string().email(),
@@ -24,14 +25,30 @@ function validCalendarDate(value: string): Date | null {
 }
 
 const optionalPhone = z.string().trim().optional().default("").refine(
-  (value) => !value || /^\d{10,15}$/.test(value.replace(/\D/g, "")),
+  (value) => !value || isPlausiblePhone(value),
   "Enter a valid phone number with at least 10 digits",
 );
 
-function hasPhoneOrEmail(value: { phone?: string; email?: string }) {
-  const phone = (value.phone || "").replace(/\D/g, "");
-  const email = (value.email || "").trim();
-  return phone.length >= 10 || !!email;
+function swapContactFields(raw: unknown): unknown {
+  if (!raw || typeof raw !== "object") return raw;
+  const data = { ...(raw as Record<string, unknown>) };
+  const assigned = assignIntakeContacts(String(data.email || ""), String(data.phone || ""));
+  if (!assigned.error) {
+    data.email = assigned.email;
+    data.phone = assigned.phone;
+  }
+  return data;
+}
+
+function contactRefinement(value: { email?: string; phone?: string }, ctx: z.RefinementCtx) {
+  const assigned = assignIntakeContacts(value.email || "", value.phone || "");
+  if (assigned.error) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: assigned.error,
+      path: assigned.field === "phone" ? ["phone"] : ["email"],
+    });
+  }
 }
 
 const newIntakeObject = z.object({
@@ -53,8 +70,8 @@ const newIntakeObject = z.object({
   addressCity: z.string().optional().default(""),
   addressState: z.string().optional().default(""),
   livingArrangement: z.string().optional().default(""),
-  email: z.string().email().optional().or(z.literal("")),
-  phone: optionalPhone,
+  email: z.string().trim().optional().default(""),
+  phone: z.string().trim().optional().default(""),
   guardianName: z.string().optional().default(""),
   guardianEmail: z.string().email().optional().or(z.literal("")),
   guardianPhone: optionalPhone,
@@ -62,23 +79,22 @@ const newIntakeObject = z.object({
   autoEmailProviderPacket: z.boolean().optional(),
 });
 
-export const newIntakeSchema = newIntakeObject.refine(hasPhoneOrEmail, {
-  message: "Enter a phone number or email so the client can receive the intake link.",
-});
+export const newIntakeSchema = z.preprocess(swapContactFields, newIntakeObject.superRefine(contactRefinement));
 
-export const clientDetailsSchema = newIntakeObject.pick({
-  fullName: true,
-  dob: true,
-  midNumber: true,
-  recordNumber: true,
-  email: true,
-  phone: true,
-  guardianName: true,
-  guardianEmail: true,
-  guardianPhone: true,
-}).refine(hasPhoneOrEmail, {
-  message: "Enter a phone number or email so the client can receive the intake link.",
-});
+export const clientDetailsSchema = z.preprocess(
+  swapContactFields,
+  newIntakeObject.pick({
+    fullName: true,
+    dob: true,
+    midNumber: true,
+    recordNumber: true,
+    email: true,
+    phone: true,
+    guardianName: true,
+    guardianEmail: true,
+    guardianPhone: true,
+  }).superRefine(contactRefinement),
+);
 
 export const batchIntakesSchema = z.object({
   expectCca: z.boolean().optional(),

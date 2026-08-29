@@ -7,18 +7,30 @@ import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
+import {
+  assignIntakeContacts,
+  formatUsPhoneDisplay,
+} from "@/lib/intakeContacts";
+import {
+  extractIntakeNoteFields,
+  type IntakeNoteField,
+} from "@/lib/parseIntakeNotes";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
   ["midNumber", "MID#", "text"], ["recordNumber", "Record# (generated if blank)", "text"],
   ["intakeDate", "Date of intake", "date"], ["location", "Location", "text"],
-  ["email", "Client email (or phone) *", "email"], ["phone", "Client phone (or email) *", "tel"],
+  ["email", "Client email", "text"], ["phone", "Client cell (SMS)", "tel"],
   ["guardianName", "Guardian name (if applicable)", "text"],
   ["guardianEmail", "Guardian email", "email"], ["guardianPhone", "Guardian phone", "tel"],
   ["addressStreet", "Street address", "text"], ["addressCity", "City", "text"], ["addressState", "State", "text"],
   ["livingArrangement", "Living arrangement", "text"],
 ] as const;
 type FieldKey = (typeof FIELDS)[number][0];
+
+const GENERIC_FIELD_SKIP = new Set([
+  "recordNumber", "addressStreet", "addressCity", "addressState", "livingArrangement", "email", "phone",
+]);
 
 const QUICK_NOTE_RACE_OPTIONS = [
   "American Indian or Alaska Native", "Asian", "Black or African American",
@@ -28,6 +40,30 @@ const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male"];
 const QUICK_NOTE_ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
 const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
 const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
+
+const NOTE_TARGETS: Record<string, { kind: "form"; key: FieldKey } | { kind: "quick"; key: string }> = {
+  client_full_name: { kind: "form", key: "fullName" },
+  dob: { kind: "form", key: "dob" },
+  mid_number: { kind: "form", key: "midNumber" },
+  client_phone_cell: { kind: "form", key: "phone" },
+  client_email: { kind: "form", key: "email" },
+  address_street: { kind: "form", key: "addressStreet" },
+  address_city: { kind: "form", key: "addressCity" },
+  address_state: { kind: "form", key: "addressState" },
+  living_arrangement: { kind: "form", key: "livingArrangement" },
+  gender: { kind: "quick", key: "gender" },
+  race: { kind: "quick", key: "race" },
+  ethnicity: { kind: "quick", key: "ethnicity" },
+  veteran: { kind: "quick", key: "veteran" },
+  employment_status: { kind: "quick", key: "employment_status" },
+  provider_choice_plan: { kind: "quick", key: "provider_choice_plan" },
+  pcp_name: { kind: "quick", key: "pcp_name" },
+  pcp_phone: { kind: "quick", key: "pcp_phone" },
+  ec1_name: { kind: "quick", key: "ec1_name" },
+  ec1_cell_phone: { kind: "quick", key: "ec1_cell_phone" },
+};
+
+type NcTracksTab = "paste" | "upload" | "howto" | "nctracks";
 
 function todayInputDate(): string {
   const now = new Date();
@@ -51,9 +87,11 @@ export default function NewIntake() {
   const [recordTab, setRecordTab] = useState<"generate" | "lookup">("generate");
   const [housingTab, setHousingTab] = useState<"address" | "homeless">("address");
   const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
+  const [recordNumberWasGenerated, setRecordNumberWasGenerated] = useState(false);
   const [expectCca, setExpectCca] = useState(true);
   const [autoEmailProviderPacket, setAutoEmailProviderPacket] = useState(false);
   const [error, setError] = useState("");
+  const [contactError, setContactError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean } | null>(null);
   const [copied, setCopied] = useState(false);
@@ -62,18 +100,23 @@ export default function NewIntake() {
   const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
   const [sendBusy, setSendBusy] = useState(false);
   const [redirecting, setRedirecting] = useState(false);
-  const [ncTracksTab, setNcTracksTab] = useState<"upload" | "notes" | "lookup">("notes");
+  const [ncTracksTab, setNcTracksTab] = useState<NcTracksTab>("paste");
   const [helperNotes, setHelperNotes] = useState("");
   const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
+  const [extractedFields, setExtractedFields] = useState<IntakeNoteField[]>([]);
   const [ncTracksFile, setNcTracksFile] = useState<File | null>(null);
   const [setupStatus, setSetupStatus] = useState("");
   const [setupStatusKind, setSetupStatusKind] = useState<"success" | "error" | "info">("info");
   const [providerName, setProviderName] = useState("Provider");
   const [providerPhone, setProviderPhone] = useState("");
-  const [packetName, setPacketName] = useState("Provider Intake Packet");
+  const [packetName, setPacketName] = useState("");
   const [packetPageCount, setPacketPageCount] = useState<number | null>(null);
   const [packetReady, setPacketReady] = useState(true);
   const [packetReadinessMessage, setPacketReadinessMessage] = useState("");
+  const [packetContextLoaded, setPacketContextLoaded] = useState(false);
+
+  const assignedPreview = assignIntakeContacts(form.email || "", form.phone || "");
+  const smsPhone = assignedPreview.error ? "" : assignedPreview.phone;
 
   useEffect(() => {
     let active = true;
@@ -85,11 +128,14 @@ export default function NewIntake() {
       if (!res.ok || !active) return;
       setProviderName(body.provider?.name || "Provider");
       setProviderPhone(body.provider?.phone || "");
-      setPacketName(body.packet?.name || "Provider Intake Packet");
+      setPacketName(body.packet?.name || `${body.provider?.name || "Provider"} Client Intake Package`);
       setPacketPageCount(typeof body.packet?.pageCount === "number" ? body.packet.pageCount : null);
       setPacketReady(body.packet?.ready !== false);
       setPacketReadinessMessage(body.packet?.message || "");
-    }).catch(() => {});
+      setPacketContextLoaded(true);
+    }).catch(() => {
+      if (active) setPacketContextLoaded(true);
+    });
     return () => { active = false; };
   }, []);
 
@@ -103,6 +149,51 @@ export default function NewIntake() {
     }
   }
 
+  function noteFieldCurrentValue(field: IntakeNoteField): string {
+    const target = NOTE_TARGETS[field.key];
+    if (!target) return "";
+    return target.kind === "form" ? (form[target.key] || "") : (quickAnswers[target.key] || "");
+  }
+
+  function applyNoteField(field: IntakeNoteField, onlyIfEmpty = false) {
+    const target = NOTE_TARGETS[field.key];
+    if (!target) return;
+    const current = noteFieldCurrentValue(field).trim();
+    if (onlyIfEmpty && current) return;
+    applyNoteFields([field], onlyIfEmpty);
+  }
+
+  function applyNoteFields(fields: IntakeNoteField[], onlyIfEmpty = false) {
+    const formPatch: Record<string, string> = {};
+    const quickPatch: Record<string, string> = {};
+    let useAddress = false;
+    let useHomeless = false;
+    for (const field of fields) {
+      const target = NOTE_TARGETS[field.key];
+      if (!target) continue;
+      const current = (target.kind === "form" ? form[target.key] : quickAnswers[target.key]) || "";
+      if (onlyIfEmpty && current.trim()) continue;
+      if (target.kind === "form") {
+        formPatch[target.key] = field.value;
+        if (target.key === "addressStreet" || target.key === "addressCity" || target.key === "addressState") useAddress = true;
+        if (target.key === "livingArrangement" && field.value.toLowerCase() === "homeless") useHomeless = true;
+      } else {
+        quickPatch[target.key] = field.value;
+      }
+    }
+    if (Object.keys(formPatch).length) setForm((existing) => ({ ...existing, ...formPatch }));
+    if (Object.keys(quickPatch).length) setQuickAnswers((existing) => ({ ...existing, ...quickPatch }));
+    if (useHomeless) setHousingTab("homeless");
+    else if (useAddress) setHousingTab("address");
+  }
+
+  function ingestHelperNotes(notes: string, fillEmpty: boolean) {
+    setHelperNotes(notes);
+    const extracted = extractIntakeNoteFields(notes);
+    setExtractedFields(extracted);
+    if (fillEmpty) applyNoteFields(extracted, true);
+  }
+
   function ncTracksSuccessText(body: { count?: number; details?: Array<{ label?: string }> }): string {
     const count = Number(body.count || 0);
     const labels = Array.isArray(body.details)
@@ -114,6 +205,22 @@ export default function NewIntake() {
     return `NC Tracks screenshot scanned. Filled ${count} field${count === 1 ? "" : "s"}${labels.length ? `: ${labels.join(", ")}.` : "."}`;
   }
 
+  function selectRecordTab(tab: "generate" | "lookup") {
+    if (tab === "lookup" && recordNumberWasGenerated) {
+      setForm((current) => ({ ...current, recordNumber: "" }));
+      setRecordGeneratorNote("");
+      setRecordNumberWasGenerated(false);
+    }
+    setRecordTab(tab);
+  }
+
+  function onRecordPanelChange(value: string) {
+    setRecordPanel(value);
+    if (recordGeneratorNote.toLowerCase().includes("choose an insurance panel")) {
+      setRecordGeneratorNote("");
+    }
+  }
+
   function generateRecordNumber() {
     if (!recordPanel) {
       setRecordGeneratorNote("Choose an insurance panel first so the Record# gets the correct prefix.");
@@ -121,7 +228,15 @@ export default function NewIntake() {
     }
     const generated = makeRecordNumber(recordPanel);
     setForm((current) => ({ ...current, recordNumber: generated }));
+    setRecordNumberWasGenerated(true);
     setRecordGeneratorNote(`Generated ${generated} for ${recordPanel}.`);
+  }
+
+  function selectNcTracksTab(tab: NcTracksTab) {
+    setNcTracksTab(tab);
+    if (tab === "nctracks") {
+      window.open("https://www.nctracks.nc.gov/", "_blank", "noreferrer");
+    }
   }
 
   async function applyStarterInfo(intakeId: string) {
@@ -136,7 +251,7 @@ export default function NewIntake() {
       const res = await fetch(`/api/intakes/${intakeId}/assist`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields: {}, helperNotes: notes }),
+        body: JSON.stringify({ fields: quickAnswers, helperNotes: notes, fillEmptyOnly: true }),
       });
       const body = await readResponse(res) as { applied?: number; error?: string };
       if (res.ok) messages.push(body.applied ? `Saved helper notes (${body.applied} field updates).` : "Saved helper notes.");
@@ -168,53 +283,12 @@ export default function NewIntake() {
     }
   }
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const nextForm = readFieldValues(e.currentTarget, form);
-    setForm((current) => ({ ...current, ...nextForm }));
-    setError("");
-    setSetupStatus("");
-    const phoneDigits = String(nextForm.phone || form.phone || "").replace(/\D/g, "");
-    const email = String(nextForm.email || form.email || "").trim();
-    if (phoneDigits.length < 10 && !email) {
-      setError("Enter a phone number or email so the client can receive the intake link.");
-      return;
-    }
-    setIsCreating(true);
-    try {
-      const requestBody = {
-        ...form,
-        ...nextForm,
-        providerChoicePlan: recordPanel,
-        referralSource,
-        livingArrangement: housingTab === "homeless" ? "Homeless" : "",
-        expectCca,
-        autoEmailProviderPacket,
-      };
-      const res = await fetch("/api/intakes", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
-      });
-      const body = await readResponse(res);
-      if (res.ok) {
-        const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean };
-        await applyStarterInfo(created.id);
-        setResult(created);
-      }
-      else setError((body as { error?: string }).error || "Failed to create intake");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Couldn't create the intake right now.");
-    } finally {
-      setIsCreating(false);
-    }
-  }
-
-  async function sendWithApp() {
-    if (!result) return;
+  async function sendCreatedLink(intakeId: string) {
     setSendBusy(true);
     setSendStatusKind("info");
     setSendStatus("Sending...");
     try {
-      const res = await fetch(`/api/intakes/${result.id}/remind`, { method: "POST" });
+      const res = await fetch(`/api/intakes/${intakeId}/remind`, { method: "POST" });
       const body = await res.json().catch(() => ({}));
       if (res.ok && body.ok) {
         const sent = Array.isArray(body.sent) ? body.sent : [];
@@ -246,6 +320,52 @@ export default function NewIntake() {
     }
   }
 
+  async function submit(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    const nextForm = readFieldValues(e.currentTarget, form);
+    const assigned = assignIntakeContacts(nextForm.email, nextForm.phone);
+    setError("");
+    setContactError("");
+    setSetupStatus("");
+    if (assigned.error) {
+      setForm((current) => ({ ...current, ...nextForm }));
+      setContactError(assigned.error);
+      return;
+    }
+    setForm((current) => ({ ...current, ...nextForm, email: assigned.email, phone: assigned.phone }));
+    setIsCreating(true);
+    try {
+      const requestBody = {
+        ...form,
+        ...nextForm,
+        email: assigned.email,
+        phone: assigned.phone,
+        providerChoicePlan: recordPanel,
+        referralSource,
+        livingArrangement: housingTab === "homeless" ? "Homeless" : nextForm.livingArrangement || form.livingArrangement || "",
+        expectCca,
+        autoEmailProviderPacket,
+      };
+      const res = await fetch("/api/intakes", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(requestBody),
+      });
+      const body = await readResponse(res);
+      if (res.ok) {
+        const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean };
+        await applyStarterInfo(created.id);
+        setResult(created);
+        if (assigned.phone && created.publicLinkReady !== false) {
+          await sendCreatedLink(created.id);
+        }
+      }
+      else setError((body as { error?: string }).error || "Failed to create intake");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Couldn't create the intake right now.");
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
   if (result) {
     const deliveryContacts = clientDeliveryContacts({
       phone: form.phone,
@@ -266,7 +386,7 @@ export default function NewIntake() {
         <div className="card">
           <h1 className="text-xl font-bold text-emerald-600">Intake created</h1>
           <p className="mt-2 text-sm text-slate-600">
-            Package: <b>{packetName}</b>. Send the client this secure
+            Package: <b>{packetName || "Client Intake Package"}</b>. Send the client this secure
             link (works for {result.linkDays || 7} days, no client info in the URL):
           </p>
           <p className="mt-2 text-sm font-semibold text-brand">
@@ -295,7 +415,7 @@ export default function NewIntake() {
                 <button
                   className="btn-primary"
                   disabled={sendBusy || redirecting || !hasContact}
-                  onClick={() => { void sendWithApp(); }}
+                  onClick={() => { void sendCreatedLink(result.id); }}
                 >
                   {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
                 </button>
@@ -370,15 +490,21 @@ export default function NewIntake() {
     );
   }
 
+  const submitLabel = isCreating
+    ? (smsPhone ? "Creating and texting the link..." : "Creating intake...")
+    : smsPhone
+      ? "Create and text the link"
+      : "Create intake";
+
   return (
     <main className="mx-auto max-w-xl p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
-      <form onSubmit={submit} className="card mt-3">
+      <form onSubmit={submit} className="card mt-3" noValidate>
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
-        <p className="mb-4 text-sm text-slate-500">
-          Package: {packetName}{packetPageCount ? ` (${packetPageCount} pages)` : ""}
+        <p className="mb-4 min-h-[1.25rem] text-sm text-slate-500">
+          {packetContextLoaded ? `Package: ${packetName}${packetPageCount ? ` (${packetPageCount} pages)` : ""}` : ""}
         </p>
-        {!packetReady && (
+        {!packetReady && packetContextLoaded && (
           <div role="alert" className="mb-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-950">
             <p className="font-bold">Provider packet setup required before PDF or DocuSign</p>
             <p className="mt-1 leading-6">{packetReadinessMessage}</p>
@@ -386,7 +512,7 @@ export default function NewIntake() {
           </div>
         )}
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          {FIELDS.filter(([key]) => !["recordNumber", "addressStreet", "addressCity", "addressState", "livingArrangement"].includes(key)).map(([key, label, type]) => (
+          {FIELDS.filter(([key]) => !GENERIC_FIELD_SKIP.has(key)).map(([key, label, type]) => (
             <div key={key} className={key === "fullName" ? "sm:col-span-2" : ""}>
               <label className="label" htmlFor={`new-intake-${key}`}>{label}</label>
               <input className="input" id={`new-intake-${key}`} name={key} type={type} value={form[key] || ""}
@@ -395,6 +521,64 @@ export default function NewIntake() {
                 onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
             </div>
           ))}
+          <div className="sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
+            <p className="font-semibold text-slate-900">How to send the secure link</p>
+            <p className="mt-1 text-sm text-slate-600">
+              Cell is the SMS field. Type a phone in either box and it is treated as a phone.
+              Email is optional. One of phone or email is required.
+            </p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label>
+                <span className="label">Client cell (SMS)</span>
+                <input
+                  className="input"
+                  id="new-intake-phone"
+                  name="phone"
+                  type="tel"
+                  inputMode="tel"
+                  autoComplete="off"
+                  aria-invalid={contactError ? true : undefined}
+                  aria-describedby="new-intake-contact-help"
+                  value={form.phone || ""}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, phone: e.target.value }));
+                    if (contactError) setContactError("");
+                  }}
+                  placeholder="10-digit cell"
+                />
+              </label>
+              <label>
+                <span className="label">Client email</span>
+                <input
+                  className="input"
+                  id="new-intake-email"
+                  name="email"
+                  type="text"
+                  inputMode="email"
+                  autoComplete="off"
+                  aria-invalid={contactError ? true : undefined}
+                  aria-describedby="new-intake-contact-help"
+                  value={form.email || ""}
+                  onChange={(e) => {
+                    setForm((f) => ({ ...f, email: e.target.value }));
+                    if (contactError) setContactError("");
+                  }}
+                  placeholder="Optional email"
+                />
+              </label>
+            </div>
+            <p id="new-intake-contact-help" className="mt-2 text-xs text-slate-500">
+              Phone or email required. The cell number is the SMS destination for the secure link.
+            </p>
+            {contactError && (
+              <p className="mt-2 text-sm font-semibold text-red-700" role="alert">{contactError}</p>
+            )}
+            {smsPhone && (
+              <p className="mt-2 text-sm font-semibold text-brand">
+                SMS will go to {formatUsPhoneDisplay(smsPhone)}
+              </p>
+            )}
+          </div>
           <label>
             <span className="label">Referral source</span>
             <select className="input" value={referralSource} onChange={(e) => setReferralSource(e.target.value)}>
@@ -451,26 +635,26 @@ export default function NewIntake() {
           )}
         </div>
         <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
-          <h2 className="font-bold text-brand">Record number generator</h2>
+          <h2 className="font-bold text-brand">Record number</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Choose the insurance panel, then generate a Record# in the format <b>PANEL-12345</b>.
+            Auto-generate a Record# in the format <b>PANEL-12345</b>, or look up the official number.
             The five digits are random and the server checks for duplicates within this provider.
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <button type="button" onClick={() => setRecordTab("generate")}
+            <button type="button" onClick={() => selectRecordTab("generate")}
               className={`rounded-full px-3 py-1.5 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-              Generate new Record#
+              Auto-generate
             </button>
-            <button type="button" onClick={() => setRecordTab("lookup")}
+            <button type="button" onClick={() => selectRecordTab("lookup")}
               className={`rounded-full px-3 py-1.5 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-              Lookup Partners / Vaya / Alliance / Trillium
+              Panel lookup
             </button>
           </div>
           {recordTab === "generate" ? (
             <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
               <label>
                 <span className="label">Insurance panel</span>
-                <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
+                <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
                   <option value="">Select panel</option>
                   {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
                     <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
@@ -484,7 +668,7 @@ export default function NewIntake() {
               <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
               <label className="mt-3 block">
                 <span className="label">Insurance panel</span>
-                <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
+                <select className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
                   <option value="">Select lookup panel</option>
                   {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
                     <option key={plan} value={plan}>{plan}</option>
@@ -503,36 +687,34 @@ export default function NewIntake() {
           <label className="mt-3 block">
             <span className="label">Record#</span>
             <input className="input" name="recordNumber" value={form.recordNumber || ""}
-              onChange={(e) => setForm((current) => ({ ...current, recordNumber: e.target.value }))}
+              onChange={(e) => {
+                setRecordNumberWasGenerated(false);
+                setForm((current) => ({ ...current, recordNumber: e.target.value }));
+              }}
               placeholder={recordTab === "lookup" ? "Enter the official lookup Record#" : "Generate or type one"} />
           </label>
           {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
           <p className="mt-2 text-xs text-slate-500">Only Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345, and Carolina Complete = CC-12345 use the generator. Other panels require their official Record#.</p>
         </div>
         <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h2 className="font-bold text-slate-900">NC Tracks starter info</h2>
-              <p className="mt-1 text-sm text-slate-600">
-                Best workflow: create the link fast, but if you already have NC Tracks open you can
-                start that work here. The app can open NC Tracks, save quick notes, or scan an NC Tracks
-                card / PDF after this intake is created.
-              </p>
-            </div>
-            <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
-              Open NC Tracks
-            </a>
+          <div>
+            <h2 className="font-bold text-slate-900">NC Tracks starter info</h2>
+            <p className="mt-1 text-sm text-slate-600">
+              Best workflow: create the link fast, but if you already have NC Tracks open you can
+              start that work here. Quick-fill stays on this screen while you switch tabs.
+            </p>
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {[
-              ["upload", "Upload card / PDF"],
-              ["notes", "Paste quick notes"],
-              ["lookup", "How it works"],
-            ].map(([key, label]) => (
+            {([
+              ["paste", "Paste"],
+              ["upload", "Upload"],
+              ["howto", "How it works"],
+              ["nctracks", "Open NC Tracks"],
+            ] as const).map(([key, label]) => (
               <button
                 key={key}
                 type="button"
-                onClick={() => setNcTracksTab(key as "upload" | "notes" | "lookup")}
+                onClick={() => selectNcTracksTab(key)}
                 className={`rounded-full px-3 py-1.5 text-sm font-semibold ${
                   ncTracksTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"
                 }`}
@@ -541,6 +723,73 @@ export default function NewIntake() {
               </button>
             ))}
           </div>
+          <details open className="mt-4 rounded-lg border border-brand/20 bg-white p-3">
+            <summary className="cursor-pointer list-none">
+              <span className="font-semibold text-brand">Quick-fill common answers</span>
+              <span className="ml-2 text-xs text-slate-500">Optional - stays visible when you switch NC Tracks tabs</span>
+            </summary>
+            <p className="mt-2 text-xs text-slate-600">Use only answers confirmed by the client or records. When you create the intake, these answers are saved to the packet and the client can skip those SMS questions.</p>
+            <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <label>
+                <span className="label">Gender</span>
+                <select className="input" value={quickAnswers.gender || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, gender: e.target.value }))}>
+                  <option value="">Select gender</option>
+                  {QUICK_NOTE_GENDER_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Race</span>
+                <select className="input" value={quickAnswers.race || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, race: e.target.value }))}>
+                  <option value="">Select race</option>
+                  {QUICK_NOTE_RACE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Ethnicity</span>
+                <select className="input" value={quickAnswers.ethnicity || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ethnicity: e.target.value }))}>
+                  <option value="">Select ethnicity</option>
+                  {QUICK_NOTE_ETHNICITY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Veteran</span>
+                <select className="input" value={quickAnswers.veteran || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, veteran: e.target.value }))}>
+                  <option value="">Select yes or no</option>
+                  {QUICK_NOTE_YES_NO_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Employment status</span>
+                <select className="input" value={quickAnswers.employment_status || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, employment_status: e.target.value }))}>
+                  <option value="">Select employment</option>
+                  {QUICK_NOTE_EMPLOYMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Type of insurance</span>
+                <select className="input" value={quickAnswers.provider_choice_plan || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, provider_choice_plan: e.target.value }))}>
+                  <option value="">Select insurance</option>
+                  {PROVIDER_CHOICE_PLAN_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">PCP name</span>
+                <input className="input" value={quickAnswers.pcp_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_name: e.target.value }))} placeholder="Name from NC Tracks" />
+              </label>
+              <label>
+                <span className="label">PCP phone</span>
+                <input className="input" value={quickAnswers.pcp_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_phone: e.target.value }))} placeholder="10-digit number from the record" />
+              </label>
+              <label>
+                <span className="label">Emergency contact</span>
+                <input className="input" value={quickAnswers.ec1_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_name: e.target.value }))} placeholder="Full name from the record" />
+              </label>
+              <label>
+                <span className="label">Emergency phone</span>
+                <input className="input" value={quickAnswers.ec1_cell_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_cell_phone: e.target.value }))} placeholder="10-digit number from the record" />
+              </label>
+            </div>
+          </details>
           {ncTracksTab === "upload" && (
             <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-white p-4">
               <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
@@ -559,93 +808,69 @@ export default function NewIntake() {
               {ncTracksFile && <p className="mt-2 text-sm font-semibold text-slate-700">{ncTracksFile.name}</p>}
             </div>
           )}
-          {ncTracksTab === "notes" && (
+          {ncTracksTab === "paste" && (
             <div className="mt-4 space-y-3">
-              <details open className="rounded-lg border border-brand/20 bg-white p-3">
-                <summary className="cursor-pointer list-none">
-                  <span className="font-semibold text-brand">Quick-fill common answers</span>
-                  <span className="ml-2 text-xs text-slate-500">Optional - selections are added to the notes automatically</span>
-                </summary>
-                <p className="mt-2 text-xs text-slate-600">Use only answers confirmed by the client or records. When you create the intake, these answers are saved to the packet and the client can skip those SMS questions.</p>
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <label>
-                    <span className="label">Gender</span>
-                    <select className="input" value={quickAnswers.gender || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, gender: e.target.value }))}>
-                      <option value="">Select gender</option>
-                      {QUICK_NOTE_GENDER_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="label">Race</span>
-                    <select className="input" value={quickAnswers.race || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, race: e.target.value }))}>
-                      <option value="">Select race</option>
-                      {QUICK_NOTE_RACE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="label">Ethnicity</span>
-                    <select className="input" value={quickAnswers.ethnicity || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ethnicity: e.target.value }))}>
-                      <option value="">Select ethnicity</option>
-                      {QUICK_NOTE_ETHNICITY_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="label">Veteran</span>
-                    <select className="input" value={quickAnswers.veteran || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, veteran: e.target.value }))}>
-                      <option value="">Select yes or no</option>
-                      {QUICK_NOTE_YES_NO_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="label">Employment status</span>
-                    <select className="input" value={quickAnswers.employment_status || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, employment_status: e.target.value }))}>
-                      <option value="">Select employment</option>
-                      {QUICK_NOTE_EMPLOYMENT_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="label">Type of insurance</span>
-                    <select className="input" value={quickAnswers.provider_choice_plan || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, provider_choice_plan: e.target.value }))}>
-                      <option value="">Select insurance</option>
-                      {PROVIDER_CHOICE_PLAN_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                    </select>
-                  </label>
-                  <label>
-                    <span className="label">PCP name</span>
-                    <input className="input" value={quickAnswers.pcp_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_name: e.target.value }))} placeholder="Primary care provider" />
-                  </label>
-                  <label>
-                    <span className="label">PCP phone</span>
-                    <input className="input" value={quickAnswers.pcp_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_phone: e.target.value }))} placeholder="336-555-0100" />
-                  </label>
-                  <label>
-                    <span className="label">Emergency contact</span>
-                    <input className="input" value={quickAnswers.ec1_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_name: e.target.value }))} placeholder="Full name" />
-                  </label>
-                  <label>
-                    <span className="label">Emergency phone</span>
-                    <input className="input" value={quickAnswers.ec1_cell_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_cell_phone: e.target.value }))} placeholder="336-555-0101" />
-                  </label>
-                </div>
-              </details>
               <label className="block">
                 <span className="label">Quick notes</span>
-                <span className="mt-1 block text-xs text-slate-500">Paste any additional confirmed answers here. The selected fields above are added automatically.</span>
+                <span className="mt-1 block text-xs text-slate-500">Paste a CCA or NC Tracks block. Extracted name, DOB, address, phone, emergency contact, and MID appear as chips to confirm.</span>
                 <textarea
                   className="input min-h-[120px]"
                   value={helperNotes}
-                  onChange={(e) => setHelperNotes(e.target.value)}
-                  placeholder={"Examples:\nMID: 123456789A\nAddress: 123 Main St, Greensboro, NC\nLiving arrangement: Homeless\nTransport: Services / treatment plan activities"}
+                  onChange={(e) => ingestHelperNotes(e.target.value, false)}
+                  onPaste={(e) => {
+                    const pasted = e.clipboardData.getData("text");
+                    if (!pasted) return;
+                    const target = e.currentTarget;
+                    const start = target.selectionStart ?? helperNotes.length;
+                    const end = target.selectionEnd ?? helperNotes.length;
+                    e.preventDefault();
+                    ingestHelperNotes(helperNotes.slice(0, start) + pasted + helperNotes.slice(end), true);
+                  }}
+                  placeholder={"Label: value, one per line\nName:\nDOB:\nAddress:\nPhone:\nEmergency contact:\nMID:"}
                 />
               </label>
+              {extractedFields.length > 0 && (
+                <div className="rounded-lg border border-brand/20 bg-white p-3">
+                  <p className="text-sm font-semibold text-slate-800">Extracted from notes — confirm each value</p>
+                  <p className="mt-1 text-xs text-slate-500">Empty fields are filled automatically. Confirmed fields are not overwritten unless you choose replace.</p>
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {extractedFields.map((field) => {
+                      const current = noteFieldCurrentValue(field).trim();
+                      const applied = current === field.value.trim();
+                      const occupied = !!current && !applied;
+                      return (
+                        <button
+                          key={`${field.key}:${field.value}`}
+                          type="button"
+                          className={applied ? "chip chip-on" : "chip"}
+                          onClick={() => applyNoteField(field)}
+                        >
+                          {field.label}: {field.value}
+                          {applied ? " (applied)" : occupied ? " (replace)" : " (use)"}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           )}
-          {ncTracksTab === "lookup" && (
+          {ncTracksTab === "howto" && (
             <div className="mt-4 rounded-lg bg-white p-4 text-sm text-slate-600">
               The app cannot safely read another signed-in browser tab by itself. The good workflows are:
               open NC Tracks in a new tab, upload a card / PDF to scan, or paste quick notes. If your
               approved NC Tracks integration is connected later, the intake page also has an automatic
               lookup button.
+            </div>
+          )}
+          {ncTracksTab === "nctracks" && (
+            <div className="mt-4 rounded-lg bg-white p-4 text-sm text-slate-600">
+              NC Tracks opens in a new tab. Copy Recipient ID, PCP, and plan details back here, or upload a screenshot.
+              <div className="mt-3">
+                <a className="btn-secondary px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank" rel="noreferrer">
+                  Open NC Tracks again
+                </a>
+              </div>
             </div>
           )}
         </div>
@@ -656,12 +881,22 @@ export default function NewIntake() {
           taps + consents + signature). The clinician&apos;s CCA will fill in the rest when you
           upload it in the <b>Add CCA</b> section on the client&apos;s page. Uncheck for the full question set.</span>
         </label>
-        <label className="mt-3 flex items-start gap-3 rounded-lg border border-brand/20 bg-brand-light/30 p-3 text-sm">
-          <input type="checkbox" className="mt-0.5 h-5 w-5" checked={autoEmailProviderPacket}
-            onChange={(e) => setAutoEmailProviderPacket(e.target.checked)} />
-          <span><b>Email completed packet to provider</b> - after the client signs and the packet is generated,
-          email the completed PDF to the provider email on file. This is off by default and can also be changed later.</span>
-        </label>
+        <details className="mt-3 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-600">
+          <summary className="cursor-pointer font-semibold text-slate-800">More options</summary>
+          <label className="mt-3 flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-3 text-sm">
+            <input type="checkbox" className="mt-0.5 h-5 w-5" checked={autoEmailProviderPacket}
+              onChange={(e) => setAutoEmailProviderPacket(e.target.checked)} />
+            <span>
+              <b>Email completed packet to provider</b> - after the client signs and the packet is generated,
+              email the completed PDF to the provider email on file. This stays off unless you turn it on.
+              {!packetReady && packetContextLoaded && (
+                <span className="mt-1 block font-semibold text-amber-800">
+                  The provider packet is not approved yet, so this cannot send a completed PDF until packet setup is finished.
+                </span>
+              )}
+            </span>
+          </label>
+        </details>
         {error && (
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
             <p className="text-sm font-semibold text-red-700">{error}</p>
@@ -673,8 +908,13 @@ export default function NewIntake() {
           </div>
         )}
         <button className="btn-primary mt-5 w-full disabled:cursor-not-allowed disabled:opacity-70" disabled={isCreating}>
-          {isCreating ? "Creating secure link..." : "Create intake & generate secure link"}
+          {submitLabel}
         </button>
+        {smsPhone && (
+          <p className="mt-2 text-center text-xs text-slate-500">
+            Uses cell {formatUsPhoneDisplay(smsPhone)} as the SMS destination.
+          </p>
+        )}
       </form>
     </main>
   );
