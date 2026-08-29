@@ -65,6 +65,7 @@ import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
 import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
 import { clientCcaAttestationReady } from "../src/lib/ccaReview";
 import { acceptableOverrideReason } from "../src/lib/overrideReason";
+import { sanitizePdfText } from "../src/lib/pdfCoordinates";
 import {
   clientLinkExpired,
   clientLinkMessagingFinished,
@@ -203,7 +204,16 @@ async function main() {
   assert.equal(overlayFillText({ source: "has_medicaid=No", type: "checkbox" }, "demo"), "");
   assert.equal(overlayFillText({ source: "consent_hipaa=true", type: "checkbox" }, "demo"), "X");
   assert.equal(DEMO_CLIENT_ANSWERS.gender, "Female");
-  const { PDFDocument } = await import("pdf-lib");
+  const { PDFDocument, StandardFonts } = await import("pdf-lib");
+  const unicodeDoc = await PDFDocument.create();
+  const standardFont = await unicodeDoc.embedFont(StandardFonts.Helvetica);
+  const safeClinicalText = sanitizePdfText(
+    "last\u2011use -> verified \u2705; next \u2192 follow-up; unsupported emoji \ud83e\ude7a",
+    standardFont,
+  );
+  assert.equal(safeClinicalText, "last-use -> verified Yes; next -> follow-up; unsupported emoji ?");
+  assert.doesNotThrow(() => standardFont.widthOfTextAtSize(safeClinicalText, 10));
+  ok("PDF text safely translates characters outside the standard font");
   const exclusiveDoc = await PDFDocument.create();
   exclusiveDoc.addPage([612, 792]);
   const exclusiveTemplate = await exclusiveDoc.save();

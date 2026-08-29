@@ -9,6 +9,7 @@
 import crypto from "crypto";
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import type { SignatureStatus } from "@/lib/signatureStatus";
+import { sanitizePdfText } from "@/lib/pdfCoordinates";
 
 export interface CertificateSigner {
   role: string;
@@ -54,7 +55,8 @@ export async function appendCertificatePage(
   let y = 740;
 
   const line = (text: string, opts: { bold?: boolean; size?: number; gap?: number } = {}) => {
-    page.drawText(text, { x: 50, y, size: opts.size ?? 10, font: opts.bold ? bold : font, color: ink });
+    const selectedFont = opts.bold ? bold : font;
+    page.drawText(sanitizePdfText(text, selectedFont), { x: 50, y, size: opts.size ?? 10, font: selectedFont, color: ink });
     y -= opts.gap ?? 16;
   };
 

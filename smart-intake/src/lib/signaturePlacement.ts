@@ -1,5 +1,6 @@
 import { PDFDocument, PDFFont, PDFImage, PDFPage, rgb } from "pdf-lib";
 import type { FieldMapping } from "@/config/mooreDivinePacketMap";
+import { sanitizePdfText } from "@/lib/pdfCoordinates";
 
 export interface SignatureRecord {
   role: string;          // client | guardian | staff | clinician | witness | medicalDirector
@@ -68,11 +69,12 @@ export function drawSignature(
       height,
     });
   } else {
+    const printedName = sanitizePdfText(match.record.printedName, italicFont);
     let size = Math.min(12, f.height);
-    while (size > 6 && italicFont.widthOfTextAtSize(match.record.printedName, size) > f.width) {
+    while (size > 6 && italicFont.widthOfTextAtSize(printedName, size) > f.width) {
       size -= 0.5;
     }
-    page.drawText(match.record.printedName, {
+    page.drawText(printedName, {
       x: f.x, y: f.y + 6, size, font: italicFont,
       color: rgb(0.05, 0.1, 0.3),
     });
