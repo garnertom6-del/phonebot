@@ -243,7 +243,7 @@ function Dashboard() {
         });
       }
       if (!active) return;
-      await load(tab);
+      await load();
       if (!active) return;
       const flash = consumeDashboardFlash();
       if (!flash) return;
@@ -252,7 +252,7 @@ function Dashboard() {
     }
     void boot();
     return () => { active = false; };
-  }, [load, tab, providerIdFromUrl, providerSlugFromUrl]);
+  }, [load, providerIdFromUrl, providerSlugFromUrl]);
 
   useEffect(() => {
     if (!rows || !createdIntakeId || announcedCreatedIntakeRef.current === createdIntakeId) return;

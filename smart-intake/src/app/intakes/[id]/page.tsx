@@ -235,6 +235,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
   const [ncTracksUploadBusy, setNcTracksUploadBusy] = useState(false);
   const [ncTracksResult, setNcTracksResult] = useState("");
+  const [helperDraft, setHelperDraft] = useState<Record<string, string>>({});
+  const [helperDirtyKeys, setHelperDirtyKeys] = useState<string[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -349,7 +351,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const providerPhone = i.provider?.phone || "";
   const clientMessage = intakeShareMessage(d.clientLink, providerName, providerPhone);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
-  const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
+  const helperFieldValue = (name: string, fallback: unknown = "") => (
+    helperDirtyKeys.includes(name) ? (helperDraft[name] ?? "") : String(d.answers[name] ?? fallback ?? "")
+  );
+  const updateHelperField = (name: string, value: string) => {
+    setHelperDirtyKeys((current) => current.includes(name) ? current : [...current, name]);
+    setHelperDraft((current) => ({ ...current, [name]: value }));
+  };
   const ccaDocuments = i.uploadedDocuments
     .filter((document) => document.docType === "CCA")
     .sort((a, b) => Date.parse(String(b.createdAt || "")) - Date.parse(String(a.createdAt || "")));
@@ -426,7 +434,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
   const preflightCorrectedCount = preflight?.findings.filter((finding) => finding.resolved === "corrected").length ?? 0;
-  const preflightIsClear = !!preflight && preflightBlockingCount === 0;
+  const preflightPendingRecheck = preflight?.findings.some((finding) => finding.resolved === "corrected" || finding.pendingRecheck) ?? false;
+  const preflightIsClear = !!preflight && preflightBlockingCount === 0 && !preflightPendingRecheck;
   const missingClientFieldKeys = [...new Set([
     ...d.missingRequired.map((field) => field.key),
     ...d.missingOptional.map((field) => field.key),
@@ -787,6 +796,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         setSaveAssistKind("success");
         setSaveAssistMessage(message);
         setNote(message);
+        setHelperDirtyKeys([]);
       }
       load();
     } catch {
@@ -961,7 +971,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       return;
     }
     const generated = makeRecordNumber(panel);
-    input.value = generated;
+    updateHelperField("record_number", generated);
     setNote(`Generated ${generated} for ${panel} (${recordNumberPrefix(panel)}). Click Save answers & notes to store it.`);
   }
 
@@ -1554,7 +1564,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </div>
           {preflight && (
             <div className="mt-3 space-y-2" aria-live="polite">
-              {preflightBlockingCount === 0 ? (
+              {preflightIsClear ? (
                 <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-emerald-900">
                   <p className="text-lg font-bold">→ 100% of blocking preflight checks are clear</p>
                   <p className="mt-1 text-sm">{preflight.message} {preflightOverrideCount ? `${preflightOverrideCount} item${preflightOverrideCount === 1 ? " was" : "s were"} intentionally overridden. ` : ""}Staff approval is still required before the packet is final.</p>
@@ -1563,10 +1573,30 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                     Continue to generate packet
                   </button>
                 </div>
+              ) : preflightPendingRecheck ? (
+                <div className="rounded-xl border border-sky-300 bg-sky-50 p-3 text-sky-950">
+                  <p className="text-lg font-bold">Corrections saved — rerun preflight to confirm</p>
+                  <p className="mt-1 text-sm">
+                    {preflightCorrectedCount > 0
+                      ? `${preflightCorrectedCount} item${preflightCorrectedCount === 1 ? " is" : "s are"} corrected and waiting for a clean re-run. `
+                      : "Saved corrections still need a clean re-run. "}
+                    {preflightBlockingCount > 0
+                      ? `${preflightBlockingCount} other item${preflightBlockingCount === 1 ? " still needs" : "s still need"} attention. `
+                      : ""}
+                    {preflight.message}
+                  </p>
+                  <button
+                    className="btn-primary mt-3 px-3 py-1.5 text-sm disabled:cursor-not-allowed disabled:opacity-60"
+                    type="button"
+                    disabled
+                    title="Rerun preflight to confirm the saved corrections before generating."
+                  >
+                    Continue to generate packet
+                  </button>
+                </div>
               ) : (
                 <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
                   <p className="font-bold">{preflightBlockingCount} item{preflightBlockingCount === 1 ? " needs" : "s need"} attention before the packet is ready.</p>
-                  {preflightCorrectedCount > 0 && <p className="mt-1 text-sm font-semibold text-emerald-900">{preflightCorrectedCount} item{preflightCorrectedCount === 1 ? " is" : "s are"} corrected and removed from the attention count. Rerun the review to verify the saved changes.</p>}
                   <p className="mt-1 text-sm">{preflight.message}</p>
                 </div>
               )}
@@ -1699,7 +1729,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </div>
           {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
           <form
-            key={helperFormKey}
             className="mt-4 space-y-3"
             onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
           >
@@ -1710,133 +1739,134 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </summary>
               <p className="mt-2 text-xs text-slate-600">Use one confirmed answer per line. Saving applies the answers to the intake packet and lets the client skip those questions in SMS. Consent and signature questions stay with the client.</p>
               <textarea name="helperNotes" className="input mt-3 min-h-[130px] w-full"
-                defaultValue={String(d.answers.staff_helper_notes ?? "")}
+                value={helperFieldValue("staff_helper_notes")}
+                onChange={(event) => updateHelperField("staff_helper_notes", event.target.value)}
                 placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
             </details>
 
             <HelperGroup title="Common client answers" description="Start here to shorten the SMS questions." defaultOpen={!originalClientIntakeFinished}>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperSelect name="gender" label="Gender" value={d.answers.gender ?? ""} options={GENDER_OPTIONS} placeholder="Select gender" />
-                <HelperSelect name="race" label="Race" value={d.answers.race ?? ""} options={RACE_OPTIONS} placeholder="Select race" />
-                <HelperSelect name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} options={ETHNICITY_OPTIONS} placeholder="Select ethnicity" />
-                <HelperSelect name="marital_status" label="Marital status" value={d.answers.marital_status ?? ""} options={MARITAL_STATUS_OPTIONS} placeholder="Select marital status" />
-                <HelperSelect name="veteran" label="Veteran" value={d.answers.veteran ?? ""} options={VETERAN_OPTIONS} placeholder="Select yes or no" />
-                <HelperSelect name="employment_status" label="Employment status" value={d.answers.employment_status ?? ""} options={EMPLOYMENT_OPTIONS} placeholder="Select employment status" />
-                <HelperSelect name="education" label="Highest education" value={d.answers.education ?? ""} options={EDUCATION_OPTIONS} placeholder="Select education" />
-                <HelperSelect name="language" label="Preferred language" value={d.answers.language ?? ""} options={LANGUAGE_OPTIONS} placeholder="Select language" />
-                <HelperInput name="language_other" label="Other language" value={d.answers.language_other ?? ""} />
-                <HelperSelect name="communication_level" label="Communication level" value={d.answers.communication_level ?? ""} options={COMMUNICATION_OPTIONS} placeholder="Select level" />
+                <HelperSelect name="gender" label="Gender" value={helperFieldValue("gender")} onChange={updateHelperField} options={GENDER_OPTIONS} placeholder="Select gender" />
+                <HelperSelect name="race" label="Race" value={helperFieldValue("race")} onChange={updateHelperField} options={RACE_OPTIONS} placeholder="Select race" />
+                <HelperSelect name="ethnicity" label="Ethnicity" value={helperFieldValue("ethnicity")} onChange={updateHelperField} options={ETHNICITY_OPTIONS} placeholder="Select ethnicity" />
+                <HelperSelect name="marital_status" label="Marital status" value={helperFieldValue("marital_status")} onChange={updateHelperField} options={MARITAL_STATUS_OPTIONS} placeholder="Select marital status" />
+                <HelperSelect name="veteran" label="Veteran" value={helperFieldValue("veteran")} onChange={updateHelperField} options={VETERAN_OPTIONS} placeholder="Select yes or no" />
+                <HelperSelect name="employment_status" label="Employment status" value={helperFieldValue("employment_status")} onChange={updateHelperField} options={EMPLOYMENT_OPTIONS} placeholder="Select employment status" />
+                <HelperSelect name="education" label="Highest education" value={helperFieldValue("education")} onChange={updateHelperField} options={EDUCATION_OPTIONS} placeholder="Select education" />
+                <HelperSelect name="language" label="Preferred language" value={helperFieldValue("language")} onChange={updateHelperField} options={LANGUAGE_OPTIONS} placeholder="Select language" />
+                <HelperInput name="language_other" label="Other language" value={helperFieldValue("language_other")} onChange={updateHelperField} />
+                <HelperSelect name="communication_level" label="Communication level" value={helperFieldValue("communication_level")} onChange={updateHelperField} options={COMMUNICATION_OPTIONS} placeholder="Select level" />
               </div>
             </HelperGroup>
 
             <HelperGroup title="Contact & household" description="Confirmed contact details can remove several client questions.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperInput name="client_phone_cell" label="Cell phone" value={d.answers.client_phone_cell ?? i.client.phone ?? ""} />
-                <HelperInput name="client_phone_home" label="Home phone" value={d.answers.client_phone_home ?? ""} />
-                <HelperInput name="client_phone_work" label="Work phone" value={d.answers.client_phone_work ?? ""} />
-                <HelperInput name="client_email" label="Email" value={d.answers.client_email ?? i.client.email ?? ""} />
-                <HelperInput name="address_street" label="Street address" value={d.answers.address_street ?? ""} />
-                <HelperInput name="address_city" label="City" value={d.answers.address_city ?? ""} />
-                <HelperInput name="address_state" label="State" value={d.answers.address_state ?? ""} />
-                <HelperSelect name="living_arrangement" label="Living arrangement" value={d.answers.living_arrangement ?? ""} options={LIVING_ARRANGEMENT_OPTIONS} placeholder="Select arrangement" />
-                <HelperInput name="lives_with_whom" label="Who does the client live with?" value={d.answers.lives_with_whom ?? ""} />
-                <HelperInput name="lives_where" label="Living area" value={d.answers.lives_where ?? ""} />
+                <HelperInput name="client_phone_cell" label="Cell phone" value={helperFieldValue("client_phone_cell", i.client.phone)} onChange={updateHelperField} />
+                <HelperInput name="client_phone_home" label="Home phone" value={helperFieldValue("client_phone_home")} onChange={updateHelperField} />
+                <HelperInput name="client_phone_work" label="Work phone" value={helperFieldValue("client_phone_work")} onChange={updateHelperField} />
+                <HelperInput name="client_email" label="Email" value={helperFieldValue("client_email", i.client.email)} onChange={updateHelperField} />
+                <HelperInput name="address_street" label="Street address" value={helperFieldValue("address_street")} onChange={updateHelperField} />
+                <HelperInput name="address_city" label="City" value={helperFieldValue("address_city")} onChange={updateHelperField} />
+                <HelperInput name="address_state" label="State" value={helperFieldValue("address_state")} onChange={updateHelperField} />
+                <HelperSelect name="living_arrangement" label="Living arrangement" value={helperFieldValue("living_arrangement")} onChange={updateHelperField} options={LIVING_ARRANGEMENT_OPTIONS} placeholder="Select arrangement" />
+                <HelperInput name="lives_with_whom" label="Who does the client live with?" value={helperFieldValue("lives_with_whom")} onChange={updateHelperField} />
+                <HelperInput name="lives_where" label="Living area" value={helperFieldValue("lives_where")} onChange={updateHelperField} />
               </div>
             </HelperGroup>
 
             <HelperGroup title="Insurance, referral & services" description="Use confirmed plan, referral, and requested-service information.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
-                <HelperSelect name="has_medicaid" label="Medicaid" value={d.answers.has_medicaid ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="medicaid_effective_date" label="Medicaid effective date" value={d.answers.medicaid_effective_date ?? ""} />
-                <HelperSelect name="provider_choice_plan" label="Type of insurance" value={d.answers.provider_choice_plan ?? d.answers.mco ?? ""} options={PROVIDER_CHOICE_PLAN_OPTIONS} placeholder="Select insurance type" />
-                <HelperSelect name="has_medicare" label="Medicare" value={d.answers.has_medicare ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="medicare_effective_date" label="Medicare effective date" value={d.answers.medicare_effective_date ?? ""} />
-                <HelperSelect name="has_nchc" label="NC Health Choice" value={d.answers.has_nchc ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="nchc_policy" label="NCHC policy number" value={d.answers.nchc_policy ?? ""} />
-                <HelperInput name="nchc_effective_date" label="NCHC effective date" value={d.answers.nchc_effective_date ?? ""} />
-                <HelperInput name="funding_other" label="Other funding source" value={d.answers.funding_other ?? ""} />
-                <HelperInput name="income_sources" label="Income sources (separate with commas)" value={d.answers.income_sources ?? ""} />
-                <HelperInput name="income_other" label="Other income" value={d.answers.income_other ?? ""} />
-                <HelperSelect name="referral_source" label="Referral source" value={d.answers.referral_source ?? ""} options={REFERRAL_OPTIONS} placeholder="Select referral source" />
-                <HelperInput name="social_agency_name" label="Social agency" value={d.answers.social_agency_name ?? ""} />
-                <HelperInput name="referral_source_other" label="Other agency/provider name" value={d.answers.referral_source_other ?? ""} />
-                <HelperInput name="referred_for" label="Referred for (separate with commas)" value={d.answers.referred_for ?? ""} />
-                <HelperInput name="services_requested" label="Services requested (separate with commas)" value={d.answers.services_requested ?? ""} />
-                <HelperInput name="services_other" label="Other service" value={d.answers.services_other ?? ""} />
+                <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={helperFieldValue("mid_number")} onChange={updateHelperField} />
+                <HelperSelect name="has_medicaid" label="Medicaid" value={helperFieldValue("has_medicaid")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="medicaid_effective_date" label="Medicaid effective date" value={helperFieldValue("medicaid_effective_date")} onChange={updateHelperField} />
+                <HelperSelect name="provider_choice_plan" label="Type of insurance" value={helperFieldValue("provider_choice_plan", d.answers.mco)} onChange={updateHelperField} options={PROVIDER_CHOICE_PLAN_OPTIONS} placeholder="Select insurance type" />
+                <HelperSelect name="has_medicare" label="Medicare" value={helperFieldValue("has_medicare")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="medicare_effective_date" label="Medicare effective date" value={helperFieldValue("medicare_effective_date")} onChange={updateHelperField} />
+                <HelperSelect name="has_nchc" label="NC Health Choice" value={helperFieldValue("has_nchc")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="nchc_policy" label="NCHC policy number" value={helperFieldValue("nchc_policy")} onChange={updateHelperField} />
+                <HelperInput name="nchc_effective_date" label="NCHC effective date" value={helperFieldValue("nchc_effective_date")} onChange={updateHelperField} />
+                <HelperInput name="funding_other" label="Other funding source" value={helperFieldValue("funding_other")} onChange={updateHelperField} />
+                <HelperInput name="income_sources" label="Income sources (separate with commas)" value={helperFieldValue("income_sources")} onChange={updateHelperField} />
+                <HelperInput name="income_other" label="Other income" value={helperFieldValue("income_other")} onChange={updateHelperField} />
+                <HelperSelect name="referral_source" label="Referral source" value={helperFieldValue("referral_source")} onChange={updateHelperField} options={REFERRAL_OPTIONS} placeholder="Select referral source" />
+                <HelperInput name="social_agency_name" label="Social agency" value={helperFieldValue("social_agency_name")} onChange={updateHelperField} />
+                <HelperInput name="referral_source_other" label="Other agency/provider name" value={helperFieldValue("referral_source_other")} onChange={updateHelperField} />
+                <HelperInput name="referred_for" label="Referred for (separate with commas)" value={helperFieldValue("referred_for")} onChange={updateHelperField} />
+                <HelperInput name="services_requested" label="Services requested (separate with commas)" value={helperFieldValue("services_requested")} onChange={updateHelperField} />
+                <HelperInput name="services_other" label="Other service" value={helperFieldValue("services_other")} onChange={updateHelperField} />
               </div>
             </HelperGroup>
 
             <HelperGroup title="Health & care team" description="Add information already confirmed by the client, PCP, or clinical records.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperInput name="pcp_name" label="Primary care doctor" value={d.answers.pcp_name ?? ""} />
-                <HelperInput name="pcp_phone" label="PCP phone" value={d.answers.pcp_phone ?? ""} />
-                <HelperInput name="pcp_address" label="PCP address / practice" value={d.answers.pcp_address ?? ""} />
-                <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={d.answers.preferred_emergency_facility ?? ""} />
-                <HelperSelect name="no_pcp_nearest_er" label="No PCP; use nearest ER" value={d.answers.no_pcp_nearest_er ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperSelect name="has_current_diagnosis" label="Current diagnosis known" value={d.answers.has_current_diagnosis ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="diagnosis_list" label="Diagnosis list" value={d.answers.diagnosis_list ?? ""} />
-                <HelperInput name="current_diagnosis_known" label="Current diagnosis, if known" value={d.answers.current_diagnosis_known ?? ""} />
-                <HelperInput name="mh_history" label="Mental health history" value={d.answers.mh_history ?? ""} />
-                <HelperSelect name="has_current_therapist" label="Current therapist" value={d.answers.has_current_therapist ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="therapist_name" label="Therapist name" value={d.answers.therapist_name ?? ""} />
-                <HelperInput name="therapist_agency_phone" label="Therapist agency / phone" value={d.answers.therapist_agency_phone ?? ""} />
-                <HelperSelect name="receiving_mh_services" label="Receiving mental health services" value={d.answers.receiving_mh_services ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="mh_services_desc" label="Mental health services" value={d.answers.mh_services_desc ?? ""} />
-                <HelperInput name="mh_service_provider" label="Mental health provider" value={d.answers.mh_service_provider ?? ""} />
-                <HelperSelect name="has_limitations" label="Physical limitations" value={d.answers.has_limitations ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="limitations_desc" label="Limitations detail" value={d.answers.limitations_desc ?? ""} />
-                <HelperInput name="medical_diagnoses" label="Medical conditions" value={d.answers.medical_diagnoses ?? ""} />
-                <HelperInput name="treatments" label="Medical treatments" value={d.answers.treatments ?? ""} />
-                <HelperInput name="hospitalizations" label="Hospitalizations / surgeries" value={d.answers.hospitalizations ?? ""} />
-                <HelperInput name="last_physical_date" label="Last physical date" value={d.answers.last_physical_date ?? ""} />
-                <HelperInput name="height" label="Height" value={d.answers.height ?? ""} />
-                <HelperInput name="weight" label="Weight" value={d.answers.weight ?? ""} />
-                <HelperInput name="hair_color" label="Hair color" value={d.answers.hair_color ?? ""} />
-                <HelperInput name="eye_color" label="Eye color" value={d.answers.eye_color ?? ""} />
-                <HelperInput name="identifying_marks" label="Identifying marks / tattoos" value={d.answers.identifying_marks ?? ""} />
-                <HelperInput name="special_diets" label="Special diets" value={d.answers.special_diets ?? ""} />
-                <HelperInput name="medical_alerts" label="Medical alerts" value={d.answers.medical_alerts ?? ""} />
-                <HelperInput name="fax" label="Fax" value={d.answers.fax ?? ""} />
-                <HelperTextArea name="medications" label="Prescription medications" value={d.answers.medications ?? ""} />
-                <HelperTextArea name="otc_medications" label="Over-the-counter medications" value={d.answers.otc_medications ?? ""} />
-                <HelperInput name="drug_allergies" label="Drug allergies" value={d.answers.drug_allergies ?? ""} />
-                <HelperInput name="environmental_allergies" label="Food / environmental allergies" value={d.answers.environmental_allergies ?? ""} />
-                <HelperInput name="allergies" label="Other allergies" value={d.answers.allergies ?? ""} />
-                <HelperTextArea name="presenting_problem" label="What brings the client in?" value={d.answers.presenting_problem ?? ""} />
-                <HelperInput name="strengths" label="Strengths" value={d.answers.strengths ?? ""} />
-                <HelperInput name="needs" label="Needs" value={d.answers.needs ?? ""} />
-                <HelperInput name="abilities" label="Abilities" value={d.answers.abilities ?? ""} />
-                <HelperInput name="preferences" label="Care preferences" value={d.answers.preferences ?? ""} />
+                <HelperInput name="pcp_name" label="Primary care doctor" value={helperFieldValue("pcp_name")} onChange={updateHelperField} />
+                <HelperInput name="pcp_phone" label="PCP phone" value={helperFieldValue("pcp_phone")} onChange={updateHelperField} />
+                <HelperInput name="pcp_address" label="PCP address / practice" value={helperFieldValue("pcp_address")} onChange={updateHelperField} />
+                <HelperInput name="preferred_emergency_facility" label="Local hospital / ER" value={helperFieldValue("preferred_emergency_facility")} onChange={updateHelperField} />
+                <HelperSelect name="no_pcp_nearest_er" label="No PCP; use nearest ER" value={helperFieldValue("no_pcp_nearest_er")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperSelect name="has_current_diagnosis" label="Current diagnosis known" value={helperFieldValue("has_current_diagnosis")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="diagnosis_list" label="Diagnosis list" value={helperFieldValue("diagnosis_list")} onChange={updateHelperField} />
+                <HelperInput name="current_diagnosis_known" label="Current diagnosis, if known" value={helperFieldValue("current_diagnosis_known")} onChange={updateHelperField} />
+                <HelperInput name="mh_history" label="Mental health history" value={helperFieldValue("mh_history")} onChange={updateHelperField} />
+                <HelperSelect name="has_current_therapist" label="Current therapist" value={helperFieldValue("has_current_therapist")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="therapist_name" label="Therapist name" value={helperFieldValue("therapist_name")} onChange={updateHelperField} />
+                <HelperInput name="therapist_agency_phone" label="Therapist agency / phone" value={helperFieldValue("therapist_agency_phone")} onChange={updateHelperField} />
+                <HelperSelect name="receiving_mh_services" label="Receiving mental health services" value={helperFieldValue("receiving_mh_services")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="mh_services_desc" label="Mental health services" value={helperFieldValue("mh_services_desc")} onChange={updateHelperField} />
+                <HelperInput name="mh_service_provider" label="Mental health provider" value={helperFieldValue("mh_service_provider")} onChange={updateHelperField} />
+                <HelperSelect name="has_limitations" label="Physical limitations" value={helperFieldValue("has_limitations")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="limitations_desc" label="Limitations detail" value={helperFieldValue("limitations_desc")} onChange={updateHelperField} />
+                <HelperInput name="medical_diagnoses" label="Medical conditions" value={helperFieldValue("medical_diagnoses")} onChange={updateHelperField} />
+                <HelperInput name="treatments" label="Medical treatments" value={helperFieldValue("treatments")} onChange={updateHelperField} />
+                <HelperInput name="hospitalizations" label="Hospitalizations / surgeries" value={helperFieldValue("hospitalizations")} onChange={updateHelperField} />
+                <HelperInput name="last_physical_date" label="Last physical date" value={helperFieldValue("last_physical_date")} onChange={updateHelperField} />
+                <HelperInput name="height" label="Height" value={helperFieldValue("height")} onChange={updateHelperField} />
+                <HelperInput name="weight" label="Weight" value={helperFieldValue("weight")} onChange={updateHelperField} />
+                <HelperInput name="hair_color" label="Hair color" value={helperFieldValue("hair_color")} onChange={updateHelperField} />
+                <HelperInput name="eye_color" label="Eye color" value={helperFieldValue("eye_color")} onChange={updateHelperField} />
+                <HelperInput name="identifying_marks" label="Identifying marks / tattoos" value={helperFieldValue("identifying_marks")} onChange={updateHelperField} />
+                <HelperInput name="special_diets" label="Special diets" value={helperFieldValue("special_diets")} onChange={updateHelperField} />
+                <HelperInput name="medical_alerts" label="Medical alerts" value={helperFieldValue("medical_alerts")} onChange={updateHelperField} />
+                <HelperInput name="fax" label="Fax" value={helperFieldValue("fax")} onChange={updateHelperField} />
+                <HelperTextArea name="medications" label="Prescription medications" value={helperFieldValue("medications")} onChange={updateHelperField} />
+                <HelperTextArea name="otc_medications" label="Over-the-counter medications" value={helperFieldValue("otc_medications")} onChange={updateHelperField} />
+                <HelperInput name="drug_allergies" label="Drug allergies" value={helperFieldValue("drug_allergies")} onChange={updateHelperField} />
+                <HelperInput name="environmental_allergies" label="Food / environmental allergies" value={helperFieldValue("environmental_allergies")} onChange={updateHelperField} />
+                <HelperInput name="allergies" label="Other allergies" value={helperFieldValue("allergies")} onChange={updateHelperField} />
+                <HelperTextArea name="presenting_problem" label="What brings the client in?" value={helperFieldValue("presenting_problem")} onChange={updateHelperField} />
+                <HelperInput name="strengths" label="Strengths" value={helperFieldValue("strengths")} onChange={updateHelperField} />
+                <HelperInput name="needs" label="Needs" value={helperFieldValue("needs")} onChange={updateHelperField} />
+                <HelperInput name="abilities" label="Abilities" value={helperFieldValue("abilities")} onChange={updateHelperField} />
+                <HelperInput name="preferences" label="Care preferences" value={helperFieldValue("preferences")} onChange={updateHelperField} />
               </div>
             </HelperGroup>
 
             <HelperGroup title="Guardian & emergency contact" description="Use this when the guardian or emergency contact information is already known.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperSelect name="pending_court_cases" label="Pending court cases" value={d.answers.pending_court_cases ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="court_case_desc" label="Court case detail" value={d.answers.court_case_desc ?? ""} />
-                <HelperSelect name="is_minor_or_incompetent" label="Minor or legal guardian" value={d.answers.is_minor_or_incompetent ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
-                <HelperInput name="date_adjudicated" label="Date adjudicated" value={d.answers.date_adjudicated ?? ""} />
-                <HelperInput name="guardian_name" label="Guardian name" value={d.answers.guardian_name ?? i.client.guardianName ?? ""} />
-                <HelperInput name="guardian_address" label="Guardian address" value={d.answers.guardian_address ?? ""} />
-                <HelperInput name="guardian_phone" label="Guardian phone" value={d.answers.guardian_phone ?? ""} />
-                <HelperInput name="guardian_email" label="Guardian email" value={d.answers.guardian_email ?? ""} />
-                <HelperInput name="ec1_name" label="Emergency contact" value={d.answers.ec1_name ?? ""} />
-                <HelperInput name="ec1_cell_phone" label="Emergency cell phone" value={d.answers.ec1_cell_phone ?? ""} />
-                <HelperInput name="ec1_home_phone" label="Emergency home phone" value={d.answers.ec1_home_phone ?? ""} />
-                <HelperInput name="ec1_work_phone" label="Emergency work phone" value={d.answers.ec1_work_phone ?? ""} />
-                <HelperInput name="ec1_street" label="Emergency street" value={d.answers.ec1_street ?? ""} />
-                <HelperInput name="ec1_city" label="Emergency city" value={d.answers.ec1_city ?? ""} />
-                <HelperInput name="ec1_state" label="Emergency state" value={d.answers.ec1_state ?? ""} />
+                <HelperSelect name="pending_court_cases" label="Pending court cases" value={helperFieldValue("pending_court_cases")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="court_case_desc" label="Court case detail" value={helperFieldValue("court_case_desc")} onChange={updateHelperField} />
+                <HelperSelect name="is_minor_or_incompetent" label="Minor or legal guardian" value={helperFieldValue("is_minor_or_incompetent")} onChange={updateHelperField} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
+                <HelperInput name="date_adjudicated" label="Date adjudicated" value={helperFieldValue("date_adjudicated")} onChange={updateHelperField} />
+                <HelperInput name="guardian_name" label="Guardian name" value={helperFieldValue("guardian_name", i.client.guardianName)} onChange={updateHelperField} />
+                <HelperInput name="guardian_address" label="Guardian address" value={helperFieldValue("guardian_address")} onChange={updateHelperField} />
+                <HelperInput name="guardian_phone" label="Guardian phone" value={helperFieldValue("guardian_phone")} onChange={updateHelperField} />
+                <HelperInput name="guardian_email" label="Guardian email" value={helperFieldValue("guardian_email")} onChange={updateHelperField} />
+                <HelperInput name="ec1_name" label="Emergency contact" value={helperFieldValue("ec1_name")} onChange={updateHelperField} />
+                <HelperInput name="ec1_cell_phone" label="Emergency cell phone" value={helperFieldValue("ec1_cell_phone")} onChange={updateHelperField} />
+                <HelperInput name="ec1_home_phone" label="Emergency home phone" value={helperFieldValue("ec1_home_phone")} onChange={updateHelperField} />
+                <HelperInput name="ec1_work_phone" label="Emergency work phone" value={helperFieldValue("ec1_work_phone")} onChange={updateHelperField} />
+                <HelperInput name="ec1_street" label="Emergency street" value={helperFieldValue("ec1_street")} onChange={updateHelperField} />
+                <HelperInput name="ec1_city" label="Emergency city" value={helperFieldValue("ec1_city")} onChange={updateHelperField} />
+                <HelperInput name="ec1_state" label="Emergency state" value={helperFieldValue("ec1_state")} onChange={updateHelperField} />
               </div>
             </HelperGroup>
 
             <HelperGroup title="Staff & packet setup" description="These fields help staff complete the packet but do not replace client consent.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
-                <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={d.answers.staff_receiving_intake ?? d.answers.clinician_name ?? ""} />
-                <HelperInput name="transport_destination" label="Transport line" value={d.answers.transport_destination ?? ""} />
-                <HelperInput name="transport_purposes" label="Transport purpose(s)" value={d.answers.transport_purposes ?? ""} />
+                <HelperInput name="record_number" label="Record #" value={helperFieldValue("record_number")} onChange={updateHelperField} />
+                <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={helperFieldValue("staff_receiving_intake", d.answers.clinician_name)} onChange={updateHelperField} />
+                <HelperInput name="transport_destination" label="Transport line" value={helperFieldValue("transport_destination")} onChange={updateHelperField} />
+                <HelperInput name="transport_purposes" label="Transport purpose(s)" value={helperFieldValue("transport_purposes")} onChange={updateHelperField} />
                 <div className="flex flex-wrap items-center gap-2 md:col-span-3">
                   <button type="button" className="btn-secondary px-3 py-1.5 text-sm"
                     onClick={(e) => e.currentTarget.form && generateRecordNumberFromPanel(e.currentTarget.form)}>
@@ -1989,20 +2019,24 @@ function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy
   );
 }
 
-function HelperInput({ name, label, value }: { name: string; label: string; value: unknown }) {
+function HelperInput({
+  name, label, value, onChange,
+}: { name: string; label: string; value: string; onChange: (name: string, value: string) => void }) {
   return (
     <label>
       <span className="label">{label}</span>
-      <input className="input" name={name} defaultValue={String(value ?? "")} />
+      <input className="input" name={name} value={value} onChange={(event) => onChange(name, event.target.value)} />
     </label>
   );
 }
 
-function HelperTextArea({ name, label, value }: { name: string; label: string; value: unknown }) {
+function HelperTextArea({
+  name, label, value, onChange,
+}: { name: string; label: string; value: string; onChange: (name: string, value: string) => void }) {
   return (
     <label>
       <span className="label">{label}</span>
-      <textarea className="input min-h-[72px]" name={name} defaultValue={String(value ?? "")} />
+      <textarea className="input min-h-[72px]" name={name} value={value} onChange={(event) => onChange(name, event.target.value)} />
     </label>
   );
 }
@@ -2030,17 +2064,19 @@ function HelperSelect({
   value,
   options,
   placeholder,
+  onChange,
 }: {
   name: string;
   label: string;
-  value: unknown;
+  value: string;
   options: string[];
   placeholder?: string;
+  onChange: (name: string, value: string) => void;
 }) {
   return (
     <label>
       <span className="label">{label}</span>
-      <select className="input" name={name} defaultValue={String(value ?? "")}>
+      <select className="input" name={name} value={value} onChange={(event) => onChange(name, event.target.value)}>
         <option value="">{placeholder || "Choose an option"}</option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
