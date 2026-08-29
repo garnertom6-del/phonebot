@@ -40,7 +40,7 @@ import { signatureForRole } from "../src/lib/signaturePlacement";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
-import { clientDetailsSchema, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
+import { clientDetailsSchema, isQuestionRequired, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
 import {
   assignIntakeContacts,
   formatUsPhoneDisplay,
@@ -62,7 +62,7 @@ import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
 import { buildMasterProviderListExtras } from "../src/lib/masterProviderList";
 import { assessMapping } from "../src/lib/mappingHealth";
 import { catalogEntryByKey, catalogPlacementFields, DEMO_CLIENT_ANSWERS, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, overlayFillText, packetRequiredEntries } from "../src/lib/mappingCatalog";
-import { questionCatalogId } from "../src/config/mooreDivineQuestions";
+import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS } from "../src/config/mooreDivineQuestions";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -975,6 +975,28 @@ async function main() {
     false,
     "blank street on the homeless path must not block required-field checks",
   );
+  assert.equal(
+    missingRequired({
+      client_full_name: "Sample Client",
+      dob: "1980-01-15",
+      living_arrangement: "Adult Alone",
+    }, true).some((item) => item.key === "address_street"),
+    true,
+    "housed clients still need a street address",
+  );
+  const livingQ = questionByKey("living_arrangement");
+  const streetQ = questionByKey("address_street");
+  const contactQuestions = SECTIONS.find((section) => section.key === "contact")?.questions || [];
+  assert.equal(livingQ?.essential, true, "Easy/quick mode must ask living arrangement so homeless can skip street");
+  assert.equal(livingQ?.required, true);
+  assert.equal(isQuickIntakeQuestion(livingQ!), true);
+  assert.ok(
+    contactQuestions.findIndex((question) => question.key === "living_arrangement")
+      < contactQuestions.findIndex((question) => question.key === "address_street"),
+    "living arrangement must be asked before street so Easy mode can skip street immediately",
+  );
+  assert.equal(isQuestionRequired(streetQ!, { living_arrangement: "Homeless" }), false);
+  assert.equal(isQuestionRequired(streetQ!, { living_arrangement: "Adult Alone" }), true);
   assert.equal(canOfferCompletedPacketEmail({ packetContextLoaded: true, packetReady: false }), false);
   assert.equal(canOfferCompletedPacketEmail({ packetContextLoaded: true, packetReady: true }), true);
   assert.equal(canOfferCompletedPacketEmail({ packetContextLoaded: true, packetReady: true, packetContextError: true }), false);

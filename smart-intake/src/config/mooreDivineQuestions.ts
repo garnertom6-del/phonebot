@@ -112,13 +112,13 @@ export const SECTIONS: Section[] = [
   {
     key: "contact", title: "Address & Contact", fastIntake: true,
     questions: [
+      { key: "living_arrangement", essential: true, label: "Living arrangement", type: "radio", required: true, options: ["Adult with Spouse", "Adult with Relative", "Adult Alone", "Homeless", "Residential", "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative"] },
       { key: "address_street", essential: true, label: "Street address", type: "text", required: true, voice: true },
       { key: "address_city", essential: true, label: "City", type: "text", voice: true },
       { key: "address_state", essential: true, label: "State", type: "text", placeholder: "NC" },
       { key: "client_phone_cell", essential: true, label: "Cell phone", type: "phone", required: true },
       { key: "client_phone_home", label: "Home phone (same as cell unless different)", type: "phone" },
       { key: "client_phone_work", label: "Work phone", type: "phone" },
-      { key: "living_arrangement", label: "Living arrangement", type: "radio", options: ["Adult with Spouse", "Adult with Relative", "Adult Alone", "Homeless", "Residential", "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative"] },
       { key: "lives_with_whom", label: "Who do you live with?", type: "text", voice: true },
       { key: "lives_where", label: "Where (city/area)?", type: "text", voice: true },
       { key: "effects_on_home", label: "How do you get along with the people you live with?", type: "textarea", voice: true },
@@ -589,7 +589,7 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
 export const REQUIRED_FOR_SUBMIT: { key: string; label: string; when?: AskIf }[] = [
   { key: "client_full_name", label: "Client name" },
   { key: "dob", label: "Date of birth" },
-  { key: "address_street", label: "Street address" },
+  { key: "address_street", label: "Street address", when: { key: "living_arrangement", oneOf: ["Adult with Spouse", "Adult with Relative", "Adult Alone", "Residential", "Living in hospital/institution", "Child with Parent", "Child with other relative", "Child with Non-relative"] } },
   { key: "client_phone_cell", label: "Phone (or email)" },
   { key: "gender", label: "Gender" },
   { key: "ec1_name", label: "Emergency contact" },
@@ -618,6 +618,7 @@ export const CLIENT_PREFILLED_QUESTION_KEYS: ReadonlySet<string> = new Set([
   "mid_number",
   "client_email",
   "client_phone_cell",
+  "living_arrangement",
   "is_minor_or_incompetent",
   "guardian_name",
   "guardian_phone",

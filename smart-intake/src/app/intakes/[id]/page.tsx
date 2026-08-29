@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import CoveragePanel from "@/components/CoveragePanel";
 import ManualSendPanel from "@/components/ManualSendPanel";
@@ -185,6 +185,45 @@ const HELPER_FORM_KEYS = [
   "staff_helper_notes",
 ] as const;
 
+const HELPER_DRAFT_KEYS = [...HELPER_FORM_KEYS, "has_limitations", "limitations_desc"] as const;
+
+function helperValueFromDetail(key: string, detail: Detail): string {
+  const answers = detail.answers;
+  const client = detail.intake.client;
+  if (key === "client_phone_cell") return String(answers.client_phone_cell ?? client.phone ?? "");
+  if (key === "client_email") return String(answers.client_email ?? client.email ?? "");
+  if (key === "guardian_name") return String(answers.guardian_name ?? client.guardianName ?? "");
+  if (key === "guardian_phone") return String(answers.guardian_phone ?? client.guardianPhone ?? "");
+  if (key === "guardian_email") return String(answers.guardian_email ?? client.guardianEmail ?? "");
+  if (key === "staff_receiving_intake") return String(answers.staff_receiving_intake ?? answers.clinician_name ?? "");
+  if (key === "provider_choice_plan") return String(answers.provider_choice_plan ?? answers.mco ?? "");
+  return String(answers[key] ?? "");
+}
+
+function mergeHelperDraft(
+  current: Record<string, string>,
+  detail: Detail,
+  dirtyKeys: Set<string>,
+): Record<string, string> {
+  const next = { ...current };
+  for (const key of HELPER_DRAFT_KEYS) {
+    if (dirtyKeys.has(key)) continue;
+    next[key] = helperValueFromDetail(key, detail);
+  }
+  return next;
+}
+
+const HelperDraftContext = createContext<{
+  draft: Record<string, string>;
+  setField: (name: string, value: string) => void;
+} | null>(null);
+
+function useHelperDraft() {
+  const ctx = useContext(HelperDraftContext);
+  if (!ctx) throw new Error("Helper fields must render inside the staff helper form.");
+  return ctx;
+}
+
 const RACE_OPTIONS = [
   "American Indian or Alaska Native", "Asian", "Black or African American",
   "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
@@ -235,6 +274,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
   const [ncTracksUploadBusy, setNcTracksUploadBusy] = useState(false);
   const [ncTracksResult, setNcTracksResult] = useState("");
+  const [helperDraft, setHelperDraft] = useState<Record<string, string>>({});
+  const helperDirtyRef = useRef<Set<string>>(new Set());
 
   const load = useCallback(async () => {
     try {
@@ -252,6 +293,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         const body = await r.json() as Detail;
         setLoadError(null);
         setD(body);
+        setHelperDraft((current) => mergeHelperDraft(current, body, helperDirtyRef.current));
         if (body.intake.followUps?.[0]?.status === "COMPLETED") setFollowUpResult(null);
         return body;
       } else {
@@ -349,7 +391,6 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const providerPhone = i.provider?.phone || "";
   const clientMessage = intakeShareMessage(d.clientLink, providerName, providerPhone);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
-  const helperFormKey = HELPER_FORM_KEYS.map((key) => String(d.answers[key] ?? "")).join("\u001f");
   const ccaDocuments = i.uploadedDocuments
     .filter((document) => document.docType === "CCA")
     .sort((a, b) => Date.parse(String(b.createdAt || "")) - Date.parse(String(a.createdAt || "")));
@@ -426,7 +467,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
   const preflightCorrectedCount = preflight?.findings.filter((finding) => finding.resolved === "corrected").length ?? 0;
-  const preflightIsClear = !!preflight && preflightBlockingCount === 0;
+  const preflightNeedsRerun = preflight?.findings.some((finding) => (
+    !finding.overridden && finding.resolved !== "overridden" && (finding.pendingRecheck || finding.resolved === "corrected")
+  )) ?? false;
+  const preflightIsClear = !!preflight && preflightBlockingCount === 0 && !preflightNeedsRerun && missingAnswerCount === 0;
   const missingClientFieldKeys = [...new Set([
     ...d.missingRequired.map((field) => field.key),
     ...d.missingOptional.map((field) => field.key),
@@ -787,6 +831,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         setSaveAssistKind("success");
         setSaveAssistMessage(message);
         setNote(message);
+        helperDirtyRef.current.clear();
       }
       load();
     } catch {
@@ -945,8 +990,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }
 
+  function setHelperField(name: string, value: string) {
+    helperDirtyRef.current.add(name);
+    setHelperDraft((current) => ({ ...current, [name]: value }));
+  }
+
   function generateRecordNumberFromPanel(form: HTMLFormElement) {
-    const panel = String(new FormData(form).get("provider_choice_plan") || "").trim();
+    const panel = String(helperDraft.provider_choice_plan || new FormData(form).get("provider_choice_plan") || "").trim();
     if (!panel) {
       setNote("Choose the insurance type first, then generate the Record#.");
       return;
@@ -955,13 +1005,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       setNote("Enter this panel's Record# manually. The generator is only for BCBS, United Health Care, AmeriHealth, and Carolina Complete.");
       return;
     }
-    const input = form.elements.namedItem("record_number");
-    if (!(input instanceof HTMLInputElement)) {
-      setNote("The Record# field is not available. Please refresh this intake.");
-      return;
-    }
     const generated = makeRecordNumber(panel);
-    input.value = generated;
+    setHelperField("record_number", generated);
     setNote(`Generated ${generated} for ${panel} (${recordNumberPrefix(panel)}). Click Save answers & notes to store it.`);
   }
 
@@ -1554,7 +1599,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </div>
           {preflight && (
             <div className="mt-3 space-y-2" aria-live="polite">
-              {preflightBlockingCount === 0 ? (
+              {preflightNeedsRerun ? (
+                <div className="rounded-xl border border-sky-300 bg-sky-100 p-3 text-sky-950">
+                  <p className="text-lg font-bold">Corrections saved — rerun preflight to confirm</p>
+                  <p className="mt-1 text-sm">
+                    {preflightCorrectedCount} item{preflightCorrectedCount === 1 ? " was" : "s were"} corrected but have not been re-checked.
+                    Continue stays blocked until a clean preflight run confirms the saved changes.
+                  </p>
+                </div>
+              ) : preflightIsClear ? (
                 <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-emerald-900">
                   <p className="text-lg font-bold">→ 100% of blocking preflight checks are clear</p>
                   <p className="mt-1 text-sm">{preflight.message} {preflightOverrideCount ? `${preflightOverrideCount} item${preflightOverrideCount === 1 ? " was" : "s were"} intentionally overridden. ` : ""}Staff approval is still required before the packet is final.</p>
@@ -1562,6 +1615,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                     onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
                     Continue to generate packet
                   </button>
+                </div>
+              ) : preflightBlockingCount === 0 && missingAnswerCount > 0 ? (
+                <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
+                  <p className="font-bold">Preflight found no blocking findings, but {missingAnswerCount} required answer{missingAnswerCount === 1 ? " is" : "s are"} still blank.</p>
+                  <p className="mt-1 text-sm">{preflight.message} Continue stays blocked until those required items are filled or overridden and preflight is run again.</p>
                 </div>
               ) : (
                 <div className="rounded-xl border border-amber-300 bg-amber-100 p-3 text-amber-900">
@@ -1654,7 +1712,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   )}
                 </div>
               ))}
-              {preflightBlockingCount > 0 && (
+              {(preflightBlockingCount > 0 || preflightNeedsRerun) && (
                 <p className="text-xs text-slate-500">The checklist stays open while you correct items. Run preflight again when you are ready to verify the saved changes.</p>
               )}
             </div>
@@ -1698,8 +1756,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </div>
           </div>
           {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
+          <HelperDraftContext.Provider value={{ draft: helperDraft, setField: setHelperField }}>
           <form
-            key={helperFormKey}
             className="mt-4 space-y-3"
             onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
           >
@@ -1710,7 +1768,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </summary>
               <p className="mt-2 text-xs text-slate-600">Use one confirmed answer per line. Saving applies the answers to the intake packet and lets the client skip those questions in SMS. Consent and signature questions stay with the client.</p>
               <textarea name="helperNotes" className="input mt-3 min-h-[130px] w-full"
-                defaultValue={String(d.answers.staff_helper_notes ?? "")}
+                value={helperDraft.staff_helper_notes ?? ""}
+                onChange={(e) => setHelperField("staff_helper_notes", e.target.value)}
                 placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
             </details>
 
@@ -1875,6 +1934,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </p>
             )}
           </form>
+          </HelperDraftContext.Provider>
         </div>
         <div className="order-4">
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
@@ -1989,20 +2049,22 @@ function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy
   );
 }
 
-function HelperInput({ name, label, value }: { name: string; label: string; value: unknown }) {
+function HelperInput({ name, label }: { name: string; label: string; value?: unknown }) {
+  const helper = useHelperDraft();
   return (
     <label>
       <span className="label">{label}</span>
-      <input className="input" name={name} defaultValue={String(value ?? "")} />
+      <input className="input" name={name} value={helper.draft[name] ?? ""} onChange={(e) => helper.setField(name, e.target.value)} />
     </label>
   );
 }
 
-function HelperTextArea({ name, label, value }: { name: string; label: string; value: unknown }) {
+function HelperTextArea({ name, label }: { name: string; label: string; value?: unknown }) {
+  const helper = useHelperDraft();
   return (
     <label>
       <span className="label">{label}</span>
-      <textarea className="input min-h-[72px]" name={name} defaultValue={String(value ?? "")} />
+      <textarea className="input min-h-[72px]" name={name} value={helper.draft[name] ?? ""} onChange={(e) => helper.setField(name, e.target.value)} />
     </label>
   );
 }
@@ -2027,20 +2089,20 @@ function HelperGroup({
 function HelperSelect({
   name,
   label,
-  value,
   options,
   placeholder,
 }: {
   name: string;
   label: string;
-  value: unknown;
+  value?: unknown;
   options: string[];
   placeholder?: string;
 }) {
+  const helper = useHelperDraft();
   return (
     <label>
       <span className="label">{label}</span>
-      <select className="input" name={name} defaultValue={String(value ?? "")}>
+      <select className="input" name={name} value={helper.draft[name] ?? ""} onChange={(e) => helper.setField(name, e.target.value)}>
         <option value="">{placeholder || "Choose an option"}</option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>
