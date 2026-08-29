@@ -269,9 +269,15 @@ async function main() {
 
   const wrapDoc = await PDFDocument.create();
   const wrapFont = await wrapDoc.embedFont(StandardFonts.HelveticaBold);
-  const overflowLines = wrapText(`${"neighborhood ".repeat(30)}messy address 10.21.2026`, wrapFont, 9, 70, 2);
+  assert.equal(sanitizePdfText("of\ufb01ce \tcheckbox ☑", wrapFont), "office checkbox");
+  const overflowLines = wrapText(`short ${"A".repeat(120)}`, wrapFont, 9, 70, 2);
   assert.equal(overflowLines.length, 2);
   assert(overflowLines[1].endsWith("..."), "overflow wrap must use WinAnsi-safe ellipsis");
+  assert.throws(
+    () => wrapFont.widthOfTextAtSize("✓\ufb01", 9),
+    /WinAnsi|encode/i,
+    "Helvetica cannot measure checkmarks or PDF ligatures; fill must sanitize first",
+  );
   const messyTemplateDoc = await PDFDocument.create();
   messyTemplateDoc.addPage([612, 792]);
   const messyTemplate = await messyTemplateDoc.save();
@@ -284,7 +290,7 @@ async function main() {
   const messyFill = await fillPacket({
     answers: {
       address_street: "482 “Maplewood” Ave — Unit B\nnear the park … 10.21.2026",
-      presenting_problem: `${"needs housing support ".repeat(40)}emoji 😀 and bullets • • •`,
+      presenting_problem: `${"needs housing support ".repeat(40)}of\ufb01ce checkbox ☑ and emoji 😀`,
       intake_date: "10.21.2026",
     },
     signatures: {},

@@ -343,6 +343,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     statuses: d.signatureStatuses,
     docusignEnvelopeId: i.docusignEnvelopeId,
   });
+  const capturedSignatureCount = d.signatureStatuses.filter((status) => status.state === "captured").length;
   const firstGenerationBlocker = generationBlockers[0]?.message || "Complete readiness review before generating.";
   const providerName = i.provider?.name || "Moore Divine Care";
   const providerPhone = i.provider?.phone || "";
@@ -494,7 +495,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 
   async function confirmCcaSignatureRisk(action: string, alreadyConfirmed = false): Promise<boolean> {
     if (alreadyConfirmed) return true;
-    const captured = d.signatureStatuses.filter((status) => status.state === "captured").length;
+    const captured = capturedSignatureCount;
     if (!captured) return true;
     return window.confirm(
       `This CCA ${action} can change signed answers. ${captured} captured signature${captured === 1 ? "" : "s"} will need to be re-signed if those fields change. Continue?`,
