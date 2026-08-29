@@ -73,8 +73,10 @@ function isAnswered(v: Answers[string] | undefined): boolean {
 
 // answers that control whether OTHER questions appear - the visible-question
 // list only needs recomputing when one of these changes, not on every keystroke
-const GATE_KEYS: string[] = [...new Set(
-  SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)))];
+const GATE_KEYS: string[] = [...new Set([
+  ...SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)),
+  "living_arrangement",
+])];
 
 export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, quick = false, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string; initialAnswers: Answers; initialStatus: string;
