@@ -2,14 +2,14 @@ export type NewIntakeReadinessInput = {
   fullName?: string;
   dob?: string;
   contactReady: boolean;
-  recordReady: boolean;
+  recordReady?: boolean;
   packetContextLoaded: boolean;
   packetContextError?: boolean;
   packetReady: boolean;
 };
 
 export type NewIntakeReadinessItem = {
-  key: "identity" | "contact" | "record";
+  key: "identity" | "contact";
   label: string;
   ready: boolean;
   help: string;
@@ -29,12 +29,6 @@ export function buildNewIntakeReadiness(input: NewIntakeReadinessInput) {
       label: "Delivery contact",
       ready: input.contactReady,
       help: input.contactReady ? "Valid phone or email added" : "Add a valid phone or email",
-    },
-    {
-      key: "record",
-      label: "Record number",
-      ready: input.recordReady,
-      help: input.recordReady ? "Record# will be generated or saved" : "Choose a generator panel or enter the official Record#",
     },
   ];
   const completedRequired = items.filter((item) => item.ready).length;

@@ -46,7 +46,7 @@ function blankDraft(): Draft {
     midNumber: "",
     recordNumber: "",
     intakeDate: "",
-    location: "Greensboro",
+    location: "",
     email: "",
     phone: "",
     guardianName: "",
