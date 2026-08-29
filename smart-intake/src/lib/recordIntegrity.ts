@@ -48,7 +48,7 @@ export function normalizeIdentityName(value: unknown): string {
     .toLowerCase();
 }
 
-function normalizeDate(value: unknown): string {
+export function normalizeDate(value: unknown): string {
   const raw = String(value || "").trim();
   const iso = /^(\d{4})-(\d{1,2})-(\d{1,2})$/.exec(raw);
   if (iso) return `${iso[1]}${iso[2].padStart(2, "0")}${iso[3].padStart(2, "0")}`;

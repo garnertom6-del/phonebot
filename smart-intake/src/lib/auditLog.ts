@@ -22,7 +22,9 @@ export type AuditEvent =
   | "provider_packet_rolled_back"
   | "provider_status_changed"
   | "nctracks_lookup_not_configured" | "nctracks_lookup_completed" | "nctracks_lookup_failed"
-  | "login_locked_out" | "backup_downloaded" | "document_downloaded" | "docusign_completed"
+  | "login_locked_out" | "login_success" | "login_failed" | "access_denied"
+  | "sms_status_updated" | "copies_delivery_confirmed"
+  | "backup_downloaded" | "document_downloaded" | "docusign_completed"
   | "provider_portal_notification_sent"
   | "provider_created" | "provider_admin_updated"
   | "provider_packet_uploaded" | "provider_packet_ai_mapped" | "provider_profile_deleted" | "staff_user_created" | "staff_user_updated";
