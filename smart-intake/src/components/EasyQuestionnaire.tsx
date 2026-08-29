@@ -73,8 +73,10 @@ function isAnswered(v: Answers[string] | undefined): boolean {
 
 // answers that control whether OTHER questions appear - the visible-question
 // list only needs recomputing when one of these changes, not on every keystroke
-const GATE_KEYS: string[] = [...new Set(
-  SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)))];
+const GATE_KEYS: string[] = [...new Set([
+  "living_arrangement",
+  ...SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)),
+])];
 
 export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, quick = false, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string; initialAnswers: Answers; initialStatus: string;
@@ -557,7 +559,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             Back
           </button>
           <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
-          {!q.required && q.type !== "consent" && (
+          {!isQuestionRequired(q, answers) && q.type !== "consent" && (
             <button type="button" className="btn-ghost px-4 py-2 text-sm text-slate-500" onClick={goNext}>
               Skip
             </button>

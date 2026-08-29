@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import SignaturePad from "@/components/SignaturePad";
@@ -45,6 +45,10 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [loaded, setLoaded] = useState(false);
   const [returningToPreflight, setReturningToPreflight] = useState(false);
   const [dirtyKeys, setDirtyKeys] = useState<string[]>([]);
+  const dirtyKeysRef = useRef(dirtyKeys);
+  dirtyKeysRef.current = dirtyKeys;
+  const answersRef = useRef(answers);
+  answersRef.current = answers;
 
   const load = useCallback(() => {
     fetch(`/api/intakes/${params.id}`).then(async (r) => {
@@ -94,12 +98,24 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
     setDirtyKeys((current) => current.includes(k) ? current : [...current, k]);
   };
 
-  async function save() {
-    if (saving) return;
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyKeysRef.current.length) return;
+      event.preventDefault();
+      event.returnValue = "";
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
+
+  async function persistDirtyAnswers(): Promise<boolean> {
+    const keys = dirtyKeysRef.current;
+    if (!keys.length) return true;
+    if (saving) return false;
     setSaving(true);
     setNote("Saving...");
     try {
-      const answerPatch = Object.fromEntries(dirtyKeys.map((key) => [key, answers[key]]));
+      const answerPatch = Object.fromEntries(keys.map((key) => [key, answersRef.current[key]]));
       const r = await fetch(`/api/intakes/${params.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers: answerPatch, status: "NEEDS_REVIEW" }),
@@ -107,18 +123,33 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
       const body = await r.json().catch(() => ({} as { error?: string }));
       if (!r.ok) {
         setNote(body.error || "Save failed. Please refresh and try again.");
-        setSaving(false);
-        return;
+        return false;
       }
-      const query = new URLSearchParams({ saved: "staff" });
-      if (returningToPreflight) query.set("return", "preflight");
-      const focusKey = new URLSearchParams(window.location.search).get("focus");
-      if (focusKey) query.set("focus", focusKey);
-      router.push(`/intakes/${params.id}?${query.toString()}`);
+      setDirtyKeys([]);
+      dirtyKeysRef.current = [];
+      return true;
     } catch {
       setNote("Save failed because the connection was interrupted. Please try again.");
+      return false;
+    } finally {
       setSaving(false);
     }
+  }
+
+  async function save() {
+    const saved = await persistDirtyAnswers();
+    if (!saved) return;
+    const query = new URLSearchParams({ saved: "staff" });
+    if (returningToPreflight) query.set("return", "preflight");
+    const focusKey = new URLSearchParams(window.location.search).get("focus");
+    if (focusKey) query.set("focus", focusKey);
+    router.push(`/intakes/${params.id}?${query.toString()}`);
+  }
+
+  async function saveAndGo(href: string) {
+    const saved = await persistDirtyAnswers();
+    if (!saved) return;
+    router.push(href);
   }
 
   function toggleSigner(role: StaffSignatureRole) {
@@ -217,7 +248,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
 
   return (
     <main className="mx-auto max-w-4xl p-6 pb-24">
-      <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
+      <Link
+        href={`/intakes/${params.id}`}
+        className="text-sm text-brand hover:underline"
+        onClick={(event) => {
+          if (!dirtyKeys.length) return;
+          event.preventDefault();
+          void saveAndGo(`/intakes/${params.id}`);
+        }}
+      >
+        Back to intake
+      </Link>
       <h1 className="mt-1 text-2xl font-bold">Review & edit - {clientName}</h1>
       <p className="text-sm text-slate-500">Client answers first, then staff-only sections. Everything here fills the packet PDF.</p>
 
@@ -330,7 +371,17 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
           <button className="btn-primary flex-1 disabled:cursor-wait disabled:opacity-60" disabled={saving} onClick={save}>
             {saving ? "Saving changes..." : returningToPreflight ? "Save & return to preflight" : "Save all changes & continue"}
           </button>
-          <Link href={`/intakes/${params.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
+          <Link
+            href={`/intakes/${params.id}/pdf-preview`}
+            className="btn-secondary"
+            onClick={(event) => {
+              if (!dirtyKeys.length) return;
+              event.preventDefault();
+              void saveAndGo(`/intakes/${params.id}/pdf-preview`);
+            }}
+          >
+            Preview PDF
+          </Link>
           <span className={`text-sm ${note.toLowerCase().includes("failed") || note.toLowerCase().includes("could not") ? "text-red-700" : "text-slate-600"}`} role="status">
             {note}
           </span>
