@@ -3,11 +3,13 @@ import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
+import { acceptableOverrideReason } from "@/lib/overrideReason";
 
 const overrideSchema = z.object({
   findingKey: z.string().trim().min(1).max(120),
   title: z.string().trim().min(1).max(160),
-  reason: z.string().trim().min(3, "Enter a reason for the override.").max(500),
+  reason: z.string().trim().min(12, "Enter a specific reason with at least 12 characters.").max(500)
+    .refine(acceptableOverrideReason, "Enter a meaningful reason; placeholders such as test, override, or repeated letters are not accepted."),
 });
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {

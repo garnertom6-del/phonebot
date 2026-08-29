@@ -38,14 +38,18 @@ export default function PlansPage({ params }: { params: { id: string } }) {
 
   async function save() {
     setNote("Saving...");
+    const planAnswers = Object.fromEntries(FIELDS.map(([key]) => [key, answers[key] ?? ""]));
     const r = await fetch(`/api/intakes/${params.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers, status: "NEEDS_REVIEW" }),
+      body: JSON.stringify({ answers: planAnswers, status: "NEEDS_REVIEW" }),
     });
     setNote(r.ok ? "Saved" : "Save failed");
   }
 
   if (!loaded) return <main className="p-10 text-center text-slate-400">Loading...</main>;
+  const countCompleted = (fields: readonly (readonly [string, string])[]) => fields.filter(([key]) => String(answers[key] ?? "").trim()).length;
+  const pcpCompleted = countCompleted(FIELDS.slice(0, 5));
+  const crisisCompleted = countCompleted(FIELDS.slice(5));
 
   return (
     <main className="mx-auto max-w-4xl p-6 pb-24">
@@ -56,20 +60,26 @@ export default function PlansPage({ params }: { params: { id: string } }) {
         and become full PCP/crisis-plan documents in the next phase.
       </p>
 
-      <section className="card mt-4">
-        <h2 className="text-lg font-bold text-brand">Primary Care / PCP</h2>
+      <nav className="card mt-4 flex flex-wrap items-center gap-2" aria-label="PCP and crisis plan navigation">
+        <a href="#pcp-plan" className="btn-ghost px-3 py-1.5 text-sm">PCP: {pcpCompleted}/5</a>
+        <a href="#crisis-plan" className="btn-ghost px-3 py-1.5 text-sm">Crisis plan: {crisisCompleted}/5</a>
+        <span className="text-xs text-slate-500">These plans have separate completion status and do not inherit the intake checklist status.</span>
+      </nav>
+
+      <section id="pcp-plan" className="card mt-4 scroll-mt-4" aria-labelledby="pcp-heading">
+        <div className="flex items-center justify-between gap-3"><h2 id="pcp-heading" className="text-lg font-bold text-brand">Primary Care / PCP</h2><span className="badge bg-slate-100 text-slate-700">{pcpCompleted}/5 complete</span></div>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {FIELDS.slice(0, 5).map(([key, label]) => (
-            <TextBox key={key} label={label} value={answers[key]} onChange={(v) => set(key, v)} />
+            <TextBox key={key} fieldKey={key} label={label} value={answers[key]} onChange={(v) => set(key, v)} />
           ))}
         </div>
       </section>
 
-      <section className="card mt-4">
-        <h2 className="text-lg font-bold text-brand">Crisis Plan</h2>
+      <section id="crisis-plan" className="card mt-4 scroll-mt-4" aria-labelledby="crisis-heading">
+        <div className="flex items-center justify-between gap-3"><h2 id="crisis-heading" className="text-lg font-bold text-brand">Crisis Plan</h2><span className={`badge ${crisisCompleted === 5 ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-800"}`}>{crisisCompleted}/5 complete</span></div>
         <div className="mt-3 grid gap-3 md:grid-cols-2">
           {FIELDS.slice(5).map(([key, label]) => (
-            <TextBox key={key} label={label} value={answers[key]} onChange={(v) => set(key, v)} />
+            <TextBox key={key} fieldKey={key} label={label} value={answers[key]} onChange={(v) => set(key, v)} />
           ))}
         </div>
       </section>
@@ -85,11 +95,12 @@ export default function PlansPage({ params }: { params: { id: string } }) {
   );
 }
 
-function TextBox({ label, value, onChange }: { label: string; value: unknown; onChange: (value: string) => void }) {
+function TextBox({ fieldKey, label, value, onChange }: { fieldKey: string; label: string; value: unknown; onChange: (value: string) => void }) {
+  const id = `plan-${fieldKey}`;
   return (
-    <label>
+    <label htmlFor={id}>
       <span className="label">{label}</span>
-      <textarea className="input min-h-[80px]" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />
+      <textarea id={id} className="input min-h-[80px]" value={String(value ?? "")} onChange={(e) => onChange(e.target.value)} />
     </label>
   );
 }

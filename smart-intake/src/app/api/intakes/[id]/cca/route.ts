@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { ccaConfigured, extractFromCca, mergeCcaAnswers } from "@/lib/ccaExtract";
-import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswers, markIntakeContentChanged, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
 import { saveFile } from "@/lib/storage";
 import { questionByKey } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
@@ -69,8 +69,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       if (!filled.includes(k)) filled.push(k);
     }
   }
+  let ccaContentVersioned = false;
   if (filled.length) {
-    await saveAnswers(intake.id, withDefaults);
+    const saved = await saveAnswers(intake.id, withDefaults);
+    ccaContentVersioned = saved.changedKeys.length > 0;
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
     await prisma.client.update({
       where: { id: intake.clientId },
@@ -81,6 +83,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         email: typeof withDefaults.client_email === "string" && withDefaults.client_email.trim() ? withDefaults.client_email.trim() : intake.client.email,
       },
     });
+  }
+  if (!ccaContentVersioned) {
+    await markIntakeContentChanged(intake.id, "A new CCA source document was added after signature capture.");
   }
   await prisma.intake.update({
     where: { id: intake.id },

@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, RECORD_NUMBER_LOOKUP_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
@@ -21,6 +21,7 @@ import {
   canOfferCompletedPacketEmail,
   resolveCreateIntakeHousing,
 } from "@/lib/newIntakeHousing";
+import ManualSendPanel from "@/components/ManualSendPanel";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -95,7 +96,6 @@ export default function NewIntake() {
   const [form, setForm] = useState<Record<string, string>>({ intakeDate: todayInputDate(), addressState: DEFAULT_INTAKE_STATE });
   const [recordPanel, setRecordPanel] = useState("");
   const [referralSource, setReferralSource] = useState("");
-  const [recordTab, setRecordTab] = useState<"generate" | "lookup">("generate");
   const [homelessSelected, setHomelessSelected] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -107,8 +107,6 @@ export default function NewIntake() {
   const [contactError, setContactError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
   const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean } | null>(null);
-  const [copied, setCopied] = useState(false);
-  const [messageCopied, setMessageCopied] = useState(false);
   const [sendStatus, setSendStatus] = useState("");
   const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
   const [sendBusy, setSendBusy] = useState(false);
@@ -150,6 +148,8 @@ export default function NewIntake() {
     packetReady,
     packetContextError: !!packetContextError,
   });
+  const recordMode = recordNumberMode(recordPanel);
+  const recordLookupLink = recordNumberLookupLink(recordPanel);
   const intakeReadiness = buildNewIntakeReadiness({
     fullName: form.fullName,
     dob: form.dob,
@@ -240,6 +240,13 @@ export default function NewIntake() {
         quickPatch[target.key] = field.value;
       }
     }
+    if (typeof quickPatch.provider_choice_plan === "string") {
+      const normalized = normalizeInsuranceValue(quickPatch.provider_choice_plan, "providerChoice");
+      if (normalized && recordNumberMode(normalized)) {
+        onRecordPanelChange(normalized);
+        delete quickPatch.provider_choice_plan;
+      }
+    }
     if (Object.keys(formPatch).length) setForm((existing) => ({ ...existing, ...formPatch }));
     if (Object.keys(quickPatch).length) setQuickAnswers((existing) => ({ ...existing, ...quickPatch }));
     if (useHomeless) setHomelessSelected(true);
@@ -267,25 +274,23 @@ export default function NewIntake() {
     return `NC Tracks screenshot scanned. Filled ${count} field${count === 1 ? "" : "s"}${labels.length ? `: ${labels.join(", ")}.` : "."}`;
   }
 
-  function selectRecordTab(tab: "generate" | "lookup") {
-    if (tab === "lookup" && recordNumberWasGenerated) {
-      setForm((current) => ({ ...current, recordNumber: "" }));
-      setRecordGeneratorNote("");
-      setRecordNumberWasGenerated(false);
-    }
-    setRecordTab(tab);
-  }
-
   function onRecordPanelChange(value: string) {
     setRecordPanel(value);
-    if (recordGeneratorNote.toLowerCase().includes("choose an insurance panel")) {
-      setRecordGeneratorNote("");
+    setQuickAnswers((current) => ({ ...current, provider_choice_plan: value }));
+    if (recordNumberWasGenerated) {
+      setForm((current) => ({ ...current, recordNumber: "" }));
+      setRecordNumberWasGenerated(false);
+      setRecordGeneratorNote(value && canGenerateRecordNumber(value)
+        ? "Plan changed - generate a new Record# or leave it blank to get one on save."
+        : "");
+      return;
     }
+    if (recordGeneratorNote.toLowerCase().includes("choose")) setRecordGeneratorNote("");
   }
 
   function generateRecordNumber() {
-    if (!recordPanel) {
-      setRecordGeneratorNote("Choose an insurance panel first so the Record# gets the correct prefix.");
+    if (!recordPanel || !canGenerateRecordNumber(recordPanel)) {
+      setRecordGeneratorNote("Choose a plan that generates a Record# (BCBS, United Health Care, AmeriHealth, or Carolina Complete) first.");
       return;
     }
     const generated = makeRecordNumber(recordPanel);
@@ -524,39 +529,22 @@ export default function NewIntake() {
                   Add a client or guardian phone number or email on the intake page before sending.
                 </p>
               )}
-              <details className="mt-4 rounded-lg border border-slate-200 bg-slate-50 p-3">
-                <summary className="cursor-pointer font-semibold text-slate-800">
-                  Manual sending &amp; message preview
-                </summary>
-                <p className="mt-3 break-all whitespace-pre-wrap rounded-lg bg-white p-3 text-sm text-slate-700">{message}</p>
-                <p className="mt-2 text-xs text-slate-500">
-                  The message contains a secure link and no client name or health details. Confirm the recipient before sending.
-                </p>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
-                  <button className="btn-ghost" onClick={async () => {
-                    await navigator.clipboard.writeText(result.clientLink); setCopied(true);
-                  }}>{copied ? "Link copied" : "Copy client link"}</button>
-                  <button className="btn-ghost" onClick={async () => {
-                    await navigator.clipboard.writeText(message); setMessageCopied(true);
-                  }}>{messageCopied ? "Message copied" : "Copy SMS message"}</button>
-                  {phone && (
-                    <a
-                      className="btn-ghost text-center"
-                      href={intakeSmsHref(phone, result.clientLink, providerName, providerPhone)}
-                    >
-                      Open SMS on this computer
-                    </a>
-                  )}
-                  {email && (
-                    <a
-                      className="btn-ghost text-center"
-                      href={intakeMailtoHref(email, result.clientLink, providerName, providerPhone)}
-                    >
-                      Open email
-                    </a>
-                  )}
-                </div>
-              </details>
+              <div className="mt-4">
+                <ManualSendPanel
+                  intakeId={result.id}
+                  clientLink={result.clientLink}
+                  message={message}
+                  phone={phone}
+                  email={email}
+                  smsHref={phone ? intakeSmsHref(phone, result.clientLink, providerName, providerPhone) : undefined}
+                  mailtoHref={email ? intakeMailtoHref(email, result.clientLink, providerName, providerPhone) : undefined}
+                  reason={sendStatusKind === "error" ? sendStatus.replace(/^Send failed:\s*/i, "") : undefined}
+                  onMarked={(sentAt) => {
+                    setSendStatusKind("success");
+                    setSendStatus(`Recorded as sent by hand at ${new Date(sentAt).toLocaleTimeString()}.`);
+                  }}
+                />
+              </div>
             </>
           )}
           {setupStatus && (
@@ -907,13 +895,6 @@ export default function NewIntake() {
                 </select>
               </label>
               <label>
-                <span className="label">Type of insurance</span>
-                <select className="input" value={quickAnswers.provider_choice_plan || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, provider_choice_plan: e.target.value }))}>
-                  <option value="">Select insurance</option>
-                  {PROVIDER_CHOICE_PLAN_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
-                </select>
-              </label>
-              <label>
                 <span className="label">PCP name</span>
                 <input className="input" value={quickAnswers.pcp_name || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, pcp_name: e.target.value }))} placeholder="Name from records" />
               </label>
@@ -943,70 +924,57 @@ export default function NewIntake() {
           <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
             <h3 className="font-bold text-brand">Record number</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Auto-generate a Record# in the format <b>PANEL-12345</b>, or look up the official number.
-              The five digits are random and the server checks for duplicates within this provider.
+              Pick the client&apos;s insurance plan once. It sets the Record# workflow, is saved with the intake,
+              and marks the plan on the packet so the client is not asked again.
             </p>
-            <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="Record number method">
-              <button id="record-tab-generate" type="button" role="tab" aria-selected={recordTab === "generate"}
-                aria-controls="record-tabpanel" tabIndex={recordTab === "generate" ? 0 : -1}
-                onClick={() => selectRecordTab("generate")}
-                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "generate" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-                Auto-generate
-              </button>
-              <button id="record-tab-lookup" type="button" role="tab" aria-selected={recordTab === "lookup"}
-                aria-controls="record-tabpanel" tabIndex={recordTab === "lookup" ? 0 : -1}
-                onClick={() => selectRecordTab("lookup")}
-                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${recordTab === "lookup" ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"}`}>
-                Panel lookup
-              </button>
-            </div>
-            <div id="record-tabpanel" role="tabpanel" aria-labelledby={`record-tab-${recordTab}`}>
-              {recordTab === "generate" ? (
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-                  <label>
-                    <span className="label">Insurance panel</span>
-                    <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                      <option value="">Select panel</option>
-                      {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
-                        <option key={plan} value={plan}>{plan} ({recordNumberPrefix(plan) || "OTHER"})</option>
-                      ))}
-                    </select>
-                  </label>
-                  <button type="button" className="btn-secondary" disabled={!recordPanel} onClick={generateRecordNumber}>Generate Record#</button>
-                </div>
-              ) : (
-                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
-                  <p className="text-sm font-semibold text-amber-900">These panels are lookup-only. Open the official site, find the client record, then enter the returned number below.</p>
-                  <label className="mt-3 block">
-                    <span className="label">Insurance panel</span>
-                    <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                      <option value="">Select lookup panel</option>
-                      {RECORD_NUMBER_LOOKUP_PLAN_OPTIONS.map((plan) => (
-                        <option key={plan} value={plan}>{plan}</option>
-                      ))}
-                    </select>
-                  </label>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
-                      <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
-                        {link.label} lookup
-                      </a>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
             <label className="mt-3 block">
-              <span className="label">Record#</span>
-              <input className="input" name="recordNumber" value={form.recordNumber || ""}
+              <span className="label">Insurance plan</span>
+              <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+                <option value="">Select the client&apos;s plan</option>
+                {RECORD_NUMBER_PLAN_GROUPS.map((group) => (
+                  <optgroup key={group.label} label={group.label}>
+                    {group.plans.map((plan) => (
+                      <option key={plan} value={plan}>
+                        {plan}{recordNumberMode(plan) === "generate" ? ` (${recordNumberPrefix(plan)}-12345)` : ""}
+                      </option>
+                    ))}
+                  </optgroup>
+                ))}
+              </select>
+            </label>
+            {recordMode === "generate" && (
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
+                <span className="text-xs text-slate-600">
+                  Format <b>{recordNumberPrefix(recordPanel)}-12345</b>. Leave the box blank and one is generated when you save; duplicates are rejected within this provider.
+                </span>
+              </div>
+            )}
+            {recordMode === "lookup" && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                <p className="font-semibold">{recordPanel} assigns the Record#. Look it up, then type it below.</p>
+                {recordLookupLink && (
+                  <a className="btn-ghost mt-2 inline-flex px-3 py-1.5 text-xs" href={recordLookupLink.url} target="_blank" rel="noreferrer">
+                    Open the {recordLookupLink.label} site
+                  </a>
+                )}
+              </div>
+            )}
+            {recordMode === "manual" && (
+              <p className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+                Enter the official <b>{recordPanel}</b> Record# when you have it. If left blank, the app creates a temporary internal Record# so the secure client link is not delayed.
+              </p>
+            )}
+            <label className="mt-3 block">
+              <span className="label">Record#{recordMode === "lookup" ? " *" : " (optional)"}</span>
+              <input className="input" id="new-intake-recordNumber" name="recordNumber" value={form.recordNumber || ""}
                 onChange={(e) => {
                   setRecordNumberWasGenerated(false);
                   setForm((current) => ({ ...current, recordNumber: e.target.value }));
                 }}
-                placeholder={recordTab === "lookup" ? "Enter the official lookup Record#" : "Leave blank to auto-generate"} />
+                placeholder={recordMode === "lookup" ? "Enter the official lookup Record#" : recordMode === "manual" ? "Enter official or leave blank for a temporary number" : "Generate, type, or leave blank"} />
             </label>
             {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
-            <p className="mt-2 text-xs text-slate-500">Only Blue Cross Blue Shield = BCBS-12345, United Health Care = UHC-12345, AmeriHealth = AMERI-12345, and Carolina Complete = CC-12345 use the generator. Other panels require their official Record#. Skipping this generates a TEMP Record#.</p>
           </div>
           <div id="new-intake-optional" className="scroll-mt-28 mt-4 rounded-xl border border-slate-200 bg-white p-4">
             <h3 className="font-bold text-slate-900">NC Tracks</h3>

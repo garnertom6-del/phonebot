@@ -10,7 +10,7 @@ import {
   type NotifyResult,
 } from "@/lib/notify";
 import { clientLinkRenewalData } from "@/lib/tokens";
-import { buildSignatureStatuses } from "@/lib/signatureStatus";
+import { generationReadinessForIntake } from "@/lib/generationReadiness";
 import {
   CLIENT_LINK_REMINDER_COOLDOWN_MS,
   clientLinkExpired,
@@ -45,7 +45,8 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     }, { status: 409 });
   }
 
-  const statuses = buildSignatureStatuses(intake.signatures);
+  const readiness = await generationReadinessForIntake(intake.id, provider!.id);
+  const statuses = readiness?.signatureStatuses || [];
   const clientStatus = statuses.find((status) => status.key === "client_guardian");
   if (clientStatus?.state === "captured") {
     return NextResponse.json({

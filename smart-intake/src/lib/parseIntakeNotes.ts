@@ -251,6 +251,7 @@ export function parseHelperNotes(notes: string): Record<string, string> {
     const parts = splitNameAndPhone(out.ec1_name);
     if (parts.phone) {
       if (parts.name) out.ec1_name = parts.name;
+      else delete out.ec1_name;
       out.ec1_cell_phone = parts.phone;
     }
   }

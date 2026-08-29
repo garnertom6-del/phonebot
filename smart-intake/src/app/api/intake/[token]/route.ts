@@ -35,7 +35,7 @@ async function findByToken(token: string) {
     include: {
       client: true,
       provider: true,
-      signatures: { select: { role: true } },
+      signatures: { select: { role: true, invalidatedAt: true } },
     },
   });
   if (!intake) {
@@ -205,7 +205,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         where: { id: intake.id },
         include: {
           client: true,
-          signatures: { select: { role: true } },
+          signatures: { select: { role: true, invalidatedAt: true } },
         },
       });
       if (!current) throw new IntakeClosedError();
@@ -215,11 +215,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       });
       const answers = applyOperationalDefaults(decodeAnswerRows(answerRows));
       const hasSignature = current.signatures.some((signature) => (
-        signature.role === "client" || signature.role === "guardian"
+        (signature.role === "client" || signature.role === "guardian")
+        && !signature.invalidatedAt
       ));
       const missing = missingRequired(answers, hasSignature, intake.provider);
       if (missing.length) throw new MissingSubmitFieldsError(missing);
-      await saveAnswersInTransaction(tx, intake.id, answers);
+      // Final submission persists operational defaults but must not invalidate
+      // the signature captured for this same submitted snapshot.
+      await saveAnswersInTransaction(tx, intake.id, answers, { invalidateSignatures: false });
       await syncStructuredRowsInTransaction(tx, intake.id, answers);
       await tx.client.update({
         where: { id: current.clientId },

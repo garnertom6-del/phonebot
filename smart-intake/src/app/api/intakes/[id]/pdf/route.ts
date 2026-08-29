@@ -20,7 +20,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
-    include: { client: true, generatedPdfs: { orderBy: { createdAt: "desc" }, take: 1 } },
+    include: { client: true, generatedPdfs: { orderBy: { createdAt: "desc" }, take: 5 } },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   let packetTemplate: Awaited<ReturnType<typeof requireProviderPacketForCompletion>>;
@@ -38,16 +38,17 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
   }
   const fresh = req.nextUrl.searchParams.get("fresh") === "1";
   let bytes: Buffer;
-  const latest = intake.generatedPdfs[0];
   const packet = await packetFreshnessForIntake(intake.id);
-  if (
-    !fresh
-    && packet.state === "current"
-    && latest
-    && packet.pdfId === latest.id
-    && fileExists(latest.filePath)
-  ) {
-    bytes = readFile(latest.filePath);
+  if (!fresh) {
+    if (packet.state !== "current" || !packet.filePath || !fileExists(packet.filePath)) {
+      return NextResponse.json({
+        code: "PACKET_NOT_CURRENT",
+        error: packet.state === "stale"
+          ? "The saved packet is outdated. Resolve readiness blockers and generate a new version."
+          : "Generate the completed packet before downloading the final version.",
+      }, { status: 409 });
+    }
+    bytes = readFile(packet.filePath);
   } else {
     const answers = await loadAnswers(intake.id);
     const result = await fillPacket({
@@ -65,6 +66,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     headers: {
       "Content-Type": "application/pdf",
       "Content-Disposition": `inline; filename="${name}"`,
+      "X-Smart-Intake-Document-State": fresh ? "DRAFT_PREVIEW" : "CURRENT_FINAL",
     },
   });
 }

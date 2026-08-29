@@ -23,7 +23,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     where: { token: params.token },
     include: {
       provider: true,
-      signatures: { select: { role: true } },
+      signatures: { select: { role: true, invalidatedAt: true } },
     },
   });
   if (!intake || intake.tokenExpiresAt < new Date() || (intake.provider && intake.provider.status !== "ACTIVE")) {

@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { requireStaff, requireWritableStaff } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswers, saveAnswers, saveAnswersInTransaction, syncStructuredRows } from "@/lib/intakeData";
 import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
@@ -15,6 +15,8 @@ import { clientLinkRenewalData } from "@/lib/tokens";
 import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "@/lib/clientDetails";
 import { parseFollowUpFieldKeys } from "@/lib/clientFollowUp";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
+import { generationReadinessForIntake } from "@/lib/generationReadiness";
+import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const { provider, deny } = await requireStaff();
@@ -25,9 +27,26 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       provider: { select: { name: true, phone: true } },
       client: true,
       // never ship signature image blobs or server file paths to the browser
-      signatures: { select: { role: true, printedName: true, signedDate: true } },
+      signatures: {
+        select: {
+          role: true,
+          printedName: true,
+          signedDate: true,
+          relationship: true,
+          contentRevision: true,
+          subjectNameSnapshot: true,
+          subjectDobSnapshot: true,
+          invalidatedAt: true,
+          invalidatedReason: true,
+          createdAt: true,
+          updatedAt: true,
+        },
+      },
       uploadedDocuments: { select: { id: true, docType: true, fileName: true, createdAt: true, reviewJson: true } },
-      generatedPdfs: { orderBy: { createdAt: "desc" }, select: { id: true, createdAt: true, sha256: true } },
+      generatedPdfs: {
+        orderBy: { createdAt: "desc" },
+        select: { id: true, createdAt: true, sha256: true, packetVersion: true, contentRevision: true },
+      },
       auditLogs: { orderBy: { createdAt: "desc" }, take: 50, select: { id: true, event: true, detail: true, createdAt: true } },
       followUps: {
         orderBy: { createdAt: "desc" },
@@ -50,7 +69,13 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const answers = applyOperationalDefaults(await loadAnswers(intake.id));
-  const signed = intake.signatures.some((s) => s.role === "client" || s.role === "guardian");
+  const [generationReadiness, packetFreshness] = await Promise.all([
+    generationReadinessForIntake(intake.id, provider!.id),
+    packetFreshnessForIntake(intake.id),
+  ]);
+  const signed = generationReadiness?.signatureStatuses.some((status) => (
+    status.key === "client_guardian" && status.state === "captured"
+  )) || false;
   const base = appBaseUrl(_req);
   const uploadedDocuments = intake.uploadedDocuments.map((document) => ({
     id: document.id,
@@ -80,7 +105,11 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     percentComplete: percentComplete(answers),
     missingRequired: missingRequired(answers, signed, provider),
     missingOptional: missingOptional(answers),
-    signatureStatuses: buildSignatureStatuses(intake.signatures),
+    signatureStatuses: generationReadiness?.signatureStatuses || buildSignatureStatuses(intake.signatures),
+    generationReadiness,
+    packetFreshness,
+    accuracyConflicts: generationReadiness?.conflicts || [],
+    planCompleteness: generationReadiness?.planCompleteness || null,
     providerPacketReadiness: packetReadiness,
   });
 }
@@ -102,21 +131,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
       return NextResponse.json({ error: message }, { status: 400 });
     }
     const answerPatch = clientDetailsAnswerPatch(parsed.data);
-    await prisma.$transaction([
-      prisma.client.update({
+    await prisma.$transaction(async (tx) => {
+      await tx.client.update({
         where: { id: intake.clientId },
         data: clientDetailsRecordPatch(parsed.data),
-      }),
-      ...Object.entries(answerPatch).map(([key, value]) => prisma.intakeAnswer.upsert({
-        where: { intakeId_key: { intakeId: intake.id, key } },
-        create: { intakeId: intake.id, key, value: JSON.stringify(value) },
-        update: { value: JSON.stringify(value) },
-      })),
-      prisma.intake.update({
+      });
+      await saveAnswersInTransaction(tx, intake.id, answerPatch, {
+        invalidationReason: "Client identity or contact details changed after signature capture.",
+      });
+      await tx.intake.update({
         where: { id: intake.id },
         data: { lastActivityAt: new Date() },
-      }),
-    ]);
+      });
+    });
     await audit("answers_updated", {
       providerId: provider!.id,
       intakeId: intake.id,
@@ -138,7 +165,9 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
         .join(", ");
       return NextResponse.json({ error: `Some answers could not be saved. Review: ${fields}.` }, { status: 400 });
     }
-    const answers = applyOperationalDefaults(parsed.data);
+    // Staff screens send sparse patches. Saving only those keys prevents an
+    // older open tab from overwriting newer answers from another section.
+    const answers = parsed.data;
     await saveAnswers(intake.id, answers);
     await syncStructuredRows(intake.id, await loadAnswers(intake.id));
     await prisma.client.update({

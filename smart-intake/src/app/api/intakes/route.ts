@@ -16,6 +16,7 @@ import {
 import { buildCompletionReadiness } from "@/lib/completionReadiness";
 import { fileExists } from "@/lib/storage";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
+import { buildSignatureStatuses } from "@/lib/signatureStatus";
 
 function generatedRecordNumber(panel?: string): string {
   const prefix = recordNumberPrefix(panel || "") || "TEMP";
@@ -40,11 +41,25 @@ export async function GET(req: NextRequest) {
       where: { providerId: provider!.id },
       include: {
         client: true,
-        signatures: { select: { role: true } },
+        signatures: {
+          select: {
+            role: true,
+            printedName: true,
+            signedDate: true,
+            relationship: true,
+            contentRevision: true,
+            subjectNameSnapshot: true,
+            subjectDobSnapshot: true,
+            invalidatedAt: true,
+            invalidatedReason: true,
+            createdAt: true,
+            updatedAt: true,
+          },
+        },
         uploadedDocuments: { where: { docType: "CCA" }, select: { id: true }, take: 1 },
         generatedPdfs: {
           orderBy: { createdAt: "desc" },
-          select: { id: true, filePath: true, createdAt: true },
+          select: { id: true, filePath: true, createdAt: true, contentRevision: true },
           take: 5,
         },
         auditLogs: {
@@ -121,9 +136,15 @@ export async function GET(req: NextRequest) {
     );
     const rows = intakes.map((i) => {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
-      const signed = i.auditLogs.some((a) => a.event === "docusign_completed")
-        || i.signatures.some((s) => s.role === "client" || s.role === "guardian");
-      const hasStaffSignature = i.signatures.some((s) => s.role === "staff");
+      const signatureStatuses = buildSignatureStatuses(i.signatures, {
+        client: i.client,
+        currentContentRevision: i.contentRevision,
+        latestMaterialUpdatedAt: latestPacketAnswerAt.get(i.id),
+      });
+      const docusignCompletedAt = i.auditLogs.find((a) => a.event === "docusign_completed")?.createdAt;
+      const signed = signatureStatuses.some((status) => status.key === "client_guardian" && status.state === "captured")
+        || !!(docusignCompletedAt && (!latestPacketAnswerAt.get(i.id) || docusignCompletedAt >= latestPacketAnswerAt.get(i.id)!));
+      const hasStaffSignature = signatureStatuses.some((status) => status.key === "staff_qp" && status.state === "captured");
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
       const providerPacketLog = i.auditLogs.find((a) => a.event === "provider_packet_email_sent");
@@ -137,6 +158,7 @@ export async function GET(req: NextRequest) {
         packetTemplateUpdatedAt: providerPacket.ready && providerPacket.templateUpdatedAt
           ? new Date(providerPacket.templateUpdatedAt)
           : null,
+        currentContentRevision: i.contentRevision,
       });
       const completion = buildCompletionReadiness({
         archived: i.archived,

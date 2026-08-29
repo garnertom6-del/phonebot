@@ -7,10 +7,13 @@ import {
   clientSubmissionFinished,
   lockOpenClientIntake,
 } from "@/lib/clientSubmissionState";
+import { normalizeIdentityName } from "@/lib/recordIntegrity";
 
 class SignatureClosedError extends Error {}
 
 class DobMismatchError extends Error {}
+
+class SignerIdentityMismatchError extends Error {}
 
 /** Compare dates by digits so 04/12/1987, 1987-04-12 and 4/12/1987 all match. */
 function dobMatches(entered: string, onFile: string): boolean {
@@ -30,7 +33,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
     include: {
       client: true,
       provider: true,
-      signatures: { select: { role: true } },
+      signatures: { select: { role: true, invalidatedAt: true } },
     },
   });
   if (!intake || intake.tokenExpiresAt < new Date() || (intake.provider && intake.provider.status !== "ACTIVE")) {
@@ -60,9 +63,30 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
       if (!dobCheck) throw new DobMismatchError();
       const dobVerified = dobMatches(dobCheck, current.client.dob);
       if (!dobVerified) throw new DobMismatchError();
+      const expectedSignerName = d.role === "client"
+        ? current.client.fullName
+        : current.client.guardianName || "";
+      if (expectedSignerName && normalizeIdentityName(d.printedName) !== normalizeIdentityName(expectedSignerName)) {
+        throw new SignerIdentityMismatchError();
+      }
+      if (d.role === "client" && d.relationship && d.relationship !== "client") {
+        throw new SignerIdentityMismatchError();
+      }
+      if (d.role === "guardian" && (!d.relationship || d.relationship === "client")) {
+        throw new SignerIdentityMismatchError();
+      }
       await tx.signature.upsert({
         where: { intakeId_role: { intakeId: intake.id, role: d.role } },
-        create: { intakeId: intake.id, ...d, dobVerified, ip, userAgent },
+        create: {
+          intakeId: intake.id,
+          ...d,
+          dobVerified,
+          ip,
+          userAgent,
+          contentRevision: current.contentRevision,
+          subjectNameSnapshot: expectedSignerName || d.printedName,
+          subjectDobSnapshot: current.client.dob,
+        },
         update: {
           imageData: d.imageData,
           printedName: d.printedName,
@@ -71,9 +95,14 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
           dobVerified,
           ip,
           userAgent,
+          contentRevision: current.contentRevision,
+          subjectNameSnapshot: expectedSignerName || d.printedName,
+          subjectDobSnapshot: current.client.dob,
+          invalidatedAt: null,
+          invalidatedReason: null,
         },
       });
-      if (["SUBMITTED", "NEEDS_REVIEW"].includes(current.status)) {
+      if (current.status === "SUBMITTED") {
         await tx.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
       }
     });
@@ -88,6 +117,12 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
         { error: `That birthday does not match what we have on file. Please check it and try again, or call ${providerPhone(intake.provider?.phone, intake.provider?.name)}.` },
         { status: 400 },
       );
+    }
+    if (error instanceof SignerIdentityMismatchError) {
+      return NextResponse.json({
+        code: "SIGNER_IDENTITY_MISMATCH",
+        error: "The printed signer name or relationship does not match the current client/guardian record. Ask staff to correct the identity record before signing.",
+      }, { status: 409 });
     }
     throw error;
   }

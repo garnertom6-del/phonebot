@@ -14,7 +14,10 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!["staff", "clinician", "witness", "medicalDirector"].includes(parsed.data.role)) {
     return NextResponse.json({ error: "Staff signature role required" }, { status: 400 });
   }
-  const intake = await prisma.intake.findFirst({ where: { id: params.id, providerId: provider!.id } });
+  const intake = await prisma.intake.findFirst({
+    where: { id: params.id, providerId: provider!.id },
+    include: { client: { select: { fullName: true, dob: true } } },
+  });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const d = parsed.data;
   const existing = await prisma.signature.findUnique({
@@ -23,8 +26,26 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   });
   await prisma.signature.upsert({
     where: { intakeId_role: { intakeId: intake.id, role: d.role } },
-    create: { intakeId: intake.id, ...d },
-    update: { imageData: d.imageData, printedName: d.printedName, signedDate: d.signedDate, relationship: d.relationship },
+    create: {
+      intakeId: intake.id,
+      ...d,
+      contentRevision: intake.contentRevision,
+      subjectNameSnapshot: d.printedName,
+      subjectDobSnapshot: intake.client.dob,
+      signerUserId: user!.id,
+    },
+    update: {
+      imageData: d.imageData,
+      printedName: d.printedName,
+      signedDate: d.signedDate,
+      relationship: d.relationship,
+      contentRevision: intake.contentRevision,
+      subjectNameSnapshot: d.printedName,
+      subjectDobSnapshot: intake.client.dob,
+      signerUserId: user!.id,
+      invalidatedAt: null,
+      invalidatedReason: null,
+    },
   });
   if (d.role === "clinician") {
     const answers = await loadAnswers(intake.id);
@@ -32,7 +53,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     answers.c_clinician = d.printedName;
     if (!answers.cca_provider_credentials) answers.cca_provider_credentials = d.printedName;
     if (!answers.dis_prepared_by) answers.dis_prepared_by = d.printedName;
-    await saveAnswers(intake.id, answers);
+    await saveAnswers(intake.id, answers, { invalidateSignatures: false });
   }
   await audit("signature_captured", {
     providerId: provider!.id,

@@ -3,6 +3,7 @@ import Link from "next/link";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import CoveragePanel from "@/components/CoveragePanel";
+import ManualSendPanel from "@/components/ManualSendPanel";
 import type { CcaReview } from "@/lib/ccaReview";
 import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
@@ -116,7 +117,7 @@ interface Detail {
     };
     signatures: { role: string; printedName: string; signedDate: string }[];
     uploadedDocuments: { id: string; docType: string; fileName: string; createdAt?: string; ccaReview?: CcaReview | null }[];
-    generatedPdfs: { id: string; createdAt: string }[];
+    generatedPdfs: { id: string; createdAt: string; packetVersion?: number; contentRevision?: number }[];
     auditLogs: { id: string; event: string; detail?: string; createdAt: string }[];
     followUps: {
       status: "OPEN" | "PROCESSING" | "COMPLETED" | "SUPERSEDED";
@@ -137,7 +138,7 @@ interface Detail {
   missingRequired: { key: string; label: string }[];
   missingOptional: { key: string; label: string; section?: string }[];
   signatureStatuses: {
-    key: string; label: string; state: "captured" | "missing"; required: boolean;
+    key: string; label: string; state: "captured" | "missing" | "invalid"; required: boolean;
     signedDate?: string; reason: string;
   }[];
   providerPacketReadiness: {
@@ -146,6 +147,19 @@ interface Detail {
     templateName?: string | null;
     message: string;
   };
+  generationReadiness?: {
+    ready: boolean;
+    blockers: { code: string; message: string; fieldKeys?: string[] }[];
+    contentRevision: number;
+  };
+  packetFreshness?: { state: "missing" | "current" | "stale"; generatedAt?: string | null };
+  accuracyConflicts?: {
+    key: string; severity: "error" | "warning"; title: string; detail: string; fieldKeys: string[];
+  }[];
+  planCompleteness?: {
+    pcp: { total: number; completed: number; missing: string[]; state: string };
+    crisis: { total: number; completed: number; missing: string[]; state: string };
+  } | null;
 }
 
 const HELPER_FORM_KEYS = [
@@ -287,6 +301,16 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
   const packetReady = d.providerPacketReadiness.ready;
+  const generationReady = d.generationReadiness?.ready === true;
+  const generationBlockers = d.generationReadiness?.blockers || [];
+  const finalPacketCurrent = d.packetFreshness?.state === "current";
+  const signatureDeliveryBlockers = generationBlockers.filter((blocker) => {
+    if (["client_signature_missing", "client_signature_invalid", "staff_signature_missing", "staff_signature_invalid"].includes(blocker.code)) return false;
+    if (blocker.code === "required_fields" && blocker.fieldKeys?.every((key) => key === "signature")) return false;
+    return true;
+  });
+  const signatureDeliveryReady = packetReady && signatureDeliveryBlockers.length === 0;
+  const firstGenerationBlocker = generationBlockers[0]?.message || "Complete readiness review before generating.";
   const providerName = i.provider?.name || "Moore Divine Care";
   const providerPhone = i.provider?.phone || "";
   const clientMessage = intakeShareMessage(d.clientLink, providerName, providerPhone);
@@ -452,6 +476,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       if (!r.ok && b.code === "IDENTITY_MISMATCH") {
         setIdentityMismatch({ recordName: String(b.recordName || "client record"), answerName: String(b.answerName || "intake answer") });
         setNote("Packet generation paused. Confirm the client name or review and correct it before generating.");
+        return;
+      }
+      if (!r.ok && b.code === "INTAKE_NOT_READY" && Array.isArray(b.blockers)) {
+        const messages = b.blockers.slice(0, 4).map((blocker: { message?: string }) => blocker.message).filter(Boolean);
+        setNote(`Packet generation blocked: ${messages.join(" | ")}`);
+        await load();
         return;
       }
       const parts = [
@@ -872,7 +902,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status{" "}
             <b>{({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
               NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}</b>{" "}
-            - {d.missingRequired.length === 0 ? "Required packet complete" : `${d.percentComplete}% of answers filled`}
+            - {d.missingRequired.length === 0 ? "Intake required fields complete" : `${d.percentComplete}% of answers filled`}
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -881,10 +911,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           {packetReady ? (
             <>
               <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
-              <button className="btn-secondary" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
+              <button className="btn-secondary" disabled={!generationReady} title={generationReady ? "Generate a locked packet version" : firstGenerationBlocker}
+                onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
                 Generate Completed Packet
               </button>
-              <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
+              {finalPacketCurrent ? (
+                <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download final PDF</a>
+              ) : (
+                <button className="btn-ghost" disabled title="Generate a current locked packet version before downloading the final PDF">Download final PDF</button>
+              )}
             </>
           ) : (
             <button className="btn-secondary" disabled title="Master admin must approve and activate this provider's packet first">
@@ -904,7 +939,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               Email provider now
             </button>
           )}
-          <button className="btn-ghost" disabled={!packetReady} title={packetReady ? "Send missing signature fields through DocuSign" : "Master admin must approve and activate this provider's packet first"} onClick={() => {
+          <button className="btn-ghost" disabled={!signatureDeliveryReady} title={signatureDeliveryReady ? "Send missing signature fields through DocuSign" : signatureDeliveryBlockers[0]?.message || "Master admin must approve and activate this provider's packet first"} onClick={() => {
             if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
             void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
               method: "POST",
@@ -934,6 +969,37 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <p className="mt-1 text-sm font-semibold">Client answers, uploads, and signatures can continue while the master administrator completes packet setup.</p>
         </div>
       )}
+      <section className={`mt-4 rounded-xl border p-4 ${generationReady ? "border-emerald-300 bg-emerald-50 text-emerald-950" : "border-red-300 bg-red-50 text-red-950"}`} aria-labelledby="readiness-heading">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 id="readiness-heading" className="font-bold">{generationReady ? "Ready to generate a locked packet version" : "Packet generation is blocked"}</h2>
+            <p className="mt-1 text-sm">Content revision {d.generationReadiness?.contentRevision || 1}. Signatures and generated PDFs must match this revision.</p>
+          </div>
+          <span className={`badge ${generationReady ? "bg-emerald-200 text-emerald-900" : "bg-red-200 text-red-900"}`}>{generationReady ? "READY" : `${generationBlockers.length} BLOCKER${generationBlockers.length === 1 ? "" : "S"}`}</span>
+        </div>
+        {!generationReady && (
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm">
+            {generationBlockers.slice(0, 8).map((blocker, index) => <li key={`${blocker.code}-${index}`}>{blocker.message}</li>)}
+          </ol>
+        )}
+        {(d.accuracyConflicts?.length || 0) > 0 && (
+          <div className="mt-3 border-t border-current/20 pt-3">
+            <p className="font-semibold">Cross-section conflicts</p>
+            <ul className="mt-1 list-disc space-y-1 pl-5 text-sm">
+              {d.accuracyConflicts!.slice(0, 6).map((conflict) => (
+                <li key={conflict.key}><b>{conflict.title}:</b> {conflict.detail}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        {d.planCompleteness && (
+          <div className="mt-3 flex flex-wrap gap-2 border-t border-current/20 pt-3 text-xs font-semibold">
+            <span className="badge bg-white/70 text-slate-800">PCP: {d.planCompleteness.pcp.completed}/{d.planCompleteness.pcp.total}</span>
+            <span className="badge bg-white/70 text-slate-800">Crisis plan: {d.planCompleteness.crisis.completed}/{d.planCompleteness.crisis.total}</span>
+            <span className="font-normal">Plan completeness is tracked separately from intake-packet required fields.</span>
+          </div>
+        )}
+      </section>
       <WorkflowSteps d={d} />
       <MoodPanel answers={d.answers} />
       <CoveragePanel intakeId={i.id} />
@@ -969,16 +1035,9 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         <div className="mt-3 rounded-xl border border-red-300 bg-red-50 p-4 text-red-900" role="alert">
           <h2 className="font-bold">Packet generation paused for a client-name mismatch</h2>
           <p className="mt-2 text-sm">The client record says <b>{identityMismatch.recordName}</b>, but the intake answer says <b>{identityMismatch.answerName}</b>.</p>
-          <p className="mt-2 text-sm">Review the name first. If the answer is correct and the DOB has been verified, a staff member may confirm the mismatch and generate the packet. This confirmation is recorded in the audit log.</p>
+          <p className="mt-2 text-sm">Correct the client record or packet answer so the verified identity matches. Identity mismatches cannot be overridden.</p>
           <div className="mt-3 flex flex-wrap gap-2">
             <Link href={`/intakes/${i.id}/review?focus=client_full_name`} className="btn-secondary px-3 py-2 text-sm">Review / correct name</Link>
-            <button className="btn-primary px-3 py-2 text-sm" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ allowIdentityMismatch: true }),
-            }))}>
-              Confirm names and generate packet
-            </button>
           </div>
         </div>
       )}
@@ -1085,38 +1144,20 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               onToggle={(event) => setManualSendingOpen(event.currentTarget.open)}
             >
               <summary className="cursor-pointer text-sm font-semibold text-brand">Manual sending &amp; message preview</summary>
-              {smsFallbackNeeded && (
-                <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900" role="alert">
-                  Automatic SMS was not accepted. The secure link is still active. Use Copy SMS message or Open SMS on this computer below to send it manually.
-                </p>
-              )}
-              <p className="mt-2 break-all whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-sm text-slate-700">{clientMessage}</p>
-              <p className="mt-2 text-xs text-slate-500">This preview contains no client name, diagnosis, or intake answers.</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                <button
-                  className="btn-ghost px-3 py-2 text-sm"
+              <div className="mt-3">
+                <ManualSendPanel
+                  intakeId={i.id}
+                  clientLink={d.clientLink}
+                  message={clientMessage}
+                  phone={deliveryContacts.phone?.value || ""}
+                  email={deliveryContacts.email?.value || ""}
+                  smsHref={deliveryContacts.phone ? intakeSmsHref(deliveryContacts.phone.value, d.clientLink, providerName, providerPhone) : undefined}
+                  mailtoHref={deliveryContacts.email ? intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone) : undefined}
+                  reason={smsFallbackNeeded ? "Automatic SMS was not accepted. The secure link is still active." : undefined}
+                  linkSentAt={i.linkSentAt || null}
                   disabled={linkExpired}
-                  onClick={async () => { await navigator.clipboard.writeText(d.clientLink); setNote("Secure link copied"); }}
-                >
-                  Copy secure link
-                </button>
-                <button
-                  className="btn-ghost px-3 py-2 text-sm"
-                  disabled={linkExpired}
-                  onClick={async () => { await navigator.clipboard.writeText(clientMessage); setNote("Client SMS message copied"); }}
-                >
-                  Copy SMS message
-                </button>
-                {deliveryContacts.phone && !linkExpired && (
-                  <a className="btn-ghost px-3 py-2 text-sm" href={intakeSmsHref(deliveryContacts.phone.value, d.clientLink, providerName, providerPhone)}>
-                    Open SMS on this computer
-                  </a>
-                )}
-                {deliveryContacts.email && !linkExpired && (
-                  <a className="btn-ghost px-3 py-2 text-sm" href={intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone)}>
-                    Open email
-                  </a>
-                )}
+                  onMarked={() => { setNote("Recorded: the client got the link by hand."); void load(); }}
+                />
               </div>
             </details>
           )}
@@ -1404,7 +1445,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <div className="rounded-xl border border-emerald-300 bg-emerald-100 p-3 text-emerald-900">
                   <p className="text-lg font-bold">→ 100% of blocking preflight checks are clear</p>
                   <p className="mt-1 text-sm">{preflight.message} {preflightOverrideCount ? `${preflightOverrideCount} item${preflightOverrideCount === 1 ? " was" : "s were"} intentionally overridden. ` : ""}Staff approval is still required before the packet is final.</p>
-                  <button className="btn-primary mt-3 px-3 py-1.5 text-sm" type="button"
+                  <button className="btn-primary mt-3 px-3 py-1.5 text-sm" type="button" disabled={!generationReady} title={generationReady ? "Generate a locked packet version" : firstGenerationBlocker}
                     onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
                     Continue to generate packet
                   </button>
@@ -1734,7 +1775,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <b>{status.label}:</b>{" "}
                 {status.state === "captured"
                   ? `Captured${status.signedDate ? ` on ${status.signedDate}` : " (date not recorded)"}`
-                  : `Missing - ${status.reason}`}
+                  : `${status.state === "invalid" ? "Invalid - re-sign required" : "Missing"} - ${status.reason}`}
               </div>
             ))}
           </div>

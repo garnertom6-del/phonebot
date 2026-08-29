@@ -5,3 +5,6 @@ __pycache__/
 
 # Local Python virtualenv created by .cursor/install.sh
 .venv/
+
+# Local collaboration scratch artifacts.
+_claude_tmp/
