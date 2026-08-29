@@ -346,23 +346,27 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   if (phase === "welcome") {
     return (
-      <div className="mx-auto flex min-h-[70vh] max-w-md flex-col justify-center text-center">
-        <h2 className="mt-6 text-3xl font-bold text-brand">Hi {firstName}!</h2>
+      <div className="mx-auto flex min-h-[70vh] max-w-md flex-col text-center">
+        <p className="mx-auto mt-3 inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm font-bold text-emerald-800">
+          Private link from {providerDisplayName(providerName)}
+        </p>
+        <h2 className="mt-4 text-3xl font-bold text-brand">Hi {firstName}!</h2>
         <p className="mt-5 text-xl leading-relaxed text-slate-700">
           {intakeProcessExplanation(providerName)}
         </p>
         <p className="mt-3 text-lg leading-relaxed text-slate-500">
           You can speak or tap to answer. Your answers save as you go.
         </p>
+        <button type="button" className="btn-primary mt-6 min-h-[72px] w-full text-2xl"
+          onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
+          Start my intake
+        </button>
+        <p className="mt-2 text-sm font-semibold text-slate-500">Tap Start. You can leave and return with this same private link.</p>
         <p className="mt-3 rounded-xl bg-brand-light p-4 text-base leading-relaxed text-brand">
           Some answers may already be filled in by your care team. You will only see the questions that still need an answer.
           Consent and your signature are always completed by you.
         </p>
         <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} />
-        <button type="button" className="btn-primary mt-10 min-h-[72px] w-full text-2xl"
-          onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
-          Start
-        </button>
       </div>
     );
   }
@@ -657,6 +661,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
     return (
       <div className="space-y-4">
         <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
+          enterKeyHint="next"
           onChange={(e) => set(q.key, e.target.value)} />
         <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={() => onNext()}>
           Next
@@ -673,14 +678,25 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
       {q.voice || multiline ? (
         <VoiceInput value={String(value ?? "")} onChange={(x) => set(q.key, x)}
           onPendingValueChange={setPendingVoiceValue}
-          multiline={multiline} placeholder={q.placeholder} inputMode={inputMode} />
+          multiline={multiline} placeholder={q.placeholder} inputMode={inputMode}
+          enterKeyHint="next"
+          autoComplete={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "off"}
+          onEnter={multiline ? undefined : () => onNext(pendingVoiceValue ?? undefined)} />
       ) : (
         <input
           className="input min-h-[64px] text-xl"
           type={q.type === "email" ? "email" : q.type === "phone" ? "tel" : "text"}
-          inputMode={q.type === "number" ? "numeric" : undefined}
+          inputMode={q.type === "phone" ? "tel" : q.type === "email" ? "email" : q.type === "number" ? "numeric" : undefined}
+          autoComplete={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "off"}
+          enterKeyHint="next"
           value={String(value ?? "")} placeholder={q.placeholder}
-          onChange={(e) => set(q.key, e.target.value)} />
+          onChange={(e) => set(q.key, e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              onNext();
+            }
+          }} />
       )}
       <button type="button" className="btn-primary min-h-[64px] w-full text-xl"
         onClick={() => onNext(pendingVoiceValue ?? undefined)}>

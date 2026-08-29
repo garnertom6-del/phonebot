@@ -13,6 +13,9 @@ interface Props {
   multiline?: boolean;
   placeholder?: string;
   inputMode?: "text" | "tel" | "email";
+  enterKeyHint?: "next" | "done";
+  autoComplete?: string;
+  onEnter?: () => void;
 }
 
 type SR = { start: () => void; stop: () => void; lang: string; interimResults: boolean; continuous: boolean;
@@ -59,7 +62,7 @@ function mergeTranscriptChunks(chunks: string[]): string {
   return merged.join(" ");
 }
 
-export default function VoiceInput({ value, onChange, onPendingValueChange, multiline, placeholder, inputMode }: Props) {
+export default function VoiceInput({ value, onChange, onPendingValueChange, multiline, placeholder, inputMode, enterKeyHint, autoComplete, onEnter }: Props) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -118,8 +121,22 @@ export default function VoiceInput({ value, onChange, onPendingValueChange, mult
     <textarea className="input min-h-[110px]" value={value} placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)} />
   ) : (
-    <input className="input" value={value} placeholder={placeholder} inputMode={inputMode}
-      onChange={(e) => onChange(e.target.value)} />
+    <input
+      className="input min-h-[56px] text-lg"
+      type={inputMode === "tel" ? "tel" : inputMode === "email" ? "email" : "text"}
+      value={value}
+      placeholder={placeholder}
+      inputMode={inputMode}
+      enterKeyHint={enterKeyHint}
+      autoComplete={autoComplete}
+      onChange={(e) => onChange(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" && onEnter) {
+          e.preventDefault();
+          onEnter();
+        }
+      }}
+    />
   );
 
   return (
@@ -129,7 +146,7 @@ export default function VoiceInput({ value, onChange, onPendingValueChange, mult
         {supported && (
           <button type="button" aria-label={recording ? "Stop recording" : "Speak your answer"}
             onClick={recording ? stop : start}
-            className={`h-12 min-w-[72px] shrink-0 rounded-lg border px-3 text-sm font-bold ${recording ? "animate-pulse border-red-400 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
+            className={`min-h-[56px] min-w-[72px] shrink-0 rounded-lg border px-3 text-sm font-bold ${recording ? "animate-pulse border-red-400 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
             {recording ? "Stop" : "Speak"}
           </button>
         )}
