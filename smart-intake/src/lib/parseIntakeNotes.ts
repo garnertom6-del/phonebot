@@ -11,6 +11,8 @@ const NOTE_LABELS: Array<[RegExp, string]> = [
   [/^(dob|date of birth|birth date|birthdate)$/i, "dob"],
   [/^(mid(?:#| number)?|recipient id|medicaid id|member id|medicaid number)$/i, "mid_number"],
   [/^record(?:#| number)?$/i, "record_number"],
+  [/^(cl location|clinic location|office location|location)$/i, "location"],
+  [/^(intake date|date of intake)$/i, "intake_date"],
   [/^(cell|cell phone|phone|phone number|client phone|mobile|mobile phone)$/i, "client_phone_cell"],
   [/^(home phone|client home phone)$/i, "client_phone_home"],
   [/^(work phone|client work phone)$/i, "client_phone_work"],
@@ -132,6 +134,8 @@ export const INTAKE_NOTE_FIELD_LABELS: Record<string, string> = {
   dob: "Date of birth",
   mid_number: "MID",
   record_number: "Record#",
+  location: "Location",
+  intake_date: "Date of intake",
   client_phone_cell: "Phone",
   client_email: "Email",
   address_street: "Street",
@@ -237,6 +241,7 @@ export function parseHelperNotes(notes: string): Record<string, string> {
   }
 
   if (out.dob) out.dob = toDateInputValue(out.dob);
+  if (out.intake_date) out.intake_date = toDateInputValue(out.intake_date);
 
   if (out.address_street && !out.address_city && !out.address_state) {
     const parts = splitUsAddress(out.address_street);

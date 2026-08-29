@@ -40,6 +40,17 @@ import {
 import { extractIntakeNoteFields, parseHelperNotes } from "../src/lib/parseIntakeNotes";
 import { buildNewIntakeReadiness } from "../src/lib/newIntakeReadiness";
 import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
+import {
+  detectMidRecordMixup,
+  displayIntakeLocation,
+  firstFilledText,
+  housingNeedsAttention,
+  looksLikeGeneratedRecordNumber,
+  providerDisplayName,
+  staffIntakeAnswerCompleteLabel,
+  staffIntakePrimaryAction,
+  staffIntakeWorkflowSteps,
+} from "../src/lib/staffIntakeDetail";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
 import { packetDisplayStatus as packetMapperStatus } from "../src/lib/mappingStatus";
@@ -775,7 +786,69 @@ async function main() {
   assert.equal(extractedByKey.mid_number, "SAMPLEMID01");
   assert.equal(parseHelperNotes("Recipient ID: SAMPLEMID01").mid_number, "SAMPLEMID01");
   assert.equal(parseHelperNotes("PCP phone: 3365550100").pcp_phone, "3365550100");
+  assert.equal(parseHelperNotes("CL LOCATION: High Point").location, "High Point");
+  assert.equal(parseHelperNotes("Date of intake: 08/29/2026").intake_date, "2026-08-29");
   ok("pasted CCA / NC Tracks notes parse into confirmable name, DOB, address, phone, emergency, and MID fields");
+
+  assert.equal(displayIntakeLocation(undefined), "");
+  assert.equal(displayIntakeLocation("  High Point  "), "High Point");
+  assert.equal(firstFilledText("", "ZZ", "BCBS-97588"), "ZZ");
+  assert.equal(providerDisplayName("Essential Wellness Care Inc."), "Essential Wellness Care Inc.");
+  assert.equal(providerDisplayName("", "Essential Wellness Care Inc. Client Intake Package"), "Essential Wellness Care Inc.");
+  assert.equal(providerDisplayName("", ""), "This provider");
+  assert.equal(looksLikeGeneratedRecordNumber("BCBS-97588"), true);
+  assert.equal(looksLikeGeneratedRecordNumber("SAMPLEMID01"), false);
+  assert.equal(detectMidRecordMixup("BCBS-97588", "ZZ").mixed, true);
+  assert.equal(detectMidRecordMixup("987654321A", "MDC-1001").mixed, false);
+  assert.equal(housingNeedsAttention({ addressStreet: "", livingArrangement: "Adult Alone" }), true);
+  assert.equal(housingNeedsAttention({ addressStreet: "", livingArrangement: "Homeless" }), false);
+  assert.equal(housingNeedsAttention({ addressStreet: "100 Example Ave", livingArrangement: "" }), false);
+  assert.match(
+    staffIntakeAnswerCompleteLabel({
+      missingRequiredCount: 0,
+      percentComplete: 100,
+      expectCca: true,
+      hasCca: false,
+      hasStaffSignature: false,
+      hasGeneratedPdf: true,
+    }),
+    /CCA still needed/,
+  );
+  assert.match(
+    staffIntakeAnswerCompleteLabel({
+      missingRequiredCount: 0,
+      percentComplete: 100,
+      expectCca: true,
+      hasCca: true,
+      hasStaffSignature: false,
+      hasGeneratedPdf: true,
+    }),
+    /Staff \/ QP signature still needed/,
+  );
+  assert.equal(
+    staffIntakePrimaryAction({
+      status: "SIGNED",
+      expectCca: true,
+      hasCca: false,
+      hasStaffSignature: false,
+      hasGeneratedPdf: true,
+      packetReady: true,
+      copiesSent: false,
+    }).id,
+    "add_cca",
+  );
+  const signedNoStaffSteps = staffIntakeWorkflowSteps({
+    status: "SIGNED",
+    hasCca: false,
+    expectCca: true,
+    hasClientSignature: true,
+    hasStaffSignature: false,
+    hasGeneratedPdf: true,
+    copiesSent: false,
+  });
+  assert.equal(signedNoStaffSteps.find((step) => step.id === "add_cca")?.done, false);
+  assert.equal(signedNoStaffSteps.find((step) => step.id === "staff_signature")?.done, false);
+  ok("staff intake detail helpers: no invented city, MID/Record mix-up, housing, and CCA/signature status");
   assert.equal(
     buildDashboardReadiness({
       status: "SIGNED",

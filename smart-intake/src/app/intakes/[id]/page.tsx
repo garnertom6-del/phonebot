@@ -26,6 +26,17 @@ import {
 } from "@/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions } from "@/lib/clientFollowUp";
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
+import { INTAKE_STATUS_LABELS } from "@/lib/dashboardWorkflow";
+import {
+  detectMidRecordMixup,
+  displayIntakeLocation,
+  firstFilledText,
+  housingNeedsAttention,
+  providerDisplayName,
+  staffIntakeAnswerCompleteLabel,
+  staffIntakePrimaryAction,
+  staffIntakeWorkflowSteps,
+} from "@/lib/staffIntakeDetail";
 
 type PreflightFinding = {
   key: string;
@@ -100,7 +111,8 @@ function maskedEmail(value: string): string {
 
 interface Detail {
   intake: {
-    id: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
+    id: string; status: string; tokenExpiresAt: string; intakeDate?: string | null; location?: string | null;
+    packageName?: string; expectCca?: boolean; linkSentAt?: string | null;
     submittedAt?: string | null;
     docusignEnvelopeId?: string | null;
     provider?: { name: string; phone?: string | null } | null;
@@ -108,6 +120,7 @@ interface Detail {
       fullName: string;
       dob: string;
       midNumber?: string;
+      recordNumber?: string;
       email?: string;
       phone?: string;
       guardianName?: string;
@@ -149,7 +162,7 @@ interface Detail {
 }
 
 const HELPER_FORM_KEYS = [
-  "record_number", "mid_number", "gender", "race", "ethnicity", "marital_status", "veteran",
+  "record_number", "mid_number", "location", "intake_date", "gender", "race", "ethnicity", "marital_status", "veteran",
   "education", "language", "language_other", "communication_level", "employment_status",
   "client_phone_cell", "client_phone_home", "client_phone_work", "client_email",
   "address_street", "address_city", "address_state", "living_arrangement", "lives_with_whom", "lives_where",
@@ -287,7 +300,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   if (!d) return <main className="p-10 text-center text-slate-400">Loading...</main>;
   const i = d.intake;
   const packetReady = d.providerPacketReadiness.ready;
-  const providerName = i.provider?.name || "Moore Divine Care";
+  const providerName = providerDisplayName(i.provider?.name, i.packageName);
   const providerPhone = i.provider?.phone || "";
   const clientMessage = intakeShareMessage(d.clientLink, providerName, providerPhone);
   const copiesMessage = copiesLink ? copiesShareMessage(copiesLink, providerName) : "";
@@ -299,6 +312,36 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const hasCca = ccaDocuments.length > 0;
   const ccaReview = latestCca?.ccaReview || null;
   const hasClientSignature = i.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
+  const hasStaffSignature = i.signatures.some((signature) => signature.role === "staff");
+  const copiesSent = i.auditLogs.some((entry) => entry.event === "copies_link_sent");
+  const expectCca = i.expectCca !== false;
+  const identityLocation = displayIntakeLocation(firstFilledText(d.answers.location, i.location));
+  const identityMid = firstFilledText(d.answers.mid_number, i.client.midNumber);
+  const identityRecord = firstFilledText(d.answers.record_number, i.client.recordNumber);
+  const identityIntakeDate = firstFilledText(d.answers.intake_date, i.intakeDate);
+  const midRecordMixup = detectMidRecordMixup(identityMid, identityRecord);
+  const housingAttention = housingNeedsAttention({
+    addressStreet: String(d.answers.address_street ?? ""),
+    livingArrangement: String(d.answers.living_arrangement ?? ""),
+  });
+  const answerCompleteLabel = staffIntakeAnswerCompleteLabel({
+    missingRequiredCount: d.missingRequired.length,
+    percentComplete: d.percentComplete,
+    expectCca,
+    hasCca,
+    hasStaffSignature,
+    hasGeneratedPdf: i.generatedPdfs.length > 0,
+  });
+  const primaryAction = staffIntakePrimaryAction({
+    status: i.status,
+    expectCca,
+    hasCca,
+    hasStaffSignature,
+    hasGeneratedPdf: i.generatedPdfs.length > 0,
+    packetReady,
+    copiesSent,
+  });
+  const statusLabel = INTAKE_STATUS_LABELS[i.status] || i.status;
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
   const deliveryContacts = clientDeliveryContacts(i.client);
@@ -631,11 +674,44 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     }
   }
 
+  async function swapMidAndRecord() {
+    setSaveAssistBusy(true);
+    setNote("Swapping MID# and Record#...");
+    try {
+      const r = await fetch(`/api/intakes/${i.id}/assist`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fields: { mid_number: identityRecord, record_number: identityMid },
+        }),
+      });
+      const b = await r.json().catch(() => ({}));
+      if (!r.ok) {
+        setNote(b.error || "Could not swap MID# and Record#.");
+      } else {
+        setNote("Swapped MID# and Record#. Save confirmed.");
+        load();
+      }
+    } catch {
+      setNote("Could not swap MID# and Record#. Check the connection and try again.");
+    } finally {
+      setSaveAssistBusy(false);
+    }
+  }
+
+  function markHomeless(form: HTMLFormElement) {
+    const living = form.elements.namedItem("living_arrangement");
+    const street = form.elements.namedItem("address_street");
+    if (living instanceof HTMLSelectElement) living.value = "Homeless";
+    if (street instanceof HTMLInputElement) street.value = "";
+    setNote("Marked Homeless / no fixed address. Click Save answers & notes to store it.");
+  }
+
   async function saveAssist(form: HTMLFormElement) {
     setSaveAssistBusy(true);
     setSaveAssistKind("info");
     setSaveAssistMessage("Saving answers and notes to the intake form...");
-    setNote("Saving NC Tracks / helper info...");
+    setNote("Saving paste and helper answers...");
     const fd = new FormData(form);
     const fields = Object.fromEntries(
       Array.from(fd.entries())
@@ -865,66 +941,112 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   return (
     <main className="mx-auto max-w-5xl p-6">
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
-      <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
+      <p className="mt-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+        {i.packageName || `${providerName} Client Intake Package`}
+      </p>
+      <div className="mt-1 flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-bold">{i.client.fullName}</h1>
-          <p className="text-sm text-slate-500">
-            DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Status{" "}
-            <b>{({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
-              NEEDS_REVIEW: "Needs review", SIGNED: "Signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}</b>{" "}
-            - {d.missingRequired.length === 0 ? "Required packet complete" : `${d.percentComplete}% of answers filled`}
+          <p className="mt-1 text-sm text-slate-600">
+            DOB {i.client.dob}
+            {" · "}
+            Location {identityLocation || "not set"}
+            {" · "}
+            MID# {identityMid || "—"}
+            {" · "}
+            Record# {identityRecord || "—"}
+            {" · "}
+            Intake {identityIntakeDate || "—"}
           </p>
+          <p className="mt-1 text-sm text-slate-500">
+            Status <b>{statusLabel}</b>
+            {" · "}
+            {answerCompleteLabel}
+          </p>
+          <p className="mt-1 text-xs font-semibold text-brand">{primaryAction.hint}</p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href={`/intakes/${i.id}/review`} className="btn-primary">Review / edit answers</Link>
-          <Link href={`/intakes/${i.id}/plans`} className="btn-secondary">PCP / Crisis Plan</Link>
-          {packetReady ? (
-            <>
-              <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
-              <button className="btn-secondary" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
-                Generate Completed Packet
-              </button>
-              <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download PDF</a>
-            </>
-          ) : (
-            <button className="btn-secondary" disabled title="Master admin must approve and activate this provider's packet first">
-              PDF setup required
+          {primaryAction.id === "add_cca" && (
+            <a className="btn-primary" href="#add-cca">Add CCA</a>
+          )}
+          {primaryAction.id === "review_signatures" && (
+            <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-primary">Add Staff / QP signature</Link>
+          )}
+          {primaryAction.id === "generate_packet" && packetReady && (
+            <button className="btn-primary" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
+              Generate completed packet
             </button>
           )}
-          {["SIGNED", "COMPLETED"].includes(i.status) && (
-            <button className="btn-ghost" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
+          {primaryAction.id === "send_records" && (
+            <button className="btn-primary" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
               {copiesBusy ? "Sending client copies..." : "Send client copies"}
             </button>
           )}
-          <button className="btn-ghost" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
-            Email completed PDF to provider {providerPacketEmailEnabled ? "off" : "on"}
-          </button>
-          {packetReady && i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
-            <button className="btn-ghost" onClick={() => { void sendProviderPacketNow(); }}>
-              Email provider now
+          {primaryAction.id === "send_link" && (
+            <button className="btn-primary" disabled={clientLinkBusy || !hasClientContact} onClick={() => { void sendIntakeLink(); }}>
+              Send the secure link
             </button>
           )}
-          <button className="btn-ghost" disabled={!packetReady} title={packetReady ? "Send missing signature fields through DocuSign" : "Master admin must approve and activate this provider's packet first"} onClick={() => {
-            if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
-            void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ allowStaffSigner: true }),
-            }));
-          }}>
-            Send missing signatures
-          </button>
-          {i.docusignEnvelopeId && (
-            <button className="btn-ghost" onClick={async () => {
-              setNote("Checking DocuSign...");
-              const r = await fetch(`/api/intakes/${i.id}/docusign/status`, { method: "POST" });
-              const b = await r.json().catch(() => ({}));
-              setNote(r.ok ? `DocuSign: ${b.message || b.status}` : b.error || "DocuSign check failed.");
-              load();
-            }}>
-              Check DocuSign status
-            </button>
-          )}
+          <Link href={`/intakes/${i.id}/review`} className={primaryAction.id === "review_answers" ? "btn-primary" : "btn-secondary"}>
+            Review / edit answers
+          </Link>
+          <details className="relative">
+            <summary className="btn-ghost cursor-pointer list-none">More actions</summary>
+            <div className="absolute right-0 z-20 mt-2 flex w-72 flex-col gap-2 rounded-xl border border-slate-200 bg-white p-3 shadow-lg">
+              <Link href={`/intakes/${i.id}/plans`} className="btn-ghost px-3 py-2 text-sm">PCP / Crisis Plan</Link>
+              {packetReady ? (
+                <>
+                  <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
+                  {primaryAction.id !== "generate_packet" && (
+                    <button className="btn-ghost px-3 py-2 text-left text-sm" onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
+                      Generate completed packet
+                    </button>
+                  )}
+                  {i.generatedPdfs.length > 0 && (
+                    <a className="btn-ghost px-3 py-2 text-sm" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download latest PDF</a>
+                  )}
+                </>
+              ) : (
+                <button className="btn-ghost px-3 py-2 text-sm" disabled title="Master admin must approve and activate this provider's packet first">
+                  PDF setup required
+                </button>
+              )}
+              {["SIGNED", "COMPLETED"].includes(i.status) && primaryAction.id !== "send_records" && (
+                <button className="btn-ghost px-3 py-2 text-left text-sm" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
+                  {copiesBusy ? "Sending client copies..." : "Send client copies"}
+                </button>
+              )}
+              <button className="btn-ghost px-3 py-2 text-left text-sm" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
+                Auto-email completed PDF to provider: {providerPacketEmailEnabled ? "On" : "Off"}
+              </button>
+              {packetReady && i.generatedPdfs.length > 0 && i.status === "COMPLETED" && (
+                <button className="btn-ghost px-3 py-2 text-left text-sm" onClick={() => { void sendProviderPacketNow(); }}>
+                  Email provider now
+                </button>
+              )}
+              <button className="btn-ghost px-3 py-2 text-left text-sm" disabled={!packetReady} title={packetReady ? "Send missing signature fields through DocuSign" : "Master admin must approve and activate this provider's packet first"} onClick={() => {
+                if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
+                void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({ allowStaffSigner: true }),
+                }));
+              }}>
+                Send missing signatures (DocuSign)
+              </button>
+              {i.docusignEnvelopeId && (
+                <button className="btn-ghost px-3 py-2 text-left text-sm" onClick={async () => {
+                  setNote("Checking DocuSign...");
+                  const r = await fetch(`/api/intakes/${i.id}/docusign/status`, { method: "POST" });
+                  const b = await r.json().catch(() => ({}));
+                  setNote(r.ok ? `DocuSign: ${b.message || b.status}` : b.error || "DocuSign check failed.");
+                  load();
+                }}>
+                  Check DocuSign status
+                </button>
+              )}
+            </div>
+          </details>
         </div>
       </div>
       {!packetReady && (
@@ -934,9 +1056,25 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           <p className="mt-1 text-sm font-semibold">Client answers, uploads, and signatures can continue while the master administrator completes packet setup.</p>
         </div>
       )}
-      <WorkflowSteps d={d} />
+      {midRecordMixup.mixed && (
+        <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950" role="status">
+          <p className="font-bold">MID# and Record# look swapped</p>
+          <p className="mt-1 text-sm">{midRecordMixup.reason}</p>
+          <button className="btn-primary mt-3 px-3 py-2 text-sm" type="button" disabled={saveAssistBusy} onClick={() => { void swapMidAndRecord(); }}>
+            Swap MID# and Record#
+          </button>
+        </div>
+      )}
+      <WorkflowSteps
+        status={i.status}
+        hasCca={hasCca}
+        expectCca={expectCca}
+        hasClientSignature={hasClientSignature}
+        hasStaffSignature={hasStaffSignature}
+        hasGeneratedPdf={i.generatedPdfs.length > 0}
+        copiesSent={copiesSent}
+      />
       <MoodPanel answers={d.answers} />
-      <CoveragePanel intakeId={i.id} />
       {note && (
         <p className="mt-3 rounded-lg bg-brand-light p-2 text-sm font-semibold text-brand" role="status" aria-live="polite">
           {note}
@@ -1007,8 +1145,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
       )}
 
       <div className="mt-5 grid gap-4 md:grid-cols-2">
-        <div className={`card ${linkExpired && !linkFinished ? "border-amber-300 bg-amber-50/40" : ""}`}>
-          <div className="flex flex-wrap items-center justify-between gap-2">
+        <details className={`card order-5 md:col-span-2 ${linkExpired && !linkFinished ? "border-amber-300 bg-amber-50/40" : ""}`}>
+          <summary className="flex cursor-pointer list-none flex-wrap items-center justify-between gap-2">
             <h3 className="font-bold">Secure client link</h3>
             <span className={`badge ${
               linkFinished
@@ -1021,7 +1159,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             }`}>
               {linkFinished ? "Intake signed" : linkExpired ? "Expired" : openedCurrentDelivery ? "Client opened" : "Active"}
             </span>
-          </div>
+          </summary>
 
           <div className="mt-3 break-all rounded bg-slate-100 p-2 font-mono text-xs">{d.clientLink}</div>
           <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
@@ -1120,8 +1258,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </div>
             </details>
           )}
-        </div>
-        <div className="card border-brand/40 bg-brand-light/40">
+        </details>
+        <div id="add-cca" className="card order-2 border-brand/40 bg-brand-light/40 md:col-span-2">
           <h3 className="mb-1 font-bold">Add CCA - auto-fill from the clinician&apos;s assessment</h3>
           <p className="mb-3 text-sm text-slate-600">
             Upload the completed Comprehensive Clinical Assessment (PDF or photo, e.g. from your
@@ -1162,7 +1300,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             />
           )}
         </div>
-        <div className="card md:col-span-2 border-sky-200 bg-sky-50/50">
+        <div className="card order-3 md:col-span-2 border-sky-200 bg-sky-50/50">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="max-w-3xl">
               <h3 className="font-bold text-sky-950">Ask client for missing answers</h3>
@@ -1383,7 +1521,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             If a blank is intentional, run the preflight review below and use <b>Override and continue</b>. The reason is recorded in the audit log.
           </p>
         </div>
-        <div id="preflight-review" className={`card md:col-span-2 ${preflightIsClear ? "border-emerald-500 bg-emerald-100" : "border-emerald-200 bg-emerald-50/40"}`}>
+        <div id="preflight-review" className={`card order-4 md:col-span-2 ${preflightIsClear ? "border-emerald-500 bg-emerald-100" : "border-emerald-200 bg-emerald-50/40"}`}>
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h3 className="font-bold text-emerald-900">AI preflight review</h3>
@@ -1504,54 +1642,58 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </div>
           )}
         </div>
-        <div className="card md:col-span-2">
-          <div className="flex flex-wrap items-start justify-between gap-3">
-            <div>
-              <h3 className="font-bold">NC Tracks / staff helper info</h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Use the dropdowns for common answers or paste one answer per line below.
-                Saving a client answer here fills the packet and removes that question
-                from the client&apos;s SMS intake. Consent and signature questions stay with the client.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <button className="btn-primary px-3 py-1.5 text-sm" type="button" disabled={ncTracksBusy}
-                onClick={() => { void lookupNcTracks(); }}>
-                {ncTracksBusy ? "Looking up..." : "Auto lookup from MID/client info"}
-              </button>
-              <label className={`btn-secondary cursor-pointer px-3 py-1.5 text-sm ${ncTracksUploadBusy ? "pointer-events-none opacity-60" : ""}`}>
-                {ncTracksUploadBusy ? "Reading upload..." : "Upload NC Tracks screenshot / card / PDF"}
-                <input
-                  type="file"
-                  className="hidden"
-                  accept="application/pdf,image/*"
-                  disabled={ncTracksUploadBusy}
-                  onChange={(e) => e.target.files?.[0] && uploadNcTracks(e.target.files[0])}
-                />
-              </label>
-              <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
-                Open NC Tracks
-              </a>
-            </div>
-          </div>
-          {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
+        <div className="card order-1 md:col-span-2">
           <form
             key={helperFormKey}
-            className="mt-4 space-y-3"
+            className="space-y-3"
             onSubmit={(e) => { e.preventDefault(); void saveAssist(e.currentTarget); }}
           >
-            <details open className="rounded-xl border border-brand/30 bg-brand-light/30 p-3">
-              <summary className="cursor-pointer list-none">
-                <span className="font-semibold text-brand">Quick Notes: paste confirmed answers</span>
-                <span className="ml-2 text-xs text-slate-600">Race, veteran status, insurance, PCP, emergency contact, and more</span>
-              </summary>
-              <p className="mt-2 text-xs text-slate-600">Use one confirmed answer per line. Saving applies the answers to the intake packet and lets the client skip those questions in SMS. Consent and signature questions stay with the client.</p>
+            <div className="rounded-xl border border-brand/30 bg-brand-light/30 p-3">
+              <h3 className="font-bold text-brand">Paste confirmed answers</h3>
+              <p className="mt-1 text-sm text-slate-600">
+                Paste first. One confirmed answer per line. Saving fills the packet and lets the client skip those SMS questions. Consent and signatures stay with the client.
+              </p>
               <textarea name="helperNotes" className="input mt-3 min-h-[130px] w-full"
                 defaultValue={String(d.answers.staff_helper_notes ?? "")}
-                placeholder={"Race: Black or African American\nVeteran: No\nEthnicity: Non-Hispanic/Black\nEmployment status: Unemployed\nInsurance type: Alliance\nPCP: Guilford County Pediatrics\nPCP phone: 336-555-0100\nEmergency contact: Jane Smith\nEmergency phone: 336-555-0101\nTransport: Services / treatment plan activities"} />
-            </details>
+                placeholder={"Race: Black or African American\nVeteran: No\nLocation: High Point\nStreet: 100 Example Ave\nLiving arrangement: Homeless\nMID: SAMPLEMID01\nRecord#: TEMP-10001"} />
+            </div>
 
-            <HelperGroup title="Common client answers" description="Start here to shorten the SMS questions." defaultOpen>
+            <div className="rounded-xl border border-slate-200 bg-white p-3">
+              <h3 className="font-bold text-slate-900">Identity</h3>
+              <p className="mt-1 text-xs text-slate-500">Location is the office or city for this chart. It is not assumed to be Greensboro.</p>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperInput name="location" label="CL location / office" value={identityLocation} placeholder="Office or city - not assumed" />
+                <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={identityMid} />
+                <HelperInput name="record_number" label="Record#" value={identityRecord} />
+                <HelperInput name="intake_date" label="Date of intake" value={identityIntakeDate} />
+              </div>
+            </div>
+
+            <div className={`rounded-xl border p-3 ${housingAttention ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <h3 className="font-bold text-slate-900">Address / housing</h3>
+                  <p className="mt-1 text-xs text-slate-600">
+                    {housingAttention
+                      ? "Street is blank. Mark Homeless / no fixed address, or enter the address so this is not missed."
+                      : "Confirmed housing stays visible so homeless / no-street is not buried in a tab."}
+                  </p>
+                </div>
+                <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={(e) => e.currentTarget.form && markHomeless(e.currentTarget.form)}>
+                  Mark homeless / no street
+                </button>
+              </div>
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperInput name="address_street" label="Street address" value={d.answers.address_street ?? ""} />
+                <HelperInput name="address_city" label="City" value={d.answers.address_city ?? ""} />
+                <HelperInput name="address_state" label="State" value={d.answers.address_state ?? ""} />
+                <HelperSelect name="living_arrangement" label="Living arrangement" value={d.answers.living_arrangement ?? ""} options={LIVING_ARRANGEMENT_OPTIONS} placeholder="Select arrangement" />
+                <HelperInput name="lives_with_whom" label="Who does the client live with?" value={d.answers.lives_with_whom ?? ""} />
+                <HelperInput name="lives_where" label="Living area" value={d.answers.lives_where ?? ""} />
+              </div>
+            </div>
+
+            <HelperGroup title="Common client answers" description="Gender, race, and other items that shorten SMS." defaultOpen>
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <HelperSelect name="gender" label="Gender" value={d.answers.gender ?? ""} options={GENDER_OPTIONS} placeholder="Select gender" />
                 <HelperSelect name="race" label="Race" value={d.answers.race ?? ""} options={RACE_OPTIONS} placeholder="Select race" />
@@ -1566,27 +1708,87 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </div>
             </HelperGroup>
 
-            <HelperGroup title="Contact & household" description="Confirmed contact details can remove several client questions.">
+            <div className="flex flex-wrap gap-2 pt-1">
+              <button className="btn-primary disabled:cursor-wait disabled:opacity-60" type="submit" disabled={saveAssistBusy}>
+                {saveAssistBusy ? "Saving answers..." : "Save answers & notes"}
+              </button>
+              <span className="self-center text-xs text-slate-500">
+                Save before generating the packet. Advanced NC Tracks and extra sections stay below.
+              </span>
+            </div>
+            {saveAssistMessage && (
+              <p className={`rounded-lg p-3 text-sm font-semibold ${
+                saveAssistKind === "success" ? "bg-emerald-50 text-emerald-700" :
+                saveAssistKind === "error" ? "bg-red-50 text-red-700" : "bg-brand-light text-brand"
+              }`} role="status">
+                {saveAssistMessage}
+              </p>
+            )}
+
+            <details className="rounded-xl border border-slate-200 bg-slate-50/80 p-3">
+              <summary className="cursor-pointer list-none">
+                <span className="font-semibold text-slate-800">Advanced: NC Tracks, Record# extras, eligibility</span>
+                <span className="ml-2 text-xs text-slate-500">Hide until you need lookup, screenshot upload, or a panel Record#.</span>
+              </summary>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <button className="btn-primary px-3 py-1.5 text-sm" type="button" disabled={ncTracksBusy}
+                  onClick={() => { void lookupNcTracks(); }}>
+                  {ncTracksBusy ? "Looking up..." : "Auto lookup from MID/client info"}
+                </button>
+                <label className={`btn-secondary cursor-pointer px-3 py-1.5 text-sm ${ncTracksUploadBusy ? "pointer-events-none opacity-60" : ""}`}>
+                  {ncTracksUploadBusy ? "Reading upload..." : "Upload NC Tracks screenshot / card / PDF"}
+                  <input
+                    type="file"
+                    className="hidden"
+                    accept="application/pdf,image/*"
+                    disabled={ncTracksUploadBusy}
+                    onChange={(e) => e.target.files?.[0] && uploadNcTracks(e.target.files[0])}
+                  />
+                </label>
+                <a className="btn-ghost px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank">
+                  Open NC Tracks
+                </a>
+              </div>
+              {ncTracksResult && <p className="mt-3 rounded-lg bg-white p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
+              <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-3">
+                <HelperSelect name="provider_choice_plan" label="Type of insurance" value={d.answers.provider_choice_plan ?? d.answers.mco ?? ""} options={PROVIDER_CHOICE_PLAN_OPTIONS} placeholder="Select insurance type" />
+              </div>
+              <div className="mt-3">
+                <CoveragePanel intakeId={i.id} />
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <button type="button" className="btn-secondary px-3 py-1.5 text-sm"
+                  onClick={(e) => e.currentTarget.form && generateRecordNumberFromPanel(e.currentTarget.form)}>
+                  Generate record # from insurance panel
+                </button>
+                <span className="text-xs text-slate-500">Uses Type of insurance below. Format: PANEL-12345. Do not put this in MID#.</span>
+              </div>
+              <details className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3">
+                <summary className="cursor-pointer text-sm font-semibold text-amber-900">Lookup Partners, Vaya, Alliance, or Trillium Record#</summary>
+                <p className="mt-2 text-xs text-amber-800">These four plans are lookup-only. Open the official page, find the client record, then type that Record# in Identity.</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
+                    <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
+                      {link.label} lookup
+                    </a>
+                  ))}
+                </div>
+              </details>
+            </details>
+
+            <HelperGroup title="Contact" description="Phone and email only. Address is in Address / housing above.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <HelperInput name="client_phone_cell" label="Cell phone" value={d.answers.client_phone_cell ?? i.client.phone ?? ""} />
                 <HelperInput name="client_phone_home" label="Home phone" value={d.answers.client_phone_home ?? ""} />
                 <HelperInput name="client_phone_work" label="Work phone" value={d.answers.client_phone_work ?? ""} />
                 <HelperInput name="client_email" label="Email" value={d.answers.client_email ?? i.client.email ?? ""} />
-                <HelperInput name="address_street" label="Street address" value={d.answers.address_street ?? ""} />
-                <HelperInput name="address_city" label="City" value={d.answers.address_city ?? ""} />
-                <HelperInput name="address_state" label="State" value={d.answers.address_state ?? ""} />
-                <HelperSelect name="living_arrangement" label="Living arrangement" value={d.answers.living_arrangement ?? ""} options={LIVING_ARRANGEMENT_OPTIONS} placeholder="Select arrangement" />
-                <HelperInput name="lives_with_whom" label="Who does the client live with?" value={d.answers.lives_with_whom ?? ""} />
-                <HelperInput name="lives_where" label="Living area" value={d.answers.lives_where ?? ""} />
               </div>
             </HelperGroup>
 
-            <HelperGroup title="Insurance, referral & services" description="Use confirmed plan, referral, and requested-service information.">
+            <HelperGroup title="Insurance, referral & services" description="Plan and referral details. MID# lives in Identity above.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
                 <HelperSelect name="has_medicaid" label="Medicaid" value={d.answers.has_medicaid ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
                 <HelperInput name="medicaid_effective_date" label="Medicaid effective date" value={d.answers.medicaid_effective_date ?? ""} />
-                <HelperSelect name="provider_choice_plan" label="Type of insurance" value={d.answers.provider_choice_plan ?? d.answers.mco ?? ""} options={PROVIDER_CHOICE_PLAN_OPTIONS} placeholder="Select insurance type" />
                 <HelperSelect name="has_medicare" label="Medicare" value={d.answers.has_medicare ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
                 <HelperInput name="medicare_effective_date" label="Medicare effective date" value={d.answers.medicare_effective_date ?? ""} />
                 <HelperSelect name="has_nchc" label="NC Health Choice" value={d.answers.has_nchc ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
@@ -1668,30 +1870,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </div>
             </HelperGroup>
 
-            <HelperGroup title="Staff & packet setup" description="These fields help staff complete the packet but do not replace client consent.">
+            <HelperGroup title="Staff & packet setup" description="Staff name and transport. Record# lives in Identity above.">
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-                <HelperInput name="record_number" label="Record #" value={d.answers.record_number ?? ""} />
                 <HelperInput name="staff_receiving_intake" label="Staff / QP / clinician name" value={d.answers.staff_receiving_intake ?? d.answers.clinician_name ?? ""} />
                 <HelperInput name="transport_destination" label="Transport line" value={d.answers.transport_destination ?? ""} />
                 <HelperInput name="transport_purposes" label="Transport purpose(s)" value={d.answers.transport_purposes ?? ""} />
-                <div className="flex flex-wrap items-center gap-2 md:col-span-3">
-                  <button type="button" className="btn-secondary px-3 py-1.5 text-sm"
-                    onClick={(e) => e.currentTarget.form && generateRecordNumberFromPanel(e.currentTarget.form)}>
-                    Generate record # from insurance panel
-                  </button>
-                  <span className="text-xs text-slate-500">Format: PANEL-12345. Select the insurance type in the section above first.</span>
-                </div>
-                <details className="rounded-lg border border-amber-200 bg-amber-50 p-3 md:col-span-3">
-                  <summary className="cursor-pointer text-sm font-semibold text-amber-900">Lookup Partners, Vaya, Alliance, or Trillium Record#</summary>
-                  <p className="mt-2 text-xs text-amber-800">These four plans are lookup-only. Open the official page, find the client record, then type that Record# above.</p>
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {RECORD_NUMBER_LOOKUP_LINKS.map((link) => (
-                      <a key={link.key} className="btn-ghost px-2 py-1 text-xs" href={link.url} target="_blank" rel="noreferrer">
-                        {link.label} lookup
-                      </a>
-                    ))}
-                  </div>
-                </details>
               </div>
             </HelperGroup>
 
@@ -1713,8 +1896,10 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             )}
           </form>
         </div>
+        <div className="order-6">
         <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
-        <div className="card">
+        </div>
+        <div className="card order-7">
           <div className="flex flex-wrap items-start justify-between gap-2">
             <h3 className="mb-2 font-bold">Signatures</h3>
             <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-ghost px-3 py-1.5 text-xs">Add / rerun signatures</Link>
@@ -1740,7 +1925,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </div>
           <p className="mt-2 text-xs text-slate-400">Staff/clinician signatures are added on the review screen.</p>
         </div>
-        <div className="card">
+        <div className="card order-8">
           <h3 className="mb-2 font-bold">Uploaded documents</h3>
           {i.uploadedDocuments.length === 0 && <p className="text-sm text-slate-400">None uploaded.</p>}
           <ul className="space-y-1 text-sm">{i.uploadedDocuments.map((u) => (
@@ -1750,7 +1935,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </li>
           ))}</ul>
         </div>
-        <div className="card md:col-span-2">
+        <div className="card order-9 md:col-span-2">
           <h3 className="mb-2 font-bold">Audit log</h3>
           <ul className="max-h-56 space-y-1 overflow-y-auto text-xs text-slate-600">
             {i.auditLogs.map((a) => (
@@ -1848,11 +2033,11 @@ function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy
   );
 }
 
-function HelperInput({ name, label, value }: { name: string; label: string; value: unknown }) {
+function HelperInput({ name, label, value, placeholder }: { name: string; label: string; value: unknown; placeholder?: string }) {
   return (
     <label>
       <span className="label">{label}</span>
-      <input className="input" name={name} defaultValue={String(value ?? "")} />
+      <input className="input" name={name} defaultValue={String(value ?? "")} placeholder={placeholder} autoComplete="off" />
     </label>
   );
 }
@@ -1910,28 +2095,37 @@ function HelperSelect({
 }
 
 /** Numbered guide showing where this intake is in the workflow and what to do next. */
-function WorkflowSteps({ d }: { d: Detail }) {
-  const i = d.intake;
-  const hasCca = i.uploadedDocuments.some((u) => u.docType === "CCA");
-  const reviewed = i.auditLogs.some((a) => a.event === "staff_reviewed");
-  const signed = i.signatures.some((s) => s.role === "client" || s.role === "guardian");
-  const docusignSent = !!i.docusignEnvelopeId || i.auditLogs.some((a) => a.event === "docusign_sent" || a.event === "docusign_completed");
-  const copiesSent = i.auditLogs.some((a) => a.event === "copies_link_sent");
-  const steps = [
-    { label: "Send link", done: i.status !== "NOT_STARTED" },
-    { label: "Client answers", done: ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(i.status) },
-    { label: "Add CCA", done: hasCca },
-    { label: "Review answers", done: reviewed },
-    { label: "Generate packet", done: i.generatedPdfs.length > 0 },
-    { label: "Signatures", done: signed },
-    { label: "DocuSign", done: docusignSent || i.status === "COMPLETED" },
-    { label: "Send records", done: copiesSent },
-  ];
+function WorkflowSteps({
+  status,
+  hasCca,
+  expectCca,
+  hasClientSignature,
+  hasStaffSignature,
+  hasGeneratedPdf,
+  copiesSent,
+}: {
+  status: string;
+  hasCca: boolean;
+  expectCca: boolean;
+  hasClientSignature: boolean;
+  hasStaffSignature: boolean;
+  hasGeneratedPdf: boolean;
+  copiesSent: boolean;
+}) {
+  const steps = staffIntakeWorkflowSteps({
+    status,
+    hasCca,
+    expectCca,
+    hasClientSignature,
+    hasStaffSignature,
+    hasGeneratedPdf,
+    copiesSent,
+  });
   const current = steps.findIndex((s) => !s.done);
   return (
     <div className="mt-3 flex flex-wrap items-center gap-1 rounded-lg border border-slate-200 bg-white p-2 text-xs">
       {steps.map((s, idx) => (
-        <span key={s.label}
+        <span key={s.id}
           className={`flex items-center gap-1 rounded-full px-2 py-1 font-semibold ${
             s.done ? "bg-emerald-100 text-emerald-700"
             : idx === current ? "bg-brand text-white"

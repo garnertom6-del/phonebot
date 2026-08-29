@@ -11,9 +11,10 @@ import {
   STAFF_PREFILLED_CLIENT_FIELDS_KEY,
 } from "@/config/mooreDivineQuestions";
 import { parseHelperNotes } from "@/lib/parseIntakeNotes";
+import { ASSIST_IDENTITY_KEYS } from "@/lib/staffIntakeDetail";
 
 const FIELD_KEYS = new Set([
-  "record_number", "mid_number", "gender", "education", "language", "language_other",
+  "record_number", "mid_number", "location", "intake_date", "gender", "education", "language", "language_other",
   "communication_level", "pcp_name", "pcp_phone", "pcp_address",
   "preferred_emergency_facility", "height", "weight", "hair_color", "eye_color",
   "identifying_marks", "special_diets", "medical_alerts", "last_physical_date", "fax",
@@ -132,8 +133,9 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   for (const [key, value] of Object.entries(incoming)) {
     if (!FIELD_KEYS.has(key)) continue;
     const text = clean(value);
-    if (text) {
-      next[key] = normalizeAssistValue(key, text);
+    const identity = (ASSIST_IDENTITY_KEYS as readonly string[]).includes(key);
+    if (text || identity) {
+      next[key] = text ? normalizeAssistValue(key, text) : "";
       applied.add(key);
     }
   }
@@ -164,11 +166,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const defaults = applyOperationalDefaults(next);
   await saveAnswers(intake.id, defaults);
   await syncStructuredRows(intake.id, defaults);
+  const nextLocation = clean(defaults.location);
+  const nextIntakeDate = clean(defaults.intake_date);
+  await prisma.intake.update({
+    where: { id: intake.id },
+    data: {
+      ...(applied.has("location") ? { location: nextLocation || null } : {}),
+      ...(applied.has("intake_date") && nextIntakeDate ? { intakeDate: nextIntakeDate } : {}),
+    },
+  });
   await prisma.client.update({
     where: { id: intake.clientId },
     data: {
-      midNumber: clean(defaults.mid_number) || intake.client.midNumber,
-      recordNumber: clean(defaults.record_number) || intake.client.recordNumber,
+      midNumber: applied.has("mid_number") ? (clean(defaults.mid_number) || null) : (clean(defaults.mid_number) || intake.client.midNumber),
+      recordNumber: applied.has("record_number") ? (clean(defaults.record_number) || null) : (clean(defaults.record_number) || intake.client.recordNumber),
       phone: clean(defaults.client_phone_cell) || intake.client.phone,
     },
   });
