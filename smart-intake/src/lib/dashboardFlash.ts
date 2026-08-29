@@ -7,6 +7,22 @@ export interface DashboardFlash {
 
 const DASHBOARD_FLASH_KEY = "smart-intake-dashboard-flash";
 
+const DASHBOARD_TAB_KEYS = new Set([
+  "action", "waiting", "signed", "done", "packet", "cca", "copies", "all", "archived",
+]);
+
+export function dashboardTabFromQuery(value: string | null | undefined): string | null {
+  const normalized = String(value || "").trim().toLowerCase();
+  return DASHBOARD_TAB_KEYS.has(normalized) ? normalized : null;
+}
+
+/** Return to the correct provider and expose the intake that was just saved. */
+export function createdIntakeDashboardHref(intakeId: string, providerId?: string | null): string {
+  const params = new URLSearchParams({ tab: "waiting", created: intakeId });
+  if (providerId?.trim()) params.set("providerId", providerId.trim());
+  return `/dashboard?${params.toString()}#intake-${encodeURIComponent(intakeId)}`;
+}
+
 export function hasSmsDeliveryFailure(failed: unknown[]): boolean {
   return failed.some((item) => typeof item === "string" && /^\s*sms\b/i.test(item));
 }

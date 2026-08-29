@@ -280,7 +280,11 @@ export async function POST(req: NextRequest) {
     if (existing) {
       return NextResponse.json({ error: `Record# ${parsed.data.recordNumber} already belongs to ${existing.fullName}` }, { status: 409 });
     }
-    return NextResponse.json(await createStaffIntake(parsed.data, user!.id, provider!.id, req));
+    const response = NextResponse.json(await createStaffIntake(parsed.data, user!.id, provider!.id, req));
+    // Keep the dashboard on the same provider that received the new intake.
+    // Without this, a master user's stale provider cookie can make a correctly
+    // saved intake appear to vanish immediately after creation.
+    return attachSelectedProviderCookie(response, provider!.id);
   } catch (error) {
     console.error("POST /api/intakes failed", error);
     return NextResponse.json({ error: "Couldn't create the intake link right now." }, { status: 500 });

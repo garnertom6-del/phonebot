@@ -6,7 +6,7 @@ import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/share
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { canGenerateRecordNumber, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
-import { deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
+import { createdIntakeDashboardHref, deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
   assignIntakeContacts,
   formatUsPhoneDisplay,
@@ -381,7 +381,7 @@ export default function NewIntake() {
           setSendStatus(`${parts.join(" | ")} Returning to the dashboard...`);
           storeDashboardFlash(flash);
           setRedirecting(true);
-          window.setTimeout(() => router.replace("/dashboard"), 700);
+          window.setTimeout(() => router.replace(createdIntakeDashboardHref(intakeId, providerId)), 700);
         } else {
           setSendStatusKind("error");
           setSendStatus(parts.length ? parts.join(" | ") : "No message was accepted. Check the saved phone number or email and try again.");
@@ -479,6 +479,7 @@ export default function NewIntake() {
   }
 
   if (result) {
+    const savedIntakeDashboardHref = createdIntakeDashboardHref(result.id, providerId);
     const deliveryContacts = clientDeliveryContacts({
       phone: form.phone,
       email: form.email,
@@ -503,6 +504,9 @@ export default function NewIntake() {
           </p>
           <p className="mt-2 text-sm font-semibold text-brand">
             Record#: {result.recordNumber || "Generated"}{result.providerChoicePlan ? ` (${result.providerChoicePlan})` : ""}
+          </p>
+          <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800" role="status">
+            Saved under {providerName}. On the dashboard, this intake is in <b>Waiting on client</b> until the client submits it.
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
           {result.publicLinkReady === false ? (
@@ -532,9 +536,12 @@ export default function NewIntake() {
                   {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
                 </button>
                 <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
-                  Open intake &amp; staff setup
+                  Open saved intake
                 </Link>
               </div>
+              <Link href={savedIntakeDashboardHref} className="btn-ghost mt-3 block min-h-11 w-full px-4 py-3 text-center">
+                Dashboard — show this saved intake
+              </Link>
               {!hasContact && (
                 <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">
                   Add a client or guardian phone number or email on the intake page before sending.
@@ -589,7 +596,7 @@ export default function NewIntake() {
     ? (smsPhone && sendSmsAfterCreate ? "Creating and texting the link..." : "Creating intake...")
     : packetContextError
       ? "Sign in to create an intake"
-    : smsPhone
+    : smsPhone && sendSmsAfterCreate
       ? "Create and text the link"
       : "Create intake";
 

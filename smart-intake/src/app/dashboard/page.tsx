@@ -6,7 +6,7 @@ import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { consumeDashboardFlash } from "@/lib/dashboardFlash";
+import { consumeDashboardFlash, dashboardTabFromQuery } from "@/lib/dashboardFlash";
 
 interface Row {
   id: string;
@@ -178,10 +178,12 @@ function Dashboard() {
   const searchParams = useSearchParams();
   const providerIdFromUrl = searchParams.get("providerId");
   const providerSlugFromUrl = searchParams.get("providerSlug");
+  const createdIntakeId = searchParams.get("created")?.trim() || "";
+  const requestedTab = dashboardTabFromQuery(searchParams.get("tab"));
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
-  const [tab, setTab] = useState("action");
+  const [tab, setTab] = useState(() => requestedTab || "action");
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
@@ -193,6 +195,7 @@ function Dashboard() {
   const [clientDraft, setClientDraft] = useState<ClientDetailsDraft | null>(null);
   const [clientEditError, setClientEditError] = useState("");
   const busyRowIdsRef = useRef(new Set<string>());
+  const announcedCreatedIntakeRef = useRef("");
   const [busyRowIds, setBusyRowIds] = useState<Set<string>>(() => new Set());
 
   const load = useCallback(async (_activeTab: string = "all", preserveNotice = false) => {
@@ -250,6 +253,18 @@ function Dashboard() {
     void boot();
     return () => { active = false; };
   }, [load, tab, providerIdFromUrl, providerSlugFromUrl]);
+
+  useEffect(() => {
+    if (!rows || !createdIntakeId || announcedCreatedIntakeRef.current === createdIntakeId) return;
+    if (!rows.some((row) => row.id === createdIntakeId)) return;
+    announcedCreatedIntakeRef.current = createdIntakeId;
+    setNoticeKind("success");
+    setNote("Intake saved. It is shown below in Waiting on client until the client submits it.");
+    const timer = window.setTimeout(() => {
+      document.getElementById(`intake-${createdIntakeId}`)?.scrollIntoView({ behavior: "smooth", block: "center" });
+    }, 100);
+    return () => window.clearTimeout(timer);
+  }, [createdIntakeId, rows]);
 
   function showNote(message: string, timeout = 4500, kind: "success" | "warning" | "error" = "success") {
     setNoticeKind(kind);
@@ -317,6 +332,10 @@ function Dashboard() {
   function selectDashboardTab(nextTab: string) {
     setSearch("");
     setTab(nextTab);
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", nextTab);
+    params.delete("created");
+    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
     window.setTimeout(() => document.getElementById("intake-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
@@ -768,7 +787,14 @@ function Dashboard() {
                     : "Add a phone or email before sending";
 
           return (
-            <article key={row.id} aria-busy={rowBusy} className="rounded-[24px] border border-slate-200 bg-white p-5 shadow-sm">
+            <article
+              key={row.id}
+              id={`intake-${row.id}`}
+              aria-busy={rowBusy}
+              className={`rounded-[24px] border bg-white p-5 shadow-sm ${
+                row.id === createdIntakeId ? "border-emerald-400 ring-4 ring-emerald-100" : "border-slate-200"
+              }`}
+            >
               <div className="flex flex-wrap items-start justify-between gap-4">
                 <div>
                   <div className="flex flex-wrap items-center gap-2">
