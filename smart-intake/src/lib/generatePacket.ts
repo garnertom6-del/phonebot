@@ -208,8 +208,9 @@ export async function generatePacketForIntake(
   ));
   // The state PLAN SIGNATURES page is appended before the certificate so the
   // certificate's fingerprint covers it like every other packet page.
-  const latestCcaDocument = await prisma.document.findFirst({
-    where: { intakeId: intake.id, docType: "cca", reviewJson: { not: null } },
+  const latestCcaDocument = await prisma.uploadedDocument.findFirst({
+    // the CCA upload route stores docType as "CCA"
+    where: { intakeId: intake.id, docType: "CCA", reviewJson: { not: null } },
     orderBy: { createdAt: "desc" },
     select: { reviewJson: true },
   });

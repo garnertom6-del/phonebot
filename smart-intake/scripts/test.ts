@@ -42,7 +42,8 @@ import { emptyCcaReview } from "../src/lib/ccaReview";
 import { PDFDocument } from "pdf-lib";
 import { extractPdfText } from "../src/lib/pdfText";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
-import { applyOperationalDefaults } from "../src/lib/answerDefaults";
+import { applyOperationalDefaults, ageAtDate, UNMAPPED_PACKET_CHOICES } from "../src/lib/answerDefaults";
+import { PACKET_MAP } from "../src/config/mooreDivinePacketMap";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { clientDetailsSchema, isQuestionRequired, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
 import {
@@ -2514,6 +2515,107 @@ async function main() {
     assert.ok(guardianText.includes("Mother"), "the guardian's relationship is drawn");
     assert.ok(!guardianText.includes(signedDate), "the guardian page is undated too");
     ok("PLAN SIGNATURES: a guardian signs the legally-responsible-person block, with their relationship");
+  }
+
+  // ---- answers that must never be invented on a signed packet --------------
+  {
+    // A minor could complete and sign the whole packet as their own legal
+    // representative: is_minor_or_incompetent is staff-only, gates every
+    // guardian question, and nothing blocked submission when it was blank.
+    assert.equal(ageAtDate("2011-09-22", "2026-08-30"), 14, "age is calendar-accurate");
+    assert.equal(ageAtDate("2008-10-21", "2026-08-30"), 17, "birthday not yet reached this year");
+    assert.equal(ageAtDate("2008-08-30", "2026-08-30"), 18, "birthday on the intake date counts");
+    assert.equal(ageAtDate("", "2026-08-30"), null, "no DOB gives no age");
+
+    const minor = applyOperationalDefaults({ dob: "2011-09-22", intake_date: "2026-08-30" } as never);
+    assert.equal(minor.is_minor_or_incompetent, "Yes", "a 14-year-old is never their own legal representative");
+    const minorMisflagged = applyOperationalDefaults({
+      dob: "2011-09-22", intake_date: "2026-08-30", is_minor_or_incompetent: "No",
+    } as never);
+    assert.equal(minorMisflagged.is_minor_or_incompetent, "Yes", "a date of birth overrides a mistaken No");
+    const adultWithGuardian = applyOperationalDefaults({
+      dob: "1988-03-14", intake_date: "2026-08-30", is_minor_or_incompetent: "Yes",
+    } as never);
+    assert.equal(adultWithGuardian.is_minor_or_incompetent, "Yes", "staff may still flag an adult with a guardian");
+    ok("guardian status is derived from the date of birth, so a minor cannot sign for themselves");
+
+    // NC Health Choice covers children who do NOT qualify for Medicaid, so
+    // "No" is only true once Medicaid is established.
+    const noEvidence = applyOperationalDefaults({ client_full_name: "A B", dob: "2014-03-02" } as never, { forPdf: true });
+    assert.equal(noEvidence.has_nchc, undefined, "NCHC stays blank with no Medicaid evidence");
+    const onMedicaid = applyOperationalDefaults({ mid_number: "947123456M" } as never, { forPdf: true });
+    assert.equal(onMedicaid.has_nchc, "No", "an established Medicaid enrollment does imply NCHC No");
+    ok("NC Health Choice is derived from Medicaid, not invented for every client");
+  }
+
+  // ---- the diagnosis menu must not print sentinels as diagnoses ------------
+  {
+    const dunno = applyOperationalDefaults({ has_current_diagnosis: "Yes", diagnosis_menu: "I don't know" } as never);
+    assert.ok(!String(dunno.sa_primary_diagnosis || "").includes("know"), "\"I don't know\" is not a diagnosis");
+    assert.ok(!String(dunno.c_axis1 || "").includes("know"), "\"I don't know\" never reaches Axis I");
+    const other = applyOperationalDefaults({
+      diagnosis_menu: "Other", diagnosis_list: "Borderline personality disorder",
+    } as never);
+    assert.equal(other.sa_primary_diagnosis, "Borderline personality disorder",
+      "the real diagnosis outranks the Other sentinel");
+    const real = applyOperationalDefaults({ diagnosis_menu: "Major depressive disorder (F33.1)" } as never);
+    assert.equal(real.sa_primary_diagnosis, "Major depressive disorder (F33.1)", "a real menu diagnosis still prints");
+    ok("diagnosis menu sentinels never print as a clinical diagnosis");
+  }
+
+  // ---- the presenting problem must be idempotent ---------------------------
+  {
+    let a: Record<string, unknown> = {
+      presenting_need_chips: ["Therapy"], why_want_services_chips: ["I want to stay stable"],
+    };
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    const first = String(a.presenting_problem);
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    assert.equal(a.presenting_problem, first, "re-running the defaults must not grow the sentence");
+    a.presenting_need_chips = ["Therapy", "Need housing"];
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    assert.equal(
+      a.presenting_problem, "Therapy, Need housing. I want to stay stable",
+      "adding a chip replaces the derived sentence instead of appending a second copy",
+    );
+    const typed = applyOperationalDefaults({
+      presenting_need_chips: ["Food"], presenting_problem: "My landlord is evicting me.",
+    } as never) as Record<string, unknown>;
+    assert.ok(String(typed.presenting_problem).includes("My landlord is evicting me."),
+      "what the client typed themselves is kept");
+    ok("the presenting problem no longer duplicates each time the client returns");
+  }
+
+  // ---- every client menu choice has a home on the packet -------------------
+  {
+    const boxed = new Set(PACKET_MAP.fields.map((f) => f.source || "").filter(Boolean));
+    const drifted: string[] = [];
+    for (const key of Object.keys(UNMAPPED_PACKET_CHOICES)) {
+      const question = questionByKey(key);
+      const allowed = new Set(UNMAPPED_PACKET_CHOICES[key]);
+      for (const option of question?.options || []) {
+        const printed = applyOperationalDefaults(
+          { [key]: option, race: "Black or African American" } as never, { forPdf: true },
+        ) as Record<string, unknown>;
+        if (boxed.has(`${key}=${String(printed[key])}`)) continue;
+        if (allowed.has(option)) continue;
+        drifted.push(`${key}="${option}"`);
+      }
+    }
+    assert.deepEqual(drifted, [],
+      `these menu choices print blank on the packet and are not declared in UNMAPPED_PACKET_CHOICES: ${drifted.join(", ")}`);
+    const mapped = applyOperationalDefaults(
+      { ethnicity: "Non-Hispanic", race: "Black or African American" } as never, { forPdf: true },
+    );
+    assert.equal(mapped.ethnicity, "Non-Hispanic/Black", "Non-Hispanic pairs with the race the client gave");
+    assert.equal(
+      applyOperationalDefaults({ employment_status: "Self-Employed" } as never, { forPdf: true }).employment_status,
+      "Employed", "self-employment ticks the Employed box");
+    assert.equal(
+      applyOperationalDefaults({ employment_status: "Retired" } as never, { forPdf: true }).employment_status,
+      "Not in Labor Force", "a retiree ticks Not in Labor Force");
+    ok("new menu choices either tick a real box or are declared as record-only");
   }
 
   console.log(`\nAll ${passed} checks passed ✓`);
