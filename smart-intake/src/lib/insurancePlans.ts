@@ -218,6 +218,16 @@ export function applyInsurancePlanDefaults(a: Answers) {
   }
 }
 
+/** True when staff already chose a type of insurance / MCO / Medicaid plan. */
+export function staffInsurancePlanReady(answers: Record<string, unknown> | null | undefined): boolean {
+  if (!answers) return false;
+  const plan = text(answers.provider_choice_plan) || text(answers.mco);
+  return plan.length > 0;
+}
+
+export const INSURANCE_BEFORE_SMS_MESSAGE =
+  "Fill the type of insurance / MCO / Medicaid plan before the SMS goes out. Staff sets the plan in back-office setup. Do not send the client link until the plan is filled.";
+
 export function insuranceSummary(answers: Record<string, unknown>): string {
   const parts: string[] = [];
   if (text(answers.has_medicaid) === "Yes") parts.push("Medicaid");

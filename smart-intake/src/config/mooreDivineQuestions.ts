@@ -28,6 +28,8 @@ export interface Question {
   staffOnly?: boolean;      // never shown to client; appears in staff review
   essential?: boolean;      // asked even in Quick Intake (CCA-expected) mode
   appOnly?: boolean;        // asked in the app only; not a paper-packet mapping field
+  menu?: boolean;           // Easy Mode: use the big native <select> even with 4 or fewer options
+  contactPicker?: boolean;  // optional Contact Picker (one contact the client chooses)
   providers?: QuestionCatalogId[]; // omit = every provider catalog
 }
 
@@ -42,10 +44,82 @@ export interface Section {
 const YN = ["Yes", "No"];
 
 export const REFERRAL_SOURCE_OPTIONS = [
-  "Self", "DSS", "LME", "Provider Agency", "Other Agency or Provider",
+  "Self", "Word of mouth", "Business card", "Website", "Family/Friend",
+  "DSS", "LME", "Provider Agency", "Other Agency or Provider",
   "State Facility", "Private Physician", "Social Agency", "Employer", "School",
-  "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility",
+  "Voc. Rehab", "Inpatient/Outpatient Facility",
 ];
+
+export const MARITAL_STATUS_OPTIONS = [
+  "Single", "Married", "Separated", "Divorced", "Widowed", "Domestic partner / other",
+];
+
+export const EMPLOYMENT_STATUS_OPTIONS = [
+  "Unemployed", "Disabled", "Employed", "Not in Labor Force",
+];
+
+export const EDUCATION_OPTIONS = [
+  "Grade/Elementary", "High School", "GED", "College", "Graduate", "Post Graduate",
+];
+
+export const INCOME_SOURCE_OPTIONS = ["Employment", "Disability", "VA Benefits", "Other"];
+
+export const PRESENTING_NEED_OPTIONS = [
+  "Need housing", "Transportation", "Primary care doctor", "Dental", "Budgeting skills",
+  "Credit assistance", "Therapy", "Medication management", "SafeLink / cell phone",
+  "Clothing", "Food", "Rental assistance", "Utilities assistance", "Referral",
+  "Childcare", "ID / documents", "Other",
+];
+
+export const WHY_SERVICES_OPTIONS = [
+  "I want to stay stable", "I need a peer who gets it", "I need help with appointments",
+  "I need meds managed", "I need housing", "Other",
+];
+
+export const OTHER_AGENCY_OPTIONS = [
+  "Peer Support", "Therapy", "Medication management", "Community Support Team",
+  "IIH", "Other", "None", "I don't know",
+];
+
+export const LIMITATION_OPTIONS = [
+  "Walker", "Cane", "Wheelchair", "Hearing", "Vision", "Stairs", "Other",
+];
+
+export const ALLERGY_OPTIONS = ["Penicillin", "Sulfa", "Latex", "Food", "Other"];
+
+export const DIAGNOSIS_MENU_OPTIONS = [
+  "Depression", "PTSD", "Anxiety", "Bipolar", "Schizophrenia", "SUD", "Other", "I don't know",
+];
+
+export const HEIGHT_OPTIONS = Array.from({ length: 37 }, (_, i) => {
+  const total = 48 + i; // 4'0" through 7'0"
+  return `${Math.floor(total / 12)}'${total % 12}"`;
+});
+
+export const EYE_COLOR_OPTIONS = ["Brown", "Blue", "Green", "Hazel", "Gray", "Other"];
+export const HAIR_COLOR_OPTIONS = ["Black", "Brown", "Blonde", "Red", "Gray", "White", "Other"];
+
+/** Status lists that should use the big native menu even with 4 or fewer choices. */
+export const STRONG_MENU_KEYS: ReadonlySet<string> = new Set([
+  "marital_status", "employment_status", "education", "veteran",
+  "income_sources", "referral_source", "height", "eye_color", "hair_color",
+  "diagnosis_menu",
+]);
+
+export const RACE_ETHNICITY_DEFAULTS: Record<string, string> = {
+  "Black or African American": "Non-Hispanic/Black",
+  "Caucasian or White": "Non-Hispanic/White",
+};
+
+export function ethnicityForRace(race: unknown): string {
+  return RACE_ETHNICITY_DEFAULTS[String(race || "")] || "";
+}
+
+export function usesStrongMenu(q: Pick<Question, "key" | "menu" | "type" | "options">): boolean {
+  if (q.menu === true) return true;
+  if (STRONG_MENU_KEYS.has(q.key)) return true;
+  return (q.type === "radio" || q.type === "yesno") && (q.options?.length || 0) > 4;
+}
 
 /** Standard PHQ-9 / GAD-7 frequency scale (score 0-3 by position). */
 export const MOOD_FREQ = ["Not at all", "Several days", "More than half the days", "Nearly every day"] as const;
@@ -102,12 +176,12 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "gender", essential: true, label: "Gender", type: "radio", required: true, options: ["Female", "Male", "Transgender", "Other"] },
       { key: "race", essential: true, label: "Race", type: "radio", options: ["American Indian or Alaska Native", "Asian", "Black or African American", "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander"] },
-      { key: "ethnicity", essential: true, label: "Ethnicity", type: "radio", options: ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"] },
-      { key: "marital_status", essential: true, label: "Marital status", type: "radio", options: ["Single", "Married", "Separated", "Widowed"] },
-      { key: "veteran", label: "Are you a veteran?", type: "yesno", options: YN },
-      { key: "education", label: "Highest education", type: "radio", options: ["Grade/Elementary", "High School/GED", "College", "Graduate", "Post Graduate"] },
-      { key: "language", label: "Preferred language", type: "radio", options: ["English", "Spanish", "French", "German", "Other"] },
-      { key: "language_other", label: "Which language?", type: "text", voice: true, askIf: { key: "language", equals: "Other" } },
+      { key: "ethnicity", essential: true, label: "Ethnicity", type: "radio", options: ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"], askIf: { key: "race", oneOf: ["American Indian or Alaska Native", "Asian", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander"] } },
+      { key: "marital_status", essential: true, menu: true, label: "Marital status", type: "radio", options: MARITAL_STATUS_OPTIONS },
+      { key: "veteran", menu: true, label: "Are you a veteran?", type: "yesno", options: YN },
+      { key: "education", menu: true, label: "Highest education", type: "radio", options: EDUCATION_OPTIONS },
+      { key: "language", staffOnly: true, label: "Preferred language", type: "radio", options: ["English", "Spanish", "French", "German", "Other"] },
+      { key: "language_other", staffOnly: true, label: "Which language?", type: "text", voice: true, askIf: { key: "language", equals: "Other" } },
       { key: "communication_level", label: "Communication level", type: "radio", options: ["Excellent", "Good", "Fair", "Poor"] },
     ],
   },
@@ -119,15 +193,15 @@ export const SECTIONS: Section[] = [
       { key: "address_city", essential: true, label: "City", type: "text", voice: true },
       { key: "address_state", essential: true, label: "State", type: "text", placeholder: "NC" },
       { key: "client_phone_cell", essential: true, label: "Cell phone", type: "phone", required: true },
-      { key: "client_phone_home", label: "Home phone (same as cell unless different)", type: "phone" },
-      { key: "client_phone_work", label: "Work phone", type: "phone" },
+      { key: "client_phone_home", staffOnly: true, label: "Home phone (same as cell unless different)", type: "phone" },
+      { key: "client_phone_work", label: "Work phone", type: "phone", askIf: { key: "employment_status", equals: "Employed" } },
       { key: "lives_with_whom", label: "Who do you live with?", type: "text", voice: true },
       { key: "lives_where", label: "Where (city/area)?", type: "text", voice: true },
-      { key: "effects_on_home", label: "How do you get along with the people you live with?", type: "textarea", voice: true },
-      { key: "employment_status", essential: true, label: "Employment status", type: "radio", options: ["Not in Labor Force", "Unemployed", "Disabled", "Employed"] },
+      { key: "effects_on_home", staffOnly: true, label: "How do you get along with the people you live with?", type: "textarea", voice: true },
+      { key: "employment_status", essential: true, menu: true, label: "Employment status", type: "radio", options: EMPLOYMENT_STATUS_OPTIONS },
       { key: "occupation", label: "Occupation", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
       { key: "employer_name", label: "Employer name", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
-      { key: "employer_address", label: "Employer address", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
+      { key: "employer_address", label: "Employer address (optional)", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
       { key: "employer_phone", label: "Employer phone", type: "phone", askIf: { key: "employment_status", equals: "Employed" } },
     ],
   },
@@ -135,41 +209,46 @@ export const SECTIONS: Section[] = [
     key: "insurance", title: "Insurance & Funding",
     questions: [
       { key: "has_medicaid", essential: true, staffOnly: true, label: "Do you have Medicaid?", type: "yesno", options: YN, required: true },
-      { key: "medicaid_effective_date", label: "Medicaid effective date (if known)", type: "date", askIf: { key: "has_medicaid", equals: "Yes" } },
-      { key: "has_medicare", label: "Do you have Medicare?", type: "yesno", options: YN },
-      { key: "medicare_effective_date", label: "Medicare effective date (if known)", type: "date", askIf: { key: "has_medicare", equals: "Yes" } },
-      { key: "funding_other", label: "Other funding source", type: "text", voice: true },
+      { key: "medicaid_effective_date", staffOnly: true, label: "Medicaid effective date (if known)", type: "date", askIf: { key: "has_medicaid", equals: "Yes" } },
+      { key: "has_medicare", staffOnly: true, label: "Do you have Medicare?", type: "yesno", options: YN },
+      { key: "medicare_effective_date", staffOnly: true, label: "Medicare effective date (if known)", type: "date", askIf: { key: "has_medicare", equals: "Yes" } },
+      { key: "funding_other", staffOnly: true, label: "Other funding source", type: "text", voice: true },
       { key: "mco", label: "Your health plan (MCO/LME)", type: "radio", staffOnly: true, options: ["Alliance", "Partners BH", "Trillium", "Vaya", "AmeriHealth", "Carolina Complete", "Healthy Blue Medicaid", "United Healthcare", "Wellcare", "Not sure"] },
-      { key: "has_nchc", label: "Do you have NC Health Choice (NCHC)?", type: "yesno", options: YN },
-      { key: "nchc_policy", label: "NCHC policy number", type: "text", askIf: { key: "has_nchc", equals: "Yes" } },
-      { key: "nchc_effective_date", label: "NCHC effective date", type: "date", askIf: { key: "has_nchc", equals: "Yes" } },
-      { key: "dss_ive_eligible", label: "If in DSS custody: IV-E eligible?", type: "text", help: "Leave blank if not in DSS custody." },
-      { key: "income_sources", label: "Income sources (pick all that apply)", type: "chips", options: ["Employment", "Disability", "VA Benefits", "Other"] },
+      { key: "has_nchc", staffOnly: true, label: "Do you have NC Health Choice (NCHC)?", type: "yesno", options: YN },
+      { key: "nchc_policy", staffOnly: true, label: "NCHC policy number", type: "text", askIf: { key: "has_nchc", equals: "Yes" } },
+      { key: "nchc_effective_date", staffOnly: true, label: "NCHC effective date", type: "date", askIf: { key: "has_nchc", equals: "Yes" } },
+      { key: "dss_ive_eligible", staffOnly: true, label: "If in DSS custody: IV-E eligible?", type: "text", help: "Leave blank if not in DSS custody." },
+      { key: "income_sources", menu: true, label: "Income sources (pick all that apply)", type: "chips", options: INCOME_SOURCE_OPTIONS },
       { key: "income_other", label: "Other income source", type: "text", voice: true, askIf: { key: "income_sources", oneOf: ["Other"] } },
     ],
   },
   {
     key: "referral", title: "Referral & Screening", fastIntake: true,
     questions: [
-      { key: "referral_source", label: "Who referred you to us?", type: "radio", options: REFERRAL_SOURCE_OPTIONS },
+      { key: "referral_source", menu: true, label: "Who referred you to us?", type: "radio", options: REFERRAL_SOURCE_OPTIONS },
       { key: "social_agency_name", label: "Which social agency?", type: "text", voice: true, askIf: { key: "referral_source", equals: "Social Agency" } },
       { key: "referral_source_other", label: "Name of the other agency or provider", type: "text", voice: true, askIf: { key: "referral_source", equals: "Other Agency or Provider" } },
-      { key: "referred_for", label: "What services were you referred for? (pick all that apply)", type: "chips", options: ["Case Management", "Case Support", "Community Support Team", "Comprehensive Clinical Assessment", "Diagnostic Assessment", "Individual Support Services", "In-Home Therapy Services", "Intensive In-Home Services", "Medication Management", "Outpatient Therapy", "Peer Support Services", "Residential Level III", "Substance Abuse Intensive Outpatient"] },
+      { key: "referred_for", staffOnly: true, label: "What services were you referred for? (pick all that apply)", type: "chips", options: ["Case Management", "Case Support", "Community Support Team", "Comprehensive Clinical Assessment", "Diagnostic Assessment", "Individual Support Services", "In-Home Therapy Services", "Intensive In-Home Services", "Medication Management", "Outpatient Therapy", "Peer Support Services", "Residential Level III", "Substance Abuse Intensive Outpatient"] },
     ],
   },
   {
     key: "services", title: "Services Requested", fastIntake: true,
     questions: [
-      { key: "services_requested", label: "Which services are you interested in?", type: "chips", options: ["CST", "IIH", "OPT", "Med Mgt", "Residential", "Case Support", "Peer Support", "CCA", "Psychological Eval.", "Individual Support", "In-Home Therapy Service"] },
-      { key: "services_other", label: "Other service", type: "text", voice: true },
+      { key: "services_requested", staffOnly: true, label: "Which services are you interested in?", type: "chips", options: ["CST", "IIH", "OPT", "Med Mgt", "Residential", "Case Support", "Peer Support", "CCA", "Psychological Eval.", "Individual Support", "In-Home Therapy Service"] },
+      { key: "services_other", staffOnly: true, label: "Other service", type: "text", voice: true },
     ],
   },
   {
     key: "presenting", title: "What Brings You In", fastIntake: true,
     intro: "Take your time here - tap the microphone and just talk. This is the most important answer in here.",
     questions: [
-      { key: "presenting_problem", essential: true, label: "In your own words: what brings you in, and why do you feel the need for services?", type: "textarea", required: true, voice: true },
-      { key: "other_agencies", label: "Are you getting services anywhere else right now?", help: "For example peer support, therapy, Community Support Team, medication management, or substance-use classes. Say none if no.", type: "textarea", voice: true },
+      { key: "presenting_need_chips", essential: true, appOnly: true, label: "What do you need help with? (pick all that fit)", type: "chips", options: PRESENTING_NEED_OPTIONS },
+      { key: "why_want_services_chips", essential: true, appOnly: true, label: "Why do you want services?", type: "chips", options: WHY_SERVICES_OPTIONS },
+      { key: "why_want_services_text", appOnly: true, label: "Tell us more about why you want services (optional)", type: "textarea", voice: true },
+      { key: "presenting_problem", essential: true, label: "Anything else about what brings you in?", type: "textarea", voice: true },
+      { key: "other_agency_types", label: "Are you getting services anywhere else right now?", type: "chips", options: OTHER_AGENCY_OPTIONS },
+      { key: "other_agency_where", label: "Where do you get that service?", type: "text", voice: true, askIf: { key: "other_agency_types", oneOf: ["Peer Support", "Therapy", "Medication management", "Community Support Team", "IIH", "Other"] } },
+      { key: "other_agencies", staffOnly: true, label: "Are you getting services anywhere else right now?", help: "Filled from the client's chips plus where, or from the CCA.", type: "textarea", voice: true },
     ],
   },
   {
@@ -192,59 +271,65 @@ export const SECTIONS: Section[] = [
   {
     key: "snap", title: "Strengths, Needs, Abilities, Preferences",
     questions: [
-      { key: "strengths", label: "What are your strengths?", type: "text", voice: true },
-      { key: "needs", label: "What do you need most right now?", type: "text", voice: true },
-      { key: "abilities", label: "What are you good at?", type: "text", voice: true },
-      { key: "preferences", label: "Any preferences for your care (times, staff, location)?", type: "text", voice: true },
+      { key: "strengths", staffOnly: true, label: "What are your strengths?", type: "text", voice: true },
+      { key: "needs", staffOnly: true, label: "What do you need most right now?", type: "text", voice: true },
+      { key: "abilities", staffOnly: true, label: "What are you good at?", type: "text", voice: true },
+      { key: "preferences", staffOnly: true, label: "Any preferences for your care (times, staff, location)?", type: "text", voice: true },
     ],
   },
   {
     key: "mental_health", title: "Mental Health",
     questions: [
-      { key: "has_current_diagnosis", label: "Do you have a current mental health diagnosis?", type: "yesno", options: [...YN, "Not sure"] },
-      { key: "diagnosis_list", label: "What diagnosis (as best you know)?", type: "textarea", voice: true, askIf: { key: "has_current_diagnosis", equals: "Yes" } },
-      { key: "has_current_therapist", label: "Do you currently see a therapist?", type: "yesno", options: YN },
-      { key: "therapist_name", label: "Therapist's name", type: "text", voice: true, askIf: { key: "has_current_therapist", equals: "Yes" } },
-      { key: "therapist_agency_phone", label: "Therapist's agency / phone", type: "text", voice: true, askIf: { key: "has_current_therapist", equals: "Yes" } },
-      { key: "receiving_mh_services", label: "Are you currently receiving any mental health services?", type: "yesno", options: YN },
-      { key: "mh_services_desc", label: "Describe the services you receive", type: "textarea", voice: true, askIf: { key: "receiving_mh_services", equals: "Yes" } },
-      { key: "mh_service_provider", label: "Service provider", type: "text", voice: true, askIf: { key: "receiving_mh_services", equals: "Yes" } },
-      { key: "mh_history", label: "Any history of mental health issues we should know about?", type: "textarea", voice: true },
-      { key: "current_diagnosis_known", label: "Current diagnosis, if known", type: "text", voice: true },
+      { key: "has_current_diagnosis", label: "Do you have a current mental health diagnosis?", type: "yesno", options: ["Yes", "No", "I don't know"] },
+      { key: "diagnosis_menu", menu: true, appOnly: true, label: "Which one is closest?", type: "radio", options: DIAGNOSIS_MENU_OPTIONS, askIf: { key: "has_current_diagnosis", equals: "Yes" } },
+      { key: "diagnosis_list", label: "If Other, type or speak the name", type: "textarea", voice: true, askIf: { key: "diagnosis_menu", equals: "Other" } },
+      { key: "has_current_therapist", staffOnly: true, label: "Do you currently see a therapist?", type: "yesno", options: YN },
+      { key: "therapist_name", staffOnly: true, label: "Therapist's name", type: "text", voice: true, askIf: { key: "has_current_therapist", equals: "Yes" } },
+      { key: "therapist_agency_phone", staffOnly: true, label: "Therapist's agency / phone", type: "text", voice: true, askIf: { key: "has_current_therapist", equals: "Yes" } },
+      { key: "receiving_mh_services", staffOnly: true, label: "Are you currently receiving any mental health services?", type: "yesno", options: YN },
+      { key: "mh_services_desc", staffOnly: true, label: "Describe the services you receive", type: "textarea", voice: true, askIf: { key: "receiving_mh_services", equals: "Yes" } },
+      { key: "mh_service_provider", staffOnly: true, label: "Service provider", type: "text", voice: true, askIf: { key: "receiving_mh_services", equals: "Yes" } },
+      { key: "mh_history", staffOnly: true, label: "Any history of mental health issues we should know about?", type: "textarea", voice: true },
+      { key: "current_diagnosis_known", staffOnly: true, label: "Current diagnosis, if known", type: "text", voice: true },
     ],
   },
   {
     key: "medical", title: "Medical Information",
     questions: [
       { key: "has_limitations", label: "Do you have any physical limitations?", type: "yesno", options: YN },
-      { key: "limitations_desc", label: "Describe your limitations", type: "textarea", voice: true, askIf: { key: "has_limitations", equals: "Yes" } },
-      { key: "pcp_name", label: "Primary care doctor's name", type: "text", voice: true },
-      { key: "pcp_phone", label: "Doctor's phone", type: "phone" },
-      { key: "pcp_address", label: "Doctor's address / practice", type: "text", voice: true },
-      { key: "no_pcp_nearest_er", label: "I do NOT have a primary care doctor - use the nearest emergency facility", type: "yesno", options: YN },
+      { key: "limitation_types", label: "Which of these?", type: "chips", options: LIMITATION_OPTIONS, askIf: { key: "has_limitations", equals: "Yes" } },
+      { key: "limitations_desc", label: "Tell us more (optional)", type: "textarea", voice: true, askIf: { key: "has_limitations", equals: "Yes" } },
+      { key: "has_pcp", essential: true, appOnly: true, label: "Do you have a primary care doctor?", type: "yesno", options: YN },
+      { key: "pcp_name", label: "Primary care doctor's name", type: "text", voice: true, askIf: { key: "has_pcp", equals: "Yes" } },
+      { key: "pcp_phone", label: "Doctor's phone", type: "phone", askIf: { key: "has_pcp", equals: "Yes" } },
+      { key: "pcp_address", staffOnly: true, label: "Doctor's address / practice", type: "text", voice: true },
+      { key: "no_pcp_nearest_er", label: "I do NOT have a primary care doctor - use the nearest emergency facility", type: "yesno", options: YN, askIf: { key: "has_pcp", equals: "No" } },
       { key: "preferred_emergency_facility", label: "Preferred emergency room / hospital", type: "text", voice: true },
-      { key: "medical_diagnoses", label: "Medical conditions / diagnoses (physical health)", type: "textarea", voice: true },
-      { key: "treatments", label: "Treatments you receive for those conditions", type: "textarea", voice: true },
-      { key: "hospitalizations", label: "Past hospitalizations or surgeries", type: "textarea", voice: true },
-      { key: "last_physical_date", label: "Date of your last physical exam (approximate is fine)", type: "text", voice: true },
-      { key: "height", label: "Height", type: "text", placeholder: "5'8\"" },
-      { key: "weight", label: "Weight", type: "text", placeholder: "160 lbs" },
-      { key: "hair_color", label: "Hair color", type: "text" },
-      { key: "eye_color", label: "Eye color", type: "text" },
-      { key: "identifying_marks", label: "Identifying marks, scars, tattoos", type: "text", voice: true },
-      { key: "special_diets", label: "Special diets", type: "text", voice: true },
-      { key: "medical_alerts", label: "Medical alerts and conditions staff should know in an emergency", type: "textarea", voice: true },
-      { key: "fax", label: "Fax number (if you have one)", type: "text" },
+      { key: "medical_diagnoses", staffOnly: true, label: "Medical conditions / diagnoses (physical health)", type: "textarea", voice: true },
+      { key: "treatments", staffOnly: true, label: "Treatments you receive for those conditions", type: "textarea", voice: true },
+      { key: "has_hospitalization", label: "Have you been in the hospital or had surgery in the past year?", type: "yesno", options: YN },
+      { key: "hospitalizations", label: "What happened, and where?", type: "textarea", voice: true, askIf: { key: "has_hospitalization", equals: "Yes" } },
+      { key: "last_physical_date", label: "Did you have a physical exam in the last year?", type: "yesno", options: YN },
+      { key: "height", menu: true, label: "Height", type: "radio", options: HEIGHT_OPTIONS },
+      { key: "weight", label: "Weight (pounds)", type: "number", placeholder: "160" },
+      { key: "hair_color", menu: true, label: "Hair color", type: "radio", options: HAIR_COLOR_OPTIONS },
+      { key: "eye_color", menu: true, label: "Eye color", type: "radio", options: EYE_COLOR_OPTIONS },
+      { key: "identifying_marks", label: "Identifying marks, scars, tattoos (optional)", type: "text", voice: true },
+      { key: "special_diets", staffOnly: true, label: "Special diets", type: "text", voice: true },
+      { key: "medical_alerts", staffOnly: true, label: "Medical alerts and conditions staff should know in an emergency", type: "textarea", voice: true },
+      { key: "fax", staffOnly: true, label: "Fax number (if you have one)", type: "text" },
     ],
   },
   {
     key: "medications", title: "Medications & Allergies",
     questions: [
-      { key: "medications", label: "Prescription medications you take (name and dose)", type: "textarea", voice: true },
-      { key: "otc_medications", label: "Over-the-counter medications", type: "textarea", voice: true },
-      { key: "drug_allergies", label: "Drug allergies", type: "text", voice: true, placeholder: "None if none" },
-      { key: "environmental_allergies", label: "Other allergies (food, environment)", type: "text", voice: true },
-      { key: "allergies", label: "Any other allergies to list", type: "text", voice: true },
+      { key: "medications", staffOnly: true, label: "Prescription medications you take (name and dose)", type: "textarea", voice: true },
+      { key: "otc_medications", staffOnly: true, label: "Over-the-counter medications", type: "textarea", voice: true },
+      { key: "has_allergies", label: "Do you have any allergies?", type: "yesno", options: YN },
+      { key: "allergy_types", label: "Which allergies?", type: "chips", options: ALLERGY_OPTIONS, askIf: { key: "has_allergies", equals: "Yes" } },
+      { key: "drug_allergies", staffOnly: true, label: "Drug allergies", type: "text", voice: true, placeholder: "None if none" },
+      { key: "environmental_allergies", staffOnly: true, label: "Other allergies (food, environment)", type: "text", voice: true },
+      { key: "allergies", label: "Tell us more about your allergies (optional)", type: "text", voice: true, askIf: { key: "has_allergies", equals: "Yes" } },
     ],
   },
   {
@@ -252,7 +337,7 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "pending_court_cases", label: "Any pending court cases?", type: "yesno", options: YN },
       { key: "court_case_desc", label: "Briefly describe", type: "textarea", voice: true, askIf: { key: "pending_court_cases", equals: "Yes" } },
-      { key: "is_minor_or_incompetent", essential: true, label: "Is the client a minor, or an adult with a legal guardian?", type: "yesno", options: YN, required: true },
+      { key: "is_minor_or_incompetent", essential: true, staffOnly: true, label: "Is the client a minor, or an adult with a legal guardian?", type: "yesno", options: YN, required: true },
       { key: "date_adjudicated", label: "Date adjudicated (attach documents for staff)", type: "text", askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
       { key: "guardian_name", essential: true, label: "Legal guardian's full name", type: "text", voice: true, askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
       { key: "guardian_address", label: "Guardian's address", type: "text", voice: true, askIf: { key: "is_minor_or_incompetent", equals: "Yes" } },
@@ -263,19 +348,19 @@ export const SECTIONS: Section[] = [
   {
     key: "emergency", title: "Emergency Contacts", fastIntake: true,
     questions: [
-      { key: "ec1_name", essential: true, label: "Emergency contact 1 - name", type: "text", required: true, voice: true },
-      { key: "ec1_street", label: "Contact 1 - street address", type: "text", voice: true },
-      { key: "ec1_city", label: "Contact 1 - city", type: "text" },
-      { key: "ec1_state", label: "Contact 1 - state", type: "text", placeholder: "NC" },
-      { key: "ec1_home_phone", label: "Contact 1 - home phone", type: "phone" },
-      { key: "ec1_work_phone", label: "Contact 1 - work phone", type: "phone" },
+      { key: "ec1_name", essential: true, contactPicker: true, label: "Emergency contact 1 - name", type: "text", required: true, voice: true },
+      { key: "ec1_street", staffOnly: true, label: "Contact 1 - street address", type: "text", voice: true },
+      { key: "ec1_city", staffOnly: true, label: "Contact 1 - city", type: "text" },
+      { key: "ec1_state", staffOnly: true, label: "Contact 1 - state", type: "text", placeholder: "NC" },
+      { key: "ec1_home_phone", staffOnly: true, label: "Contact 1 - home phone", type: "phone" },
+      { key: "ec1_work_phone", staffOnly: true, label: "Contact 1 - work phone", type: "phone" },
       { key: "ec1_cell_phone", essential: true, label: "Contact 1 - cell phone", type: "phone", required: true },
-      { key: "ec2_name", label: "Emergency contact 2 - name (optional)", type: "text", voice: true },
-      { key: "ec2_street", label: "Contact 2 - street address", type: "text", voice: true },
-      { key: "ec2_city", label: "Contact 2 - city", type: "text" },
-      { key: "ec2_state", label: "Contact 2 - state", type: "text" },
-      { key: "ec2_home_phone", label: "Contact 2 - home phone", type: "phone" },
-      { key: "ec2_work_phone", label: "Contact 2 - work phone", type: "phone" },
+      { key: "ec2_name", contactPicker: true, label: "Emergency contact 2 - name (optional)", type: "text", voice: true },
+      { key: "ec2_street", staffOnly: true, label: "Contact 2 - street address", type: "text", voice: true },
+      { key: "ec2_city", staffOnly: true, label: "Contact 2 - city", type: "text" },
+      { key: "ec2_state", staffOnly: true, label: "Contact 2 - state", type: "text" },
+      { key: "ec2_home_phone", staffOnly: true, label: "Contact 2 - home phone", type: "phone" },
+      { key: "ec2_work_phone", staffOnly: true, label: "Contact 2 - work phone", type: "phone" },
       { key: "ec2_cell_phone", label: "Contact 2 - cell phone", type: "phone" },
     ],
   },
@@ -283,14 +368,14 @@ export const SECTIONS: Section[] = [
     key: "substance", title: "Substance Use",
     intro: "Honest answers help us take better care of you. This is confidential.",
     questions: [
-      { key: "sa_status", label: "Have you ever had a substance abuse diagnosis, or do you use alcohol or other substances?", type: "radio", options: ["Yes", "No", "Denies"] },
+      { key: "sa_status", label: "Have you ever had a substance abuse diagnosis, or do you use alcohol or other substances?", type: "yesno", options: YN },
       ...[1, 2, 3, 4, 5].flatMap((i): Question[] => [
-        { key: `sub${i}_name`, label: `Substance ${i} - name`, type: "text", voice: true, askIf: { key: "sa_status", equals: "Yes" } },
-        { key: `sub${i}_age_first`, label: `Substance ${i} - age of first use`, type: "text", askIf: { key: `sub${i}_name`, truthy: true } },
-        { key: `sub${i}_freq`, label: `Substance ${i} - how often?`, type: "radio", options: ["Not used past month", "1-3x past month", "1-2x per week", "3-6x per week", "Daily"], askIf: { key: `sub${i}_name`, truthy: true } },
-        { key: `sub${i}_route`, label: `Substance ${i} - how taken?`, type: "radio", options: ["Oral", "Smoking", "Inhalation", "Injection", "Other"], askIf: { key: `sub${i}_name`, truthy: true } },
-        { key: `sub${i}_amount`, label: `Substance ${i} - average amount per day`, type: "text", askIf: { key: `sub${i}_name`, truthy: true } },
-        { key: `sub${i}_last_used`, label: `Substance ${i} - date last used`, type: "text", askIf: { key: `sub${i}_name`, truthy: true } },
+        { key: `sub${i}_name`, staffOnly: true, label: `Substance ${i} - name`, type: "text", voice: true, askIf: { key: "sa_status", equals: "Yes" } },
+        { key: `sub${i}_age_first`, staffOnly: true, label: `Substance ${i} - age of first use`, type: "text", askIf: { key: `sub${i}_name`, truthy: true } },
+        { key: `sub${i}_freq`, staffOnly: true, label: `Substance ${i} - how often?`, type: "radio", options: ["Not used past month", "1-3x past month", "1-2x per week", "3-6x per week", "Daily"], askIf: { key: `sub${i}_name`, truthy: true } },
+        { key: `sub${i}_route`, staffOnly: true, label: `Substance ${i} - how taken?`, type: "radio", options: ["Oral", "Smoking", "Inhalation", "Injection", "Other"], askIf: { key: `sub${i}_name`, truthy: true } },
+        { key: `sub${i}_amount`, staffOnly: true, label: `Substance ${i} - average amount per day`, type: "text", askIf: { key: `sub${i}_name`, truthy: true } },
+        { key: `sub${i}_last_used`, staffOnly: true, label: `Substance ${i} - date last used`, type: "text", askIf: { key: `sub${i}_name`, truthy: true } },
       ]),
     ],
   },
@@ -335,22 +420,31 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "roi", title: "Release of Information",
-    intro: "If you want us to coordinate with other doctors, agencies, schools or family, add them here. You can add up to three, and each one becomes a signed permission form.",
-    questions: [1, 2, 3].flatMap((i): Question[] => [
-      { key: `roi${i}_recipient`, label: `Release ${i} - who may we share records with?`, type: "text", voice: true, askIf: i === 1 ? undefined : { key: `roi${i - 1}_recipient`, truthy: true } },
-      { key: `roi${i}_items`, label: `Release ${i} - what may we share?`, type: "chips", options: ["Admission/ Screening Assessment", "HIV related information", "Service Notes", "VO", "Medication history/ physician orders", "Psychological testing", "Service Plan", "LME", "Discharge Information", "Substance Abuse Information", "Psychiatric Evaluation", "Reciprocal exchange permitted", "Accounting of Disclosure Report", "NCTOPPS"], askIf: { key: `roi${i}_recipient`, truthy: true } },
-      { key: `roi${i}_items_other`, label: `Release ${i} - other records to share`, type: "text", voice: true, askIf: { key: `roi${i}_recipient`, truthy: true } },
-      { key: `roi${i}_purpose`, label: `Release ${i} - purpose`, type: "radio", options: ["Continuity of Care", "Referral", "Legal", "Service Delivery", "Service Authorization"], askIf: { key: `roi${i}_recipient`, truthy: true } },
-      { key: `roi${i}_thru_date`, label: `Release ${i} - valid through (defaults to 1 year)`, type: "date", askIf: { key: `roi${i}_recipient`, truthy: true } },
-      { key: `roi${i}_agreed`, label: `Release ${i} - HIV/AIDS & Substance Abuse Disclosure Consent`, type: "consent", askIf: { key: `roi${i}_recipient`, truthy: true }, consentText: "I give Moore Divine Care, Inc. consent to provide the checked protected medical information to the recipient named above, including information regarding treatment, hospitalization, and outpatient care, and not limited to HIV/AIDS, drug abuse, alcoholism or other substance abuse. I understand my alcohol and/or drug treatment records are protected under 42 C.F.R. Part 2 and HIPAA (45 C.F.R. Pts. 160 & 164) and cannot be disclosed without my written consent unless otherwise provided; HIV-related information is released only per G.S. 130A-143. This authorization is voluntary and valid for one (1) year from my signature or until I revoke it." },
-    ]),
+    intro: "This permission lets us share your records so your care team can work together. It lasts one year from intake. You will get a copy the same way you chose for your completed papers.",
+    questions: [
+      {
+        key: "consent_roi", essential: true, label: "Consent to permit use and disclose (ROI)", type: "consent", required: true,
+        consentText: "I give Moore Divine Care, Inc. consent to use and disclose my protected health information for treatment, payment, and health-care operations, including information regarding treatment, hospitalization, and outpatient care, and not limited to HIV/AIDS, drug abuse, alcoholism or other substance abuse. I understand my alcohol and/or drug treatment records are protected under 42 C.F.R. Part 2 and HIPAA (45 C.F.R. Pts. 160 & 164) and cannot be disclosed without my written consent unless otherwise provided; HIV-related information is released only per G.S. 130A-143. This authorization is voluntary and valid for one (1) year from my signature or until I revoke it. The same consent is used on each Release of Information page in the packet.",
+      },
+      { key: "roi_understand_1", essential: true, label: "I understand my records are protected and cannot be shared without my written consent unless the law allows it.", type: "yesno", options: ["Yes"], required: true },
+      { key: "roi_understand_2", essential: true, label: "I understand I can take this permission back at any time by telling staff in writing.", type: "yesno", options: ["Yes"], required: true },
+      { key: "roi_understand_3", essential: true, label: "I understand this permission lasts one year from today's intake date.", type: "yesno", options: ["Yes"], required: true },
+      ...[1, 2, 3].flatMap((i): Question[] => [
+        { key: `roi${i}_recipient`, label: `Release ${i} - who may we share records with?`, type: "text", voice: true, askIf: i === 1 ? undefined : { key: `roi${i - 1}_recipient`, truthy: true } },
+        { key: `roi${i}_items`, label: `Release ${i} - what may we share?`, type: "chips", options: ["Admission/ Screening Assessment", "HIV related information", "Service Notes", "VO", "Medication history/ physician orders", "Psychological testing", "Service Plan", "LME", "Discharge Information", "Substance Abuse Information", "Psychiatric Evaluation", "Reciprocal exchange permitted", "Accounting of Disclosure Report", "NCTOPPS"], askIf: { key: `roi${i}_recipient`, truthy: true } },
+        { key: `roi${i}_items_other`, label: `Release ${i} - other records to share`, type: "text", voice: true, askIf: { key: `roi${i}_recipient`, truthy: true } },
+        { key: `roi${i}_purpose`, label: `Release ${i} - purpose`, type: "radio", options: ["Continuity of Care", "Referral", "Legal", "Service Delivery", "Service Authorization"], askIf: { key: `roi${i}_recipient`, truthy: true } },
+        { key: `roi${i}_thru_date`, staffOnly: true, label: `Release ${i} - valid through (defaults to 1 year)`, type: "date", askIf: { key: `roi${i}_recipient`, truthy: true } },
+        { key: `roi${i}_agreed`, label: `Release ${i} - HIV/AIDS & Substance Abuse Disclosure Consent`, type: "consent", askIf: { key: `roi${i}_recipient`, truthy: true }, consentText: "I give Moore Divine Care, Inc. consent to provide the checked protected medical information to the recipient named above, including information regarding treatment, hospitalization, and outpatient care, and not limited to HIV/AIDS, drug abuse, alcoholism or other substance abuse. I understand my alcohol and/or drug treatment records are protected under 42 C.F.R. Part 2 and HIPAA (45 C.F.R. Pts. 160 & 164) and cannot be disclosed without my written consent unless otherwise provided; HIV-related information is released only per G.S. 130A-143. This authorization is voluntary and valid for one (1) year from my signature or until I revoke it." },
+      ]),
+    ],
   },
   {
     key: "transport", title: "Transportation Consent",
     questions: [
       { key: "transport_destination", label: "Where would we transport you (destination/location)?", type: "text", voice: true },
       { key: "transport_purposes", label: "Purpose of transportation", type: "chips", options: ["Mental Health Services", "Developmental Services", "Substance Abuse Services", "Activities associated with treatment plan", "Other"] },
-      { key: "consent_transport", label: "Consent to Transport", type: "consent", consentText: "I authorize Moore Divine Care, Inc. to provide transportation for the purpose of providing comprehensive Mental Health / Developmental / Substance Abuse services and other activities associated with my treatment plan. I understand that Moore Divine Care, Inc. is not responsible for any accidents that may occur while transportation is being provided. I certify these statements have been read and explained to me." },
+      { key: "consent_transport", label: "Consent to Transport", type: "consent", required: true, consentText: "I authorize Moore Divine Care, Inc. to provide transportation for the purpose of providing comprehensive Mental Health / Developmental / Substance Abuse services and other activities associated with my treatment plan. I understand that Moore Divine Care, Inc. is not responsible for any accidents that may occur while transportation is being provided. I certify these statements have been read and explained to me." },
     ],
   },
   {
@@ -363,15 +457,15 @@ export const SECTIONS: Section[] = [
   {
     key: "interventions", title: "Emergency Interventions",
     questions: [
-      { key: "intervention_target_behaviors", label: "Target behaviors (if discussed with staff - can be left for staff)", type: "text", voice: true },
-      { key: "intervention_valid_until", label: "Consent valid until (max 1 year - defaults to 1 year from today)", type: "date" },
-      { key: "consent_emergency_interventions", label: "Consent for Emergency Interventions", type: "consent", consentText: "I have been informed that Moore Divine Care, Inc. will use verbal prompts and NCI emergency interventions, used only when non-physical interventions have proven ineffective or behavior poses a threat of imminent, serious physical harm to self and/or others. I understand the definitions of therapeutic holds, physical escort, emergency intervention, and emergency restraint (more than 20 minutes, requiring additional staff). I have been informed of the alleged benefits, potential risks, and possible alternative methods of treatment/habilitation, and I give my consent. This consent is valid for no more than one year and may be withdrawn at any time." },
+      { key: "intervention_target_behaviors", staffOnly: true, label: "Target behaviors (if discussed with staff - can be left for staff)", type: "text", voice: true },
+      { key: "intervention_valid_until", staffOnly: true, label: "Consent valid until (max 1 year - defaults to 1 year from today)", type: "date" },
+      { key: "consent_emergency_interventions", label: "Consent for Emergency Interventions", type: "consent", required: true, consentText: "I have been informed that Moore Divine Care, Inc. will use verbal prompts and NCI emergency interventions, used only when non-physical interventions have proven ineffective or behavior poses a threat of imminent, serious physical harm to self and/or others. I understand the definitions of therapeutic holds, physical escort, emergency intervention, and emergency restraint (more than 20 minutes, requiring additional staff). I have been informed of the alleged benefits, potential risks, and possible alternative methods of treatment/habilitation, and I give my consent. This consent is valid for no more than one year and may be withdrawn at any time." },
     ],
   },
   {
     key: "treatment_plan", title: "Treatment Plan Participation",
     questions: [
-      { key: "consent_treatment_plan_participation", label: "Treatment Plan Participation", type: "consent", consentText: "I have met (or will meet) in person with agency staff to review and discuss my concerns regarding the goals and outcomes represented in the treatment plan. The goals and clinical direction meet my expectations and I am in agreement with the direction of services." },
+      { key: "consent_treatment_plan_participation", label: "Treatment Plan Participation", type: "consent", required: true, consentText: "I have met (or will meet) in person with agency staff to review and discuss my concerns regarding the goals and outcomes represented in the treatment plan. The goals and clinical direction meet my expectations and I am in agreement with the direction of services. I will receive a copy of my person-centered plan when it is completed. Staff will date this page later." },
       { key: "consent_receipt_treatment_plan", staffOnly: true, label: "Receipt of Treatment Plan", type: "consent", consentText: "I have received and understand the current treatment plan for my child or myself, and I have been given a copy of the current treatment plan." },
     ],
   },
@@ -426,11 +520,15 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "referrals", title: "Referrals for Services",
-    intro: "Moore Divine Care has adult and kids services. Add anyone who may benefit, plus their phone number if you have it.",
-    questions: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10].flatMap((i): Question[] => [
-      { key: `ref${i}_name`, label: `Referral ${i} - name`, type: "text", voice: true, askIf: i === 1 ? undefined : { key: `ref${i - 1}_name`, truthy: true } },
-      { key: `ref${i}_phone`, label: `Referral ${i} - phone`, type: "phone", askIf: { key: `ref${i}_name`, truthy: true } },
-    ]),
+    intro: "You can help someone else get these services, with their permission. Name and phone are enough. Birthday helps if you have it. You can pick one person from your phone if your phone offers that, or type or speak their name.",
+    questions: [
+      { key: "has_referrals", essential: true, appOnly: true, label: "Do you know someone who could use these services?", type: "yesno", options: YN },
+      ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].flatMap((i): Question[] => [
+        { key: `ref${i}_name`, contactPicker: true, label: `Referral ${i} - full name`, type: "text", voice: true, askIf: i === 1 ? { key: "has_referrals", equals: "Yes" } : { key: `ref${i - 1}_name`, truthy: true } },
+        { key: `ref${i}_phone`, label: `Referral ${i} - phone`, type: "phone", askIf: { key: `ref${i}_name`, truthy: true } },
+        { key: `ref${i}_dob`, label: `Referral ${i} - date of birth (if you have it)`, type: "date", askIf: { key: `ref${i}_name`, truthy: true } },
+      ]),
+    ],
   },
   {
     key: "cca", title: "Clinical Assessment Signature", fastIntake: true,
@@ -480,7 +578,7 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
       { key: "staff_receiving_intake", label: "Staff person receiving intake call", type: "text" },
       { key: "screening_date", label: "Screening date", type: "date" },
       { key: "qp_referred_to", label: "QP referred to", type: "text" },
-      { key: "program_can_meet_needs", label: "Can program meet service/staffing/schedule needs?", type: "yesno", options: YN },
+      { key: "program_can_meet_needs", staffOnly: true, label: "Can program meet service/staffing/schedule needs?", type: "yesno", options: YN },
       { key: "program_cannot_meet_desc", label: "If no - what could not be met / referrals made", type: "textarea" },
       { key: "admission_date", label: "Admission date", type: "date" },
       { key: "initial_screening_date", label: "Initial screening date", type: "date" },
@@ -500,7 +598,7 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
       { key: "at_risk_types", label: "Type of client - at risk", type: "chips", options: ["Substance Abuse", "BEH", "Suicidal", "Psychotic", "Behavioral Issues", "Physical Aggression", "Verbal Aggression", "SIB", "Property Destruction", "Other Behaviors"] },
       { key: "sa_primary_diagnosis", label: "Primary diagnosis", type: "text" },
       { key: "sa_secondary_diagnosis", label: "Secondary diagnosis", type: "text" },
-      { key: "ability_to_provide", label: "Able to provide recommended services?", type: "yesno", options: YN },
+      { key: "ability_to_provide", staffOnly: true, label: "Able to provide recommended services?", type: "yesno", options: YN },
       { key: "clinician_name", label: "Licensed clinician (printed name)", type: "text" },
       { key: "medical_director_name", label: "Medical director (printed name)", type: "text" },
     ],
@@ -573,6 +671,19 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
     ]),
   },
   {
+    group: "Person-Centered Plan signature page (staff review; map when the form is uploaded)",
+    fields: [
+      { key: "pcp_plan_client_name", label: "Client name (from intake)", type: "text" },
+      { key: "pcp_plan_dob", label: "Date of birth (from intake)", type: "date" },
+      { key: "pcp_plan_medicaid_id", label: "Medicaid ID (from intake)", type: "text" },
+      { key: "pcp_plan_record_number", label: "Record number (from intake)", type: "text" },
+      { key: "pcp_plan_person_receiving", label: "Person receiving services", type: "yesno", options: ["Yes"] },
+      { key: "pcp_plan_agency_name", label: "Case management agency name", type: "text" },
+      { key: "pcp_plan_client_printed_name", label: "Client printed name", type: "text" },
+      { key: "pcp_plan_date", label: "Staff dates this page later (leave blank on SMS)", type: "date" },
+    ],
+  },
+  {
     group: "Treatment plan signature rows (page 42)",
     fields: [1, 2, 3].flatMap((i): Question[] => [
       { key: `otp_row${i}_staff_date`, label: `Row ${i} - staff date`, type: "date" },
@@ -615,6 +726,11 @@ export const REQUIRED_FOR_SUBMIT: { key: string; label: string; when?: AskIf }[]
   { key: "consent_emergency_care", label: "Emergency care consent" },
   { key: "consent_hipaa", label: "HIPAA/privacy acknowledgment" },
   { key: "consent_confidentiality", label: "Confidentiality exception acknowledgment" },
+  { key: "consent_roi", label: "Release of information acknowledgment" },
+  { key: "roi_understand_1", label: "ROI I-understand line 1" },
+  { key: "roi_understand_2", label: "ROI I-understand line 2" },
+  { key: "roi_understand_3", label: "ROI I-understand line 3" },
+  { key: "hipaa_understood", label: "HIPAA understood" },
 ];
 
 export const ALL_CONSENT_KEYS = SECTIONS.flatMap((s) =>
@@ -632,13 +748,16 @@ export const CLIENT_PREFILLED_QUESTION_KEYS: ReadonlySet<string> = new Set([
   "client_full_name",
   "dob",
   "mid_number",
-  "client_email",
   "client_phone_cell",
   "living_arrangement",
   "is_minor_or_incompetent",
   "guardian_name",
   "guardian_phone",
   "guardian_email",
+  "preferred_emergency_facility",
+  "pcp_name",
+  "pcp_phone",
+  "has_pcp",
 ]);
 
 /** Stored on an intake when staff supplied a client-facing answer ahead of time. */
@@ -655,6 +774,7 @@ export function isQuestionPrefilledForClient(q: Question, initialAnswers: Record
   // Consent is always collected from the client or guardian, even when staff
   // have already supplied other answers for the packet.
   if (q.type === "consent") return false;
+  if (q.key === "client_email") return false;
   const staffPrefilled = initialAnswers[STAFF_PREFILLED_CLIENT_FIELDS_KEY];
   if (Array.isArray(staffPrefilled) && staffPrefilled.includes(q.key) && hasPrefilledClientValue(initialAnswers[q.key])) {
     return true;
@@ -662,7 +782,35 @@ export function isQuestionPrefilledForClient(q: Question, initialAnswers: Record
   if (q.key === "has_medicaid") {
     return hasPrefilledClientValue(initialAnswers.has_medicaid) || hasPrefilledClientValue(initialAnswers.mid_number);
   }
+  if (q.key === "has_pcp" || q.key === "pcp_name" || q.key === "pcp_phone" || q.key === "no_pcp_nearest_er") {
+    return hasPrefilledClientValue(initialAnswers.pcp_name);
+  }
+  if (q.key === "preferred_emergency_facility") {
+    return hasPrefilledClientValue(initialAnswers.preferred_emergency_facility);
+  }
   return CLIENT_PREFILLED_QUESTION_KEYS.has(q.key) && hasPrefilledClientValue(initialAnswers[q.key]);
+}
+
+function askIfVisible(cond: AskIf | undefined, answers: Record<string, unknown>): boolean {
+  if (!cond) return true;
+  const v = answers[cond.key];
+  if (cond.truthy) return !!v && v !== "No";
+  if (cond.equals !== undefined) return v === cond.equals;
+  if (cond.oneOf) return Array.isArray(v) ? v.some((x) => cond.oneOf!.includes(x)) : cond.oneOf.includes(String(v ?? ""));
+  return true;
+}
+
+/** Shared skip/prefill gate used by Easy Mode, full wizard, and tests. */
+export function isClientQuestionVisible(
+  q: Question,
+  answers: Record<string, unknown>,
+  prefilledAnswers: Record<string, unknown> = answers,
+): boolean {
+  if (q.staffOnly || q.type === "info" || q.type === "heading") return false;
+  if (q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") return false;
+  if (!askIfVisible(q.askIf, answers)) return false;
+  if (isQuestionPrefilledForClient(q, prefilledAnswers)) return false;
+  return true;
 }
 
 export function questionByKey(key: string): Question | undefined {

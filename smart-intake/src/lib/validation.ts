@@ -157,6 +157,11 @@ export function missingRequired(
     if (req.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") continue;
     const v = answers[req.key];
     if (req.key === "client_phone_cell" && (answers.client_email || v)) continue;
+    if (req.key === "presenting_problem" && (
+      (Array.isArray(answers.presenting_need_chips) && answers.presenting_need_chips.length)
+      || (Array.isArray(answers.why_want_services_chips) && answers.why_want_services_chips.length)
+      || answers.why_want_services_text
+    )) continue;
     if (v === undefined || v === "" || v === false || v === null) {
       missing.push({ key: req.key, label: req.label });
       seen.add(req.key);

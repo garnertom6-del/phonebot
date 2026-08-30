@@ -1,14 +1,18 @@
 import type { Answers } from "./fillPdf";
 import { applyInsurancePlanDefaults } from "./insurancePlans";
+import { ethnicityForRace } from "@/config/mooreDivineQuestions";
 
 /**
- * Operational defaults policy: a default may COPY a real answer somewhere
- * else (same fact, different blank), but must never INVENT an answer nobody
- * gave. Payer status, clinical severity, consent/acknowledgment boxes and
- * "None reported" clinical negatives are deliberately NOT defaulted unless a
- * verified source already proves the answer (for example, a real MID means
- * Medicaid has already been confirmed).
+ * Operational defaults copy a real answer to another blank, or apply the
+ * Medicaid-provider constants staff already decided (Medicaid Yes, NCHC No,
+ * English, adult/competent, program can meet needs, Routine 14-day start,
+ * thru dates = intake + 1 year). Client-skip placeholders such as
+ * "none reported by client" are applied only when the client left email or
+ * an employed work-phone blank.
  */
+
+export const NONE_REPORTED_BY_CLIENT = "none reported by client";
+export const NO_PRIMARY_CARE = "I do not have a primary care";
 
 function s(v: unknown): string {
   if (v == null) return "";
@@ -195,6 +199,63 @@ function applyDischargeDefaults(a: Answers) {
   setDefault(a, "dis_prepared_by", s(a.clinician_name) || s(a.staff_receiving_intake) || s(a.qp_referred_to));
 }
 
+function chipList(value: unknown): string[] {
+  if (Array.isArray(value)) return value.map((item) => String(item).trim()).filter(Boolean);
+  const text = s(value);
+  return text ? text.split(/[,;]+/).map((item) => item.trim()).filter(Boolean) : [];
+}
+
+function applyPresentingDefaults(a: Answers) {
+  const needs = chipList(a.presenting_need_chips);
+  const why = chipList(a.why_want_services_chips);
+  const whyText = s(a.why_want_services_text);
+  const extra = s(a.presenting_problem);
+  const derived = [needs.join(", "), why.join(", "), whyText].filter(Boolean).join(". ");
+  if (!derived) return;
+  if (!extra) a.presenting_problem = derived;
+  else if (extra === derived || extra.startsWith(derived)) return;
+  else if (derived.includes(extra)) a.presenting_problem = derived;
+  else a.presenting_problem = `${derived}. ${extra}`;
+}
+
+function applyClientNarrativeDefaults(a: Answers) {
+  applyPresentingDefaults(a);
+  const agencies = chipList(a.other_agency_types);
+  const where = s(a.other_agency_where);
+  if (agencies.length) {
+    setDefault(a, "other_agencies", [agencies.join(", "), where].filter(Boolean).join(" — "));
+  }
+  const limits = chipList(a.limitation_types);
+  if (limits.length) setDefault(a, "limitations_desc", [limits.join(", "), s(a.limitations_desc)].filter(Boolean).join(". "));
+  const allergies = chipList(a.allergy_types);
+  if (allergies.length) {
+    setDefault(a, "allergies", [allergies.join(", "), s(a.allergies)].filter(Boolean).join(". "));
+    if (allergies.some((item) => item !== "Food" && item !== "Other")) {
+      setDefault(a, "drug_allergies", allergies.filter((item) => item !== "Food" && item !== "Other").join(", "));
+    }
+    if (allergies.includes("Food")) setDefault(a, "environmental_allergies", [s(a.environmental_allergies), "Food"].filter(Boolean).join(", "));
+  }
+  const menu = s(a.diagnosis_menu);
+  if (menu && menu !== "Other" && menu !== "I don't know") {
+    setDefault(a, "diagnosis_list", menu);
+    setDefault(a, "current_diagnosis_known", menu);
+  }
+  if (s(a.has_pcp) === "No") setDefault(a, "pcp_name", NO_PRIMARY_CARE);
+}
+
+/** Fill email / employed work-phone after the client skips or leaves them blank. */
+export function applySkippedClientPlaceholders(input: Answers, keys?: string[]): Answers {
+  const a: Answers = { ...input };
+  const target = keys?.length ? keys : ["client_email", "client_phone_work", "employer_phone"];
+  for (const key of target) {
+    if (key === "client_email" && isBlank(a.client_email)) a.client_email = NONE_REPORTED_BY_CLIENT;
+    if ((key === "client_phone_work" || key === "employer_phone") && s(a.employment_status) === "Employed" && isBlank(a[key])) {
+      a[key] = NONE_REPORTED_BY_CLIENT;
+    }
+  }
+  return a;
+}
+
 export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolean } = {}): Answers {
   const a: Answers = { ...input };
   const forPdf = opts.forPdf === true;
@@ -216,17 +277,38 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
     setDefault(a, key, addOneYear(intakeDate));
   }
 
-  // Screening workflow: never invent Routine (or any severity) when nobody answered.
+  setDefault(a, "has_medicaid", "Yes");
+  setDefault(a, "has_nchc", "No");
+  setDefault(a, "language", "English");
+  setDefault(a, "is_minor_or_incompetent", "No");
   setDefault(a, "program_can_meet_needs", "Yes");
+  setDefault(a, "ability_to_provide", "Yes");
+  setDefault(a, "severity_of_need", "Routine");
+  const raceEthnicity = ethnicityForRace(a.race);
+  if (raceEthnicity) setDefault(a, "ethnicity", raceEthnicity);
 
-  // These are packet-only workflow defaults. A CCA extraction that already
-  // supplied services wins; otherwise the standard starting service row is
-  // CCA, OPT, and medication management. The client questionnaire remains
-  // unchanged and can still collect a different answer.
+  setDefault(a, "pcp_plan_client_name", s(a.client_full_name));
+  setDefault(a, "pcp_plan_dob", s(a.dob));
+  setDefault(a, "pcp_plan_medicaid_id", s(a.mid_number));
+  setDefault(a, "pcp_plan_record_number", s(a.record_number));
+  setDefault(a, "pcp_plan_person_receiving", "Yes");
+  setDefault(a, "pcp_plan_client_printed_name", s(a.client_full_name));
+
+  if (s(a.roi_understand_1) === "Yes" && s(a.roi_understand_2) === "Yes" && s(a.roi_understand_3) === "Yes") {
+    setDefault(a, "roi_understand_initialed", "Yes");
+  }
+
   if (forPdf) {
-    setDefault(a, "language", "English");
     setDefault(a, "services_requested", ["CCA", "OPT", "Med Mgt"]);
     setDefault(a, "intervention_target_behaviors", "Preventing harm to self or others");
+    if (isBlank(a.client_email)) a.client_email = NONE_REPORTED_BY_CLIENT;
+    if (s(a.employment_status) === "Employed") {
+      if (isBlank(a.client_phone_work)) a.client_phone_work = NONE_REPORTED_BY_CLIENT;
+      if (isBlank(a.employer_phone)) a.employer_phone = NONE_REPORTED_BY_CLIENT;
+    }
+    if (s(a.last_physical_date) === "Yes") a.last_physical_date = "Within last year";
+    if (s(a.last_physical_date) === "No") a.last_physical_date = "Not in last year";
+    if (s(a.education) === "High School" || s(a.education) === "GED") a.education = "High School/GED";
   }
 
   // phones: same number, different blanks
@@ -234,9 +316,8 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
   setDefault(a, "ec2_home_phone", s(a.ec2_cell_phone));
 
-  // a verified MID means Medicaid coverage is already established
-  if (!isBlank(a.mid_number)) setDefault(a, "has_medicaid", "Yes");
   applyInsurancePlanDefaults(a);
+  applyClientNarrativeDefaults(a);
 
   // one staff member's name flows to the synonymous staff-name blanks
   const sharedStaffName =
