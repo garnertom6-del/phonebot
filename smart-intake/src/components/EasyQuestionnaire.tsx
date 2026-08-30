@@ -352,14 +352,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     goNext();
   }, [goNext, saveNow]);
 
-  // Encouragement screens auto-advance after 1.2s (or tap to continue).
-  // The same leaveBreak path arms the click guard so a late tap cannot
-  // select the next question's first chip.
-  useEffect(() => {
-    if (phase !== "break") return;
-    const t = setTimeout(leaveBreak, 1200);
-    return () => clearTimeout(t);
-  }, [phase, breakText, leaveBreak]);
+  // Interstitials wait for a real tap. Auto-advancing here is what let the
+  // same pointer land on the next question's chips (live: Transgender).
+  // Answer chips still auto-advance via pickAndAdvance.
 
   useEffect(() => {
     if (!clickGuardUntil) return;
