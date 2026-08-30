@@ -2217,7 +2217,7 @@ async function main() {
   {
     const defaults = applyOperationalDefaults({});
     assert.equal(defaults.has_medicaid, undefined);
-    assert.equal(defaults.has_nchc, "No");
+    assert.equal(defaults.has_nchc, undefined);
     assert.equal(defaults.language, undefined);
     assert.equal(defaults.is_minor_or_incompetent, undefined);
     assert.equal(defaults.program_can_meet_needs, undefined);
