@@ -3,6 +3,7 @@ import { ELIGIBILITY_KEYS } from "@/lib/eligibilityState";
 import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
 import { fileExists } from "@/lib/storage";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
+import { COMPLETED_COPY_DELIVERY_KEY } from "@/lib/clientCopyDelivery";
 
 export type PacketFreshnessState = "missing" | "current" | "stale";
 
@@ -17,6 +18,7 @@ export type PacketFreshness = {
 const IGNORED_ANSWER_KEYS = [
   "auto_send_completed_copies",
   "auto_email_provider_packet",
+  COMPLETED_COPY_DELIVERY_KEY,
   "hipaa_copy",
   "welcome_letter_ack",
   "staff_helper_notes",

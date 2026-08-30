@@ -85,6 +85,14 @@ function IntakeInner({ token }: { token: string }) {
                 Try this link again
               </button>
             )}
+            <a className="btn-ghost min-h-[48px] w-full" href={`/rights/${token}`}>
+              View client rights &amp; privacy
+            </a>
+            {problem.code === "INTAKE_FINISHED" && (
+              <a className="btn-primary min-h-[48px] w-full" href={`/copies/${token}`}>
+                Check for my completed copies
+              </a>
+            )}
           </div>
           {!problem.provider?.phone && (
             <p className="mt-3 text-sm text-slate-500">Please contact your provider for help with the link.</p>
@@ -119,9 +127,17 @@ function IntakeInner({ token }: { token: string }) {
 export default function ClientIntakePage({ params }: { params: { token: string } }) {
   return (
     <main className="min-h-screen">
-      <header className="sticky top-0 z-10 bg-brand p-4 text-white">
-        <h1 className="text-base font-bold">Client Intake</h1>
-        <p className="text-xs opacity-80">Start your intake for services.</p>
+      <header className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-brand p-3 text-white shadow-md">
+        <div>
+          <h1 className="text-base font-bold">Client Intake</h1>
+          <p className="text-xs opacity-90">Start your intake for services.</p>
+        </div>
+        <a
+          className="inline-flex min-h-[48px] shrink-0 items-center justify-center rounded-xl border-2 border-white bg-white px-3 text-sm font-extrabold text-brand shadow-sm focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-white"
+          href={`/rights/${params.token}`}
+        >
+          Rights &amp; privacy
+        </a>
       </header>
       <div className="p-4">
         <Suspense fallback={<p className="mt-10 text-center text-slate-500">Loading...</p>}>

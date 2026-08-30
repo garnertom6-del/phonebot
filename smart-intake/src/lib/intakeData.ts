@@ -7,6 +7,7 @@ import { applyOperationalDefaults } from "./answerDefaults";
 import { ELIGIBILITY_KEYS } from "./eligibilityState";
 import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
 import { signatureIntegrity } from "@/lib/recordIntegrity";
+import { COMPLETED_COPY_DELIVERY_KEY } from "@/lib/clientCopyDelivery";
 
 export type SaveAnswersOptions = {
   invalidateSignatures?: boolean;
@@ -16,6 +17,7 @@ export type SaveAnswersOptions = {
 const NON_MATERIAL_ANSWER_KEYS = new Set([
   "auto_send_completed_copies",
   "auto_email_provider_packet",
+  COMPLETED_COPY_DELIVERY_KEY,
   "hipaa_copy",
   "welcome_letter_ack",
   "staff_helper_notes",

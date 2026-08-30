@@ -18,6 +18,7 @@ import {
 } from "./notify";
 import { answeredClientFields } from "./clientAnswerSync";
 import { clientFollowUpDeliveryContacts } from "./clientDeliveryContacts";
+import { completedCopyDeliveryChannels } from "./clientCopyDelivery";
 import { fileExists, readFile } from "./storage";
 import { packetFreshnessForIntake } from "./packetFreshness";
 import {
@@ -74,7 +75,7 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
       status: 400,
       body: {
         ok: false,
-        error: "The intake must be active, submitted, and signed before sending client copies.",
+        error: "The intake must be active, submitted, and completed before sending client copies.",
         sent: [],
         failed: [],
       },
@@ -113,7 +114,9 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
     guardianPhone: intake.client.guardianPhone || answeredClient.guardianPhone,
   };
   const contacts = clientFollowUpDeliveryContacts(deliveryClient, answers, intake.signatures);
-  if (contacts.email) {
+  const deliveryChoice = completedCopyDeliveryChannels(answers);
+  const unavailable: string[] = [];
+  if (deliveryChoice.email && contacts.email) {
     const recipientName = contacts.email.role === "guardian"
       ? deliveryClient.guardianName || "Parent or guardian"
       : deliveryClient.fullName;
@@ -126,8 +129,10 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
         intake.provider?.phone,
       )
     )));
+  } else if (deliveryChoice.email) {
+    unavailable.push("Email was selected, but no client or guardian email is saved.");
   }
-  if (contacts.phone) {
+  if (deliveryChoice.sms && contacts.phone) {
     attempts.push(await captureNotifyResult("sms", contacts.phone.value, () => (
       sendCopiesLinkSms(
         contacts.phone!.value,
@@ -137,6 +142,8 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
         { intakeId: intake.id, providerId: opts.providerId },
       )
     )));
+  } else if (deliveryChoice.sms) {
+    unavailable.push("Text message was selected, but no client or guardian mobile number is saved.");
   }
 
   const sent = attempts.filter((r) => r.ok).map(sentLabel);
@@ -159,7 +166,8 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
       sent.length ? `sent ${sent.join(", ")}` : "",
       pending.length ? `pending confirmation ${pending.join(", ")}` : "",
       failed.length ? `failed ${failed.join(", ")}` : "",
-    ].filter(Boolean).join("; ") || "no client email or phone on file",
+      unavailable.length ? unavailable.join(" ") : "",
+    ].filter(Boolean).join("; ") || "no selected client delivery channel is available",
     },
   );
 
@@ -172,6 +180,9 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
       pending,
       confirmed,
       failed,
+      unavailable,
+      preference: deliveryChoice.label,
+      error: sent.length ? undefined : unavailable.join(" ") || "No selected delivery channel accepted the completed-copy link.",
       demo: attempts.some((r) => r.demo),
     },
   };

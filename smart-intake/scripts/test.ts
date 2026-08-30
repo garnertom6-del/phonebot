@@ -66,6 +66,10 @@ import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS } fro
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
+import {
+  COMPLETED_COPY_DELIVERY_KEY,
+  completedCopyDeliveryChannels,
+} from "../src/lib/clientCopyDelivery";
 import { buildSignatureStatuses, mappedSignatureSlotsFromFields, missingRequiredSignatures } from "../src/lib/signatureStatus";
 import { buildCasePageStatus } from "../src/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
@@ -1130,7 +1134,24 @@ async function main() {
   assert.equal(packetBlockedCompletion.ready, false);
   assert.equal(packetBlockedCompletion.blockers.length, 1);
   assert.equal(packetBlockedCompletion.blockers[0]?.code, "provider_packet_not_ready");
-  assert.deepEqual(COPY_ALLOWED_STATUSES, ["SIGNED", "COMPLETED"]);
+  assert.deepEqual(COPY_ALLOWED_STATUSES, ["COMPLETED"]);
+  assert.deepEqual(completedCopyDeliveryChannels({}), {
+    sms: true,
+    email: true,
+    label: "text message and email",
+  });
+  assert.deepEqual(completedCopyDeliveryChannels({ [COMPLETED_COPY_DELIVERY_KEY]: "Text message" }), {
+    sms: true,
+    email: false,
+    label: "text message",
+  });
+  assert.deepEqual(completedCopyDeliveryChannels({ [COMPLETED_COPY_DELIVERY_KEY]: "Email" }), {
+    sms: false,
+    email: true,
+    label: "email",
+  });
+  assert.equal(questionByKey(COMPLETED_COPY_DELIVERY_KEY)?.essential, true);
+  assert.equal(questionByKey(COMPLETED_COPY_DELIVERY_KEY)?.required, false);
   assert.equal(
     buildSignatureStatuses([]).find((status) => status.key === "staff_qp")?.required,
     true,
@@ -1238,9 +1259,25 @@ async function main() {
     copiesSent: false,
     reviewed: true,
   });
-  assert.equal(noCcaProvider.headline, "Ready to send copies");
+  assert.equal(noCcaProvider.headline, "Ready to mark completed");
   assert.equal(noCcaProvider.steps.find((step) => step.key === "cca")?.skipped, true);
-  assert.equal(noCcaProvider.sendCopiesAllowed, true);
+  assert.equal(noCcaProvider.sendCopiesAllowed, false);
+  const completedNoCcaProvider = buildCasePageStatus({
+    status: "COMPLETED",
+    missingRequiredCount: 0,
+    expectCca: false,
+    hasCca: false,
+    signatureStatuses: buildSignatureStatuses([
+      { role: "client", printedName: "Sample Client", signedDate: "08/01/2026" },
+      { role: "staff", printedName: "QP Example", signedDate: "08/01/2026" },
+    ]),
+    generatedPdfCount: 1,
+    providerPacketReady: true,
+    copiesSent: false,
+    reviewed: true,
+  });
+  assert.equal(completedNoCcaProvider.headline, "Completed");
+  assert.equal(completedNoCcaProvider.sendCopiesAllowed, true);
 
   const mappedWitness = buildSignatureStatuses([], {
     mappedSlots: ["client_guardian", "staff_qp", "witness", "medical_director"],
@@ -1437,7 +1474,7 @@ async function main() {
       data: {
         providerId: unreadyProvider.id,
         clientId: unreadyClient.id,
-        status: "SIGNED",
+        status: "COMPLETED",
         submittedAt: new Date(),
         token: newIntakeToken(),
         tokenExpiresAt: tokenExpiry(),

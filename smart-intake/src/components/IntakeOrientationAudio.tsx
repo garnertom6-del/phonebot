@@ -42,9 +42,9 @@ export default function IntakeOrientationAudio({ providerName, providerPhone: su
   }
 
   return (
-    <section className={`rounded-xl border border-sky-200 bg-sky-50 text-left ${compact ? "p-3" : "mt-6 p-4"}`}>
-      <p className="font-bold text-sky-900">Want to hear how this works?</p>
-      <p className="mt-1 text-sm leading-relaxed text-sky-800">
+    <section className={`rounded-2xl border-2 border-sky-400 bg-sky-50 text-left shadow-sm ${compact ? "p-3" : "p-4"}`}>
+      <p className="text-lg font-extrabold text-sky-950">Hear how this works</p>
+      <p className="mt-1 text-sm font-medium leading-relaxed text-sky-900">
         {INTAKE_ORIENTATION_SUMMARY} You can listen before you start or play it again later.
       </p>
       {INTAKE_ORIENTATION_AUDIO_URL && (
@@ -52,7 +52,7 @@ export default function IntakeOrientationAudio({ providerName, providerPhone: su
           Your phone cannot play this audio. You can still complete the intake below.
         </audio>
       )}
-      <button type="button" className="btn-secondary mt-3 min-h-[48px] w-full text-base" onClick={toggleSpeech}>
+      <button type="button" className="btn-primary mt-3 min-h-[56px] w-full text-lg font-extrabold shadow-md" onClick={toggleSpeech}>
         {speaking ? "Stop explanation" : INTAKE_ORIENTATION_AUDIO_URL ? "Hear the updated explanation" : "Hear the explanation"}
       </button>
       {!INTAKE_ORIENTATION_AUDIO_URL && (

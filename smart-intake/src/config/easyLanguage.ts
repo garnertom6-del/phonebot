@@ -510,6 +510,17 @@ export const EASY: Record<string, EasyText> = {
       "If you ever think we shared it wrongly, call 336-285-5204 and we will listen.",
   },
 
+  /* ---------- client_copies ---------- */
+  completed_copy_delivery: {
+    q: "How should we send your completed intake copies?",
+    help: "We wait until the CCA, required answers, staff review, QP signature, and final packet are finished. If you skip this choice, we use both contact methods that are available.",
+    options: {
+      "Text message": "Text me a secure link",
+      "Email": "Email me a secure link",
+      "Text message and email": "Text and email me",
+    },
+  },
+
   /* ---------- welcome_letter ---------- */
   welcome_letter_ack: { q: "Did you get our welcome letter?", help: "It has our hours and our help line: 336-285-5204." },
 
