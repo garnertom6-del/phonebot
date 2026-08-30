@@ -14,7 +14,12 @@ import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults, applySkippedClientPlaceholders } from "@/lib/answerDefaults";
 import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
-import { completedCopyDeliveryChannels } from "@/lib/clientCopyDelivery";
+import {
+  COMPLETED_COPY_DELIVERY_KEY,
+  completedCopyDeliveryChannels,
+  completedCopyDeliveryOptions,
+  hasUsableClientEmail,
+} from "@/lib/clientCopyDelivery";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -59,7 +64,10 @@ export function flattenVisible(
       if (q.key === "consent_cca" && !ccaAttestationReady) continue;
       if (!recordReviewKeys.has(q.key) && !isClientQuestionVisible(q, answers, prefilledAnswers)) continue;
       if (recordReviewKeys.has(q.key) && (q.staffOnly || q.type === "info" || q.type === "heading")) continue;
-      out.push({ q, sectionKey: s.key, sectionTitle: s.title });
+      const visibleQuestion = q.key === COMPLETED_COPY_DELIVERY_KEY
+        ? { ...q, options: completedCopyDeliveryOptions(answers) }
+        : q;
+      out.push({ q: visibleQuestion, sectionKey: s.key, sectionTitle: s.title });
     }
   }
   return out;
@@ -104,11 +112,12 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   );
 
   const gateFingerprint = JSON.stringify(GATE_KEYS.map((k) => answers[k]));
+  const copyEmailAvailable = hasUsableClientEmail(answers);
   const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const flat = useMemo(
     () => flattenVisible(answers, prefilledRef.current, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName),
-    [gateFingerprint, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName],
+    [gateFingerprint, copyEmailAvailable, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName],
   );
 
   // Refs so timers (auto-advance) always see the latest state.
@@ -668,6 +677,9 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
         <div className="rounded-2xl border border-brand/20 bg-brand-light p-5">
           <p className="text-xl leading-relaxed text-slate-800">{simple}{copyNote}</p>
           {value === true && <p className="mt-3 text-lg font-bold text-emerald-600">You said yes to this.</p>}
+          {value === "Declined acknowledgment" && (
+            <p className="mt-3 text-lg font-bold text-slate-700">You received the notice and declined the acknowledgment.</p>
+          )}
         </div>
         <details className="rounded-2xl border-2 border-brand/40 bg-white p-4">
           <summary className="cursor-pointer text-lg font-extrabold text-brand">Tap to read the full text</summary>
@@ -691,6 +703,21 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             onClick={() => pickAndAdvance(q.key, true, "yes")}>
             Yes, I understand and agree
           </button>
+        )}
+        {q.key === "consent_hipaa" && (
+          <div className="space-y-2 rounded-xl border-2 border-slate-300 bg-white p-3">
+            <button
+              type="button"
+              aria-pressed={value === "Declined acknowledgment"}
+              className="btn-secondary min-h-[56px] w-full text-base font-extrabold"
+              onClick={() => pickAndAdvance(q.key, "Declined acknowledgment", "declined")}
+            >
+              I received the notice but decline to sign
+            </button>
+            <p className="text-sm font-semibold text-slate-600">
+              Your intake can continue. Staff will record that you received the notice and declined the acknowledgment.
+            </p>
+          </div>
         )}
         {q.key === "consent_tailored_plan" ? (
           <p className="rounded-xl bg-sky-50 p-4 text-base font-semibold text-sky-800">
@@ -740,7 +767,12 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
 
   /* ---- chips: multi-select toggles + Done button ---- */
   if (q.type === "chips") {
-    const arr = Array.isArray(value) ? value : [];
+    const arr = Array.isArray(value)
+      ? value
+      : typeof value === "string" && value.trim()
+        ? value.split(/[;,\n]+/).map((item) => item.trim()).filter(Boolean)
+        : [];
+    const exclusive = q.exclusiveOptions || [];
     return (
       <div className="space-y-3">
         {usesStrongMenu(q) && (
@@ -752,7 +784,14 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
           return (
             <button key={opt} type="button"
               aria-pressed={on}
-              onClick={() => set(q.key, on ? arr.filter((x) => x !== opt) : [...arr, opt])}
+              onClick={() => {
+                const next = exclusive.includes(opt)
+                  ? [opt]
+                  : on
+                    ? arr.filter((x) => x !== opt)
+                    : [...arr.filter((x) => !exclusive.includes(x)), opt];
+                set(q.key, next);
+              }}
               className={`block min-h-[56px] w-full rounded-2xl border-2 px-5 py-3 text-left text-lg font-semibold transition
                 ${on ? "border-brand bg-brand text-white shadow-md" : "border-slate-300 bg-white text-slate-800 hover:border-brand"}`}>
               {on ? "Selected: " : ""}{easyOpt(q, opt, providerName, supportPhone)}

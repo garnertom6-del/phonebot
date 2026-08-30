@@ -12,7 +12,7 @@ export function intakeShareMessage(
   supportPhone?: string | null,
 ): string {
   const provider = providerDisplayName(providerName);
-  return `${provider}: Secure form: ${link}\nSave and return while this link is active.${smsHelpLine(supportPhone, providerName)} STOP to opt out.`;
+  return `${provider}: Tap your private intake link to answer questions, review rights and consents, and sign: ${link}\nSave and return anytime; your answers are saved as you go. Do not forward.${smsHelpLine(supportPhone, providerName)} STOP to opt out.`;
 }
 
 export function signatureShareMessage(

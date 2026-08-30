@@ -40,9 +40,14 @@ export function brandText(text: string | null | undefined, branding?: ProviderBr
   if (text.includes("Karen Jones") && text.includes("Tonya Jones")) {
     return `Welcome to ${displayName}. Our team will explain available services, office hours, how to reach us, and what happens after your clinical assessment. Questions? Call ${phone}.`;
   }
+  // Protect the legal-name replacement so the shorter display-name pattern
+  // cannot replace it a second time (for example, "Inc., Inc.").
+  const legalToken = "__SMART_INTAKE_PROVIDER_LEGAL__";
+  const displayToken = "__SMART_INTAKE_PROVIDER_DISPLAY__";
   return text
-    .replace(/Moore Divine Care, Inc\./g, legalName)
-    .replace(/Moore Divine Care, Inc/g, legalName)
-    .replace(/Moore Divine Care/g, displayName)
+    .replace(/Moore Divine Care, Inc\.?/g, legalToken)
+    .replace(/Moore Divine Care/g, displayToken)
+    .replaceAll(legalToken, legalName)
+    .replaceAll(displayToken, displayName)
     .replace(/336-285-5204/g, phone);
 }

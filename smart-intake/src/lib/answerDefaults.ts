@@ -1,6 +1,5 @@
 import type { Answers } from "./fillPdf";
 import { applyInsurancePlanDefaults } from "./insurancePlans";
-import { ethnicityForRace } from "@/config/mooreDivineQuestions";
 
 /**
  * Operational defaults copy a real answer to another blank, or apply the
@@ -62,11 +61,13 @@ function isDiagnosisPlaceholder(value: string): boolean {
 }
 
 function diagnosisList(a: Answers): string[] {
+  const listText = (value: unknown) => Array.isArray(value) ? value.join("; ") : s(value);
   const raw = [
-    s(a.sa_primary_diagnosis),
-    s(a.sa_secondary_diagnosis),
-    s(a.current_diagnosis_known),
-    s(a.diagnosis_list),
+    listText(a.sa_primary_diagnosis),
+    listText(a.sa_secondary_diagnosis),
+    listText(a.current_diagnosis_known),
+    listText(a.diagnosis_menu),
+    listText(a.diagnosis_list),
   ].filter(Boolean).join("; ");
   const seen = new Set<string>();
   return raw
@@ -249,7 +250,9 @@ export function applySkippedClientPlaceholders(input: Answers, keys?: string[]):
   const target = keys?.length ? keys : ["client_email", "client_phone_work", "employer_phone"];
   for (const key of target) {
     if (key === "client_email" && isBlank(a.client_email)) a.client_email = NONE_REPORTED_BY_CLIENT;
-    if ((key === "client_phone_work" || key === "employer_phone") && s(a.employment_status) === "Employed" && isBlank(a[key])) {
+    if ((key === "client_phone_work" || key === "employer_phone")
+      && ["Employed", "Self-Employed"].includes(s(a.employment_status))
+      && isBlank(a[key])) {
       a[key] = NONE_REPORTED_BY_CLIENT;
     }
   }
@@ -277,15 +280,11 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
     setDefault(a, key, addOneYear(intakeDate));
   }
 
-  setDefault(a, "has_medicaid", "Yes");
+  // Do not invent coverage, language, guardian status, clinical severity, or
+  // program/service eligibility. Those values require a record, CCA, or staff
+  // review. A verified MID is sufficient evidence for the Medicaid checkbox.
+  if (!isBlank(a.mid_number)) setDefault(a, "has_medicaid", "Yes");
   setDefault(a, "has_nchc", "No");
-  setDefault(a, "language", "English");
-  setDefault(a, "is_minor_or_incompetent", "No");
-  setDefault(a, "program_can_meet_needs", "Yes");
-  setDefault(a, "ability_to_provide", "Yes");
-  setDefault(a, "severity_of_need", "Routine");
-  const raceEthnicity = ethnicityForRace(a.race);
-  if (raceEthnicity) setDefault(a, "ethnicity", raceEthnicity);
 
   setDefault(a, "pcp_plan_client_name", s(a.client_full_name));
   setDefault(a, "pcp_plan_dob", s(a.dob));
@@ -300,9 +299,8 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
 
   if (forPdf) {
     setDefault(a, "services_requested", ["CCA", "OPT", "Med Mgt"]);
-    setDefault(a, "intervention_target_behaviors", "Preventing harm to self or others");
     if (isBlank(a.client_email)) a.client_email = NONE_REPORTED_BY_CLIENT;
-    if (s(a.employment_status) === "Employed") {
+    if (["Employed", "Self-Employed"].includes(s(a.employment_status))) {
       if (isBlank(a.client_phone_work)) a.client_phone_work = NONE_REPORTED_BY_CLIENT;
       if (isBlank(a.employer_phone)) a.employer_phone = NONE_REPORTED_BY_CLIENT;
     }
@@ -315,6 +313,16 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   setDefault(a, "client_phone_home", s(a.client_phone_cell));
   setDefault(a, "ec1_home_phone", s(a.ec1_cell_phone));
   setDefault(a, "ec2_home_phone", s(a.ec2_cell_phone));
+
+  // Gate answers may be derived only from a real supporting value. This keeps
+  // staff/NC Tracks/CCA prefills from making the client repeat a parent answer.
+  if (!isBlank(a.pcp_name) || !isBlank(a.pcp_phone) || !isBlank(a.pcp_address)) setDefault(a, "has_pcp", "Yes");
+  if (!isBlank(a.diagnosis_menu) || !isBlank(a.diagnosis_list)) setDefault(a, "has_current_diagnosis", "Yes");
+  if (!isBlank(a.limitation_types) || !isBlank(a.limitations_desc)) setDefault(a, "has_limitations", "Yes");
+  if (!isBlank(a.hospitalizations)) setDefault(a, "has_hospitalization", "Yes");
+  if (!isBlank(a.drug_allergies) || !isBlank(a.environmental_allergies) || !isBlank(a.allergies)) {
+    setDefault(a, "has_allergies", "Yes");
+  }
 
   applyInsurancePlanDefaults(a);
   applyClientNarrativeDefaults(a);

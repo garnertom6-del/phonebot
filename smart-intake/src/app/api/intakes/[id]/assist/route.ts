@@ -8,10 +8,12 @@ import { normalizeInsuranceValue } from "@/lib/insurancePlans";
 import {
   CLIENT_ANSWER_KEYS,
   EDUCATION_OPTIONS,
+  EMPLOYMENT_STATUS_OPTIONS,
   ETHNICITY_PACKET_OPTIONS,
   MARITAL_STATUS_OPTIONS,
   questionByKey,
   RACE_OPTIONS,
+  REFERRAL_SOURCE_OPTIONS,
   STAFF_PREFILLED_CLIENT_FIELDS_KEY,
 } from "@/config/mooreDivineQuestions";
 import { parseHelperNotes } from "@/lib/parseIntakeNotes";
@@ -98,10 +100,10 @@ function normalizeAssistValue(key: string, value: string): string | string[] {
     ]);
   }
   if (key === "referral_source") {
-    return option(text, ["Self", "DSS", "LME", "Provider Agency", "Other Agency or Provider", "State Facility", "Private Physician", "Social Agency", "Employer", "School", "Voc. Rehab", "Family/Friend", "Inpatient/Outpatient Facility"]);
+    return option(text, REFERRAL_SOURCE_OPTIONS);
   }
   if (key === "employment_status") {
-    return option(text, ["Not in Labor Force", "Unemployed", "Disabled", "Employed"]);
+    return option(text, EMPLOYMENT_STATUS_OPTIONS);
   }
   if (key === "mco") {
     return normalizeInsuranceValue(text, "mco") || text;
