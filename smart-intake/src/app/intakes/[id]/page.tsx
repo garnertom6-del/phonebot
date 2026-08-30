@@ -5,6 +5,14 @@ import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import CoveragePanel from "@/components/CoveragePanel";
 import ManualSendPanel from "@/components/ManualSendPanel";
 import type { CcaReview } from "@/lib/ccaReview";
+import {
+  appSnapshotFromAnswers,
+  ccaDocumentationReady,
+  diagnosisSummary,
+  finalizeCcaReview,
+  fourComponentsPass,
+  recommendedServicesClear,
+} from "@/lib/ccaMedicalNecessity";
 import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
@@ -1375,9 +1383,15 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           {hasCca && (
             <CcaAccuracyPanel
               review={ccaReview}
+              answers={d.answers}
+              clientName={i.client.fullName}
+              clientDob={i.client.dob}
               onCopy={async () => {
                 if (!ccaReview) return;
-                await navigator.clipboard.writeText(formatCcaFollowUp(ccaReview));
+                const scan = finalizeCcaReview(ccaReview, {
+                  app: appSnapshotFromAnswers(d.answers, i.client),
+                });
+                await navigator.clipboard.writeText(formatCcaFollowUp(scan));
                 setNote("CCA creator follow-up note copied.");
               }}
             />
@@ -1989,19 +2003,51 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
 }
 
 function formatCcaFollowUp(review: CcaReview): string {
+  const missingPieces = [
+    !review.hasRecommendation ? "Recommendation: name the service(s) the clinician recommends." : "",
+    !review.hasDiagnosis ? "Diagnosis: add the primary diagnosis (and dual MH + SUD when both apply)." : "",
+    !review.hasSignature ? "Signature: licensed clinician signature is missing (electronic / typed / DocuSign / wet ink all count)." : "",
+    !review.dateWithinOneYear ? "Date: assessment date must be present, not future, and not older than 12 months." : "",
+  ].filter(Boolean);
   const lines = [
     "CCA creator follow-up requested",
     review.sourceClinician ? `Assessment clinician: ${review.sourceClinician}` : "Assessment clinician: not identified",
     review.assessmentDate ? `Assessment date: ${review.assessmentDate}` : "Assessment date: not identified",
     "",
     "Please review and correct these CCA items:",
+    ...missingPieces.map((item) => `- Required piece: ${item}`),
     ...review.majorErrors.map((item) => `- MAJOR: ${item}`),
     ...review.warnings.map((item) => `- Clarification: ${item}`),
+    ...review.recommendedServices.filter((item) => item.score !== "Supported").map((item) => (
+      `- Service documentation (${item.score}): ${item.name}${item.policyId ? ` [${item.policyId}]` : ""} — ${item.reason}`
+    )),
   ];
   return lines.join("\n");
 }
 
-function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy: () => void }) {
+function chipTone(state: "pass" | "warn" | "fail"): string {
+  return state === "pass" ? "bg-emerald-100 text-emerald-900 border-emerald-300"
+    : state === "warn" ? "bg-amber-100 text-amber-950 border-amber-300"
+    : "bg-red-100 text-red-950 border-red-300";
+}
+
+function serviceTone(score: string): string {
+  return score === "Supported" ? chipTone("pass") : score === "Thin" ? chipTone("warn") : chipTone("fail");
+}
+
+function CcaAccuracyPanel({
+  review,
+  answers,
+  clientName,
+  clientDob,
+  onCopy,
+}: {
+  review: CcaReview | null;
+  answers: Record<string, unknown>;
+  clientName?: string;
+  clientDob?: string;
+  onCopy: () => void;
+}) {
   if (!review) {
     return (
       <div className="mt-4 rounded-xl border border-amber-300 bg-amber-50 p-3 text-sm text-amber-950">
@@ -2010,42 +2056,109 @@ function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy
       </div>
     );
   }
-  const medicationCount = review.prescriptionMedications.length + review.otcMedications.length;
-  const clear = review.majorErrors.length === 0 && review.warnings.length === 0;
+  const scan = finalizeCcaReview(review, {
+    app: appSnapshotFromAnswers(answers, { fullName: clientName, dob: clientDob }),
+  });
+  const medicationCount = scan.prescriptionMedications.length + scan.otcMedications.length;
+  const accuracyClear = scan.majorErrors.length === 0 && scan.warnings.length === 0;
+  const fourPass = fourComponentsPass(scan);
+  const servicesClear = recommendedServicesClear(scan);
+  const ready = ccaDocumentationReady(scan);
+  const honestClear = fourPass && servicesClear && scan.majorErrors.length === 0;
+  const panelTone = !fourPass || scan.majorErrors.length
+    ? "border-red-300 bg-red-50 text-red-950"
+    : !servicesClear || scan.warnings.length || scan.appMismatches.length
+      ? "border-amber-300 bg-amber-50 text-amber-950"
+      : "border-emerald-500 bg-emerald-100 text-emerald-950";
+  const primaryLine = scan.primaryDiagnosis
+    ? [scan.primaryDiagnosis.code, scan.primaryDiagnosis.label].filter(Boolean).join(" — ")
+    : "Not documented";
   return (
-    <div className={`mt-4 rounded-xl border p-3 text-sm ${
-      review.majorErrors.length ? "border-red-300 bg-red-50 text-red-950" :
-      review.warnings.length ? "border-amber-300 bg-amber-50 text-amber-950" :
-      "border-emerald-500 bg-emerald-100 text-emerald-950"
-    }`}>
+    <div className={`mt-4 rounded-xl border p-3 text-sm ${panelTone}`}>
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
           <p className="font-bold">CCA accuracy review</p>
-          <p className="mt-1 text-xs opacity-80">Separate from the intake preflight. AI suggests only; staff must confirm the CCA before using it.</p>
+          <p className="mt-1 text-xs opacity-80">
+            Documentation scan against the uploaded CCA and current NCDHHS service pages. AI suggests only; this is not a coverage decision.
+          </p>
         </div>
         <button type="button" className="btn-ghost px-3 py-1.5 text-xs" onClick={onCopy}>
           Copy creator follow-up note
         </button>
       </div>
+      <div className="mt-3 flex flex-wrap gap-2">
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${chipTone(scan.hasRecommendation ? "pass" : "fail")}`}>
+          Recommendation: {scan.hasRecommendation ? "Present" : "Missing"}
+        </span>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${chipTone(scan.hasDiagnosis ? "pass" : "fail")}`}>
+          Diagnosis: {scan.hasDiagnosis ? diagnosisSummary(scan) : "Missing"}
+        </span>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${chipTone(scan.hasSignature ? "pass" : "fail")}`}>
+          Signature: {scan.hasSignature ? scan.signatureMethod.replace("-", " ") : "Missing"}
+        </span>
+        <span className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${chipTone(scan.dateWithinOneYear ? "pass" : "fail")}`}>
+          Date: {scan.dateWithinOneYear ? "Within 12 months" : scan.dateIso ? "Not current" : "Undated"}
+        </span>
+      </div>
+      <p className="mt-3 font-semibold">
+        {ready && honestClear
+          ? "CCA ready for staff review. Four required pieces are present and named services have Supported documentation on this scan."
+          : ready && !servicesClear
+            ? "Four required pieces are present. One or more recommended services are Thin or Mismatch on this documentation scan — not a coverage decision."
+            : "CCA is not ready — the red chips must pass before this assessment is treated as current."}
+      </p>
+      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+        <div><b>Primary diagnosis:</b> {primaryLine}</div>
+        <div><b>Dual diagnosis:</b> {diagnosisSummary(scan)}</div>
+      </div>
+      {scan.recommendedServices.length > 0 && (
+        <div className="mt-3">
+          <p className="font-semibold">Recommended services (from the CCA only)</p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {scan.recommendedServices.map((service, index) => (
+              <span key={`${service.name}-${index}`} className={`rounded-full border px-2.5 py-1 text-xs font-semibold ${serviceTone(service.score)}`} title={service.reason}>
+                {service.name}{service.policyId ? ` · ${service.policyId}` : ""} · {service.score}
+              </span>
+            ))}
+          </div>
+          <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+            {scan.recommendedServices.map((service, index) => (
+              <li key={`reason-${index}`}>{service.name}: {service.reason}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+      {scan.appMismatches.length > 0 && (
+        <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 p-2">
+          <p className="font-bold">App vs CCA</p>
+          <ul className="mt-1 list-disc space-y-1 pl-5">
+            {scan.appMismatches.map((item, index) => (
+              <li key={`mismatch-${index}`}>
+                {item.field}: {item.note} (CCA: {item.cca}; app: {item.app})
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-        <div><b>Clinician:</b> {review.sourceClinician || "Not identified"}</div>
-        <div><b>Assessment date:</b> {review.assessmentDate || "Not identified"}</div>
+        <div><b>Clinician:</b> {scan.sourceClinician || "Not identified"}</div>
+        <div><b>Assessment date:</b> {scan.assessmentDate || scan.dateIso || "Not identified"}</div>
         <div><b>Medications captured:</b> {medicationCount}</div>
       </div>
-      {clear ? (
-        <p className="mt-3 font-semibold text-emerald-950">No major CCA accuracy issues were identified. Confirm the medication list and source document manually.</p>
+      {accuracyClear ? (
+        <p className="mt-3 font-semibold">No major CCA accuracy issues were identified. Confirm the medication list and source document manually.</p>
       ) : (
         <>
-          {review.majorErrors.length > 0 && (
+          {scan.majorErrors.length > 0 && (
             <div className="mt-3 rounded-lg border border-red-300 bg-red-100 p-2">
               <p className="font-bold">Major issues to send back to the CCA creator</p>
-              <ul className="mt-1 list-disc space-y-1 pl-5">{review.majorErrors.map((item, index) => <li key={`major-${index}`}>{item}</li>)}</ul>
+              <ul className="mt-1 list-disc space-y-1 pl-5">{scan.majorErrors.map((item, index) => <li key={`major-${index}`}>{item}</li>)}</ul>
             </div>
           )}
-          {review.warnings.length > 0 && (
+          {scan.warnings.length > 0 && (
             <div className="mt-3 rounded-lg border border-amber-300 bg-amber-100 p-2">
               <p className="font-bold">Clarifications to review</p>
-              <ul className="mt-1 list-disc space-y-1 pl-5">{review.warnings.map((item, index) => <li key={`warning-${index}`}>{item}</li>)}</ul>
+              <ul className="mt-1 list-disc space-y-1 pl-5">{scan.warnings.map((item, index) => <li key={`warning-${index}`}>{item}</li>)}</ul>
             </div>
           )}
         </>
@@ -2056,14 +2169,14 @@ function CcaAccuracyPanel({ review, onCopy }: { review: CcaReview | null; onCopy
           <div className="mt-2 grid gap-3 sm:grid-cols-2">
             <div>
               <p className="font-semibold">Prescription</p>
-              {review.prescriptionMedications.length
-                ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.prescriptionMedications.map((item, index) => <li key={`rx-${index}`}>{item}</li>)}</ul>
+              {scan.prescriptionMedications.length
+                ? <ul className="mt-1 list-disc space-y-1 pl-5">{scan.prescriptionMedications.map((item, index) => <li key={`rx-${index}`}>{item}</li>)}</ul>
                 : <p className="mt-1 text-xs opacity-70">None identified.</p>}
             </div>
             <div>
               <p className="font-semibold">Over the counter</p>
-              {review.otcMedications.length
-                ? <ul className="mt-1 list-disc space-y-1 pl-5">{review.otcMedications.map((item, index) => <li key={`otc-${index}`}>{item}</li>)}</ul>
+              {scan.otcMedications.length
+                ? <ul className="mt-1 list-disc space-y-1 pl-5">{scan.otcMedications.map((item, index) => <li key={`otc-${index}`}>{item}</li>)}</ul>
                 : <p className="mt-1 text-xs opacity-70">None identified.</p>}
             </div>
           </div>

@@ -5,6 +5,8 @@ import { audit } from "@/lib/auditLog";
 import { ccaConfigured, extractFromCca } from "@/lib/ccaExtract";
 import { saveFile } from "@/lib/storage";
 import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApply";
+import { appSnapshotFromAnswers, finalizeCcaReview } from "@/lib/ccaMedicalNecessity";
+import { loadAnswers } from "@/lib/intakeData";
 
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
@@ -41,6 +43,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "CCA reading failed" }, { status: 502 });
   }
+
+  const currentAnswers = await loadAnswers(intake.id);
+  extraction = {
+    ...extraction,
+    review: finalizeCcaReview(extraction.review, {
+      app: appSnapshotFromAnswers(currentAnswers, intake.client),
+    }),
+  };
 
   let applied;
   try {
