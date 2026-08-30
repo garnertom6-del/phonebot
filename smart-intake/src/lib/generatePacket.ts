@@ -2,6 +2,8 @@ import { prisma } from "@/lib/prisma";
 import { Prisma } from "@prisma/client";
 import { randomUUID } from "crypto";
 import { audit } from "@/lib/auditLog";
+import { appendPcpPlanSignaturePage, pcpIddDocumented } from "@/lib/pcpPlanSignaturePage";
+import { parseCcaReview } from "@/lib/ccaReview";
 import { fillPacket } from "@/lib/fillPdf";
 import { consentsFromAnswers, loadAnswers, loadSignatures, nonMaterialAnswerKeys } from "@/lib/intakeData";
 import { saveFile } from "@/lib/storage";
@@ -204,7 +206,26 @@ export async function generatePacketForIntake(
   const validSignatureRows = intake.signatures.filter((s) => (
     Object.prototype.hasOwnProperty.call(signatures, s.role)
   ));
-  const { pdfBytes, sha256 } = await appendCertificatePage(result.pdfBytes, {
+  // The state PLAN SIGNATURES page is appended before the certificate so the
+  // certificate's fingerprint covers it like every other packet page.
+  const latestCcaDocument = await prisma.document.findFirst({
+    where: { intakeId: intake.id, docType: "cca", reviewJson: { not: null } },
+    orderBy: { createdAt: "desc" },
+    select: { reviewJson: true },
+  });
+  const pcp = await appendPcpPlanSignaturePage(result.pdfBytes, {
+    clientName: packetClientName,
+    dob: intake.client.dob || String(answers.dob || ""),
+    midNumber: String(answers.mid_number || ""),
+    recordNumber: String(answers.record_number || ""),
+    caseManagementAgency: intake.provider?.name || "",
+    clientIsOwnLegalRepresentative: String(answers.is_minor_or_incompetent || "").toLowerCase() !== "yes",
+    guardianRelationship: String(answers.guardian_relationship || ""),
+    iddDocumented: pcpIddDocumented(parseCcaReview(latestCcaDocument?.reviewJson)),
+    signatures,
+  });
+
+  const { pdfBytes, sha256 } = await appendCertificatePage(pcp.pdfBytes, {
     clientName: packetClientName,
     providerName: intake.provider?.name || undefined,
     signers: validSignatureRows.map((s) => ({
@@ -240,7 +261,9 @@ export async function generatePacketForIntake(
     intakeId: intake.id,
     userId,
     detail: `${result.filled} fields filled using ${packetTemplate.originalFileName}`
-      + (warningCount ? `; ${warningCount} field(s) could not be drawn and were left blank: ${result.warnings!.slice(0, 10).join("; ")}` : ""),
+      + (warningCount ? `; ${warningCount} field(s) could not be drawn and were left blank: ${result.warnings!.slice(0, 10).join("; ")}` : "")
+      + (pcp.signedBy ? `; PLAN SIGNATURES page signed by ${pcp.signedBy}` : "")
+      + (pcp.warnings.length ? `; ${pcp.warnings.join("; ")}` : ""),
   });
   return {
     filled: result.filled,

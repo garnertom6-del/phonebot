@@ -37,6 +37,10 @@ import {
 import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrites";
 import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
 import { signatureForRole } from "../src/lib/signaturePlacement";
+import { appendPcpPlanSignaturePage, pcpIddDocumented } from "../src/lib/pcpPlanSignaturePage";
+import { emptyCcaReview } from "../src/lib/ccaReview";
+import { PDFDocument } from "pdf-lib";
+import { extractPdfText } from "../src/lib/pdfText";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
@@ -2444,6 +2448,73 @@ async function main() {
   assert.equal(normRecordName("John Snipes (Johnny)"), normRecordName("john snipes"), "preferred-name suffix is ignored");
   assert.notEqual(normRecordName("Markey Washington Jr"), normRecordName("Markey Washington"), "distinct names stay distinct");
   ok("DOB/name identity normalisers agree across gate and preflight (no false identity block)");
+
+  // ---- NC PLAN SIGNATURES page -------------------------------------------
+  // This page carries the client's signature onto a state form, so three
+  // rules are load-bearing: the signature is the drawn image and is never
+  // faked with type, no date is ever written, and the "I/DD services only"
+  // attestation is ticked only when the CCA documents an I/DD diagnosis.
+  {
+    const dxReview = (code: string, label: string) => ({
+      ...emptyCcaReview(), primaryDiagnosis: { code, label },
+    });
+    assert.equal(pcpIddDocumented(dxReview("F33.1", "Major depressive disorder, recurrent")), false,
+      "a depression diagnosis must not tick the I/DD box");
+    assert.equal(pcpIddDocumented(dxReview("F10.20", "Alcohol use disorder")), false,
+      "a substance use diagnosis must not tick the I/DD box");
+    assert.equal(pcpIddDocumented(dxReview("F71", "Moderate intellectual disability")), true,
+      "F70-F79 is I/DD");
+    assert.equal(pcpIddDocumented(dxReview("F84.0", "Autistic disorder")), true,
+      "F84 counts as I/DD on this form even though the service scorer treats it as mental health");
+    assert.equal(pcpIddDocumented(null), false, "no CCA means the I/DD box stays blank");
+    ok("PLAN SIGNATURES: the I/DD attestation is driven by the diagnosis, never ticked by default");
+
+    const onePagePacket = await (async () => {
+      const doc = await PDFDocument.create();
+      doc.addPage([612, 792]);
+      return doc.save();
+    })();
+    // a 1x1 transparent PNG is a valid captured signature for this test
+    const pngData = "data:image/png;base64,"
+      + "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    const signedDate = "08/30/2026";
+    const signed = await appendPcpPlanSignaturePage(onePagePacket, {
+      clientName: "Marcus Anthony Whitfield-Brown",
+      dob: "03/14/1988", midNumber: "947123456M", recordNumber: "MDC-1042",
+      caseManagementAgency: "Moore Divine Care, Inc.",
+      clientIsOwnLegalRepresentative: true, iddDocumented: false,
+      signatures: { client: { role: "client", imageData: pngData, printedName: "Marcus Anthony Whitfield-Brown", signedDate } },
+    });
+    assert.equal(signed.signedBy, "client", "an adult signing for themselves uses the client block");
+    assert.deepEqual(signed.warnings, [], "a signed page reports no missing-signature warning");
+    const signedText = await extractPdfText(signed.pdfBytes);
+    assert.ok(signedText.includes("Marcus Anthony Whitfield-Brown"), "the printed name stays legible text");
+    assert.ok(!signedText.includes(signedDate), "no date is ever written on the PLAN SIGNATURES page");
+    ok("PLAN SIGNATURES: signed page carries a legible printed name and no date");
+
+    const unsigned = await appendPcpPlanSignaturePage(onePagePacket, {
+      clientName: "Unsigned Test", caseManagementAgency: "Moore Divine Care, Inc.",
+      clientIsOwnLegalRepresentative: true, iddDocumented: false, signatures: {},
+    });
+    assert.equal(unsigned.signedBy, null, "no captured signature means nothing was signed");
+    assert.ok(unsigned.warnings.some((w) => w.includes("left blank")),
+      "an unsigned page must warn rather than substitute a typed name");
+    ok("PLAN SIGNATURES: an unsigned form prints blank and warns - it never types a stand-in signature");
+
+    const guardianSigned = await appendPcpPlanSignaturePage(onePagePacket, {
+      clientName: "Jayden Sample", caseManagementAgency: "Moore Divine Care, Inc.",
+      clientIsOwnLegalRepresentative: false, iddDocumented: true,
+      guardianRelationship: "Mother",
+      signatures: { guardian: { role: "guardian", imageData: pngData, printedName: "Erica Sample", signedDate } },
+    });
+    assert.equal(guardianSigned.signedBy, "guardian", "a minor's page is signed in the guardian block");
+    const guardianText = await extractPdfText(guardianSigned.pdfBytes);
+    assert.ok(guardianText.includes("Erica Sample"), "the guardian's printed name is drawn");
+    assert.ok(guardianText.includes("Mother"), "the guardian's relationship is drawn");
+    assert.ok(!guardianText.includes(signedDate), "the guardian page is undated too");
+    ok("PLAN SIGNATURES: a guardian signs the legally-responsible-person block, with their relationship");
+  }
 
   console.log(`\nAll ${passed} checks passed ✓`);
 }
