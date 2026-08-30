@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
-import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
+import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
 import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import {
   EDUCATION_OPTIONS,
@@ -512,6 +512,7 @@ export default function NewIntake() {
     const deliveryContacts = clientDeliveryContacts({
       phone: form.phone,
       email: form.email,
+      guardianName: form.guardianName,
       guardianPhone: form.guardianPhone,
       guardianEmail: form.guardianEmail,
     });
@@ -519,10 +520,7 @@ export default function NewIntake() {
     const email = deliveryContacts.email?.value || "";
     const message = intakeShareMessage(result.clientLink, providerName, providerPhone);
     const hasContact = !!(phone || email);
-    const recipientSummary = [
-      deliveryContacts.phone ? `SMS to ${deliveryContacts.phone.role} at ${deliveryContacts.phone.value}` : "",
-      deliveryContacts.email ? `email to ${deliveryContacts.email.role} at ${deliveryContacts.email.value}` : "",
-    ].filter(Boolean).join("; ");
+    const recipientSummary = deliveryContactsSummary(deliveryContacts);
     return (
       <main className="mx-auto max-w-xl p-6">
         <div className="card">
@@ -582,6 +580,8 @@ export default function NewIntake() {
                   clientLink={result.clientLink}
                   message={message}
                   phone={phone}
+                  phoneRole={deliveryContacts.phone?.role}
+                  purpose="intake"
                   email={email}
                   smsHref={phone ? intakeSmsHref(phone, result.clientLink, providerName, providerPhone) : undefined}
                   mailtoHref={email ? intakeMailtoHref(email, result.clientLink, providerName, providerPhone) : undefined}

@@ -1,3 +1,5 @@
+import { formatUsPhoneDisplay } from "./intakeContacts";
+
 export type ClientDeliveryRole = "client" | "guardian";
 
 export type ClientDeliveryContact = {
@@ -5,9 +7,10 @@ export type ClientDeliveryContact = {
   role: ClientDeliveryRole;
 };
 
-type ClientContactFields = {
+export type ClientContactFields = {
   phone?: string | null;
   email?: string | null;
+  guardianName?: string | null;
   guardianPhone?: string | null;
   guardianEmail?: string | null;
 };
@@ -17,14 +20,54 @@ function contact(value: string | null | undefined, role: ClientDeliveryRole): Cl
   return trimmed ? { value: trimmed, role } : null;
 }
 
-export function clientDeliveryContacts(client: ClientContactFields): {
+function isYes(value: unknown): boolean {
+  return value === true || value === "Yes";
+}
+
+function isNo(value: unknown): boolean {
+  return value === false || value === "No";
+}
+
+/**
+ * Youth / guardian intakes should text the guardian when that number exists.
+ * Adults keep the client cell first. Missing preferred contact falls back so
+ * a youth with only a client cell still gets the link.
+ */
+export function preferredIntakeDeliveryRole(
+  client: ClientContactFields,
+  answers: Record<string, unknown> = {},
+): ClientDeliveryRole {
+  if (isYes(answers.is_minor_or_incompetent)) return "guardian";
+  if (isNo(answers.is_minor_or_incompetent)) return "client";
+  if (client.guardianName?.trim()) return "guardian";
+  return "client";
+}
+
+export function clientDeliveryContacts(client: ClientContactFields, answers: Record<string, unknown> = {}): {
   phone: ClientDeliveryContact | null;
   email: ClientDeliveryContact | null;
 } {
+  const preferred = preferredIntakeDeliveryRole(client, answers);
+  if (preferred === "guardian") {
+    return {
+      phone: contact(client.guardianPhone, "guardian") || contact(client.phone, "client"),
+      email: contact(client.guardianEmail, "guardian") || contact(client.email, "client"),
+    };
+  }
   return {
     phone: contact(client.phone, "client") || contact(client.guardianPhone, "guardian"),
     email: contact(client.email, "client") || contact(client.guardianEmail, "guardian"),
   };
+}
+
+export function deliveryContactsSummary(contacts: {
+  phone: ClientDeliveryContact | null;
+  email: ClientDeliveryContact | null;
+}): string {
+  return [
+    contacts.phone ? `SMS to ${contacts.phone.role} at ${formatUsPhoneDisplay(contacts.phone.value)}` : "",
+    contacts.email ? `email to ${contacts.email.role} at ${contacts.email.value}` : "",
+  ].filter(Boolean).join(" and ");
 }
 
 export function clientFollowUpDeliveryContacts(
@@ -36,8 +79,7 @@ export function clientFollowUpDeliveryContacts(
   phone: ClientDeliveryContact | null;
   email: ClientDeliveryContact | null;
 } {
-  const guardianPreferred = answers.is_minor_or_incompetent === true
-    || answers.is_minor_or_incompetent === "Yes";
+  const guardianPreferred = isYes(answers.is_minor_or_incompetent);
   const guardianSigned = signatures.some((signature) => signature.role === "guardian");
   const clientSigned = signatures.some((signature) => signature.role === "client");
   const role: ClientDeliveryRole = guardianSigned && !clientSigned
