@@ -1,11 +1,12 @@
 import type { Answers } from "./fillPdf";
 import { applyInsurancePlanDefaults } from "./insurancePlans";
+import { normalizeDateInput } from "./normalizeDateInput";
 
 /**
  * Operational defaults copy a real answer to another blank, or apply the
- * Medicaid-provider constants staff already decided (Medicaid Yes, NCHC No,
- * English, adult/competent, program can meet needs, Routine 14-day start,
- * thru dates = intake + 1 year). Client-skip placeholders such as
+ * Medicaid-provider constants staff already decided (English, thru dates =
+ * intake + 1 year). NCHC is "No" only when Medicaid is Yes. Guardian status
+ * follows date of birth for minors. Client-skip placeholders such as
  * "none reported by client" are applied only when the client left email or
  * an employed work-phone blank.
  */
@@ -44,6 +45,22 @@ function addOneYear(v: string): string {
   return `${dt.getFullYear()}-${mm}-${dd}`;
 }
 
+/**
+ * Whole years between a date of birth and the intake date, or null when the
+ * date of birth is missing or unreadable. Calendar-accurate: a client whose
+ * birthday falls after the intake date has not had it yet.
+ */
+export function ageAtDate(dob: unknown, onDate: string): number | null {
+  const born = normalizeDateInput(dob);
+  const when = normalizeDateInput(onDate);
+  if (!born || !when) return null;
+  const [by, bm, bd] = born.split("-").map(Number);
+  const [wy, wm, wd] = when.split("-").map(Number);
+  let age = wy - by;
+  if (wm < bm || (wm === bm && wd < bd)) age -= 1;
+  return age >= 0 && age < 130 ? age : null;
+}
+
 function isDiagnosisPlaceholder(value: string): boolean {
   const normalized = value.toLowerCase().replace(/[.,;:_-]+/g, " ").replace(/\s+/g, " ").trim();
   return [
@@ -57,6 +74,14 @@ function isDiagnosisPlaceholder(value: string): boolean {
     "no diagnosis",
     "no diagnosis reported",
     "no current diagnosis",
+    // Menu sentinels. These are answers ABOUT the diagnosis, not diagnoses:
+    // "I don't know" was printing as the primary diagnosis and Axis I, and
+    // "Other" was outranking the real diagnosis the client typed beside it.
+    "other",
+    "i don't know",
+    "i dont know",
+    "not sure",
+    "prefer not to answer",
   ].includes(normalized);
 }
 
@@ -206,17 +231,38 @@ function chipList(value: unknown): string[] {
   return text ? text.split(/[,;]+/).map((item) => item.trim()).filter(Boolean) : [];
 }
 
+/** Key holding the chip-derived sentence, so a re-run can replace it instead of
+ *  appending to it. Non-material: it never changes what the client agreed to. */
+export const PRESENTING_DERIVED_KEY = "presenting_problem_derived";
+
+/**
+ * Fold the chip answers into the printed presenting problem.
+ *
+ * These defaults re-run on every autosave, every preflight correction and every
+ * packet build, so this has to be idempotent. It previously appended, which
+ * grew the sentence on each pass - a client who returned to their saved link
+ * three times printed the same phrases three times on pages 4 and 5. We now
+ * remember the sentence we derived last time and replace it, keeping whatever
+ * the client typed themselves.
+ */
 function applyPresentingDefaults(a: Answers) {
   const needs = chipList(a.presenting_need_chips);
   const why = chipList(a.why_want_services_chips);
   const whyText = s(a.why_want_services_text);
-  const extra = s(a.presenting_problem);
   const derived = [needs.join(", "), why.join(", "), whyText].filter(Boolean).join(". ");
   if (!derived) return;
-  if (!extra) a.presenting_problem = derived;
-  else if (extra === derived || extra.startsWith(derived)) return;
-  else if (derived.includes(extra)) a.presenting_problem = derived;
-  else a.presenting_problem = `${derived}. ${extra}`;
+
+  let extra = s(a.presenting_problem);
+  const previous = s(a[PRESENTING_DERIVED_KEY]);
+  if (previous && extra.startsWith(previous)) {
+    extra = extra.slice(previous.length).replace(/^[\s.]+/, "");
+  } else if (extra === derived || derived.includes(extra)) {
+    extra = "";
+  } else if (extra.startsWith(derived)) {
+    extra = extra.slice(derived.length).replace(/^[\s.]+/, "");
+  }
+  a.presenting_problem = [derived, extra].filter(Boolean).join(". ");
+  a[PRESENTING_DERIVED_KEY] = derived;
 }
 
 function applyClientNarrativeDefaults(a: Answers) {
@@ -259,6 +305,36 @@ export function applySkippedClientPlaceholders(input: Answers, keys?: string[]):
   return a;
 }
 
+/**
+ * Translate client-facing menu choices into the values the printed form's
+ * checkboxes actually carry. PR #54/#55 added options the packet has no box
+ * for, so a client who picked one printed a blank in that section.
+ *
+ * Only translations that are true by definition live here. Race is not
+ * ethnicity: skipping the ethnicity question after Black or White must not
+ * invent Non-Hispanic/Black or Non-Hispanic/White. Anything with no honest
+ * equivalent on the paper (Divorced, Some College, Word of mouth, a bare
+ * "Non-Hispanic") stays on the record and prints blank. UNMAPPED_PACKET_CHOICES
+ * lists those, and a test fails if a new option appears that is in neither set.
+ */
+function applyPacketValueMappings(a: Answers) {
+  // Self-employment is employment; students and retirees are, by the standard
+  // labor-force definition, not in the labor force.
+  const employment = s(a.employment_status);
+  if (employment === "Self-Employed") a.employment_status = "Employed";
+  else if (employment === "Student" || employment === "Retired") a.employment_status = "Not in Labor Force";
+}
+
+/** Client menu choices the printed packet has no honest checkbox for. They stay
+ *  on the record and print blank; scripts/test.ts fails if this drifts. */
+export const UNMAPPED_PACKET_CHOICES: Readonly<Record<string, readonly string[]>> = {
+  ethnicity: ["Non-Hispanic", "Not sure", "Prefer not to answer"],
+  marital_status: ["Divorced", "Partnered / Domestic Partnership", "Prefer not to answer"],
+  education: ["Some High School", "Trade / Technical School", "Some College", "Prefer not to answer"],
+  race: ["Other", "Prefer not to answer"],
+  referral_source: ["Word of mouth", "Business card", "Website", "Other Agency or Provider"],
+};
+
 export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolean } = {}): Answers {
   const a: Answers = { ...input };
   const forPdf = opts.forPdf === true;
@@ -285,8 +361,24 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   // review. A verified MID is sufficient evidence for the Medicaid checkbox.
   // Preferred language is a staff constant (English) — never a client SMS ask.
   if (!isBlank(a.mid_number)) setDefault(a, "has_medicaid", "Yes");
-  setDefault(a, "has_nchc", "No");
+  // NC Health Choice covers children who do NOT qualify for Medicaid, so an
+  // established Medicaid enrollment is real evidence that NCHC is "No". With
+  // no Medicaid evidence this stays blank rather than printing an unverified
+  // "No" over the client's signature - a child actually enrolled in NCHC was
+  // signing a packet that denied it.
+  if (s(a.has_medicaid) === "Yes") setDefault(a, "has_nchc", "No");
   setDefault(a, "language", "English");
+
+  // Who may legally sign. This field gates every guardian question and decides
+  // whether the client signs for themselves, but it is staff-only and nothing
+  // blocks submission when it is blank - so a minor could complete and sign the
+  // whole packet as their own legal representative, with no guardian ever
+  // asked for. A date of birth is objective evidence, so under 18 forces "Yes"
+  // even against a mistaken "No"; at 18 and over it only fills a blank, since
+  // an adult with a legal guardian is a staff determination we must not undo.
+  const clientAge = ageAtDate(a.dob, intakeDate);
+  if (clientAge !== null && clientAge < 18) a.is_minor_or_incompetent = "Yes";
+  else if (clientAge !== null) setDefault(a, "is_minor_or_incompetent", "No");
 
   setDefault(a, "pcp_plan_client_name", s(a.client_full_name));
   setDefault(a, "pcp_plan_dob", s(a.dob));
@@ -300,6 +392,7 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
   }
 
   if (forPdf) {
+    applyPacketValueMappings(a);
     setDefault(a, "services_requested", ["CCA", "OPT", "Med Mgt"]);
     if (isBlank(a.client_email)) a.client_email = NONE_REPORTED_BY_CLIENT;
     if (["Employed", "Self-Employed"].includes(s(a.employment_status))) {
