@@ -38,6 +38,7 @@ import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
 import { buildCasePageStatus, type CaseWorkflowStep } from "@/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "@/lib/packetChecklist";
 import { replaceRawFieldKeys, staffFacingFieldLabel } from "@/lib/staffFieldLabels";
+import { beginSignatureSend, signatureSendHint } from "@/lib/signatureStatus";
 
 type PreflightFinding = {
   key: string;
