@@ -3,7 +3,7 @@ import { randomInt } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { isMasterUser, requireStaff, attachSelectedProviderCookie } from "@/lib/staffGuard";
 import { newIntakeSchema } from "@/lib/validation";
-import { missingRequired, percentComplete } from "@/lib/validation";
+import { missingRequired, percentComplete, clientAskedPercentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoEmailProviderPacketEnabled, autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
@@ -189,7 +189,8 @@ export async function GET(req: NextRequest) {
         lastLinkOpenedAt: lastLinkOpenedAt.get(i.id) || null,
         reminderCount: reminderCountByIntake.get(i.id) || 0,
         submittedAt: i.submittedAt, createdAt: i.createdAt,
-        percentComplete: percentComplete(answers),
+        percentComplete: clientAskedPercentComplete(answers, { quick: true }),
+        packetFieldComplete: percentComplete(answers),
         missingRequired: required,
         hasPdf: packet.state !== "missing",
         packetState: packet.state,

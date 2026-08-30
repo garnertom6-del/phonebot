@@ -12,8 +12,19 @@ const DASHBOARD_TAB_KEYS = new Set([
 ]);
 
 export function dashboardTabFromQuery(value: string | null | undefined): string | null {
-  const normalized = String(value || "").trim().toLowerCase();
-  return DASHBOARD_TAB_KEYS.has(normalized) ? normalized : null;
+  const tab = String(value || "").trim();
+  return DASHBOARD_TAB_KEYS.has(tab) ? tab : null;
+}
+
+export function dashboardHrefWithTab(
+  nextTab: string,
+  currentSearch: string,
+): string {
+  const params = new URLSearchParams(currentSearch.startsWith("?") ? currentSearch.slice(1) : currentSearch);
+  params.set("tab", nextTab);
+  params.delete("created");
+  const query = params.toString();
+  return query ? `/dashboard?${query}` : `/dashboard?tab=${encodeURIComponent(nextTab)}`;
 }
 
 /** Return to the correct provider and expose the intake that was just saved. */

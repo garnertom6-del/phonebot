@@ -40,7 +40,7 @@ import { signatureForRole } from "../src/lib/signaturePlacement";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults } from "../src/lib/answerDefaults";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
-import { clientDetailsSchema, isQuestionRequired, missingRequired, newIntakeSchema, percentComplete } from "../src/lib/validation";
+import { clientDetailsSchema, isQuestionRequired, missingRequired, newIntakeSchema, percentComplete, clientAskedPercentComplete } from "../src/lib/validation";
 import {
   assignIntakeContacts,
   formatUsPhoneDisplay,
@@ -62,10 +62,11 @@ import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
 import { buildMasterProviderListExtras } from "../src/lib/masterProviderList";
 import { assessMapping } from "../src/lib/mappingHealth";
 import { catalogEntryByKey, catalogPlacementFields, DEMO_CLIENT_ANSWERS, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, overlayFillText, packetRequiredEntries } from "../src/lib/mappingCatalog";
-import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS, ethnicityForRace, isClientQuestionVisible, usesStrongMenu } from "../src/config/mooreDivineQuestions";
+import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS, ethnicityForRace, isClientQuestionVisible, raceSkipsEthnicity, usesStrongMenu } from "../src/config/mooreDivineQuestions";
 import { flattenVisible } from "../src/components/EasyQuestionnaire";
+import { easyClientSectionIntro } from "../src/config/easyLanguage";
 import { applySkippedClientPlaceholders, NONE_REPORTED_BY_CLIENT } from "../src/lib/answerDefaults";
-import { INSURANCE_BEFORE_SMS_MESSAGE, staffInsurancePlanReady } from "../src/lib/insurancePlans";
+import { INSURANCE_BEFORE_SMS_MESSAGE, insuranceSmsBlockReason, staffInsurancePlanReady } from "../src/lib/insurancePlans";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -104,6 +105,7 @@ import { clientDetailsAnswerPatch, clientDetailsRecordPatch } from "../src/lib/c
 import {
   createdIntakeDashboardHref,
   dashboardTabFromQuery,
+  dashboardHrefWithTab,
   deliveryDashboardFlash,
   hasSmsDeliveryFailure,
 } from "../src/lib/dashboardFlash";
@@ -112,6 +114,7 @@ import {
   groundedCorrectionOptionsFromAi,
   mergePreflightFindings,
 } from "../src/lib/intakePreflight";
+import { replaceRawFieldKeys, staffFacingFieldLabel, textContainsRawFieldKey } from "../src/lib/staffFieldLabels";
 import {
   GET as getClientIntakeByToken,
   PATCH as saveClientIntakeByToken,
@@ -641,7 +644,10 @@ async function main() {
   assert(!hasSmsDeliveryFailure(["email to saved contact: blocked"]));
   assert(deliveryDashboardFlash(["email accepted"], ["sms failed"])?.message.includes("Manual sending"));
   assert.equal(dashboardTabFromQuery("waiting"), "waiting");
+  assert.equal(dashboardTabFromQuery("signed"), "signed");
   assert.equal(dashboardTabFromQuery("unknown"), null);
+  assert.equal(dashboardHrefWithTab("signed", "tab=waiting"), "/dashboard?tab=signed");
+  assert.equal(dashboardHrefWithTab("signed", "tab=waiting&providerId=abc"), "/dashboard?tab=signed&providerId=abc");
   assert.equal(
     createdIntakeDashboardHref("intake-123", "provider 456"),
     "/dashboard?tab=waiting&created=intake-123&providerId=provider+456#intake-intake-123",
@@ -1439,6 +1445,25 @@ async function main() {
   assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "witness")?.required, false);
   assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "medical_director")?.onPacket, true);
   assert.equal(optionalMappedClinicalRoles.find((status) => status.key === "medical_director")?.required, false);
+  assert.equal(
+    missingRequiredSignatures(optionalMappedClinicalRoles).some((status) => status.key === "medical_director"),
+    false,
+    "optional Medical Director must not count as a missing required signature",
+  );
+
+  const waitingForClient = buildCasePageStatus({
+    status: "IN_PROGRESS",
+    missingRequiredCount: 0,
+    expectCca: true,
+    hasCca: false,
+    signatureStatuses: clientOnlyStatuses,
+    generatedPdfCount: 0,
+    providerPacketReady: true,
+    copiesSent: false,
+    reviewed: false,
+  });
+  assert.equal(waitingForClient.headline, "Waiting for client to finish");
+  assert.equal(waitingForClient.sendCopiesAllowed, false);
 
   const checklist = buildPacketChecklistChips({
     answers: { staff_chk_social_history: "Yes", medications: "None reported", consent_hipaa: true },
@@ -2213,7 +2238,7 @@ async function main() {
     const defaults = applyOperationalDefaults({});
     assert.equal(defaults.has_medicaid, undefined);
     assert.equal(defaults.has_nchc, "No");
-    assert.equal(defaults.language, undefined);
+    assert.equal(defaults.language, "English");
     assert.equal(defaults.is_minor_or_incompetent, undefined);
     assert.equal(defaults.program_can_meet_needs, undefined);
     assert.equal(defaults.ability_to_provide, undefined);
@@ -2221,6 +2246,9 @@ async function main() {
     assert.equal(ethnicityForRace("Black or African American"), "");
     assert.equal(ethnicityForRace("Caucasian or White"), "");
     assert.equal(ethnicityForRace("Asian"), "");
+    assert.equal(raceSkipsEthnicity("Black or African American"), true);
+    assert.equal(raceSkipsEthnicity("Caucasian or White"), true);
+    assert.equal(raceSkipsEthnicity("Asian"), false);
     const black = applyOperationalDefaults({ race: "Black or African American" });
     assert.equal(black.ethnicity, undefined);
     const white = applyOperationalDefaults({ race: "Caucasian or White" });
@@ -2239,7 +2267,7 @@ async function main() {
 
   {
     const hiddenKeys = [
-      "has_medicaid", "has_nchc", "is_minor_or_incompetent", "client_phone_home",
+      "has_medicaid", "has_nchc", "language", "is_minor_or_incompetent", "client_phone_home",
       "mid_number",
       "strengths", "needs", "medications", "otc_medications", "mh_history", "current_diagnosis_known",
       "medical_diagnoses", "treatments", "referred_for", "sub1_name", "roi1_thru_date",
@@ -2256,9 +2284,11 @@ async function main() {
       assert.equal(isClientQuestionVisible(q!, answers), false, `${key} must be hidden from the SMS client`);
     }
     const ethnicityQ = questionByKey("ethnicity");
-    assert.equal(isClientQuestionVisible(ethnicityQ!, answers), true, "ethnicity must be asked separately from race");
+    assert.equal(isClientQuestionVisible(ethnicityQ!, answers), false, "ethnicity skipped after Black");
+    const whiteAnswers = applyOperationalDefaults({ race: "Caucasian or White" });
+    assert.equal(isClientQuestionVisible(ethnicityQ!, whiteAnswers), false, "ethnicity skipped after White");
     const asianAnswers = applyOperationalDefaults({ race: "Asian" });
-    assert.equal(isClientQuestionVisible(ethnicityQ!, asianAnswers), true, "every race gets an independent ethnicity choice");
+    assert.equal(isClientQuestionVisible(ethnicityQ!, asianAnswers), true, "other races still get ethnicity");
     const workPhone = questionByKey("client_phone_work");
     assert.equal(isClientQuestionVisible(workPhone!, answers), false, "work phone hidden when unemployed");
     const employed = { ...answers, employment_status: "Employed" };
@@ -2272,29 +2302,43 @@ async function main() {
     assert.equal(usesStrongMenu(questionByKey("marital_status")!), true);
     assert.equal(usesStrongMenu(questionByKey("employment_status")!), true);
     assert.equal(usesStrongMenu(questionByKey("education")!), true);
-    assert.equal(usesStrongMenu(questionByKey("language")!), true);
+    assert.equal(questionByKey("language")!.staffOnly, true);
     assert.equal(usesStrongMenu(questionByKey("veteran")!), true);
     assert.equal(usesStrongMenu(questionByKey("referral_source")!), true);
     const easyKeys = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, false, false, false, new Set<string>()).map((row) => row.q.key);
     assert(!easyKeys.includes("has_nchc"));
-    assert(easyKeys.includes("language"));
-    assert(easyKeys.includes("ethnicity"));
+    assert(!easyKeys.includes("language"));
+    assert(!easyKeys.includes("ethnicity"));
     assert(!easyKeys.includes("sub1_name"));
     assert(!easyKeys.includes("medications"));
+    assert(!easyKeys.includes("otc_medications"));
+    assert(easyKeys.includes("has_allergies"));
     assert(easyKeys.includes("client_email"));
     assert(!easyKeys.includes("mid_number"));
     assert(!questionByKey("race")!.options!.includes("Native American"));
     assert.deepEqual(questionByKey("ethnicity")!.options, ["Latino", "Non-Hispanic", "Not sure", "Prefer not to answer"]);
+    assert.equal(easyClientSectionIntro("medications"), null);
+    const educationOptions = questionByKey("education")!.options || [];
+    assert(educationOptions.includes("Some College"));
+    assert(educationOptions.includes("College"));
+    const { EASY } = await import("../src/config/easyLanguage");
+    const educationLabels = educationOptions.map((opt) => EASY.education?.options?.[opt] ?? opt);
+    assert.equal(new Set(educationLabels.map((label) => label.toLowerCase())).size, educationLabels.length, "education menu must not show duplicate Some College wordings");
     assert(easyKeys.includes("consent_roi"));
     assert(easyKeys.includes("roi_understand_1"));
     const smsKeys = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
     assert(!smsKeys.includes("mid_number"));
     assert(!smsKeys.includes("is_minor_or_incompetent"));
     assert(smsKeys.includes("education"));
-    assert(smsKeys.includes("language"));
+    assert(!smsKeys.includes("language"));
+    assert(!smsKeys.includes("ethnicity"));
     assert(smsKeys.includes("income_sources"));
     assert(smsKeys.includes("height"));
     assert(smsKeys.includes("has_referrals"));
+    const whiteSms = flattenVisible(whiteAnswers as Record<string, string | boolean | number | string[]>, whiteAnswers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(!whiteSms.includes("ethnicity"));
+    const asianSms = flattenVisible(asianAnswers as Record<string, string | boolean | number | string[]>, asianAnswers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(asianSms.includes("ethnicity"));
     const employedSms = flattenVisible({ ...answers, employment_status: "Employed" } as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
     assert(employedSms.includes("occupation"));
     assert(employedSms.includes("client_phone_work"));
@@ -2306,8 +2350,68 @@ async function main() {
     assert(staffInsurancePlanReady({}) === false);
     assert.equal(staffInsurancePlanReady({ provider_choice_plan: "Healthy Blue" }), true);
     assert(INSURANCE_BEFORE_SMS_MESSAGE.toLowerCase().includes("insurance"));
+    const smsGateEmpty = insuranceSmsBlockReason({});
+    assert(smsGateEmpty);
+    assert.equal(!!smsGateEmpty, true, "computer SMS, Twilio send, and I-sent-this stay blocked until a plan is filled");
+    assert.equal(insuranceSmsBlockReason({ mco: "Alliance" }), null);
+    assert.equal(insuranceSmsBlockReason({ provider_choice_plan: "Healthy Blue" }), null);
     ok("SMS skip visibility, strong menus, and insurance-before-SMS helper");
   }
+
+  assert.equal(staffFacingFieldLabel("ec1_cell_phone"), "Contact 1 - cell phone");
+  assert.equal(staffFacingFieldLabel("consent_hipaa"), "Notice of Privacy Practices Acknowledgment");
+  assert.equal(staffFacingFieldLabel("presenting_problem"), "Why do you want help?");
+  assert.equal(staffFacingFieldLabel("record_number"), "Record #");
+  assert.equal(staffFacingFieldLabel("dob"), "Date of birth");
+  assert.equal(staffFacingFieldLabel("pcp_plan_client_name"), "PCP plan client name");
+  assert.equal(staffFacingFieldLabel("client_phone_cell"), "Cell phone");
+  assert(!textContainsRawFieldKey(staffFacingFieldLabel("ec1_cell_phone")));
+  assert(textContainsRawFieldKey("ec1_cell_phone"));
+  assert(!replaceRawFieldKeys("Please fill ec1_cell_phone and consent_hipaa").includes("_"));
+  const labelPreflight = buildRulePreflight({
+    answers: { client_full_name: "Test Client", dob: "1990-01-01" },
+    client: { fullName: "Test Client", dob: "1990-01-01" },
+    missingRequired: [
+      { key: "ec1_cell_phone", label: "Contact 1 - cell phone" },
+      { key: "consent_hipaa", label: "Notice of Privacy Practices acknowledgment" },
+      { key: "presenting_problem", label: "Why do you want help?" },
+    ],
+    missingOptional: [],
+    hasClientSignature: false,
+    hasCca: false,
+    expectCca: true,
+  });
+  for (const finding of labelPreflight) {
+    assert(!textContainsRawFieldKey(finding.title), `preflight title leaked a raw key: ${finding.title}`);
+    assert(!textContainsRawFieldKey(finding.detail), `preflight detail leaked a raw key: ${finding.detail}`);
+    for (const label of finding.fieldLabels || []) {
+      assert(!label.includes("_"), `preflight label leaked a raw key: ${label}`);
+    }
+  }
+  const attentionCards = labelPreflight.filter((finding) => finding.severity !== "info");
+  assert.equal(attentionCards.length, labelPreflight.filter((finding) => finding.severity !== "info").length);
+  const asked = clientAskedPercentComplete({
+    client_full_name: "Test",
+    dob: "1990-01-01",
+    gender: "Female",
+    race: "Black or African American",
+    living_arrangement: "Adult Alone",
+    address_street: "1 Main",
+    client_phone_cell: "3365550100",
+    presenting_problem: "help",
+  }, { quick: true });
+  const packetPct = percentComplete({
+    client_full_name: "Test",
+    dob: "1990-01-01",
+    gender: "Female",
+    race: "Black or African American",
+    living_arrangement: "Adult Alone",
+    address_street: "1 Main",
+    client_phone_cell: "3365550100",
+    presenting_problem: "help",
+  });
+  assert(asked >= packetPct, "client-asked coverage must not use the full staff packet as the denominator");
+  ok("preflight staff labels, copies gate while unsubmitted, and client-asked coverage");
 
   const catalog = mappingCatalog();
   assert(catalog.length > 8, "intake catalog should be grouped by section");

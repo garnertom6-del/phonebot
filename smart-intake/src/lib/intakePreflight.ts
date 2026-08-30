@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { questionByKey } from "@/config/mooreDivineQuestions";
+import { replaceRawFieldKeys, staffFacingFieldLabel, textContainsRawFieldKey } from "@/lib/staffFieldLabels";
 import type { Answers } from "./fillPdf";
 import type { MissingField } from "./validation";
 import { normalizeDateInput } from "./normalizeDateInput";
@@ -59,7 +60,7 @@ function unique(values: string[]): string[] {
 }
 
 function fieldLabel(key: string): string {
-  return questionByKey(key)?.label || key.replaceAll("_", " ");
+  return staffFacingFieldLabel(key);
 }
 
 function correctionUpdate(
@@ -108,15 +109,19 @@ function correctionOption(
 
 function missingFinding(key: string, fields: MissingField[], severity: PreflightSeverity, title: string): PreflightFinding | null {
   if (!fields.length) return null;
-  const labels = fields.slice(0, 5).map((field) => field.label).join(", ");
+  const fieldLabels = fields.map((field) => {
+    const raw = String(field.label || "").trim();
+    return !raw || textContainsRawFieldKey(raw) ? staffFacingFieldLabel(field.key) : raw;
+  });
+  const labels = fieldLabels.slice(0, 5).join(", ");
   const remainder = fields.length > 5 ? ` and ${fields.length - 5} more` : "";
   return {
     key,
     severity,
     title,
-    detail: `${fields.length} item${fields.length === 1 ? " is" : "s are"} still missing: ${labels}${remainder}.`,
+    detail: replaceRawFieldKeys(`${fields.length} item${fields.length === 1 ? " is" : "s are"} still missing: ${labels}${remainder}.`),
     fieldKeys: fields.map((field) => field.key),
-    fieldLabels: fields.map((field) => field.label),
+    fieldLabels,
     source: "rules",
   };
 }
@@ -261,7 +266,7 @@ function answerSnapshot(answers: Answers): string {
     Object.entries(answers)
       .filter(([, value]) => value !== undefined && value !== null && value !== "" && !(Array.isArray(value) && value.length === 0))
       .map(([key, value]) => [key, {
-        label: questionByKey(key)?.label || key,
+        label: staffFacingFieldLabel(key),
         value: clean(value).slice(0, 300),
       }]),
   ));
@@ -435,6 +440,15 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
       ? item.fieldKeys.map(String).filter((key) => knownKeys.has(key)).slice(0, 8)
       : [];
     const correctionOptions = groundedCorrectionOptionsFromAi(item.correctionOptions, input);
-    return [{ key: `ai_${rawKey}`, severity, title, detail, fieldKeys, source: "ai", correctionOptions }];
+    return [{
+      key: `ai_${rawKey}`,
+      severity,
+      title: replaceRawFieldKeys(title),
+      detail: replaceRawFieldKeys(detail),
+      fieldKeys,
+      fieldLabels: fieldKeys.map(staffFacingFieldLabel),
+      source: "ai",
+      correctionOptions,
+    }];
   });
 }

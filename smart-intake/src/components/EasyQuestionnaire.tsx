@@ -10,7 +10,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SECTIONS, ethnicityForRace, isClientQuestionVisible, isQuickIntakeQuestion, questionCatalogId, questionVisibleInCatalog, usesStrongMenu, type Question } from "@/config/mooreDivineQuestions";
-import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
+import { EASY, easyClientSectionIntro } from "@/config/easyLanguage";
 import { isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults, applySkippedClientPlaceholders } from "@/lib/answerDefaults";
 import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
@@ -81,6 +81,7 @@ function isAnswered(v: Answers[string] | undefined): boolean {
 // list only needs recomputing when one of these changes, not on every keystroke
 const GATE_KEYS: string[] = [...new Set([
   "living_arrangement",
+  "race",
   ...SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)),
 ])];
 
@@ -126,7 +127,6 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const idxRef = useRef(idx); idxRef.current = idx;
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const breakCount = useRef(0);
   // what the server already has - autosaves send only the diff, not all 200+ answers
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
 
@@ -145,13 +145,18 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       const validPhases: Phase[] = ["welcome", "question", "break", "photos", "signature", "done"];
       if (saved && saved.phase && validPhases.includes(saved.phase)) {
         setPhase(saved.phase);
-        setIdx(Math.max(0, Math.min(Number(saved.idx) || 0, Math.max(flat.length - 1, 0))));
+        setIdx(Math.max(0, Number(saved.idx) || 0));
       }
     } catch {
       // A private browsing mode may block local storage; the intake still works.
     }
     setProgressRestored(true);
-  }, [flat.length, initialStatus, progressKey]);
+  }, [initialStatus, progressKey]);
+
+  useEffect(() => {
+    if (!flat.length) return;
+    setIdx((current) => Math.min(Math.max(current, 0), flat.length - 1));
+  }, [flat.length]);
 
   useEffect(() => {
     if (!progressRestored) return;
@@ -264,12 +269,13 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     const next = list[nextIdx];
     setIdx(nextIdx);
     if (here && next.sectionKey !== here.sectionKey) {
-      const cheer = ENCOURAGEMENTS.length
-        ? ENCOURAGEMENTS[breakCount.current % ENCOURAGEMENTS.length]
-        : "Nice work! Keep going.";
-      breakCount.current += 1;
-      setBreakText(brandText(SECTION_INTROS[next.sectionKey] ?? cheer, branding));
-      setPhase("break");
+      const intro = easyClientSectionIntro(next.sectionKey);
+      if (intro) {
+        setBreakText(brandText(intro, branding));
+        setPhase("break");
+      } else {
+        setPhase("question");
+      }
     } else {
       setPhase("question");
     }
@@ -280,6 +286,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     setJustPicked(null);
     setNudge("");
     if (phase === "signature") {
+      setIdx(Math.max(flatRef.current.length - 1, 0));
+      setPhase("photos");
+    } else if (phase === "photos") {
       setIdx(Math.max(flatRef.current.length - 1, 0));
       setPhase("question");
     } else if (idxRef.current <= 0) {
@@ -342,6 +351,11 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   useEffect(() => {
     if (phase === "question" && flat.length === 0) setPhase(isResign ? "signature" : "photos");
   }, [phase, flat.length, isResign]);
+
+  useEffect(() => {
+    if (flat.length === 0) return;
+    if (idx > flat.length - 1) setIdx(flat.length - 1);
+  }, [flat.length, idx]);
 
   /* --------------------------- submit / sign -------------------------- */
 
@@ -505,6 +519,17 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
           onClick={() => setPhase("signature")}>
           Next: sign my name
         </button>
+        <div
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white p-3"
+          style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        >
+          <div className="mx-auto flex max-w-md items-center gap-3">
+            <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
+              Back
+            </button>
+            <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
+          </div>
+        </div>
       </div>
     );
   }
@@ -562,7 +587,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         )}
 
         <div
-          className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
+          className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white p-3"
           style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
         >
           <div className="mx-auto flex max-w-md items-center gap-3">
@@ -582,7 +607,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const q = cur.q;
 
   return (
-    <div className="mx-auto max-w-md pb-40">
+    <div className={q.type === "consent" ? "mx-auto max-w-md pb-56" : "mx-auto max-w-md pb-40"}>
       <ProgressBar
         percent={percent}
         label={
@@ -608,7 +633,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       )}
 
       <div
-        className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
+        className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white p-3"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
         <div className="mx-auto max-w-md space-y-2">
@@ -681,11 +706,11 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             <p className="mt-3 text-lg font-bold text-slate-700">You received the notice and declined the acknowledgment.</p>
           )}
         </div>
+        <ConsentAudio text={q.consentText} providerName={providerName} providerPhone={supportPhone} />
         <details className="rounded-2xl border-2 border-brand/40 bg-white p-4">
           <summary className="cursor-pointer text-lg font-extrabold text-brand">Tap to read the full text</summary>
           <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-700">{brandText(q.consentText, { name: providerName, phone: supportPhone })}</p>
         </details>
-        <ConsentAudio text={q.consentText} providerName={providerName} providerPhone={supportPhone} />
         {q.key === "consent_tailored_plan" ? (
           <div className="space-y-3">
             <button type="button" className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}

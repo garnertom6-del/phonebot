@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import {
   EDUCATION_OPTIONS,
   EMPLOYMENT_STATUS_OPTIONS,
@@ -373,8 +373,7 @@ export default function NewIntake() {
   async function sendCreatedLink(intakeId: string) {
     if (!recordPanel.trim()) {
       setSendStatusKind("error");
-      setSendStatus(INSURANCE_BEFORE_SMS_MESSAGE);
-      setAdvancedOpen(true);
+      setSendStatus(`${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`);
       window.setTimeout(() => {
         document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
         (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
@@ -444,8 +443,7 @@ export default function NewIntake() {
     }
     if (sendSmsAfterCreate && !recordPanel.trim()) {
       setForm((current) => ({ ...current, ...nextForm }));
-      setError(INSURANCE_BEFORE_SMS_MESSAGE);
-      setAdvancedOpen(true);
+      setError(`${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`);
       window.setTimeout(() => {
         document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
         (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
@@ -520,6 +518,7 @@ export default function NewIntake() {
     const email = deliveryContacts.email?.value || "";
     const message = intakeShareMessage(result.clientLink, providerName, providerPhone);
     const hasContact = !!(phone || email);
+    const insuranceReady = !!recordPanel.trim();
     const recipientSummary = deliveryContactsSummary(deliveryContacts);
     return (
       <main className="mx-auto max-w-xl p-6">
@@ -557,10 +556,10 @@ export default function NewIntake() {
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 <button
                   className="btn-primary"
-                  disabled={sendBusy || redirecting || !hasContact}
+                  disabled={sendBusy || redirecting || !hasContact || !insuranceReady}
                   onClick={() => { void sendCreatedLink(result.id); }}
                 >
-                  {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : hasContact ? "Send to saved contacts" : "No saved contact"}
+                  {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : !insuranceReady ? "Fill insurance first" : hasContact ? "Send to saved contacts" : "No saved contact"}
                 </button>
                 <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
                   Open saved intake
@@ -572,6 +571,14 @@ export default function NewIntake() {
               {!hasContact && (
                 <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">
                   Add a client or guardian phone number or email on the intake page before sending.
+                </p>
+              )}
+              {!insuranceReady && (
+                <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
+                  {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
+                  <Link href={`/intakes/${result.id}`} className="mt-2 block font-bold text-brand underline">
+                    Open the intake and fill type of insurance
+                  </Link>
                 </p>
               )}
               <div className="mt-4">
@@ -586,6 +593,8 @@ export default function NewIntake() {
                   smsHref={phone ? intakeSmsHref(phone, result.clientLink, providerName, providerPhone) : undefined}
                   mailtoHref={email ? intakeMailtoHref(email, result.clientLink, providerName, providerPhone) : undefined}
                   reason={sendStatusKind === "error" ? sendStatus.replace(/^Send failed:\s*/i, "") : undefined}
+                  disabled={!insuranceReady}
+                  blockReason={!insuranceReady ? `${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}` : undefined}
                   onMarked={(sentAt) => {
                     setSendStatusKind("success");
                     setSendStatus(`Recorded as sent by hand at ${new Date(sentAt).toLocaleTimeString()}.`);
@@ -847,22 +856,47 @@ export default function NewIntake() {
                 </label>
                 {sendSmsAfterCreate && !recordPanel.trim() && (
                   <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
-                    {INSURANCE_BEFORE_SMS_MESSAGE}
+                    {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
                     <button
                       type="button"
                       className="mt-2 block text-left font-bold text-brand underline"
                       onClick={() => {
-                        setAdvancedOpen(true);
                         window.setTimeout(() => document.getElementById("new-intake-record-panel")?.focus(), 0);
                       }}
                     >
-                      Open Advanced and fill the insurance plan
+                      Fill the insurance plan
                     </button>
                   </p>
                 )}
               </div>
             )}
           </div>
+        </div>
+        <div id="new-intake-insurance" className="mt-4 rounded-xl border border-brand/30 bg-brand-light/40 p-4">
+          <h2 className="font-bold text-brand">Type of insurance / MCO</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Required before any SMS, copy, or &quot;I sent this SMS&quot; action. Staff fills this — it is not asked on the phone.
+          </p>
+          <label className="mt-3 block">
+            <span className="label">Insurance plan</span>
+            <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
+              <option value="">Select the client&apos;s plan</option>
+              {RECORD_NUMBER_PLAN_GROUPS.map((group) => (
+                <optgroup key={group.label} label={group.label}>
+                  {group.plans.map((plan) => (
+                    <option key={plan} value={plan}>
+                      {plan}{recordNumberMode(plan) === "generate" ? ` (${recordNumberPrefix(plan)}-12345)` : ""}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </label>
+          {!recordPanel.trim() && (
+            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="status">
+              {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
+            </p>
+          )}
         </div>
         <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-3">
           <label className="flex min-h-11 items-start gap-3 text-sm font-semibold text-amber-950">
@@ -1024,28 +1058,15 @@ export default function NewIntake() {
           onToggle={(event) => setAdvancedOpen((event.currentTarget as HTMLDetailsElement).open)}
         >
           <summary className="cursor-pointer font-bold text-slate-900">Advanced</summary>
-          <p className="mt-1 text-sm text-slate-600">Record#, insurance lookup, and NC Tracks. Leave closed to create the link without scrolling past them. A Record# is generated if you skip this.</p>
+          <p className="mt-1 text-sm text-slate-600">Record# and NC Tracks. Insurance plan is set above. A Record# is generated if you skip this.</p>
           <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
             <h3 className="font-bold text-brand">Record number</h3>
             <p className="mt-1 text-sm text-slate-600">
-              Pick the client&apos;s insurance plan once. It sets the Record# workflow, is saved with the intake,
-              and marks the plan on the packet so the client is not asked again.
+              The insurance plan above sets the Record# workflow and marks the plan on the packet so the client is not asked again.
             </p>
-            <label className="mt-3 block">
-              <span className="label">Insurance plan</span>
-              <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-                <option value="">Select the client&apos;s plan</option>
-                {RECORD_NUMBER_PLAN_GROUPS.map((group) => (
-                  <optgroup key={group.label} label={group.label}>
-                    {group.plans.map((plan) => (
-                      <option key={plan} value={plan}>
-                        {plan}{recordNumberMode(plan) === "generate" ? ` (${recordNumberPrefix(plan)}-12345)` : ""}
-                      </option>
-                    ))}
-                  </optgroup>
-                ))}
-              </select>
-            </label>
+            {!recordPanel.trim() && (
+              <p className="mt-3 text-sm font-semibold text-amber-900">Pick the insurance plan above first.</p>
+            )}
             {recordMode === "generate" && (
               <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>

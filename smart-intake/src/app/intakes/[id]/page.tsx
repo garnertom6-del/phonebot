@@ -14,7 +14,7 @@ import {
   fourComponentsPass,
   recommendedServicesClear,
 } from "@/lib/ccaMedicalNecessity";
-import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix, staffInsurancePlanReady } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix, staffInsurancePlanReady } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import { EDUCATION_OPTIONS, EMPLOYMENT_STATUS_OPTIONS, ETHNICITY_PACKET_OPTIONS, MARITAL_STATUS_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import {
@@ -37,6 +37,7 @@ import { clientFollowUpQuestions, isBlankFollowUpValue } from "@/lib/clientFollo
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
 import { buildCasePageStatus, type CaseWorkflowStep } from "@/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "@/lib/packetChecklist";
+import { replaceRawFieldKeys, staffFacingFieldLabel } from "@/lib/staffFieldLabels";
 import { beginSignatureSend, signatureSendHint } from "@/lib/signatureStatus";
 
 type PreflightFinding = {
@@ -434,6 +435,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   });
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
+  const insuranceReady = staffInsurancePlanReady(d.answers);
+  const insuranceSmsBlocked = !linkFinished && !insuranceReady;
   const deliveryContacts = clientDeliveryContacts(i.client, d.answers);
   const defaultFollowUpDeliveryContacts = clientFollowUpDeliveryContacts(
     i.client,
@@ -458,7 +461,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   ) && /(^|;\s*)sent\s/i.test(entry.detail || "")).length;
   const contactSummary = deliveryContactsSummary(deliveryContacts);
   const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
-  const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
+  const preflightAttentionFindings = preflight?.findings.filter((finding) => (
+    finding.severity !== "info" && !finding.overridden && !finding.resolved
+  )) ?? [];
+  const preflightSettledFindings = preflight?.findings.filter((finding) => (
+    finding.overridden || !!finding.resolved
+  )) ?? [];
+  const preflightBlockingCount = preflightAttentionFindings.length;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
   const preflightCorrectedCount = preflight?.findings.filter((finding) => finding.resolved === "corrected").length ?? 0;
   const preflightNeedsRerun = preflight?.findings.some((finding) => (
@@ -780,6 +789,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   }
 
   async function sendSignatureReminder() {
+    if (!d || !staffInsurancePlanReady(d.answers)) {
+      setNote(INSURANCE_BEFORE_SMS_MESSAGE);
+      window.setTimeout(() => {
+        document.getElementById("helper-provider_choice_plan")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (document.getElementById("helper-provider_choice_plan") as HTMLElement | null)?.focus();
+      }, 0);
+      return;
+    }
     setSignatureReminderBusy(true);
     setNote("Checking the client signature and sending a secure reminder...");
     try {
@@ -1055,7 +1072,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold">{i.client.fullName}</h1>
           <p className="text-sm text-slate-500">
-            DOB {i.client.dob} - MID# {i.client.midNumber || "-"} - Chart{" "}
+            DOB {i.client.dob} · MID# {i.client.midNumber || "not on file"} · Chart{" "}
             {({ NOT_STARTED: "Not started", IN_PROGRESS: "In progress", SUBMITTED: "Submitted",
               NEEDS_REVIEW: "Needs review", SIGNED: "Client signed", COMPLETED: "Completed" } as Record<string, string>)[i.status] || i.status}
           </p>
@@ -1103,7 +1120,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 className={caseStatus.sendCopiesAllowed ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
                 aria-disabled={!caseStatus.sendCopiesAllowed}
                 aria-describedby={caseStatus.sendCopiesAllowed ? undefined : "send-copies-reason"}
-                disabled={copiesBusy}
+                disabled={copiesBusy || !caseStatus.sendCopiesAllowed}
                 onClick={() => { void sendCopiesLink(); }}
               >
                 {copiesBusy ? "Sending client copies..." : "Send client copies"}
@@ -1307,16 +1324,30 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </p>
           )}
 
-          {!linkFinished && !staffInsurancePlanReady(d.answers) && (
-            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
-              {INSURANCE_BEFORE_SMS_MESSAGE}
-            </p>
+          {!linkFinished && !insuranceReady && (
+            <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
+              <p>{INSURANCE_BEFORE_SMS_MESSAGE}</p>
+              <p className="mt-1 font-normal">{FILL_INSURANCE_NEXT_STEP}</p>
+              <button
+                type="button"
+                className="mt-2 font-bold text-brand underline"
+                onClick={() => {
+                  document.getElementById("helper-insurance-group")?.setAttribute("open", "");
+                  window.setTimeout(() => {
+                    document.getElementById("helper-provider_choice_plan")?.scrollIntoView({ behavior: "smooth", block: "center" });
+                    (document.getElementById("helper-provider_choice_plan") as HTMLElement | null)?.focus();
+                  }, 0);
+                }}
+              >
+                Fill type of insurance / MCO
+              </button>
+            </div>
           )}
           {!linkFinished && (
             <div className="mt-3 flex flex-wrap gap-2">
               <button
                 className="btn-primary px-3 py-2 text-sm"
-                disabled={clientLinkBusy || signatureReminderBusy || !hasClientContact}
+                disabled={clientLinkBusy || signatureReminderBusy || !hasClientContact || insuranceSmsBlocked}
                 onClick={() => { void sendIntakeLink(); }}
               >
                 {clientLinkBusy ? "Working..." : linkExpired ? "Renew & send link" : "Send link to saved contacts"}
@@ -1326,11 +1357,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 disabled={clientLinkBusy || signatureReminderBusy}
                 onClick={() => { void renewClientLink(); }}
               >
-                {linkExpired ? "Renew link for 7 days" : "Extend link 7 days"}
+                {linkExpired ? "Renew link for 7 days — do not send SMS" : "Extend link 7 days — do not send SMS"}
               </button>
               <button
                 className="btn-ghost px-3 py-2 text-sm"
-                disabled={signatureReminderBusy || clientLinkBusy || hasClientSignature || !hasClientContact}
+                disabled={signatureReminderBusy || clientLinkBusy || hasClientSignature || !hasClientContact || insuranceSmsBlocked}
                 onClick={sendSignatureReminder}
               >
                 {hasClientSignature ? "Client signature saved" : signatureReminderBusy ? "Sending review reminder..." : "Send client review & signature reminder"}
@@ -1358,7 +1389,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   mailtoHref={deliveryContacts.email ? intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone) : undefined}
                   reason={smsFallbackNeeded ? "Automatic SMS was not accepted. The secure link is still active." : undefined}
                   linkSentAt={i.linkSentAt || null}
-                  disabled={linkExpired}
+                  disabled={linkExpired || insuranceSmsBlocked}
+                  blockReason={insuranceSmsBlocked ? `${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}` : undefined}
                   onMarked={() => { setNote("Recorded: the client got the link by hand."); void load(); }}
                 />
               </div>
@@ -1683,27 +1715,25 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   <p className="mt-1 text-sm">{preflight.message}</p>
                 </div>
               )}
-              {preflight.findings.map((finding, index) => (
+              {preflightAttentionFindings.map((finding, index) => (
                 <div key={`${finding.key}-${index}`} className={`rounded-lg border p-3 text-sm ${
-                  finding.resolved === "overridden" || finding.overridden ? "border-lime-300 bg-lime-50 text-lime-950" :
-                  finding.resolved === "corrected" ? "border-emerald-500 bg-emerald-100 text-emerald-950" :
                   finding.pendingRecheck ? "border-sky-200 bg-sky-50 text-sky-900" :
                   finding.severity === "error" ? "border-red-200 bg-red-50 text-red-800" :
                   finding.severity === "warning" ? "border-amber-200 bg-amber-50 text-amber-900" :
                   "border-slate-200 bg-white text-slate-700"
                 }`}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <b>{finding.title}</b>
+                    <b>{replaceRawFieldKeys(finding.title)}</b>
                     <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
                       {finding.resolved === "overridden" || finding.overridden ? "Override recorded" : finding.resolved === "corrected" ? "Corrected - rerun to verify" : finding.pendingRecheck ? "Saved - rerun to verify" : finding.source === "ai" ? "AI suggestion" : "Automatic check"}
                     </span>
                   </div>
-                  <p className="mt-1">{finding.detail}</p>
+                  <p className="mt-1">{replaceRawFieldKeys(finding.detail)}</p>
                   <div className="mt-2 flex flex-wrap gap-3">
                     {finding.fieldKeys?.slice(0, 8).map((key, fieldIndex) => (
                       <Link key={key} className="font-semibold underline"
                         href={`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}&return=preflight`}>
-                        {finding.fieldLabels?.[fieldIndex] || (fieldIndex === 0 ? "Review in form" : key)}
+                        {finding.fieldLabels?.[fieldIndex] || staffFacingFieldLabel(key)}
                       </Link>
                     ))}
                     {!finding.overridden && !finding.resolved && finding.severity !== "info" && (
@@ -1765,6 +1795,24 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                       No safe automatic correction is available because this item needs a confirmed answer. Use the linked field above to enter it.
                     </p>
                   )}
+                </div>
+              ))}
+              {preflightSettledFindings.map((finding, index) => (
+                <div
+                  key={`settled-${finding.key}-${index}`}
+                  className={`rounded-lg border p-3 text-sm ${
+                    finding.resolved === "overridden" || finding.overridden
+                      ? "border-lime-300 bg-lime-50 text-lime-950"
+                      : "border-emerald-500 bg-emerald-100 text-emerald-950"
+                  }`}
+                >
+                  <div className="flex flex-wrap items-center gap-2">
+                    <b>{replaceRawFieldKeys(finding.title)}</b>
+                    <span className="text-[11px] font-semibold uppercase tracking-wide opacity-70">
+                      {finding.resolved === "overridden" || finding.overridden ? "Override recorded" : "Corrected - rerun to verify"}
+                    </span>
+                  </div>
+                  <p className="mt-1">{replaceRawFieldKeys(finding.detail)}</p>
                 </div>
               ))}
               {(preflightBlockingCount > 0 || preflightNeedsRerun) && (
@@ -1858,7 +1906,12 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
               </div>
             </HelperGroup>
 
-            <HelperGroup title="Insurance, referral & services" description="Use confirmed plan, referral, and requested-service information.">
+            <HelperGroup
+              id="helper-insurance-group"
+              title="Insurance, referral & services"
+              description="Use confirmed plan, referral, and requested-service information."
+              defaultOpen={!insuranceReady}
+            >
               <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
                 <HelperInput name="mid_number" label="MID# (Medicaid ID)" value={d.answers.mid_number ?? ""} />
                 <HelperSelect name="has_medicaid" label="Medicaid" value={d.answers.has_medicaid ?? ""} options={YES_NO_OPTIONS} placeholder="Select yes or no" />
@@ -1992,7 +2045,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
           </HelperDraftContext.Provider>
         </div>
         <div className="order-4">
-        <MissingFieldsPanel required={d.missingRequired} optional={d.missingOptional} />
+        <MissingFieldsPanel
+          required={d.missingRequired}
+          optional={d.missingOptional}
+          headlineCount={missingAnswerCount}
+        />
         </div>
         <div className="card order-4">
           <h3 className="mb-2 font-bold">Uploaded documents</h3>
@@ -2227,10 +2284,11 @@ function HelperGroup({
   title,
   description,
   defaultOpen = false,
+  id,
   children,
-}: { title: string; description: string; defaultOpen?: boolean; children: ReactNode }) {
+}: { title: string; description: string; defaultOpen?: boolean; id?: string; children: ReactNode }) {
   return (
-    <details className="rounded-xl border border-slate-200 bg-slate-50/60 p-3" open={defaultOpen}>
+    <details id={id} className="rounded-xl border border-slate-200 bg-slate-50/60 p-3" open={defaultOpen}>
       <summary className="cursor-pointer list-none">
         <span className="font-semibold text-slate-800">{title}</span>
         <span className="ml-2 text-xs text-slate-500">{description}</span>
@@ -2335,7 +2393,7 @@ function SignatureSlotsRow({
       <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
         {statuses.map((status) => {
           const captured = status.state === "captured";
-          const na = !captured && status.onPacket === false;
+          const na = !captured && (status.onPacket === false || !status.required);
           const blocked = !captured && status.required;
           return (
             <div
@@ -2350,14 +2408,14 @@ function SignatureSlotsRow({
               <div className="flex items-center justify-between gap-2">
                 <b>{status.label}</b>
                 <span className="font-semibold">
-                  {captured ? "Captured" : na ? "N/A" : status.state === "invalid" ? "Re-sign" : "Missing"}
+                  {captured ? "Captured" : na ? (status.onPacket === false ? "N/A" : "Optional") : status.state === "invalid" ? "Re-sign" : "Missing"}
                 </span>
               </div>
               <p className="mt-1">
                 {captured
                   ? (status.signedDate ? `On ${status.signedDate}` : "Date not recorded")
                   : na
-                    ? "Not on this packet"
+                    ? (status.onPacket === false ? "Not on this packet" : "Optional on this packet — not a missing item")
                     : status.reason}
               </p>
             </div>

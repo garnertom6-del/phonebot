@@ -38,6 +38,9 @@ type Props = {
   linkSentAt?: string | null;
   /** True when the link is expired - copying and marking are paused. */
   disabled?: boolean;
+  /** Extra staff-facing reason when send is blocked (insurance, etc.). */
+  blockReason?: string;
+  hideRecordButtons?: boolean;
   /** Called after the intake is marked as sent so the parent can refresh. */
   onMarked?: (linkSentAt: string, method: ManualSendMethod) => void;
 };
@@ -65,7 +68,7 @@ function QrSquare({ value, label, level = "M" }: { value: string; label: string;
 }
 
 export default function ManualSendPanel({
-  intakeId, clientLink, message, phone, phoneRole, purpose = "intake", email, smsHref, mailtoHref, reason, linkSentAt, disabled, onMarked,
+  intakeId, clientLink, message, phone, phoneRole, purpose = "intake", email, smsHref, mailtoHref, reason, linkSentAt, disabled, blockReason, hideRecordButtons, onMarked,
 }: Props) {
   const [copied, setCopied] = useState<"" | "message" | "link">("");
   const [marking, setMarking] = useState<ManualSendMethod | "">("");
@@ -130,6 +133,12 @@ export default function ManualSendPanel({
         </p>
       )}
 
+      {blockReason && (
+        <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900" role="alert">
+          {blockReason}
+        </p>
+      )}
+
       {disabled && (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
           This link has expired. Renew it first so the client does not open a dead link.
@@ -180,6 +189,7 @@ export default function ManualSendPanel({
             message={message}
             link={clientLink}
             disabled={disabled}
+            hideRecordSent
             onStatus={setComputerSmsNote}
           />
           {computerSmsNote && (
@@ -188,6 +198,7 @@ export default function ManualSendPanel({
         </div>
       )}
 
+      {!hideRecordButtons && (
       <div className="mt-4 border-t border-slate-200 pt-3">
         <p className="text-sm font-semibold text-slate-900">Done? Record how the client got the link</p>
         <p className="mt-1 text-xs text-slate-600">This clears &quot;Not sent yet&quot; on the dashboard and writes who sent it and how to the audit log.</p>
@@ -206,6 +217,7 @@ export default function ManualSendPanel({
         </div>
         {markError && <p className="mt-2 text-sm font-semibold text-red-700" role="alert">{markError}</p>}
       </div>
+      )}
     </div>
   );
 }

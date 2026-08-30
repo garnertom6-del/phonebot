@@ -128,13 +128,27 @@ export const ETHNICITY_PACKET_OPTIONS = [
 /** Status lists that should use the big native menu even with 4 or fewer choices. */
 export const STRONG_MENU_KEYS: ReadonlySet<string> = new Set([
   "race", "ethnicity", "marital_status", "employment_status", "education", "veteran",
-  "language", "income_sources", "referral_source", "height", "eye_color", "hair_color",
+  "income_sources", "referral_source", "height", "eye_color", "hair_color",
   "diagnosis_menu",
 ]);
 
+/** Tom's rule: after Black or White, staff/CCA fill ethnicity — do not ask the client. */
+export const RACES_THAT_SKIP_ETHNICITY: readonly string[] = [
+  "Black or African American",
+  "Caucasian or White",
+];
+
+export const RACES_THAT_ASK_ETHNICITY: readonly string[] = RACE_OPTIONS.filter(
+  (race) => !RACES_THAT_SKIP_ETHNICITY.includes(race),
+);
+
+export function raceSkipsEthnicity(race: unknown): boolean {
+  return RACES_THAT_SKIP_ETHNICITY.includes(String(race || ""));
+}
+
 export function ethnicityForRace(_race: unknown): string {
-  // Race alone is not evidence of ethnicity. Keep this compatibility helper
-  // empty so older callers do not silently populate a different answer.
+  // Race is not ethnicity. Skipping the client question does not invent a
+  // Non-Hispanic/Black or Non-Hispanic/White packet value — staff/CCA fill it.
   return "";
 }
 
@@ -199,12 +213,17 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "gender", essential: true, label: "Gender", type: "radio", required: true, options: ["Female", "Male", "Transgender", "Other"] },
       { key: "race", essential: true, menu: true, label: "Race", type: "radio", options: RACE_OPTIONS },
-      { key: "ethnicity", essential: true, menu: true, label: "Ethnicity", type: "radio", options: ETHNICITY_CLIENT_OPTIONS, help: "Race does not tell us ethnicity. Choose the answer that fits you, or Prefer not to answer." },
+      {
+        key: "ethnicity", essential: true, menu: true, label: "Ethnicity", type: "radio",
+        options: ETHNICITY_CLIENT_OPTIONS,
+        help: "Race does not tell us ethnicity. Choose the answer that fits you, or Prefer not to answer.",
+        askIf: { key: "race", oneOf: [...RACES_THAT_ASK_ETHNICITY] },
+      },
       { key: "marital_status", essential: true, menu: true, label: "Marital status", type: "radio", options: MARITAL_STATUS_OPTIONS },
       { key: "veteran", essential: true, menu: true, label: "Are you a veteran?", type: "yesno", options: YN },
       { key: "education", essential: true, menu: true, label: "Highest education", type: "radio", options: EDUCATION_OPTIONS },
-      { key: "language", essential: true, menu: true, label: "Preferred language", type: "radio", options: LANGUAGE_OPTIONS },
-      { key: "language_other", label: "Which language?", type: "text", voice: true, askIf: { key: "language", equals: "Other" } },
+      { key: "language", staffOnly: true, label: "Preferred language", type: "radio", options: LANGUAGE_OPTIONS },
+      { key: "language_other", staffOnly: true, label: "Which language?", type: "text", voice: true, askIf: { key: "language", equals: "Other" } },
       { key: "communication_level", label: "Communication level", type: "radio", options: ["Excellent", "Good", "Fair", "Poor"] },
     ],
   },
