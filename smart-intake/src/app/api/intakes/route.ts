@@ -7,7 +7,7 @@ import { missingRequired, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoEmailProviderPacketEnabled, autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
-import { insuranceSummary, recordNumberPrefix, resolveCreateRecordNumber } from "@/lib/insurancePlans";
+import { insuranceSummary, recordNumberPrefix, resolveCreateRecordNumber, staffInsurancePlanReady } from "@/lib/insurancePlans";
 import { buildDashboardReadiness } from "@/lib/dashboardWorkflow";
 import {
   evaluatePacketFreshness,
@@ -213,6 +213,7 @@ export async function GET(req: NextRequest) {
         completionBlockers: completion.blockers,
         docusignEnvelopeId: i.docusignEnvelopeId,
         insuranceSummary: insuranceSummary(answers),
+        insurancePlanReady: staffInsurancePlanReady(answers),
         presentingProblem: stringValue(answers.presenting_problem) || stringValue(answers.mh_history) || "No main concern recorded yet.",
       };
     });

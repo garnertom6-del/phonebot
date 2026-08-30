@@ -7,6 +7,7 @@ import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkfl
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { consumeDashboardFlash, dashboardTabFromQuery } from "@/lib/dashboardFlash";
+import { INSURANCE_BEFORE_SMS_MESSAGE } from "@/lib/insurancePlans";
 
 interface Row {
   id: string;
@@ -27,6 +28,7 @@ interface Row {
   completionBlockers: Array<{ code: string; message: string }>;
   docusignEnvelopeId?: string | null;
   insuranceSummary?: string;
+  insurancePlanReady?: boolean;
   presentingProblem?: string;
   client: {
     fullName: string;
@@ -364,6 +366,10 @@ function Dashboard() {
   }
 
   async function remind(row: Row) {
+    if (row.insurancePlanReady === false) {
+      showNote(INSURANCE_BEFORE_SMS_MESSAGE, 7000, "error");
+      return;
+    }
     const response = await fetch(`/api/intakes/${row.id}/remind`, { method: "POST" });
     const body = await response.json().catch(() => ({}));
     if (response.ok && body.ok) {

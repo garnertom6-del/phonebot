@@ -13,9 +13,9 @@ import {
   fourComponentsPass,
   recommendedServicesClear,
 } from "@/lib/ccaMedicalNecessity";
-import { canGenerateRecordNumber, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix, staffInsurancePlanReady } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
-import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
+import { EDUCATION_OPTIONS, EMPLOYMENT_STATUS_OPTIONS, ETHNICITY_PACKET_OPTIONS, MARITAL_STATUS_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import {
   copiesMailtoHref,
   copiesShareMessage,
@@ -232,16 +232,9 @@ function useHelperDraft() {
   return ctx;
 }
 
-const RACE_OPTIONS = [
-  "American Indian or Alaska Native", "Asian", "Black or African American",
-  "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
-];
-const ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
-const MARITAL_STATUS_OPTIONS = ["Single", "Married", "Separated", "Widowed"];
+const ETHNICITY_OPTIONS = ETHNICITY_PACKET_OPTIONS;
 const VETERAN_OPTIONS = ["Yes", "No"];
-const EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
 const GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
-const EDUCATION_OPTIONS = ["Grade/Elementary", "High School/GED", "College", "Graduate", "Post Graduate"];
 const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "German", "Other"];
 const COMMUNICATION_OPTIONS = ["Excellent", "Good", "Fair", "Poor"];
 const LIVING_ARRANGEMENT_OPTIONS = [
@@ -686,6 +679,14 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   }
 
   async function sendIntakeLink() {
+    if (!d || !staffInsurancePlanReady(d.answers)) {
+      setNote(INSURANCE_BEFORE_SMS_MESSAGE);
+      window.setTimeout(() => {
+        document.getElementById("helper-provider_choice_plan")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (document.getElementById("helper-provider_choice_plan") as HTMLElement | null)?.focus();
+      }, 0);
+      return;
+    }
     setClientLinkBusy(true);
     setNote(linkExpired ? "Renewing the secure link and contacting the client..." : "Sending the secure link to the saved contacts...");
     try {
@@ -1299,6 +1300,11 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             </p>
           )}
 
+          {!linkFinished && !staffInsurancePlanReady(d.answers) && (
+            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
+              {INSURANCE_BEFORE_SMS_MESSAGE}
+            </p>
+          )}
           {!linkFinished && (
             <div className="mt-3 flex flex-wrap gap-2">
               <button
@@ -1818,7 +1824,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 <HelperSelect name="ethnicity" label="Ethnicity" value={d.answers.ethnicity ?? ""} options={ETHNICITY_OPTIONS} placeholder="Select ethnicity" />
                 <HelperSelect name="marital_status" label="Marital status" value={d.answers.marital_status ?? ""} options={MARITAL_STATUS_OPTIONS} placeholder="Select marital status" />
                 <HelperSelect name="veteran" label="Veteran" value={d.answers.veteran ?? ""} options={VETERAN_OPTIONS} placeholder="Select yes or no" />
-                <HelperSelect name="employment_status" label="Employment status" value={d.answers.employment_status ?? ""} options={EMPLOYMENT_OPTIONS} placeholder="Select employment status" />
+                <HelperSelect name="employment_status" label="Employment status" value={d.answers.employment_status ?? ""} options={EMPLOYMENT_STATUS_OPTIONS} placeholder="Select employment status" />
                 <HelperSelect name="education" label="Highest education" value={d.answers.education ?? ""} options={EDUCATION_OPTIONS} placeholder="Select education" />
                 <HelperSelect name="language" label="Preferred language" value={d.answers.language ?? ""} options={LANGUAGE_OPTIONS} placeholder="Select language" />
                 <HelperInput name="language_other" label="Other language" value={d.answers.language_other ?? ""} />
@@ -2239,7 +2245,7 @@ function HelperSelect({
   return (
     <label>
       <span className="label">{label}</span>
-      <select className="input" name={name} value={helper.draft[name] ?? ""} onChange={(e) => helper.setField(name, e.target.value)}>
+      <select id={`helper-${name}`} className="input" name={name} value={helper.draft[name] ?? ""} onChange={(e) => helper.setField(name, e.target.value)}>
         <option value="">{placeholder || "Choose an option"}</option>
         {options.map((option) => (
           <option key={option} value={option}>{option}</option>

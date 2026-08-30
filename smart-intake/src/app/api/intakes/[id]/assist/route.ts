@@ -7,7 +7,11 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { normalizeInsuranceValue } from "@/lib/insurancePlans";
 import {
   CLIENT_ANSWER_KEYS,
+  EDUCATION_OPTIONS,
+  ETHNICITY_PACKET_OPTIONS,
+  MARITAL_STATUS_OPTIONS,
   questionByKey,
+  RACE_OPTIONS,
   STAFF_PREFILLED_CLIENT_FIELDS_KEY,
 } from "@/config/mooreDivineQuestions";
 import { parseHelperNotes } from "@/lib/parseIntakeNotes";
@@ -67,19 +71,19 @@ function normalizeAssistValue(key: string, value: string): string | string[] {
   }
   if (key === "gender") return option(text, ["Female", "Male", "Transgender", "Other"]);
   if (key === "race") {
-    return option(text, ["American Indian or Alaska Native", "Asian", "Black or African American", "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander"]);
+    return option(text, [...RACE_OPTIONS, "Native American"]);
   }
   if (key === "ethnicity") {
-    return option(text, ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"]);
+    return option(text, ETHNICITY_PACKET_OPTIONS);
   }
   if (key === "marital_status") {
-    return option(text, ["Single", "Married", "Separated", "Widowed"]);
+    return option(text, MARITAL_STATUS_OPTIONS);
   }
   if (key === "veteran") {
     return option(text, ["Yes", "No"]);
   }
   if (key === "education") {
-    return option(text, ["Grade/Elementary", "High School/GED", "College", "Graduate", "Post Graduate"]);
+    return option(text, [...EDUCATION_OPTIONS, "High School/GED"]);
   }
   if (key === "language") {
     return option(text, ["English", "Spanish", "French", "German", "Other"]);

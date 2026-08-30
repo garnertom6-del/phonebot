@@ -7,15 +7,16 @@
  * the end that the server applies to every agreed form.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, isQuestionPrefilledForClient, questionCatalogId, questionVisibleInCatalog, type Question, type Section } from "@/config/mooreDivineQuestions";
-import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
-import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { SECTIONS, ethnicityForRace, isClientQuestionVisible, questionCatalogId, questionVisibleInCatalog, usesStrongMenu, type Question, type Section } from "@/config/mooreDivineQuestions";
+import { isQuestionRequired } from "@/lib/validation";
+import { applyOperationalDefaults, applySkippedClientPlaceholders } from "@/lib/answerDefaults";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import { completedCopyDeliveryChannels } from "@/lib/clientCopyDelivery";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
 import IntakeOrientationAudio from "./IntakeOrientationAudio";
+import ConsentAudio from "./ConsentAudio";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 
@@ -106,13 +107,20 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
 
   const visibleQuestions = (s: Section): Question[] =>
     s.questions.filter((q) =>
-      !q.staffOnly &&
-      askIfSatisfied(q.askIf, answers) &&
-      !(q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") &&
-      (recordReviewKeys.has(q.key) || !isQuestionPrefilledForClient(q, prefilledRef.current)));
+      recordReviewKeys.has(q.key)
+        ? !q.staffOnly && q.type !== "info" && q.type !== "heading"
+        : isClientQuestionVisible(q, answers, prefilledRef.current));
 
   const set = (key: string, value: Answers[string]) =>
-    setAnswers((a) => ({ ...a, [key]: value }));
+    setAnswers((a) => {
+      const next: Answers = { ...a, [key]: value };
+      if (key === "race") {
+        const ethnicity = ethnicityForRace(value);
+        if (ethnicity) next.ethnicity = ethnicity;
+      }
+      if (key === "has_pcp" && value === "No") next.pcp_name = "I do not have a primary care";
+      return next;
+    });
 
   const save = useCallback(async (sectionKey?: string, event?: string): Promise<boolean> => {
     setSaving(true);
@@ -152,6 +160,11 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
           return;
         }
       }
+    }
+    const filled = applySkippedClientPlaceholders(answers) as Answers;
+    if (filled !== answers) {
+      setAnswers(filled);
+      answersRef.current = filled;
     }
     const saved = await save(step.key, "completed");
     if (!saved) {
@@ -218,8 +231,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
     let total = 0, filled = 0;
     for (const s of SECTIONS) for (const q of s.questions) {
       if (!questionVisibleInCatalog(q, catalogId)) continue;
-      if (q.staffOnly) continue;
-      if (!askIfSatisfied(q.askIf, answers)) continue;
+      if (!isClientQuestionVisible(q, answers, prefilledRef.current)) continue;
       total++;
       const v = answers[q.key];
       if (v !== undefined && v !== "" && !(Array.isArray(v) && !v.length)) filled++;
@@ -327,10 +339,13 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <p className="font-semibold">{brandText(q.label, branding)}</p>
-        <details className="mt-1">
-          <summary className="cursor-pointer text-sm text-brand">Read more about this section</summary>
+        <details className="mt-1 rounded-lg border border-brand/30 bg-white p-2">
+          <summary className="cursor-pointer text-sm font-bold text-brand">Tap to read the full text</summary>
           <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
         </details>
+        <div className="mt-2">
+          <ConsentAudio text={q.consentText} providerName={providerName} providerPhone={supportPhone} />
+        </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className={`chip ${v === true ? "chip-on" : ""}`} onClick={() => set(q.key, true)}>
             Yes, help me ask about plan options
@@ -347,10 +362,13 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
     return (
       <div className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <p className="font-semibold">{brandText(q.label, branding)}</p>
-        <details className="mt-1">
-          <summary className="cursor-pointer text-sm text-brand">Read more about this section</summary>
+        <details className="mt-1 rounded-lg border border-brand/30 bg-white p-2">
+          <summary className="cursor-pointer text-sm font-bold text-brand">Tap to read the full text</summary>
           <p className="mt-2 whitespace-pre-line text-sm text-slate-600">{brandText(q.consentText, branding)}</p>
         </details>
+        <div className="mt-2">
+          <ConsentAudio text={q.consentText} providerName={providerName} providerPhone={supportPhone} />
+        </div>
         <label className="mt-3 flex items-center gap-3 text-sm font-semibold">
           <input type="checkbox" className="h-5 w-5" checked={v === true}
             onChange={(e) => set(q.key, e.target.checked)} />
@@ -367,21 +385,21 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
     );
   if (q.type === "radio" || q.type === "yesno") {
     const options = q.options || [];
-    if (options.length > 4) {
+    if (usesStrongMenu(q)) {
       return (
         <div>{label}
-          <p className="mb-2 rounded-lg bg-amber-50 p-2 text-sm font-bold text-amber-900">Tap this menu to choose one answer.</p>
+          <p className="mb-2 rounded-2xl bg-amber-50 p-3 text-base font-extrabold text-amber-950">Tap the big menu button to pick one answer.</p>
           <div className="relative">
             <select
               aria-label={brandText(q.label, branding)}
-              className="input min-h-[60px] appearance-none border-2 border-brand bg-brand-light pr-12 text-base font-bold text-brand shadow-sm"
+              className="min-h-[72px] w-full appearance-none rounded-2xl border-4 border-brand bg-white px-4 pr-14 text-xl font-black text-brand shadow-lg"
               value={String(v ?? "")}
               onChange={(e) => set(q.key, e.target.value)}
             >
-              <option value="">Tap to choose...</option>
+              <option value="">Tap here to choose…</option>
               {options.map((opt) => <option key={opt} value={opt}>{brandText(opt, branding)}</option>)}
             </select>
-            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-black text-brand">⌄</span>
+            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-3xl font-black text-brand">▾</span>
           </div>
         </div>
       );
@@ -434,6 +452,9 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
   const multiline = q.type === "textarea";
   return (
     <div>{label}
+      {q.contactPicker && (
+        <p className="mb-2 text-xs text-slate-500">You can type or speak. Optional: pick one person from your phone if your phone offers it.</p>
+      )}
       {q.voice ? (
         <VoiceInput value={String(v ?? "")} onChange={(x) => set(q.key, x)} multiline={multiline}
           placeholder={q.placeholder}

@@ -4,8 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
-import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
+import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import { ETHNICITY_PACKET_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { createdIntakeDashboardHref, deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
   assignIntakeContacts,
@@ -46,12 +46,9 @@ const DETAILS_NOTE_KEYS = new Set([
 ]);
 const ADVANCED_NOTE_KEYS = new Set(["provider_choice_plan", "record_number"]);
 
-const QUICK_NOTE_RACE_OPTIONS = [
-  "American Indian or Alaska Native", "Asian", "Black or African American",
-  "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
-];
+const QUICK_NOTE_RACE_OPTIONS = RACE_OPTIONS;
 const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
-const QUICK_NOTE_ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
+const QUICK_NOTE_ETHNICITY_OPTIONS = ETHNICITY_PACKET_OPTIONS;
 const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
 const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
 
@@ -363,6 +360,16 @@ export default function NewIntake() {
   }
 
   async function sendCreatedLink(intakeId: string) {
+    if (!recordPanel.trim()) {
+      setSendStatusKind("error");
+      setSendStatus(INSURANCE_BEFORE_SMS_MESSAGE);
+      setAdvancedOpen(true);
+      window.setTimeout(() => {
+        document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
+      }, 0);
+      return;
+    }
     setSendBusy(true);
     setSendStatusKind("info");
     setSendStatus("Sending...");
@@ -422,6 +429,16 @@ export default function NewIntake() {
       setForm((current) => ({ ...current, ...nextForm }));
       setError("Add the client's full name and date of birth before creating the secure link.");
       window.setTimeout(focusFirstMissing, 0);
+      return;
+    }
+    if (sendSmsAfterCreate && !recordPanel.trim()) {
+      setForm((current) => ({ ...current, ...nextForm }));
+      setError(INSURANCE_BEFORE_SMS_MESSAGE);
+      setAdvancedOpen(true);
+      window.setTimeout(() => {
+        document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
+      }, 0);
       return;
     }
     if (assigned.error) {
@@ -817,6 +834,21 @@ export default function NewIntake() {
                     </span>
                   </span>
                 </label>
+                {sendSmsAfterCreate && !recordPanel.trim() && (
+                  <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
+                    {INSURANCE_BEFORE_SMS_MESSAGE}
+                    <button
+                      type="button"
+                      className="mt-2 block text-left font-bold text-brand underline"
+                      onClick={() => {
+                        setAdvancedOpen(true);
+                        window.setTimeout(() => document.getElementById("new-intake-record-panel")?.focus(), 0);
+                      }}
+                    >
+                      Open Advanced and fill the insurance plan
+                    </button>
+                  </p>
+                )}
               </div>
             )}
           </div>

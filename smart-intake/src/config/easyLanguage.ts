@@ -100,9 +100,10 @@ function referralEntries(): Record<string, EasyText> {
   const out: Record<string, EasyText> = {};
   for (let i = 1; i <= 10; i++) {
     out[`ref${i}_name`] = i === 1
-      ? { q: "Do you know someone who could use our help? What is their name?", help: "Family or friends. Leave blank if not." }
-      : { q: "Anyone else? What is their name?", help: "It's okay to stop here." };
-    out[`ref${i}_phone`] = { q: "What is their phone number?" };
+      ? { q: "What is their full name?", help: "You are helping someone, with permission. Type, speak, or pick one person from your phone. Name and phone are enough." }
+      : { q: "Anyone else? What is their full name?", help: "You can add up to a few people. Leave blank to stop." };
+    out[`ref${i}_phone`] = { q: "What is their cell phone number?" };
+    out[`ref${i}_dob`] = { q: "When were they born, if you know?", help: "Skip this if you do not have it. Name and phone are enough." };
   }
   return out;
 }
@@ -161,7 +162,7 @@ export const EASY: Record<string, EasyText> = {
   client_full_name: { q: "What is your name?", help: "Your full name, like on your ID." },
   dob: { q: "When were you born?", help: "Your birthday." },
   mid_number: { q: "What is your Medicaid ID number?", help: "It's on your Medicaid card. Skip it if you don't have it handy." },
-  client_email: { q: "What is your email address?", help: "Skip it if you don't have one." },
+  client_email: { q: "What is your email address?", help: "If you do not have one, skip this and we will save 'none reported by client'." },
 
   /* ---------- demographics ---------- */
   gender: { q: "What is your gender?" },
@@ -170,14 +171,23 @@ export const EASY: Record<string, EasyText> = {
     help: "Pick the one that fits you best.",
     options: { "Caucasian or White": "White" },
   },
-  ethnicity: { q: "What is your background?", help: "Pick the one that fits you best." },
-  marital_status: { q: "Are you single, married, separated, or widowed?", help: "Pick the one that fits you." },
+  ethnicity: {
+    q: "What is your background?",
+    help: "This is about Hispanic or Latino background, not race.",
+    options: {
+      Latino: "Hispanic or Latino",
+      "Non-Hispanic": "Non-Hispanic",
+    },
+  },
+  marital_status: { q: "What is your marital status?", help: "Tap the menu and pick the one that fits." },
   veteran: { q: "Were you ever in the military?" },
   education: {
     q: "How far did you go in school?",
     options: {
       "Grade/Elementary": "Elementary school",
       "High School/GED": "High school or GED",
+      "High School": "High school",
+      "GED": "GED",
       "College": "Some college or a college degree",
       "Graduate": "A degree after college (like a master's)",
       "Post Graduate": "Schooling after a master's (like a doctorate)",
@@ -260,6 +270,9 @@ export const EASY: Record<string, EasyText> = {
     q: "Who told you about us?",
     options: {
       "Self": "I found you on my own",
+      "Word of mouth": "Someone told me about you",
+      "Business card": "I got a business card",
+      "Website": "I found you online",
       "DSS": "Social Services (DSS)",
       "LME": "My health plan",
       "Provider Agency": "Another care agency",
@@ -313,9 +326,29 @@ export const EASY: Record<string, EasyText> = {
   services_other: { q: "Is there any other kind of help you want?", help: "It's okay to skip this." },
 
   /* ---------- presenting ---------- */
+  presenting_need_chips: {
+    q: "What do you need help with?",
+    help: "Tap every one that fits. You can pick more than one.",
+  },
+  why_want_services_chips: {
+    q: "Why do you want services?",
+    help: "Tap every one that fits.",
+  },
+  why_want_services_text: {
+    q: "Want to say more about why you want help?",
+    help: "Type or speak. You can skip this.",
+  },
   presenting_problem: {
-    q: "Tell us what's going on. Why do you want help?",
-    help: "Just talk like you would to a friend. You can press the microphone and speak.",
+    q: "Why do you want help?",
+    help: "Type or speak. If you already tapped the buttons, you can repeat that in your own words.",
+  },
+  other_agency_types: {
+    q: "Are you getting services anywhere else right now?",
+    help: "Tap every one that fits. Pick None or I don't know if that is true.",
+  },
+  other_agency_where: {
+    q: "Where do you get that service?",
+    help: "Type or speak the place, or say I don't know.",
   },
   other_agencies: {
     q: "Are you getting services anywhere else right now?",
@@ -329,8 +362,9 @@ export const EASY: Record<string, EasyText> = {
   preferences: { q: "What would make your care work best for you?", help: "Like morning visits, a certain place, or someone you're comfortable with." },
 
   /* ---------- mental_health ---------- */
-  has_current_diagnosis: { q: "Has a doctor ever told you the name of what you're dealing with?", help: "Like depression or anxiety. 'Not sure' is a fine answer." },
-  diagnosis_list: { q: "What did they call it?", help: "Your best memory is fine." },
+  has_current_diagnosis: { q: "Has a doctor ever told you the name of what you're dealing with?", help: "Yes, No, or I don't know are all fine." },
+  diagnosis_menu: { q: "Which one is closest?", help: "Staff can put the official code later. Pick Other if you need to type it." },
+  diagnosis_list: { q: "What did they call it?", help: "Your best memory is fine. Type or speak." },
   has_current_therapist: { q: "Do you talk to a counselor or therapist right now?" },
   therapist_name: { q: "What is your therapist's name?" },
   therapist_agency_phone: { q: "Where do they work, or what is their phone number?" },
@@ -342,26 +376,31 @@ export const EASY: Record<string, EasyText> = {
 
   /* ---------- medical ---------- */
   has_limitations: { q: "Is there anything your body can't do, or has a hard time doing?", help: "Like walking far, lifting, seeing, or hearing." },
-  limitations_desc: { q: "Tell us about it." },
-  pcp_name: { q: "Who is your doctor?", help: "The doctor you see for check-ups. Skip it if you don't have one." },
+  limitation_types: { q: "Which of these?", help: "Tap every one that fits. You can add more in the next box." },
+  limitations_desc: { q: "Tell us more.", help: "Type or speak. You can skip this." },
+  has_pcp: { q: "Do you have a primary care doctor?", help: "The doctor you see for check-ups." },
+  pcp_name: { q: "Who is your doctor?", help: "Type or speak their name." },
   pcp_phone: { q: "What is your doctor's phone number?" },
   pcp_address: { q: "Where is your doctor's office?" },
   no_pcp_nearest_er: { q: "If you don't have a doctor, is it okay to take you to the nearest emergency room?" },
   preferred_emergency_facility: { q: "Which hospital do you like to go to?", help: "Skip it if you don't have one." },
   medical_diagnoses: { q: "Do you have any health problems? Tell us about them.", help: "Like diabetes, asthma, or high blood pressure. Say 'none' if none." },
   treatments: { q: "What do you do or take for those health problems?" },
-  hospitalizations: { q: "Have you ever stayed in a hospital or had surgery? Tell us about it.", help: "Say 'none' if none." },
-  last_physical_date: { q: "When was your last check-up with a doctor?", help: "A guess is fine, like 'last spring'." },
-  height: { q: "How tall are you?", help: "Like 5 feet 8 inches." },
-  weight: { q: "About how much do you weigh?", help: "A guess is fine." },
-  hair_color: { q: "What color is your hair?" },
-  eye_color: { q: "What color are your eyes?" },
+  has_hospitalization: { q: "Have you been in the hospital or had surgery in the past year?" },
+  hospitalizations: { q: "What happened, and where?", help: "Type or speak. A short answer is fine." },
+  last_physical_date: { q: "Did you have a physical exam in the last year?", help: "Yes or No is enough. You do not need an exact date." },
+  height: { q: "How tall are you?", help: "Tap the menu and pick the closest height." },
+  weight: { q: "About how much do you weigh, in pounds?", help: "A number is fine. A guess is okay." },
+  hair_color: { q: "What color is your hair?", help: "Tap the menu." },
+  eye_color: { q: "What color are your eyes?", help: "Tap the menu." },
   identifying_marks: { q: "Do you have any scars, birthmarks, or tattoos?", help: "This helps us find you if you're ever lost or hurt." },
   special_diets: { q: "Are there foods you can't eat, or a special way you eat?", help: "Say 'none' if none." },
   medical_alerts: { q: "In an emergency, what should helpers know about your health?", help: "Like 'I have seizures' or 'I'm allergic to penicillin'." },
   fax: { q: "Do you have a fax number?", help: "Most people don't - just skip it." },
 
   /* ---------- medications ---------- */
+  has_allergies: { q: "Do you have any allergies?" },
+  allergy_types: { q: "Which allergies?", help: "Tap every one that fits." },
   medications: { q: "What pills or medicine do you take from a doctor?", help: "Name and how much, if you know. Say 'none' if none." },
   otc_medications: { q: "What medicine do you take from the store?", help: "Like Tylenol or vitamins. Say 'none' if none." },
   drug_allergies: { q: "Is there any medicine that makes you sick?", help: "Say 'none' if none." },
@@ -408,7 +447,8 @@ export const EASY: Record<string, EasyText> = {
     q: "Did we explain how our program works?",
     consentSimple:
       "This says we told you how things work here - the rules, the hours, the costs, your rights, " +
-      "and how to speak up if something is wrong. If anything is unclear, just ask us any time.",
+      "and how to speak up if something is wrong. You will get a copy the way you chose (text, email, or both). " +
+      "Tap to read the full text or play the audio, then Agree.",
   },
 
   /* ---------- rights ---------- */
@@ -432,7 +472,7 @@ export const EASY: Record<string, EasyText> = {
     q: "Do you know you can call us any time, day or night?",
     consentSimple:
       "If you ever need help fast, call us any time at 336-285-5204 - day or night. " +
-      "This also says we explained your rights in plain words and you got to ask questions.",
+      "This also says we explained your rights in plain words. You will get a copy the way you chose (text, email, or both).",
   },
 
   /* ---------- transport ---------- */
@@ -449,8 +489,7 @@ export const EASY: Record<string, EasyText> = {
   consent_transport: {
     q: "Is it okay for us to give you rides?",
     consentSimple:
-      "This lets our staff drive you to your visits and activities. " +
-      "You can stop the rides any time - just tell us.",
+      "This lets our staff drive you to your visits and activities. Tap to read the full text or play the audio. You must Accept to continue.",
   },
 
   /* ---------- emergency_care ---------- */
@@ -464,7 +503,7 @@ export const EASY: Record<string, EasyText> = {
     q: "In an emergency, can we get a doctor for you?",
     consentSimple:
       "If there is an emergency, this lets us get medical care for you (or your child) fast. " +
-      "We will use the hospital you picked if we can, and we will try to call your emergency contacts too.",
+      "Staff can fill leftover blanks after intake. We will try to call your emergency contacts too.",
   },
 
   /* ---------- interventions ---------- */
@@ -474,15 +513,15 @@ export const EASY: Record<string, EasyText> = {
     q: "If someone is about to get hurt, can staff step in to keep everyone safe?",
     consentSimple:
       "Staff always try talking first. Only if someone is about to get badly hurt, " +
-      "this lets trained staff safely hold a person to stop it. You can take this back any time.",
+      "this lets trained staff safely hold a person to stop it. It lasts one year from intake. You can take this back any time.",
   },
 
   /* ---------- treatment_plan ---------- */
   consent_treatment_plan_participation: {
     q: "Did you help make your care plan, and does it feel right?",
     consentSimple:
-      "This says you talked with staff about your care plan and you like where it's going. " +
-      "If you ever want changes, just tell us - it's your plan.",
+      "This says you will help make your person-centered plan. You will get a copy when it is finished. " +
+      "Staff will write the date later. If you ever want changes, just tell us - it's your plan.",
   },
   consent_receipt_treatment_plan: {
     q: "Did you get a copy of your care plan?",
@@ -492,13 +531,13 @@ export const EASY: Record<string, EasyText> = {
   },
 
   /* ---------- hipaa ---------- */
-  hipaa_understood: { q: "Did we explain how we protect your health information, and did you get to ask questions?" },
+  hipaa_understood: { q: "I understand the information that was explained to me and I had the chance to ask questions." },
   hipaa_copy: { q: "Did you get a copy of that paper?" },
   consent_hipaa: {
     q: "Do you understand how we keep your health information private?",
     consentSimple:
       "This says we keep your health information private. We only share it when the law says we can. " +
-      "You can see your records any time.",
+      "You can see your records any time. You will get a copy of this notice the way you chose (text, email, or both).",
   },
 
   /* ---------- confidentiality ---------- */
@@ -539,6 +578,20 @@ export const EASY: Record<string, EasyText> = {
       "You can say yes or no. Yes lets us help ask about a plan that may cover the service. " +
       "No means we will not ask to change your plan. If we cannot provide the service under your insurance, staff will explain and offer a referral to a provider that accepts your plan.",
   },
+
+  has_referrals: {
+    q: "Do you know someone who could use these services?",
+    help: "You would be helping them, with their permission. If No, we skip the rest.",
+  },
+  consent_roi: {
+    q: "Is it okay for us to share your records so your care team can help you?",
+    consentSimple:
+      "This lets us share your records for your care. It lasts one year from today's intake. " +
+      "Tap to read the full text or play the audio. Then you will initial three short I-understand lines.",
+  },
+  roi_understand_1: { q: "I understand my records stay private unless I say yes or the law says we must share." },
+  roi_understand_2: { q: "I understand I can take this permission back any time by telling staff in writing." },
+  roi_understand_3: { q: "I understand this permission lasts one year from today's intake date." },
 
   /* ---------- generated repeats ---------- */
   ...emergencyContactEntries(), // ec1_*, ec2_*
@@ -583,7 +636,7 @@ export const SECTION_INTROS: Record<string, string> = {
   confidentiality: "The few times the law says we may share information.",
   welcome_letter: "A hello from our team.",
   survey: "How did we do so far? Be honest - it helps us do better.",
-  referrals: "Know someone else who could use our help?",
+  referrals: "You can help someone else get these services — only with permission.",
   cca: "One last signature about your check-in.",
   tailored_plan: "Making sure insurance never blocks your care.",
 };

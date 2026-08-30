@@ -9,16 +9,17 @@
  * Drop-in replacement for ClientQuestionnaire (identical props).
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { SECTIONS, isQuestionPrefilledForClient, isQuickIntakeQuestion, questionCatalogId, questionVisibleInCatalog, type Question } from "@/config/mooreDivineQuestions";
+import { SECTIONS, ethnicityForRace, isClientQuestionVisible, isQuickIntakeQuestion, questionCatalogId, questionVisibleInCatalog, usesStrongMenu, type Question } from "@/config/mooreDivineQuestions";
 import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
-import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
-import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { isQuestionRequired } from "@/lib/validation";
+import { applyOperationalDefaults, applySkippedClientPlaceholders } from "@/lib/answerDefaults";
 import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import { completedCopyDeliveryChannels } from "@/lib/clientCopyDelivery";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
 import IntakeOrientationAudio from "./IntakeOrientationAudio";
+import ConsentAudio from "./ConsentAudio";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
@@ -35,7 +36,7 @@ const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?:
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
-function flattenVisible(
+export function flattenVisible(
   answers: Answers,
   prefilledAnswers: Answers,
   quick: boolean,
@@ -48,20 +49,16 @@ function flattenVisible(
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
-    if (quick && s.key === "insurance" && !s.questions.some((q) => recordReviewKeys.has(q.key))) continue;
     for (const q of s.questions) {
       if (assessmentResign && q.key !== "consent_cca") continue;
       if (recordReviewKeys.size && !recordReviewKeys.has(q.key)) continue;
       if (!questionVisibleInCatalog(q, catalogId)) continue;
-      if (q.staffOnly || q.type === "info" || q.type === "heading") continue;
-      // Quick Intake: only the essentials + consents; the clinician's CCA
-      // fills the rest after upload by staff.
-      if (quick && !isQuickIntakeQuestion(q) && !recordReviewKeys.has(q.key)) continue;
-      if (quick && q.key === "client_phone_home") continue;
+      // Quick / SMS: essentials, required consents, and follow-ups of those
+      // (occupation after Employed, diagnosis menu after Yes). CCA fills the rest.
+      if (quick && !isQuickIntakeQuestion(q) && !q.askIf && !recordReviewKeys.has(q.key)) continue;
       if (q.key === "consent_cca" && !ccaAttestationReady) continue;
-      if (q.key === "address_street" && String(answers.living_arrangement || "").toLowerCase() === "homeless") continue;
-      if (!askIfSatisfied(q.askIf, answers)) continue;
-      if (!recordReviewKeys.has(q.key) && isQuestionPrefilledForClient(q, prefilledAnswers)) continue;
+      if (!recordReviewKeys.has(q.key) && !isClientQuestionVisible(q, answers, prefilledAnswers)) continue;
+      if (recordReviewKeys.has(q.key) && (q.staffOnly || q.type === "info" || q.type === "heading")) continue;
       out.push({ q, sectionKey: s.key, sectionTitle: s.title });
     }
   }
@@ -163,8 +160,11 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, []);
 
   const cur = flat[Math.min(idx, Math.max(flat.length - 1, 0))];
-  const answeredCount = flat.filter((f) => isAnswered(answers[f.q.key])).length;
-  const percent = flat.length ? Math.round((answeredCount / flat.length) * 100) : 0;
+  const percent = flat.length ? Math.round(((idx + 1) / flat.length) * 100) : 0;
+  const consentItems = flat.filter((f) => f.q.type === "consent");
+  const consentNumber = cur?.q.type === "consent"
+    ? consentItems.findIndex((f) => f.q.key === cur.q.key) + 1
+    : 0;
   const firstName = clientName.split(" ")[0] || "there";
 
   /* ------------------------------ saving ------------------------------ */
@@ -172,7 +172,13 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const saveNow = useCallback(async (event?: "started" | "completed"): Promise<boolean> => {
     setSaving(true);
     // send only answers that changed since the last successful save
-    const snapshot = answersRef.current;
+    const snapshot = event === "completed"
+      ? applyOperationalDefaults(applySkippedClientPlaceholders(answersRef.current)) as Answers
+      : answersRef.current;
+    if (event === "completed") {
+      answersRef.current = snapshot;
+      setAnswers(snapshot);
+    }
     const changed: Answers = {};
     for (const [k, v] of Object.entries(snapshot)) {
       if (JSON.stringify(v) !== JSON.stringify(savedRef.current[k])) changed[k] = v;
@@ -211,7 +217,15 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, [saveNow]);
 
   const set = useCallback((key: string, value: Answers[string]) => {
-    setAnswers((a) => ({ ...a, [key]: value }));
+    setAnswers((a) => {
+      const next: Answers = { ...a, [key]: value };
+      if (key === "race") {
+        const ethnicity = ethnicityForRace(value);
+        if (ethnicity) next.ethnicity = ethnicity;
+      }
+      if (key === "has_pcp" && value === "No") next.pcp_name = "I do not have a primary care";
+      return next;
+    });
     setNudge("");
     setSaveError("");
     queueSave();
@@ -222,10 +236,17 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const goNext = useCallback(() => {
     const list = flatRef.current;
     const i = idxRef.current;
+    const currentQ = list[i]?.q;
+    if (currentQ && (currentQ.key === "client_email" || currentQ.key === "client_phone_work" || currentQ.key === "employer_phone")) {
+      const filled = applySkippedClientPlaceholders(answersRef.current, [currentQ.key]) as Answers;
+      answersRef.current = filled;
+      setAnswers(filled);
+    }
     const nextIdx = i + 1;
     setJustPicked(null);
     setNudge("");
     if (nextIdx >= list.length) {
+      setAnswers((current) => applySkippedClientPlaceholders(current) as Answers);
       void saveNow("completed");
       setPhase(isResign ? "signature" : "photos");
       return;
@@ -292,6 +313,11 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     if (q && isQuestionRequired(q, current) && !isAnswered(value)) {
       setNudge("Please answer this one - we really need it.");
       return;
+    }
+    if (q && (q.key === "client_email" || q.key === "client_phone_work" || q.key === "employer_phone") && !isAnswered(value)) {
+      const filled = applySkippedClientPlaceholders(current, [q.key]) as Answers;
+      answersRef.current = filled;
+      setAnswers(filled);
     }
     goNext();
   }, [goNext, saveNow]);
@@ -548,7 +574,14 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   return (
     <div className="mx-auto max-w-md pb-40">
-      <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} - ${percent}% done`} />
+      <ProgressBar
+        percent={percent}
+        label={
+          consentNumber
+            ? `Consent ${consentNumber} of ${consentItems.length} — question ${idx + 1} of ${flat.length}`
+            : `Question ${idx + 1} of ${flat.length}`
+        }
+      />
 
       <div className="mt-8">
         <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q, providerName, supportPhone)}</h2>
@@ -579,7 +612,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
               Next
             </button>
           </div>
-          {!isQuestionRequired(q, answers) && q.type !== "consent" && (
+          {q.type !== "consent" && !isQuestionRequired(q, answers) && (
             <button type="button" className="btn-ghost min-h-[44px] w-full px-4 py-2 text-sm text-slate-500" onClick={goNext}>
               Skip
             </button>
@@ -621,22 +654,26 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   providerPhone?: string;
 }) {
   const [pendingVoiceValue, setPendingVoiceValue] = useState<string | null>(null);
-  /* ---- consent: friendly summary + full text + agree/skip ---- */
+  /* ---- consent: friendly summary + full text + audio + required accept ---- */
   if (q.type === "consent") {
     const simple = brandText(
       EASY[q.key]?.consentSimple ?? `This form is called "${q.label}". Please read the whole form below before you agree.`,
       { name: providerName, phone: supportPhone },
     );
+    const copyNote = ["consent_orientation", "consent_rights", "consent_bill_of_rights", "consent_hipaa", "consent_roi"].includes(q.key)
+      ? " You will get a copy the same way you chose — text, email, or both — when the packet is completed."
+      : "";
     return (
       <div className="space-y-4">
         <div className="rounded-2xl border border-brand/20 bg-brand-light p-5">
-          <p className="text-xl leading-relaxed text-slate-800">{simple}</p>
+          <p className="text-xl leading-relaxed text-slate-800">{simple}{copyNote}</p>
           {value === true && <p className="mt-3 text-lg font-bold text-emerald-600">You said yes to this.</p>}
         </div>
-        <details className="rounded-xl border border-slate-200 p-4">
-          <summary className="cursor-pointer text-base font-semibold text-brand">Read more about this section</summary>
-          <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-600">{brandText(q.consentText, { name: providerName, phone: supportPhone })}</p>
+        <details className="rounded-2xl border-2 border-brand/40 bg-white p-4">
+          <summary className="cursor-pointer text-lg font-extrabold text-brand">Tap to read the full text</summary>
+          <p className="mt-3 whitespace-pre-line text-base leading-relaxed text-slate-700">{brandText(q.consentText, { name: providerName, phone: supportPhone })}</p>
         </details>
+        <ConsentAudio text={q.consentText} providerName={providerName} providerPhone={supportPhone} />
         {q.key === "consent_tailored_plan" ? (
           <div className="space-y-3">
             <button type="button" className={`btn-primary min-h-[64px] w-full text-xl ${justPicked === "yes" ? "ring-4 ring-emerald-300" : ""}`}
@@ -659,15 +696,10 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
           <p className="rounded-xl bg-sky-50 p-4 text-base font-semibold text-sky-800">
             Your choice will be recorded. Saying no does not give permission to change your insurance plan.
           </p>
-        ) : q.required ? (
-          <p className="rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">
-            Need help before you agree? Call {providerDisplayName(providerName)} at {providerPhone(supportPhone, providerName)}.
-          </p>
         ) : (
-          <button type="button" className="btn-ghost min-h-[56px] w-full text-lg text-slate-600"
-            onClick={() => pickAndAdvance(q.key, "", "skip")}>
-            Skip this one for now
-          </button>
+          <p className="rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">
+            Please read or listen, then tap Agree. Need help? Call {providerDisplayName(providerName)} at {providerPhone(supportPhone, providerName)}.
+          </p>
         )}
       </div>
     );
@@ -676,26 +708,15 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   /* ---- radio / yesno / survey: big tap buttons, auto-advance ---- */
   if (q.type === "radio" || q.type === "yesno" || q.type === "survey") {
     const options = q.options && q.options.length ? q.options : SURVEY_OPTIONS;
-    if (options.length > 4) {
+    if (usesStrongMenu(q)) {
       return (
-        <div className="space-y-3">
-          <p className="rounded-xl bg-amber-50 p-3 text-base font-bold text-amber-900">Tap the menu below to choose one answer.</p>
-          <div className="relative">
-            <select
-              aria-label={easyQ(q, providerName, supportPhone)}
-              className="input min-h-[64px] appearance-none border-2 border-brand bg-brand-light pr-12 text-lg font-extrabold text-brand shadow-md"
-              value={String(value ?? "")}
-              onChange={(e) => set(q.key, e.target.value)}
-            >
-              <option value="">Tap to choose...</option>
-              {options.map((opt) => (
-                <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
-              ))}
-            </select>
-            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-black text-brand">⌄</span>
-          </div>
-          <p className="text-sm font-semibold text-slate-600">After choosing, tap the blue Next button at the bottom.</p>
-        </div>
+        <StrongMenuSelect
+          label={easyQ(q, providerName, supportPhone)}
+          value={String(value ?? "")}
+          options={options}
+          optionLabel={(opt) => easyOpt(q, opt, providerName, supportPhone)}
+          onChange={(next) => set(q.key, next)}
+        />
       );
     }
     return (
@@ -722,6 +743,9 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
     const arr = Array.isArray(value) ? value : [];
     return (
       <div className="space-y-3">
+        {usesStrongMenu(q) && (
+          <p className="rounded-xl bg-amber-50 p-3 text-base font-bold text-amber-900">Tap every answer that fits. Big buttons — you can pick more than one.</p>
+        )}
         <p className="text-base text-slate-500">You can pick more than one.</p>
         {(q.options || []).map((opt) => {
           const on = arr.includes(opt);
@@ -735,9 +759,6 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             </button>
           );
         })}
-        <button type="button" className="btn-primary mt-2 min-h-[64px] w-full text-xl" onClick={() => onNext()}>
-          Done - Next
-        </button>
       </div>
     );
   }
@@ -749,9 +770,6 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
         <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
           enterKeyHint="next"
           onChange={(e) => set(q.key, e.target.value)} />
-        <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={() => onNext()}>
-          Next
-        </button>
       </div>
     );
   }
@@ -761,6 +779,19 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   const inputMode = q.type === "phone" ? "tel" : q.type === "email" ? "email" : "text";
   return (
     <div className="space-y-4">
+      {q.contactPicker && (
+        <ContactPickerButton
+          onPick={(name, phone) => {
+            if (name) set(q.key, name);
+            if (phone && q.key.endsWith("_name")) {
+              const phoneKey = /^ec\d_name$/.test(q.key)
+                ? q.key.replace(/_name$/, "_cell_phone")
+                : q.key.replace(/_name$/, "_phone");
+              set(phoneKey, phone);
+            }
+          }}
+        />
+      )}
       {q.voice || multiline ? (
         <VoiceInput value={String(value ?? "")} onChange={(x) => set(q.key, x)}
           onPendingValueChange={setPendingVoiceValue}
@@ -784,10 +815,76 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             }
           }} />
       )}
-      <button type="button" className="btn-primary min-h-[64px] w-full text-xl"
-        onClick={() => onNext(pendingVoiceValue ?? undefined)}>
-        {pendingVoiceValue ? "Use speech & Next" : "Next"}
+      {pendingVoiceValue && (
+        <button type="button" className="btn-secondary min-h-[56px] w-full text-lg"
+          onClick={() => onNext(pendingVoiceValue)}>
+          Use speech & Next
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StrongMenuSelect({ label, value, options, optionLabel, onChange }: {
+  label: string;
+  value: string;
+  options: string[];
+  optionLabel: (opt: string) => string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="rounded-2xl bg-amber-50 p-4 text-lg font-extrabold leading-snug text-amber-950">
+        Tap the big menu button to pick one answer.
+      </p>
+      <label className="relative block">
+        <span className="sr-only">{label}</span>
+        <select
+          aria-label={label}
+          className="min-h-[88px] w-full appearance-none rounded-2xl border-4 border-brand bg-white px-5 pr-16 text-2xl font-black text-brand shadow-lg"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">Tap here to choose…</option>
+          {options.map((opt) => (
+            <option key={opt} value={opt}>{optionLabel(opt)}</option>
+          ))}
+        </select>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-5 flex items-center text-4xl font-black text-brand">▾</span>
+      </label>
+      <p className="text-base font-semibold text-slate-600">After you pick, tap the blue Next button at the bottom.</p>
+    </div>
+  );
+}
+
+/** Optional one-contact picker. Never reads the full address book. */
+function ContactPickerButton({ onPick }: { onPick: (name: string, phone: string) => void }) {
+  const [note, setNote] = useState("");
+  const supported = typeof navigator !== "undefined" && "contacts" in navigator && "ContactsManager" in window;
+  if (!supported) return null;
+  return (
+    <div className="space-y-2">
+      <button
+        type="button"
+        className="btn-secondary min-h-[56px] w-full text-lg"
+        onClick={async () => {
+          setNote("");
+          try {
+            const nav = navigator as Navigator & {
+              contacts?: { select: (props: string[], opts: { multiple: boolean }) => Promise<Array<{ name?: string[]; tel?: string[] }>> };
+            };
+            const picked = await nav.contacts?.select(["name", "tel"], { multiple: false });
+            const first = picked?.[0];
+            if (!first) return;
+            onPick(first.name?.[0] || "", first.tel?.[0] || "");
+          } catch {
+            setNote("You can type or speak the name instead.");
+          }
+        }}
+      >
+        Pick one person from my phone
       </button>
+      {note && <p className="text-sm text-slate-500">{note}</p>}
     </div>
   );
 }
