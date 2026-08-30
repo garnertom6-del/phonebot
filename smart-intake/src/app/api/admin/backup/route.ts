@@ -13,7 +13,8 @@ function redactToken(value: string | null | undefined): string {
 }
 
 /**
- * One-click backup. Requires confirmPhi=yes so a PHI download is deliberate.
+ * PHI backup. Requires confirmPhi=yes so a dump is deliberate; the UI must
+ * never put that query on the href until staff confirms a dialog.
  * Live intake/follow-up tokens are redacted. Follow-ups are included.
  */
 export async function GET(req: NextRequest) {

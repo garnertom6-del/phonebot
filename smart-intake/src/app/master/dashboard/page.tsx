@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { INTAKE_STATUS_LABELS, staffReviewCountFromSummary } from "@/lib/dashboardWorkflow";
 import { packetDisplayStatus } from "@/lib/packetDisplayStatus";
 import { filterProvidersBySearch, providerSearchFieldsFromRow, type ProviderSearchMatch } from "@/lib/providerSearch";
+import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
 
 type ProviderRow = {
   id: string;
@@ -917,11 +918,7 @@ export default function MasterDashboard() {
             ) : (
               <Link href="/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Intake dashboard</Link>
             )}
-            {isMaster && <a href="/api/admin/backup?confirmPhi=yes" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20" onClick={(event) => {
-              if (!window.confirm("This backup contains protected health information. Download it only to a private, encrypted location. Continue?")) {
-                event.preventDefault();
-              }
-            }}>Download backup</a>}
+            {isMaster && <PhiBackupDownloadButton className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20" />}
             <button
               className="btn-secondary bg-white/15 text-white hover:bg-white/25"
               onClick={async () => {
