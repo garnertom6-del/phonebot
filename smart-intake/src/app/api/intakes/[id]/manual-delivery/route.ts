@@ -4,6 +4,7 @@ import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit, type AuditEvent } from "@/lib/auditLog";
 import { loadAnswers } from "@/lib/intakeData";
+import { FILL_INSURANCE_NEXT_STEP, insuranceSmsBlockReason } from "@/lib/insurancePlans";
 import { formatUsPhoneDisplay } from "@/lib/intakeContacts";
 import {
   clientDeliveryContacts,
@@ -40,6 +41,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
   const answers = await loadAnswers(intake.id);
+  if (parsed.data.purpose === "intake" || parsed.data.purpose === "signature") {
+    const insuranceBlock = insuranceSmsBlockReason(answers);
+    if (insuranceBlock) {
+      return NextResponse.json({
+        error: insuranceBlock,
+        nextStep: FILL_INSURANCE_NEXT_STEP,
+      }, { status: 409 });
+    }
+  }
   const contacts = parsed.data.purpose === "follow-up" || parsed.data.purpose === "copies"
     ? clientFollowUpDeliveryContacts(intake.client, answers, intake.signatures)
     : clientDeliveryContacts(intake.client, answers);

@@ -6,8 +6,8 @@ import { useCallback, useEffect, useRef, useState, Suspense } from "react";
 import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { consumeDashboardFlash, dashboardTabFromQuery } from "@/lib/dashboardFlash";
-import { INSURANCE_BEFORE_SMS_MESSAGE } from "@/lib/insurancePlans";
+import { consumeDashboardFlash, dashboardHrefWithTab, dashboardTabFromQuery } from "@/lib/dashboardFlash";
+import { FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE } from "@/lib/insurancePlans";
 
 interface Row {
   id: string;
@@ -182,10 +182,12 @@ function Dashboard() {
   const providerSlugFromUrl = searchParams.get("providerSlug");
   const createdIntakeId = searchParams.get("created")?.trim() || "";
   const requestedTab = dashboardTabFromQuery(searchParams.get("tab"));
+  const tabFromUrl = requestedTab || "action";
+  const [tabOverride, setTabOverride] = useState<string | null>(null);
+  const tab = tabOverride ?? tabFromUrl;
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
-  const [tab, setTab] = useState(() => requestedTab || "action");
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
   const [isMaster, setIsMaster] = useState(false);
@@ -232,6 +234,10 @@ function Dashboard() {
   }, [router, providerIdFromUrl, providerSlugFromUrl]);
 
   useEffect(() => {
+    if (tabOverride && tabFromUrl === tabOverride) setTabOverride(null);
+  }, [tabFromUrl, tabOverride]);
+
+  useEffect(() => {
     let active = true;
     async function boot() {
       if (providerIdFromUrl || providerSlugFromUrl) {
@@ -255,6 +261,15 @@ function Dashboard() {
     void boot();
     return () => { active = false; };
   }, [load, providerIdFromUrl, providerSlugFromUrl]);
+
+  function selectDashboardTab(nextTab: string) {
+    setSearch("");
+    setTabOverride(nextTab);
+    const href = dashboardHrefWithTab(nextTab, searchParams.toString());
+    window.history.replaceState(window.history.state, "", href);
+    router.replace(href, { scroll: false });
+    window.setTimeout(() => document.getElementById("intake-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
 
   useEffect(() => {
     if (!rows || !createdIntakeId || announcedCreatedIntakeRef.current === createdIntakeId) return;
@@ -331,16 +346,6 @@ function Dashboard() {
     }
   }
 
-  function selectDashboardTab(nextTab: string) {
-    setSearch("");
-    setTab(nextTab);
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("tab", nextTab);
-    params.delete("created");
-    router.replace(`/dashboard?${params.toString()}`, { scroll: false });
-    window.setTimeout(() => document.getElementById("intake-results")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
-  }
-
   async function copyLink(row: Row) {
     if (clientLinkMessagingFinished(row.status)) {
       showNote("This intake is already signed. Use the client-copies link instead of the intake link.", 6500, "error");
@@ -367,7 +372,7 @@ function Dashboard() {
 
   async function remind(row: Row) {
     if (row.insurancePlanReady === false) {
-      showNote(INSURANCE_BEFORE_SMS_MESSAGE, 7000, "error");
+      showNote(`${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`, 7000, "error");
       return;
     }
     const response = await fetch(`/api/intakes/${row.id}/remind`, { method: "POST" });
@@ -592,7 +597,7 @@ function Dashboard() {
   return (
     <main className="mx-auto max-w-7xl p-4 sm:p-6">
       {isMaster && (
-        <div className="sticky top-2 z-30 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm">
           <p className="font-semibold">Viewing as {providerName}</p>
           <Link href="/master/dashboard" className="btn-ghost border-sky-300 bg-white px-3 py-1.5 text-xs text-sky-950 hover:bg-sky-100">
             Return to master
@@ -817,8 +822,13 @@ function Dashboard() {
                   </p>
                 </div>
                 <div className="rounded-2xl bg-slate-50 px-4 py-3 text-right">
-                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">Client answer coverage</p>
+                  <p className="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+                    {["SIGNED", "COMPLETED"].includes(row.status) ? "Client questions asked" : "Client questions"}
+                  </p>
                   <p className="mt-1 text-2xl font-bold text-slate-900">{row.percentComplete}%</p>
+                  {["SIGNED", "COMPLETED"].includes(row.status) && (
+                    <p className="mt-1 text-[11px] font-semibold text-slate-500">Client signed — this is the SMS ask list, not the staff packet.</p>
+                  )}
                 </div>
               </div>
 
@@ -951,18 +961,27 @@ function Dashboard() {
                     {!linkFinished && (
                       <button
                         className="btn-ghost px-3 py-2 text-sm"
-                        disabled={rowBusy || !hasSavedContact}
-                        title={hasSavedContact ? "Send the secure link to the saved phone and email" : "Add a client phone or email first"}
+                        disabled={rowBusy || !hasSavedContact || row.insurancePlanReady === false}
+                        title={
+                          row.insurancePlanReady === false
+                            ? `${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`
+                            : hasSavedContact ? "Send the secure link to the saved phone and email" : "Add a client phone or email first"
+                        }
                         onClick={() => void runRowAction(row.id, () => remind(row))}
                       >
                         {linkExpired ? "Renew & send link" : "Send intake reminder"}
                       </button>
                     )}
-                    {["SIGNED", "COMPLETED"].includes(row.status) && (
+                    {!linkFinished && linkExpired && (
+                      <Link className="btn-ghost px-3 py-2 text-sm" href={`/intakes/${row.id}`}>
+                        Renew link without sending SMS
+                      </Link>
+                    )}
+                    {row.status === "COMPLETED" && (
                       <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                         onClick={() => void runRowAction(row.id, () => sendCopies(row))}>Send client copies</button>
                     )}
-                    {["SIGNED", "COMPLETED"].includes(row.status) && (
+                    {row.status === "COMPLETED" && (
                       <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy client-copies link</button>
                     )}
                     <button

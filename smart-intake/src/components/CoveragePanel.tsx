@@ -83,7 +83,7 @@ export default function CoveragePanel({ intakeId }: { intakeId: string }) {
           </button>
         ) : (
           <span className="text-xs text-slate-400">
-            Direct check not connected — enroll as an NC Tracks Trading Partner (see README_NCTRACKS_EDI.md).
+        Direct check not connected. Enroll as an NC Tracks Trading Partner, or enter coverage by hand.
           </span>
         )}
       </div>

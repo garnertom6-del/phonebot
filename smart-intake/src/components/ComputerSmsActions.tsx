@@ -21,6 +21,7 @@ type Props = {
   link?: string;
   disabled?: boolean;
   compact?: boolean;
+  hideRecordSent?: boolean;
   onStatus?: (message: string) => void;
   onRecorded?: () => void;
 };
@@ -34,6 +35,7 @@ export default function ComputerSmsActions({
   link,
   disabled,
   compact,
+  hideRecordSent,
   onStatus,
   onRecorded,
 }: Props) {
@@ -140,6 +142,7 @@ export default function ComputerSmsActions({
             Open SMS to {displayPhone}
           </a>
         )}
+        {!hideRecordSent && (
         <button
           className={`btn-ghost ${btn}`}
           type="button"
@@ -148,6 +151,7 @@ export default function ComputerSmsActions({
         >
           {markedSent ? "Marked as sent" : markBusy ? "Saving..." : "I sent this SMS"}
         </button>
+        )}
       </div>
       {copiedFallback && !smsCapable && (
         <p className={`${compact ? "text-xs" : "text-sm"} text-slate-600`}>

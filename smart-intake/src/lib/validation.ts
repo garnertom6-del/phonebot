@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { REQUIRED_FOR_SUBMIT, SECTIONS, questionByKey, questionCatalogId, questionVisibleInCatalog, type AskIf, type Question } from "@/config/mooreDivineQuestions";
+import { REQUIRED_FOR_SUBMIT, SECTIONS, isClientQuestionVisible, isQuickIntakeQuestion, questionByKey, questionCatalogId, questionVisibleInCatalog, type AskIf, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 import { assignIntakeContacts, isPlausiblePhone } from "./intakeContacts";
 
@@ -223,6 +223,31 @@ export function percentComplete(answers: Answers): number {
       visible++;
       const v = answers[q.key];
       if (v !== undefined && v !== "" && v !== null && !(Array.isArray(v) && !v.length)) answered++;
+    }
+  }
+  return visible ? Math.round((answered / visible) * 100) : 0;
+}
+
+function hasAnsweredValue(value: unknown): boolean {
+  return value !== undefined && value !== "" && value !== null && !(Array.isArray(value) && !value.length);
+}
+
+/**
+ * Coverage of questions the client is actually asked (Easy / SMS list),
+ * not the full staff packet catalog.
+ */
+export function clientAskedPercentComplete(
+  answers: Answers,
+  opts: { quick?: boolean } = { quick: true },
+): number {
+  let visible = 0, answered = 0;
+  for (const s of SECTIONS) {
+    if (s.key === "welcome") continue;
+    for (const q of s.questions) {
+      if (opts.quick && !isQuickIntakeQuestion(q) && !q.askIf) continue;
+      if (!isClientQuestionVisible(q, answers, answers)) continue;
+      visible++;
+      if (hasAnsweredValue(answers[q.key])) answered++;
     }
   }
   return visible ? Math.round((answered / visible) * 100) : 0;

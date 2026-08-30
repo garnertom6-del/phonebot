@@ -62,7 +62,7 @@ export interface CheckInput {
 
 export async function checkNcTracksEligibility(input: CheckInput): Promise<EligibilityCheck> {
   if (!nctracksEdiConfigured()) {
-    throw new Error("NC Tracks EDI is not connected yet. Enroll as a Trading Partner (see README_NCTRACKS_EDI.md).");
+    throw new Error("NC Tracks EDI is not connected yet. Enroll as a Trading Partner, or enter coverage by hand.");
   }
   const { lastName, firstName } = splitName(input.fullName);
   const member: Edi270Member = {

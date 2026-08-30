@@ -4,6 +4,7 @@ import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { loadAnswers } from "@/lib/intakeData";
+import { FILL_INSURANCE_NEXT_STEP, insuranceSmsBlockReason } from "@/lib/insurancePlans";
 
 type ManualSendMethod = "sms" | "in_person" | "email";
 
@@ -32,7 +33,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json().catch(() => ({})) as { method?: unknown };
   const method = parseMethod(body?.method);
-  const contacts = clientDeliveryContacts(intake.client, await loadAnswers(intake.id));
+  const answers = await loadAnswers(intake.id);
+  const insuranceBlock = insuranceSmsBlockReason(answers);
+  if (insuranceBlock) {
+    return NextResponse.json({
+      error: insuranceBlock,
+      nextStep: FILL_INSURANCE_NEXT_STEP,
+    }, { status: 409 });
+  }
+  const contacts = clientDeliveryContacts(intake.client, answers);
   const detail = method === "in_person"
     ? "client opened the secure link in person (QR code on the staff screen)"
     : method === "email"

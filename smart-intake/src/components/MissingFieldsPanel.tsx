@@ -1,7 +1,16 @@
 interface Missing { key: string; label: string; section?: string }
 
-export default function MissingFieldsPanel({ required, optional }: { required: Missing[]; optional: Missing[] }) {
+export default function MissingFieldsPanel({
+  required,
+  optional,
+  headlineCount,
+}: {
+  required: Missing[];
+  optional: Missing[];
+  headlineCount?: number;
+}) {
   const requiredComplete = required.length === 0;
+  const total = headlineCount ?? required.length;
   return (
     <div className="card">
       <h3 className="mb-2 font-bold">Missing field checklist</h3>
@@ -15,7 +24,9 @@ export default function MissingFieldsPanel({ required, optional }: { required: M
         )
       ) : (
         <>
-          <p className="mb-1 text-sm font-semibold text-red-600">Required before completion ({required.length}):</p>
+          <p className="mb-1 text-sm font-semibold text-red-600">
+            {total} required item{total === 1 ? "" : "s"} missing
+          </p>
           <ul className="mb-3 list-inside list-disc text-sm text-red-700">
             {required.map((m) => <li key={m.key}>{m.label}</li>)}
           </ul>

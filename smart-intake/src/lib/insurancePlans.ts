@@ -228,6 +228,16 @@ export function staffInsurancePlanReady(answers: Record<string, unknown> | null 
 export const INSURANCE_BEFORE_SMS_MESSAGE =
   "Fill the type of insurance / MCO / Medicaid plan before the SMS goes out. Staff sets the plan in back-office setup. Do not send the client link until the plan is filled.";
 
+export const FILL_INSURANCE_NEXT_STEP =
+  "Open Type of insurance, pick the plan / MCO, save, then send.";
+
+/** Staff-facing block reason, or null when SMS/copy/open/I-sent may fire. */
+export function insuranceSmsBlockReason(
+  answers: Record<string, unknown> | null | undefined,
+): string | null {
+  return staffInsurancePlanReady(answers) ? null : INSURANCE_BEFORE_SMS_MESSAGE;
+}
+
 export function insuranceSummary(answers: Record<string, unknown>): string {
   const parts: string[] = [];
   if (text(answers.has_medicaid) === "Yes") parts.push("Medicaid");

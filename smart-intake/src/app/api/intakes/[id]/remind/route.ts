@@ -18,6 +18,7 @@ import {
 } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { loadAnswers } from "@/lib/intakeData";
+import { FILL_INSURANCE_NEXT_STEP, insuranceSmsBlockReason } from "@/lib/insurancePlans";
 
 function sentLabel(r: NotifyResult): string {
   return `${r.channel.toUpperCase()} to ${r.to}: ${r.detail}`;
@@ -45,7 +46,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       error: "The client or guardian already signed this intake. No intake reminder was sent.",
     }, { status: 409 });
   }
-  const contacts = clientDeliveryContacts(intake.client, await loadAnswers(intake.id));
+  const answers = await loadAnswers(intake.id);
+  const insuranceBlock = insuranceSmsBlockReason(answers);
+  if (insuranceBlock) {
+    return NextResponse.json({
+      error: insuranceBlock,
+      nextStep: FILL_INSURANCE_NEXT_STEP,
+    }, { status: 409 });
+  }
+  const contacts = clientDeliveryContacts(intake.client, answers);
   if (!contacts.phone && !contacts.email) {
     await audit("link_reminder_failed", {
       providerId: provider!.id,

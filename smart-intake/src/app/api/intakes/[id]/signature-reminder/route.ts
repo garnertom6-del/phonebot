@@ -19,6 +19,7 @@ import {
 } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { loadAnswers } from "@/lib/intakeData";
+import { FILL_INSURANCE_NEXT_STEP, insuranceSmsBlockReason } from "@/lib/insurancePlans";
 
 function sentLabel(result: NotifyResult): string {
   return `${result.channel.toUpperCase()} to ${result.to}: ${result.detail}`;
@@ -57,7 +58,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       message: "The client or guardian signature is already saved. No reminder was sent.",
     });
   }
-  const contacts = clientDeliveryContacts(intake.client, await loadAnswers(intake.id));
+  const answers = await loadAnswers(intake.id);
+  const insuranceBlock = insuranceSmsBlockReason(answers);
+  if (insuranceBlock) {
+    return NextResponse.json({
+      error: insuranceBlock,
+      nextStep: FILL_INSURANCE_NEXT_STEP,
+    }, { status: 409 });
+  }
+  const contacts = clientDeliveryContacts(intake.client, answers);
   if (!contacts.phone && !contacts.email) {
     await audit("signature_reminder_failed", {
       providerId: provider!.id,

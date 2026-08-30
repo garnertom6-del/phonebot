@@ -280,11 +280,13 @@ export function applyOperationalDefaults(input: Answers, opts: { forPdf?: boolea
     setDefault(a, key, addOneYear(intakeDate));
   }
 
-  // Do not invent coverage, language, guardian status, clinical severity, or
+  // Do not invent coverage, guardian status, clinical severity, or
   // program/service eligibility. Those values require a record, CCA, or staff
   // review. A verified MID is sufficient evidence for the Medicaid checkbox.
+  // Preferred language is a staff constant (English) — never a client SMS ask.
   if (!isBlank(a.mid_number)) setDefault(a, "has_medicaid", "Yes");
   setDefault(a, "has_nchc", "No");
+  setDefault(a, "language", "English");
 
   setDefault(a, "pcp_plan_client_name", s(a.client_full_name));
   setDefault(a, "pcp_plan_dob", s(a.dob));

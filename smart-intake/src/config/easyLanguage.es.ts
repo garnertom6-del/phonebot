@@ -47,7 +47,8 @@ export const GLOBAL_OPTIONS_ES: Record<string, string> = {
   // education
   "Grade/Elementary": "Primaria",
   "High School/GED": "Secundaria o GED",
-  "College": "Algo de universidad o un título",
+      "College": "Título universitario",
+      "Some College": "Algo de universidad",
   "Graduate": "Un título después de la universidad (como una maestría)",
   "Post Graduate": "Estudios después de la maestría (como un doctorado)",
   // language
@@ -602,7 +603,7 @@ export const SECTION_INTROS_ES: Record<string, string> = {
   snap: "Cuéntenos qué le hace ser usted.",
   mental_health: "¿Cómo se ha sentido?",
   medical: "Ahora un poco sobre su salud y su doctor.",
-  medications: "¿Qué medicinas toma?",
+  medications: "",
   legal: "Unas preguntas legales rápidas. Las respuestas honestas ayudan - nadie se mete en problemas.",
   emergency: "¿A quién llamamos si alguna vez necesita ayuda rápido?",
   substance: "Ahora unas preguntas honestas. Aquí nadie juzga - nunca.",

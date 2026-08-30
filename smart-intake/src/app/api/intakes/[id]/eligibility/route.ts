@@ -45,7 +45,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
     return NextResponse.json(
       {
         configured: false,
-        error: "Automatic NC Tracks eligibility is not connected yet. Enroll as an NC Tracks Trading Partner (see README_NCTRACKS_EDI.md), or enter the details by hand.",
+        error: "Automatic NC Tracks eligibility is not connected yet. Enroll as an NC Tracks Trading Partner, or enter the details by hand.",
       },
       { status: 400 },
     );

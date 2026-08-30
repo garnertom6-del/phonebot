@@ -188,7 +188,8 @@ export const EASY: Record<string, EasyText> = {
       "High School/GED": "High school or GED",
       "High School": "High school",
       "GED": "GED",
-      "College": "Some college or a college degree",
+      "College": "College degree",
+      "Some College": "Some college",
       "Graduate": "A degree after college (like a master's)",
       "Post Graduate": "Schooling after a master's (like a doctorate)",
     },
@@ -605,6 +606,13 @@ export const EASY: Record<string, EasyText> = {
 /* Section intros - one friendly sentence per section                  */
 /* ------------------------------------------------------------------ */
 
+/** Empty intro means Easy Mode skips the interstitial (meds belong on the CCA). */
+export function easyClientSectionIntro(sectionKey: string): string | null {
+  const intro = SECTION_INTROS[sectionKey];
+  if (!intro) return null;
+  return intro;
+}
+
 export const SECTION_INTROS: Record<string, string> = {
   mood_check: "Now a few questions about how you have been FEELING the last 2 weeks. There are no wrong answers.",
   welcome: "Hi! Let's get you set up. Go at your own pace - your answers are saved.",
@@ -618,7 +626,7 @@ export const SECTION_INTROS: Record<string, string> = {
   snap: "Tell us what makes you, you.",
   mental_health: "How have you been feeling?",
   medical: "Now a bit about your health and your doctor.",
-  medications: "What medicine do you take?",
+  medications: "",
   legal: "A few quick legal questions. Honest answers help - nobody gets in trouble.",
   emergency: "Who should we call if you ever need help fast?",
   substance: "Some honest questions now. No judging here - ever.",
