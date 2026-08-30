@@ -51,3 +51,16 @@ export function buildNewIntakeReadiness(input: NewIntakeReadinessInput) {
     packet,
   };
 }
+
+/** Primary create-button copy. SMS texting is opt-in only. */
+export function newIntakeCreateLabel(input: {
+  isCreating?: boolean;
+  packetContextError?: boolean;
+  hasSmsPhone?: boolean;
+  sendSmsAfterCreate?: boolean;
+}): string {
+  const textNow = !!(input.hasSmsPhone && input.sendSmsAfterCreate);
+  if (input.isCreating) return textNow ? "Creating and texting the link..." : "Creating intake...";
+  if (input.packetContextError) return "Sign in to create an intake";
+  return textNow ? "Create and text the link" : "Create intake";
+}

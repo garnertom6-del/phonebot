@@ -12,10 +12,12 @@ import {
   formatUsPhoneDisplay,
 } from "@/lib/intakeContacts";
 import {
+  emptyExtractedNoteFields,
   extractIntakeNoteFields,
+  extractedNoteFieldState,
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness } from "@/lib/newIntakeReadiness";
+import { buildNewIntakeReadiness, newIntakeCreateLabel } from "@/lib/newIntakeReadiness";
 import {
   DEFAULT_INTAKE_STATE,
   canOfferCompletedPacketEmail,
@@ -264,7 +266,6 @@ export default function NewIntake() {
     else if (useAddress) setHomelessSelected(false);
     if (openDetails) setDetailsOpen(true);
     if (openAdvanced) setAdvancedOpen(true);
-    if (formPatch.phone) setSendSmsAfterCreate(true);
   }
 
   function ingestHelperNotes(notes: string, fillEmpty: boolean) {
@@ -592,13 +593,13 @@ export default function NewIntake() {
     );
   }
 
-  const submitLabel = isCreating
-    ? (smsPhone && sendSmsAfterCreate ? "Creating and texting the link..." : "Creating intake...")
-    : packetContextError
-      ? "Sign in to create an intake"
-    : smsPhone && sendSmsAfterCreate
-      ? "Create and text the link"
-      : "Create intake";
+  const submitLabel = newIntakeCreateLabel({
+    isCreating,
+    packetContextError: !!packetContextError,
+    hasSmsPhone: !!smsPhone,
+    sendSmsAfterCreate,
+  });
+  const emptyExtracted = emptyExtractedNoteFields(extractedFields, noteFieldCurrentValue);
 
   return (
     <main className="mx-auto max-w-xl p-4 pb-28 sm:p-6">
@@ -663,7 +664,7 @@ export default function NewIntake() {
         <section id="new-intake-paste" className="mb-4 rounded-xl border border-brand/20 bg-brand-light/20 p-4">
           <h2 className="font-bold text-slate-900">Paste CCA / quick notes</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Paste first, confirm the chips, then create. Empty identity, address, phone, and emergency-contact fields fill automatically. Confirmed fields are not overwritten unless you choose replace.
+            Paste first, then Use these. That one action fills empty identity, address, phone, and emergency-contact fields. Fields you already typed stay unless you choose replace on a chip.
           </p>
           <label className="mt-3 block">
             <span className="label">Quick notes</span>
@@ -685,26 +686,45 @@ export default function NewIntake() {
           </label>
           {extractedFields.length > 0 && (
             <div className="mt-3 rounded-lg border border-brand/20 bg-white p-3">
-              <p className="text-sm font-semibold text-slate-800">Extracted from notes — confirm each value</p>
-              <p className="mt-1 text-xs text-slate-500">Empty fields are filled automatically. Confirmed fields are not overwritten unless you choose replace.</p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {extractedFields.map((field) => {
-                  const current = noteFieldCurrentValue(field).trim();
-                  const applied = current === field.value.trim();
-                  const occupied = !!current && !applied;
-                  return (
-                    <button
-                      key={`${field.key}:${field.value}`}
-                      type="button"
-                      className={applied ? "chip chip-on" : "chip"}
-                      onClick={() => applyNoteField(field)}
-                    >
-                      {field.label}: {field.value}
-                      {applied ? " (applied)" : occupied ? " (replace)" : " (use)"}
-                    </button>
-                  );
-                })}
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <div>
+                  <p className="text-sm font-semibold text-slate-800">Extracted from notes</p>
+                  <p className="mt-1 text-xs text-slate-500">
+                    Use these fills empty fields only. Individual chips can replace a field you already typed.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="btn-primary px-3 py-2 text-sm"
+                  disabled={emptyExtracted.length === 0}
+                  onClick={() => applyNoteFields(extractedFields, true)}
+                >
+                  {emptyExtracted.length
+                    ? `Use these (${emptyExtracted.length})`
+                    : extractedFields.every((field) => extractedNoteFieldState(field, noteFieldCurrentValue(field)) === "applied")
+                      ? "Empty fields applied"
+                      : "No empty fields to fill"}
+                </button>
               </div>
+              <details className="mt-3">
+                <summary className="cursor-pointer text-sm font-semibold text-slate-700">Review or replace individual fields</summary>
+                <div className="mt-3 flex flex-wrap gap-2">
+                  {extractedFields.map((field) => {
+                    const state = extractedNoteFieldState(field, noteFieldCurrentValue(field));
+                    return (
+                      <button
+                        key={`${field.key}:${field.value}`}
+                        type="button"
+                        className={state === "applied" ? "chip chip-on" : "chip"}
+                        onClick={() => applyNoteField(field)}
+                      >
+                        {field.label}: {field.value}
+                        {state === "applied" ? " (applied)" : state === "replace" ? " (replace)" : " (use)"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </details>
             </div>
           )}
         </section>
@@ -744,8 +764,6 @@ export default function NewIntake() {
                   onChange={(e) => {
                     const phone = e.target.value;
                     setForm((f) => ({ ...f, phone }));
-                    const assigned = assignIntakeContacts(form.email || "", phone);
-                    setSendSmsAfterCreate(!!assigned.phone && !assigned.error);
                     if (contactError) setContactError("");
                   }}
                   placeholder="10-digit cell"
@@ -767,8 +785,6 @@ export default function NewIntake() {
                   onChange={(e) => {
                     const email = e.target.value;
                     setForm((f) => ({ ...f, email }));
-                    const assigned = assignIntakeContacts(email, form.phone || "");
-                    setSendSmsAfterCreate(!!assigned.phone && !assigned.error);
                     if (contactError) setContactError("");
                   }}
                   placeholder="Optional email"
@@ -794,7 +810,12 @@ export default function NewIntake() {
                     checked={sendSmsAfterCreate}
                     onChange={(event) => setSendSmsAfterCreate(event.target.checked)}
                   />
-                  <span>I confirmed this mobile number and want to text the link immediately.</span>
+                  <span>
+                    I confirmed this mobile number and want to text the link immediately.
+                    <span className="mt-1 block text-xs font-normal text-blue-900">
+                      Leave unchecked to create the intake without sending a text. Checking this changes the button to Create and text the link.
+                    </span>
+                  </span>
                 </label>
               </div>
             )}

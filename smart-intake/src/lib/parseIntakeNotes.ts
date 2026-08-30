@@ -269,3 +269,20 @@ export function extractIntakeNoteFields(notes: string): IntakeNoteField[] {
       value: parsed[key],
     }));
 }
+
+export type ExtractedNoteFieldState = "empty" | "applied" | "replace";
+
+export function extractedNoteFieldState(field: IntakeNoteField, currentValue: string): ExtractedNoteFieldState {
+  const current = currentValue.trim();
+  if (current === field.value.trim()) return "applied";
+  if (current) return "replace";
+  return "empty";
+}
+
+/** Empty-field chips only. Occupied fields stay until staff confirms replace. */
+export function emptyExtractedNoteFields(
+  fields: IntakeNoteField[],
+  currentOf: (field: IntakeNoteField) => string,
+): IntakeNoteField[] {
+  return fields.filter((field) => extractedNoteFieldState(field, currentOf(field)) === "empty");
+}
