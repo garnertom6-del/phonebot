@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { createdIntakeDashboardHref, deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
@@ -363,6 +363,16 @@ export default function NewIntake() {
   }
 
   async function sendCreatedLink(intakeId: string) {
+    if (!recordPanel.trim()) {
+      setSendStatusKind("error");
+      setSendStatus(INSURANCE_BEFORE_SMS_MESSAGE);
+      setAdvancedOpen(true);
+      window.setTimeout(() => {
+        document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
+      }, 0);
+      return;
+    }
     setSendBusy(true);
     setSendStatusKind("info");
     setSendStatus("Sending...");
@@ -422,6 +432,16 @@ export default function NewIntake() {
       setForm((current) => ({ ...current, ...nextForm }));
       setError("Add the client's full name and date of birth before creating the secure link.");
       window.setTimeout(focusFirstMissing, 0);
+      return;
+    }
+    if (sendSmsAfterCreate && !recordPanel.trim()) {
+      setForm((current) => ({ ...current, ...nextForm }));
+      setError(INSURANCE_BEFORE_SMS_MESSAGE);
+      setAdvancedOpen(true);
+      window.setTimeout(() => {
+        document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
+      }, 0);
       return;
     }
     if (assigned.error) {
@@ -817,6 +837,21 @@ export default function NewIntake() {
                     </span>
                   </span>
                 </label>
+                {sendSmsAfterCreate && !recordPanel.trim() && (
+                  <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
+                    {INSURANCE_BEFORE_SMS_MESSAGE}
+                    <button
+                      type="button"
+                      className="mt-2 block text-left font-bold text-brand underline"
+                      onClick={() => {
+                        setAdvancedOpen(true);
+                        window.setTimeout(() => document.getElementById("new-intake-record-panel")?.focus(), 0);
+                      }}
+                    >
+                      Open Advanced and fill the insurance plan
+                    </button>
+                  </p>
+                )}
               </div>
             )}
           </div>

@@ -62,7 +62,10 @@ import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
 import { buildMasterProviderListExtras } from "../src/lib/masterProviderList";
 import { assessMapping } from "../src/lib/mappingHealth";
 import { catalogEntryByKey, catalogPlacementFields, DEMO_CLIENT_ANSWERS, mappingCatalog, mappingFieldGuide, mappedSourceKeys, newCatalogField, overlayFillText, packetRequiredEntries } from "../src/lib/mappingCatalog";
-import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS } from "../src/config/mooreDivineQuestions";
+import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS, ethnicityForRace, isClientQuestionVisible, usesStrongMenu } from "../src/config/mooreDivineQuestions";
+import { flattenVisible } from "../src/components/EasyQuestionnaire";
+import { applySkippedClientPlaceholders, NONE_REPORTED_BY_CLIENT } from "../src/lib/answerDefaults";
+import { INSURANCE_BEFORE_SMS_MESSAGE, staffInsurancePlanReady } from "../src/lib/insurancePlans";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -2140,8 +2143,86 @@ async function main() {
   assert(!jResult.skipped.includes("cca_guardian_sig"), "guardian CCA signature missing");
   ok("guardian signature flows to required slots for a youth client");
 
-  assert.equal(applyOperationalDefaults({}).severity_of_need, undefined, "unanswered severity of need must stay blank");
-  ok("severity of need is not defaulted to Routine");
+  assert.equal(applyOperationalDefaults({}).severity_of_need, "Routine", "Routine 14-day start is the operational default");
+  ok("severity of need defaults to Routine");
+
+  {
+    const defaults = applyOperationalDefaults({});
+    assert.equal(defaults.has_medicaid, "Yes");
+    assert.equal(defaults.has_nchc, "No");
+    assert.equal(defaults.language, "English");
+    assert.equal(defaults.is_minor_or_incompetent, "No");
+    assert.equal(defaults.program_can_meet_needs, "Yes");
+    assert.equal(defaults.ability_to_provide, "Yes");
+    assert.equal(ethnicityForRace("Black or African American"), "Non-Hispanic/Black");
+    assert.equal(ethnicityForRace("Caucasian or White"), "Non-Hispanic/White");
+    assert.equal(ethnicityForRace("Asian"), "");
+    const black = applyOperationalDefaults({ race: "Black or African American" });
+    assert.equal(black.ethnicity, "Non-Hispanic/Black");
+    const white = applyOperationalDefaults({ race: "Caucasian or White" });
+    assert.equal(white.ethnicity, "Non-Hispanic/White");
+    const asian = applyOperationalDefaults({ race: "Asian" });
+    assert.equal(asian.ethnicity, undefined);
+    const skipped = applySkippedClientPlaceholders({ employment_status: "Employed" });
+    assert.equal(skipped.client_email, NONE_REPORTED_BY_CLIENT);
+    assert.equal(skipped.client_phone_work, NONE_REPORTED_BY_CLIENT);
+    const unemployedSkip = applySkippedClientPlaceholders({ employment_status: "Unemployed" });
+    assert.equal(unemployedSkip.client_phone_work, undefined);
+    const guardianKept = applyOperationalDefaults({ is_minor_or_incompetent: "Yes", guardian_name: "Erica Sample" });
+    assert.equal(guardianKept.is_minor_or_incompetent, "Yes");
+    ok("operational defaults: Medicaid/NCHC/English/minor/race ethnicity/email skip");
+  }
+
+  {
+    const hiddenKeys = [
+      "has_medicaid", "has_nchc", "language", "is_minor_or_incompetent", "client_phone_home",
+      "strengths", "needs", "medications", "otc_medications", "mh_history", "current_diagnosis_known",
+      "medical_diagnoses", "treatments", "referred_for", "sub1_name", "roi1_thru_date",
+      "intervention_valid_until",
+    ];
+    const answers = applyOperationalDefaults({
+      race: "Black or African American",
+      employment_status: "Unemployed",
+      living_arrangement: "Adult Alone",
+    });
+    for (const key of hiddenKeys) {
+      const q = questionByKey(key);
+      assert(q, `catalog missing ${key}`);
+      assert.equal(isClientQuestionVisible(q!, answers), false, `${key} must be hidden from the SMS client`);
+    }
+    const ethnicityQ = questionByKey("ethnicity");
+    assert.equal(isClientQuestionVisible(ethnicityQ!, answers), false, "Black/African American skips ethnicity");
+    const asianAnswers = applyOperationalDefaults({ race: "Asian" });
+    assert.equal(isClientQuestionVisible(ethnicityQ!, asianAnswers), true, "other races still get ethnicity");
+    const workPhone = questionByKey("client_phone_work");
+    assert.equal(isClientQuestionVisible(workPhone!, answers), false, "work phone hidden when unemployed");
+    const employed = { ...answers, employment_status: "Employed" };
+    assert.equal(isClientQuestionVisible(workPhone!, employed), true, "work phone asked when employed");
+    const emailQ = questionByKey("client_email");
+    assert.equal(isClientQuestionVisible(emailQ!, { ...answers, client_email: "a@b.com" }), true, "email is always asked on SMS");
+    const pcpFilled = { ...answers, pcp_name: "Dr. Example" };
+    assert.equal(isClientQuestionVisible(questionByKey("has_pcp")!, pcpFilled, pcpFilled), false, "PCP skipped when staff already filled the name");
+    const hospitalFilled = { ...answers, preferred_emergency_facility: "Moses Cone" };
+    assert.equal(isClientQuestionVisible(questionByKey("preferred_emergency_facility")!, hospitalFilled, hospitalFilled), false);
+    assert.equal(usesStrongMenu(questionByKey("marital_status")!), true);
+    assert.equal(usesStrongMenu(questionByKey("employment_status")!), true);
+    assert.equal(usesStrongMenu(questionByKey("education")!), true);
+    assert.equal(usesStrongMenu(questionByKey("veteran")!), true);
+    assert.equal(usesStrongMenu(questionByKey("referral_source")!), true);
+    const easyKeys = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, false, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(!easyKeys.includes("has_nchc"));
+    assert(!easyKeys.includes("language"));
+    assert(!easyKeys.includes("ethnicity"));
+    assert(!easyKeys.includes("sub1_name"));
+    assert(!easyKeys.includes("medications"));
+    assert(easyKeys.includes("client_email"));
+    assert(easyKeys.includes("consent_roi"));
+    assert(easyKeys.includes("roi_understand_1"));
+    assert(staffInsurancePlanReady({}) === false);
+    assert.equal(staffInsurancePlanReady({ provider_choice_plan: "Healthy Blue" }), true);
+    assert(INSURANCE_BEFORE_SMS_MESSAGE.toLowerCase().includes("insurance"));
+    ok("SMS skip visibility, strong menus, and insurance-before-SMS helper");
+  }
 
   const catalog = mappingCatalog();
   assert(catalog.length > 8, "intake catalog should be grouped by section");

@@ -95,6 +95,7 @@ const ANGELA_ANSWERS: Record<string, unknown> = {
   consent_hipaa: true, consent_confidentiality: true,
   consent_treatment_plan_participation: true, consent_receipt_treatment_plan: true,
   consent_cca: true, consent_tailored_plan: true,
+  consent_roi: true, roi_understand_1: "Yes", roi_understand_2: "Yes", roi_understand_3: "Yes",
 };
 
 const JAYDEN_ANSWERS: Record<string, unknown> = {
@@ -159,6 +160,7 @@ const JAYDEN_ANSWERS: Record<string, unknown> = {
   consent_hipaa: true, consent_confidentiality: true,
   consent_treatment_plan_participation: true, consent_receipt_treatment_plan: true,
   consent_cca: true, consent_tailored_plan: true,
+  consent_roi: true, roi_understand_1: "Yes", roi_understand_2: "Yes", roi_understand_3: "Yes",
 };
 
 async function seedIntake(opts: {
