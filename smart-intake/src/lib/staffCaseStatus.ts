@@ -33,10 +33,6 @@ function signatureHeadline(missing: SignatureStatus[]): string {
   return `Need ${joinLabels(labels)} signatures`;
 }
 
-function firstOpenStep(steps: CaseWorkflowStep[]): CaseWorkflowStep | undefined {
-  return steps.find((step) => !step.done && !step.skipped);
-}
-
 /**
  * One staff-facing truth for the case header, stepper, and send-copies gate.
  * Never reports packet-complete / signed-complete while CCA or required
@@ -61,7 +57,7 @@ export function buildCasePageStatus(input: {
   const preflightReady = input.preflightReady ?? true;
   const packetGenerated = input.generatedPdfCount > 0 && ccaDone;
   const sendCopiesAllowed = (
-    ["SIGNED", "COMPLETED"].includes(input.status)
+    input.status === "COMPLETED"
     && signaturesDone
     && ccaDone
     && packetGenerated
@@ -184,14 +180,11 @@ export function buildCasePageStatus(input: {
       steps,
     };
   }
-  const next = firstOpenStep(steps);
   return {
-    headline: "Ready to send copies",
-    detail: next?.key === "send"
-      ? "Required signatures are on the case. Send client copies when staff review is finished."
-      : "Required packet items and signatures are present.",
-    tone: "good",
-    sendCopiesAllowed,
+    headline: "Ready to mark completed",
+    detail: "Required answers, the CCA, staff review, signatures, and the current packet are ready. Mark the intake completed to release the client-copy delivery choice.",
+    tone: "brand",
+    sendCopiesAllowed: false,
     steps,
   };
 }

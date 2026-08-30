@@ -1,3 +1,5 @@
+import { COMPLETED_COPY_DELIVERY_KEY, COMPLETED_COPY_DELIVERY_OPTIONS } from "@/lib/clientCopyDelivery";
+
 /**
  * The client-facing questionnaire for the Moore Divine Care Client Intake
  * Package. Question keys line up with the `source` keys in
@@ -387,6 +389,20 @@ export const SECTIONS: Section[] = [
     questions: [{
       key: "consent_confidentiality", label: "Confidentiality Exception Form", type: "consent", required: true,
       consentText: "I understand Moore Divine Care, Inc. has strict Confidentiality and Client Rights policies that prohibit release of confidential consumer information. The exceptions under N.C.G.S. §§ 122C-53 through 122C-56 have been explained to me and I agree with them - including disclosure of admission/discharge to next of kin when in my best interest; internal client advocate access; court orders and abuse reports; care and treatment coordination between facilities; emergencies where there is imminent danger; benefits and educational eligibility; referring physician requests; and research, planning and audits where allowed. If I feel my confidentiality rights have been violated I may contact the Client Rights Committee Chair Person at 336-285-5204.",
+    }],
+  },
+  {
+    key: "client_copies", title: "Your Copies", fastIntake: true,
+    intro: "Your answers stay pending while the care team completes the CCA, required information, review, and QP signature. After staff marks the intake completed, a secure link to your rights and completed packet can be sent using your choice below.",
+    questions: [{
+      key: COMPLETED_COPY_DELIVERY_KEY,
+      label: "How do you want your completed intake copies?",
+      type: "radio",
+      options: [...COMPLETED_COPY_DELIVERY_OPTIONS],
+      required: false,
+      essential: true,
+      appOnly: true,
+      help: "Choose text, email, or both. If you skip this choice, we use both contact methods that are available. The completed packet is not sent until required answers, the CCA, staff review, the QP signature, and the final packet are ready.",
     }],
   },
   {

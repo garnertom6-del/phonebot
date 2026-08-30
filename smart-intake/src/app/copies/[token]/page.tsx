@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { loadAnswers } from "@/lib/intakeData";
 import { buildCompletedCopySections, COPY_ALLOWED_STATUSES } from "@/lib/completedCopies";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import PrintPageButton from "@/components/PrintPageButton";
 import {
   PROVIDER_PACKET_NOT_READY_MESSAGE,
   ProviderPacketNotReadyError,
@@ -34,7 +35,7 @@ export default async function CopiesPage({ params }: { params: { token: string }
         <section className="card">
           <h1 className="text-2xl font-bold text-brand">Completed copies are not ready yet</h1>
           <p className="mt-3 text-sm text-slate-600">
-            This intake has not been signed or completed yet. Please contact {providerDisplayName(intake.provider?.name)}
+            This intake is still pending staff completion. The CCA, required answers, review, QP signature, and final packet must be ready first. Please contact {providerDisplayName(intake.provider?.name)}
             {" "}at {providerPhone(intake.provider?.phone, intake.provider?.name)} if you believe this is a mistake.
           </p>
         </section>
@@ -88,8 +89,14 @@ export default async function CopiesPage({ params }: { params: { token: string }
           rights and responsibilities, privacy/confidentiality, emergency care, treatment plan
           participation, and related acknowledgments.
         </p>
-        <p className="mt-4 rounded-lg bg-brand-light p-3 text-sm font-semibold text-brand print:hidden">
-          To save or print: use your browser menu and choose Print or Save as PDF.
+        <div className="mt-5 grid gap-3 sm:grid-cols-2 print:hidden">
+          <a className="btn-primary min-h-[52px]" href={`/api/copies/${params.token}/packet`}>
+            Download completed intake packet
+          </a>
+          <PrintPageButton label="Save rights and answers as PDF" />
+        </div>
+        <p className="mt-3 text-xs font-semibold text-slate-500 print:hidden">
+          The packet button downloads the provider&apos;s final PDF. The second button saves this readable rights-and-answers page.
         </p>
       </section>
 

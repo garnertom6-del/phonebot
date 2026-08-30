@@ -11,6 +11,7 @@ import { SECTIONS, isQuestionPrefilledForClient, questionCatalogId, questionVisi
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import { completedCopyDeliveryChannels } from "@/lib/clientCopyDelivery";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -229,15 +230,24 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   if (done) {
     return (
       <div className="card mx-auto max-w-xl text-center">
-          <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
-          <h2 className="mt-2 text-xl font-bold">Thank you, {clientName.split(" ")[0]}!</h2>
+          <p className="text-sm font-bold uppercase tracking-wide text-amber-700">Submitted - pending completion</p>
+          <h2 className="mt-2 text-xl font-bold">Your part is saved, {clientName.split(" ")[0]}.</h2>
           <p className="mt-2 text-slate-600">
           {isAssessmentResign
             ? "Your updated assessment acknowledgment and signature were saved. Your provider can continue the review."
             : isResign
               ? "Your review and updated signature were saved. Your provider can continue the packet."
-            : `${providerDisplayName(providerName)} got your answers. Our team will review them and finish your paperwork. Questions? Call ${providerPhone(supportPhone, providerName)}.`}
+            : `${providerDisplayName(providerName)} got your answers. The care team will finish the CCA, required information, review, QP signature, and final packet before marking the intake completed.`}
           </p>
+        {!isResign && (
+          <p className="mt-4 rounded-xl bg-sky-50 p-4 text-sm font-semibold text-sky-900">
+            When it is completed, your secure copy link will be sent by {completedCopyDeliveryChannels(answers).label} when that contact information is available.
+          </p>
+        )}
+        <a className="btn-secondary mt-5 min-h-[56px] w-full text-base" href={`/rights/${token}`}>
+          View or save my rights &amp; privacy
+        </a>
+        <p className="mt-4 text-sm text-slate-500">Questions? Call {providerPhone(supportPhone, providerName)}.</p>
         </div>
       );
   }
@@ -356,10 +366,30 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       </label>
     );
   if (q.type === "radio" || q.type === "yesno") {
+    const options = q.options || [];
+    if (options.length > 4) {
+      return (
+        <div>{label}
+          <p className="mb-2 rounded-lg bg-amber-50 p-2 text-sm font-bold text-amber-900">Tap this menu to choose one answer.</p>
+          <div className="relative">
+            <select
+              aria-label={brandText(q.label, branding)}
+              className="input min-h-[60px] appearance-none border-2 border-brand bg-brand-light pr-12 text-base font-bold text-brand shadow-sm"
+              value={String(v ?? "")}
+              onChange={(e) => set(q.key, e.target.value)}
+            >
+              <option value="">Tap to choose...</option>
+              {options.map((opt) => <option key={opt} value={opt}>{brandText(opt, branding)}</option>)}
+            </select>
+            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-black text-brand">⌄</span>
+          </div>
+        </div>
+      );
+    }
     return (
       <div>{label}
         <div className="flex flex-wrap gap-2">
-          {(q.options || []).map((opt) => (
+          {options.map((opt) => (
             <button key={opt} type="button" onClick={() => set(q.key, opt)} aria-pressed={v === opt}
               className={`chip ${v === opt ? "chip-on" : ""}`}>{opt}</button>
           ))}

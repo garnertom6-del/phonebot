@@ -14,6 +14,7 @@ import { EASY, SECTION_INTROS, ENCOURAGEMENTS } from "@/config/easyLanguage";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { brandText, intakeProcessExplanation, providerDisplayName, providerPhone } from "@/lib/providerBranding";
+import { completedCopyDeliveryChannels } from "@/lib/clientCopyDelivery";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -269,6 +270,10 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, [set, goNext]);
 
   const nextFromInput = useCallback(async (pendingVoiceValue?: string) => {
+    if (advanceTimer.current) {
+      clearTimeout(advanceTimer.current);
+      advanceTimer.current = null;
+    }
     const q = flatRef.current[idxRef.current]?.q;
     const current = answersRef.current;
     const value = pendingVoiceValue ?? (q ? current[q.key] : undefined);
@@ -372,15 +377,23 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   if (phase === "done") {
     return (
       <div className="card mx-auto mt-10 max-w-md text-center">
-          <p className="text-sm font-bold uppercase tracking-wide text-emerald-600">All set</p>
-          <h2 className="mt-4 text-3xl font-bold text-brand">You did it!</h2>
+          <p className="text-sm font-bold uppercase tracking-wide text-amber-700">Submitted - pending completion</p>
+          <h2 className="mt-4 text-3xl font-bold text-brand">Your part is saved</h2>
           <p className="mt-4 text-xl text-slate-600">
           {isAssessmentResign
             ? "Your updated acknowledgment and signature were saved. Your provider can continue the review."
             : isResign
               ? "Your review and updated signature were saved. Your provider can continue the packet."
-            : `${providerDisplayName(providerName)} got your answers. We will call you soon.`}
+            : `${providerDisplayName(providerName)} got your answers. The care team will finish the CCA, required information, review, QP signature, and final packet before marking the intake completed.`}
           </p>
+        {!isResign && (
+          <p className="mt-4 rounded-xl bg-sky-50 p-4 text-base font-semibold text-sky-900">
+            When it is completed, your secure copy link will be sent by {completedCopyDeliveryChannels(answers).label} when that contact information is available.
+          </p>
+        )}
+        <a className="btn-secondary mt-5 min-h-[56px] w-full text-lg" href={`/rights/${token}`}>
+          View or save my rights &amp; privacy
+        </a>
         <p className="mt-6 text-base text-slate-400">Questions? Call {providerPhone(supportPhone, providerName)}.</p>
         </div>
       );
@@ -393,6 +406,18 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
           Private link from {providerDisplayName(providerName)}
         </p>
         <h2 className="mt-4 text-3xl font-bold text-brand">Hi {firstName}!</h2>
+        <div className="mt-4">
+          <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} compact />
+        </div>
+        <button type="button" className="btn-primary mt-5 min-h-[72px] w-full text-2xl"
+          onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
+          {isAssessmentResign ? "Review assessment & sign" : isResign ? "Review updates & sign" : "Start my intake"}
+        </button>
+        <p className="mt-2 text-sm font-semibold text-slate-500">
+          {isResign
+            ? "You can leave and return with this same private link until you finish."
+            : "Tap Start. You can leave and return with this same private link."}
+        </p>
         <p className="mt-5 text-xl leading-relaxed text-slate-700">
           {isAssessmentResign
             ? "Your provider added the clinician's assessment. Review the assessment acknowledgment and sign again so your signature matches the current record. Your saved intake answers are still here."
@@ -409,20 +434,10 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
                 : "Your provider will review the staff-only update with you. You only need to sign again."
             : "You can speak or tap to answer. Your answers save as you go."}
         </p>
-        <button type="button" className="btn-primary mt-6 min-h-[72px] w-full text-2xl"
-          onClick={() => { void saveNow("started"); setIdx(0); setPhase("question"); }}>
-          {isAssessmentResign ? "Review assessment & sign" : isResign ? "Review updates & sign" : "Start my intake"}
-        </button>
-        <p className="mt-2 text-sm font-semibold text-slate-500">
-          {isResign
-            ? "You can leave and return with this same private link until you finish."
-            : "Tap Start. You can leave and return with this same private link."}
-        </p>
         <p className="mt-3 rounded-xl bg-brand-light p-4 text-base leading-relaxed text-brand">
           Some answers may already be filled in by your care team. You will only see the questions that still need an answer.
           Consent and your signature are always completed by you.
         </p>
-        <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} />
       </div>
     );
   }
@@ -532,7 +547,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const q = cur.q;
 
   return (
-    <div className="mx-auto max-w-md pb-32">
+    <div className="mx-auto max-w-md pb-40">
       <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} - ${percent}% done`} />
 
       <div className="mt-8">
@@ -554,13 +569,18 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
-        <div className="mx-auto flex max-w-md items-center gap-3">
-          <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
-            Back
-          </button>
-          <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
+        <div className="mx-auto max-w-md space-y-2">
+          <div className="flex items-center gap-2">
+            <button type="button" className="btn-secondary min-h-[56px] w-20 shrink-0 text-base" onClick={goBack}>
+              Back
+            </button>
+            <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
+            <button type="button" className="btn-primary min-h-[56px] flex-1 text-lg font-extrabold" onClick={() => { void nextFromInput(); }}>
+              Next
+            </button>
+          </div>
           {!isQuestionRequired(q, answers) && q.type !== "consent" && (
-            <button type="button" className="btn-ghost px-4 py-2 text-sm text-slate-500" onClick={goNext}>
+            <button type="button" className="btn-ghost min-h-[44px] w-full px-4 py-2 text-sm text-slate-500" onClick={goNext}>
               Skip
             </button>
           )}
@@ -656,21 +676,25 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   /* ---- radio / yesno / survey: big tap buttons, auto-advance ---- */
   if (q.type === "radio" || q.type === "yesno" || q.type === "survey") {
     const options = q.options && q.options.length ? q.options : SURVEY_OPTIONS;
-    if (options.length > 6) {
+    if (options.length > 4) {
       return (
         <div className="space-y-3">
-          <p className="text-base text-slate-500">Pick one answer from the list.</p>
-          <select
-            aria-label={easyQ(q, providerName, supportPhone)}
-            className="input min-h-[56px] text-lg"
-            value={String(value ?? "")}
-            onChange={(e) => { if (e.target.value) pickAndAdvance(q.key, e.target.value, e.target.value); }}
-          >
-            <option value="">Choose one...</option>
-            {options.map((opt) => (
-              <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
-            ))}
-          </select>
+          <p className="rounded-xl bg-amber-50 p-3 text-base font-bold text-amber-900">Tap the menu below to choose one answer.</p>
+          <div className="relative">
+            <select
+              aria-label={easyQ(q, providerName, supportPhone)}
+              className="input min-h-[64px] appearance-none border-2 border-brand bg-brand-light pr-12 text-lg font-extrabold text-brand shadow-md"
+              value={String(value ?? "")}
+              onChange={(e) => set(q.key, e.target.value)}
+            >
+              <option value="">Tap to choose...</option>
+              {options.map((opt) => (
+                <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
+              ))}
+            </select>
+            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-black text-brand">⌄</span>
+          </div>
+          <p className="text-sm font-semibold text-slate-600">After choosing, tap the blue Next button at the bottom.</p>
         </div>
       );
     }
