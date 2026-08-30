@@ -37,24 +37,59 @@ export function followUpShareMessage(
   return `${provider}: We need a few more details to finish your intake. Use this private one-time link: ${link}${smsHelpLine(supportPhone, providerName)} STOP to opt out.`;
 }
 
-function smsRecipient(phone?: string | null): string {
+export type SmsPlatform = "ios" | "android" | "unknown";
+
+/** Normalize a staff-entered number for sms: URLs. 10-digit US numbers get +1, matching Twilio. */
+export function smsRecipient(phone?: string | null): string {
   const text = (phone || "").trim();
   if (!text) return "";
+  if (text.startsWith("+")) {
+    const digits = text.replace(/\D/g, "");
+    return digits ? `+${digits}` : "";
+  }
   const digits = text.replace(/\D/g, "");
   // Normalize US numbers to E.164 so the sms: link works when it is scanned
   // from a QR code on a phone whose default region is not set.
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith("1")) return `+${digits}`;
-  const leadingPlus = text.startsWith("+") ? "+" : "";
-  return leadingPlus + digits;
+  return digits;
+}
+
+export function detectSmsPlatform(userAgent = ""): SmsPlatform {
+  if (/iPhone|iPad|iPod/i.test(userAgent)) return "ios";
+  if (/Android/i.test(userAgent)) return "android";
+  return "unknown";
+}
+
+/** Phones (and some tablets) usually handle sms: links. Office PCs usually do not. */
+export function deviceLikelyOpensSms(userAgent = ""): boolean {
+  return detectSmsPlatform(userAgent) !== "unknown";
 }
 
 /**
- * sms: links differ by platform: iOS wants `sms:number&body=`, Android wants
- * `sms:number?body=`. The `?&body=` form is read correctly by both.
+ * Build an sms: href. iOS wants &body=; Android wants ?body=.
+ * Unknown platforms (QR scans, desktops) use ?&body=, which both families typically accept.
  */
-function smsHref(phone: string | null | undefined, body: string): string {
-  return `sms:${smsRecipient(phone)}?&body=${encodeURIComponent(body)}`;
+export function smsHref(
+  phone: string | null | undefined,
+  body: string,
+  platform: SmsPlatform = "unknown",
+): string {
+  const to = smsRecipient(phone);
+  if (!to) return "";
+  const encoded = encodeURIComponent(body);
+  if (platform === "ios") return `sms:${to}&body=${encoded}`;
+  if (platform === "android") return `sms:${to}?body=${encoded}`;
+  return `sms:${to}?&body=${encoded}`;
+}
+
+export function isUnreachableClientLink(link: string): boolean {
+  try {
+    const hostname = new URL(link).hostname.toLowerCase();
+    return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+  } catch {
+    return false;
+  }
 }
 
 export function intakeSmsHref(
@@ -62,8 +97,9 @@ export function intakeSmsHref(
   link: string,
   providerName?: string | null,
   supportPhone?: string | null,
+  platform: SmsPlatform = "unknown",
 ): string {
-  return smsHref(phone, intakeShareMessage(link, providerName, supportPhone));
+  return smsHref(phone, intakeShareMessage(link, providerName, supportPhone), platform);
 }
 
 export function intakeMailtoHref(
@@ -84,8 +120,13 @@ export function intakeMailtoHref(
   return `mailto:${(email || "").trim()}?subject=${subject}&body=${body}`;
 }
 
-export function copiesSmsHref(phone: string | null | undefined, link: string, providerName?: string | null): string {
-  return smsHref(phone, `${copiesShareMessage(link, providerName)} STOP to opt out.`);
+export function copiesSmsHref(
+  phone: string | null | undefined,
+  link: string,
+  providerName?: string | null,
+  platform: SmsPlatform = "unknown",
+): string {
+  return smsHref(phone, `${copiesShareMessage(link, providerName)} STOP to opt out.`, platform);
 }
 
 export function copiesMailtoHref(
@@ -105,8 +146,9 @@ export function followUpSmsHref(
   link: string,
   providerName?: string | null,
   supportPhone?: string | null,
+  platform: SmsPlatform = "unknown",
 ): string {
-  return smsHref(phone, followUpShareMessage(link, providerName, supportPhone));
+  return smsHref(phone, followUpShareMessage(link, providerName, supportPhone), platform);
 }
 
 export function followUpMailtoHref(

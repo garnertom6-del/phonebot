@@ -4,6 +4,7 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useR
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import CoveragePanel from "@/components/CoveragePanel";
 import ManualSendPanel from "@/components/ManualSendPanel";
+import ComputerSmsActions from "@/components/ComputerSmsActions";
 import type { CcaReview } from "@/lib/ccaReview";
 import {
   appSnapshotFromAnswers,
@@ -19,10 +20,8 @@ import { EDUCATION_OPTIONS, EMPLOYMENT_STATUS_OPTIONS, ETHNICITY_PACKET_OPTIONS,
 import {
   copiesMailtoHref,
   copiesShareMessage,
-  copiesSmsHref,
   followUpMailtoHref,
   followUpShareMessage,
-  followUpSmsHref,
   intakeMailtoHref,
   intakeShareMessage,
   intakeSmsHref,
@@ -32,6 +31,7 @@ import {
   clientDeliveryContacts,
   clientDeliveryContactsForRole,
   clientFollowUpDeliveryContacts,
+  deliveryContactsSummary,
 } from "@/lib/clientDeliveryContacts";
 import { clientFollowUpQuestions, isBlankFollowUpValue } from "@/lib/clientFollowUp";
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
@@ -434,7 +434,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   });
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
-  const deliveryContacts = clientDeliveryContacts(i.client);
+  const deliveryContacts = clientDeliveryContacts(i.client, d.answers);
   const defaultFollowUpDeliveryContacts = clientFollowUpDeliveryContacts(
     i.client,
     d.answers,
@@ -456,14 +456,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
   const reminderCount = i.auditLogs.filter((entry) => (
     entry.event === "link_reminder_sent" || entry.event === "signature_reminder_sent"
   ) && /(^|;\s*)sent\s/i.test(entry.detail || "")).length;
-  const contactSummary = [
-    deliveryContacts.phone
-      ? `SMS to ${deliveryContacts.phone.role} at ${deliveryContacts.phone.value}`
-      : "",
-    deliveryContacts.email
-      ? `email to ${deliveryContacts.email.role} at ${deliveryContacts.email.value}`
-      : "",
-  ].filter(Boolean).join(" and ");
+  const contactSummary = deliveryContactsSummary(deliveryContacts);
   const providerPacketEmailEnabled = d.answers.auto_email_provider_packet === true;
   const preflightBlockingCount = preflight?.findings.filter((finding) => finding.severity !== "info" && !finding.overridden && !finding.resolved).length ?? 0;
   const preflightOverrideCount = preflight?.findings.filter((finding) => finding.overridden || finding.resolved === "overridden").length ?? 0;
@@ -1205,16 +1198,30 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <button className="btn-ghost px-3 py-1.5 text-xs" onClick={async () => { await navigator.clipboard.writeText(copiesMessage); setNote("Client records text message copied"); }}>
               Copy text message
             </button>
-            <a className="btn-primary px-3 py-1.5 text-xs" href={copiesSmsHref(i.client.phone, copiesLink, providerName)}>
-              Open SMS on this computer
-            </a>
-            <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(i.client.email, copiesLink, providerName, providerPhone)}>
-              Open email
-            </a>
+            {defaultFollowUpDeliveryContacts.email && (
+              <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesMailtoHref(defaultFollowUpDeliveryContacts.email.value, copiesLink, providerName, providerPhone)}>
+                Open email
+              </a>
+            )}
             <a className="btn-ghost px-3 py-1.5 text-xs" href={copiesLink} target="_blank">
               Open records page
             </a>
           </div>
+          {defaultFollowUpDeliveryContacts.phone && (
+            <div className="mt-3">
+              <ComputerSmsActions
+                compact
+                intakeId={i.id}
+                purpose="copies"
+                phone={defaultFollowUpDeliveryContacts.phone.value}
+                role={defaultFollowUpDeliveryContacts.phone.role}
+                message={`${copiesMessage} STOP to opt out.`}
+                link={copiesLink}
+                onStatus={setNote}
+                onRecorded={() => { void load(); }}
+              />
+            </div>
+          )}
         </div>
       )}
       {identityMismatch && (
@@ -1344,6 +1351,8 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                   clientLink={d.clientLink}
                   message={clientMessage}
                   phone={deliveryContacts.phone?.value || ""}
+                  phoneRole={deliveryContacts.phone?.role}
+                  purpose="intake"
                   email={deliveryContacts.email?.value || ""}
                   smsHref={deliveryContacts.phone ? intakeSmsHref(deliveryContacts.phone.value, d.clientLink, providerName, providerPhone) : undefined}
                   mailtoHref={deliveryContacts.email ? intakeMailtoHref(deliveryContacts.email.value, d.clientLink, providerName, providerPhone) : undefined}
@@ -1601,24 +1610,26 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
                 >
                   Copy follow-up link
                 </button>
-                <button
-                  className="btn-ghost px-3 py-2 text-sm"
-                  type="button"
-                  onClick={async () => { await navigator.clipboard.writeText(followUpMessage); setNote("Follow-up SMS message copied."); }}
-                >
-                  Copy SMS message
-                </button>
-                {followUpDeliveryContacts.phone && (
-                  <a className="btn-ghost px-3 py-2 text-sm" href={followUpSmsHref(followUpDeliveryContacts.phone.value, followUpLink, providerName, providerPhone)}>
-                    Open SMS on this computer
-                  </a>
-                )}
                 {followUpDeliveryContacts.email && (
                   <a className="btn-ghost px-3 py-2 text-sm" href={followUpMailtoHref(followUpDeliveryContacts.email.value, followUpLink, providerName, providerPhone)}>
                     Open email
                   </a>
                 )}
               </div>
+              {followUpDeliveryContacts.phone && (
+                <div className="mt-3">
+                  <ComputerSmsActions
+                    intakeId={i.id}
+                    purpose="follow-up"
+                    phone={followUpDeliveryContacts.phone.value}
+                    role={followUpDeliveryContacts.phone.role}
+                    message={followUpMessage}
+                    link={followUpLink}
+                    onStatus={setNote}
+                    onRecorded={() => { void load(); }}
+                  />
+                </div>
+              )}
             </details>
           )}
 

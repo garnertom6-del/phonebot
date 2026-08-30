@@ -15,6 +15,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { qrSvgData } from "@/lib/qrSvg";
 import { formatUsPhoneDisplay } from "@/lib/intakeContacts";
+import ComputerSmsActions, { type ManualSmsPurpose } from "@/components/ComputerSmsActions";
 
 export type ManualSendMethod = "sms" | "in_person" | "email";
 
@@ -24,7 +25,10 @@ type Props = {
   /** The exact SMS text (no PHI - provider name, link, help line, STOP wording). */
   message: string;
   phone?: string | null;
+  /** client or guardian — shown on the computer-SMS control. */
+  phoneRole?: string | null;
   email?: string | null;
+  purpose?: ManualSmsPurpose;
   /** sms: / mailto: links built by shareLinks.ts. */
   smsHref?: string;
   mailtoHref?: string;
@@ -61,12 +65,13 @@ function QrSquare({ value, label, level = "M" }: { value: string; label: string;
 }
 
 export default function ManualSendPanel({
-  intakeId, clientLink, message, phone, email, smsHref, mailtoHref, reason, linkSentAt, disabled, onMarked,
+  intakeId, clientLink, message, phone, phoneRole, purpose = "intake", email, smsHref, mailtoHref, reason, linkSentAt, disabled, onMarked,
 }: Props) {
   const [copied, setCopied] = useState<"" | "message" | "link">("");
   const [marking, setMarking] = useState<ManualSendMethod | "">("");
   const [markedAt, setMarkedAt] = useState<string | null>(linkSentAt || null);
   const [markError, setMarkError] = useState("");
+  const [computerSmsNote, setComputerSmsNote] = useState("");
 
   useEffect(() => { setMarkedAt(linkSentAt || null); }, [linkSentAt]);
 
@@ -161,13 +166,27 @@ export default function ManualSendPanel({
         <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={disabled} onClick={() => { void copy("link"); }}>
           {copied === "link" ? "Link copied" : "Copy secure link"}
         </button>
-        {phone && smsHref && !disabled && (
-          <a className="btn-ghost px-3 py-2 text-sm" href={smsHref}>Open SMS on this computer</a>
-        )}
         {email && mailtoHref && !disabled && (
           <a className="btn-ghost px-3 py-2 text-sm" href={mailtoHref}>Open email</a>
         )}
       </div>
+      {phone && smsHref && (
+        <div className="mt-3">
+          <ComputerSmsActions
+            intakeId={intakeId}
+            purpose={purpose}
+            phone={phone}
+            role={phoneRole || undefined}
+            message={message}
+            link={clientLink}
+            disabled={disabled}
+            onStatus={setComputerSmsNote}
+          />
+          {computerSmsNote && (
+            <p className="mt-2 text-sm text-slate-700" role="status">{computerSmsNote}</p>
+          )}
+        </div>
+      )}
 
       <div className="mt-4 border-t border-slate-200 pt-3">
         <p className="text-sm font-semibold text-slate-900">Done? Record how the client got the link</p>

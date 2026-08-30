@@ -18,6 +18,7 @@ import {
   reminderCooldownSeconds,
 } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
+import { loadAnswers } from "@/lib/intakeData";
 
 function sentLabel(result: NotifyResult): string {
   return `${result.channel.toUpperCase()} to ${result.to}: ${result.detail}`;
@@ -56,7 +57,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       message: "The client or guardian signature is already saved. No reminder was sent.",
     });
   }
-  const contacts = clientDeliveryContacts(intake.client);
+  const contacts = clientDeliveryContacts(intake.client, await loadAnswers(intake.id));
   if (!contacts.phone && !contacts.email) {
     await audit("signature_reminder_failed", {
       providerId: provider!.id,

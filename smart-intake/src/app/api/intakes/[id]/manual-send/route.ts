@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
+import { loadAnswers } from "@/lib/intakeData";
 
 type ManualSendMethod = "sms" | "in_person" | "email";
 
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   const body = await req.json().catch(() => ({})) as { method?: unknown };
   const method = parseMethod(body?.method);
-  const contacts = clientDeliveryContacts(intake.client);
+  const contacts = clientDeliveryContacts(intake.client, await loadAnswers(intake.id));
   const detail = method === "in_person"
     ? "client opened the secure link in person (QR code on the staff screen)"
     : method === "email"
