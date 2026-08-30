@@ -70,7 +70,13 @@ import { buildSignatureStatuses, mappedSignatureSlotsFromFields, missingRequired
 import { buildCasePageStatus } from "../src/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
 import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
-import { clientCcaAttestationReady } from "../src/lib/ccaReview";
+import { clientCcaAttestationReady, parseCcaReview } from "../src/lib/ccaReview";
+import {
+  finalizeCcaReview,
+  fourComponentsPass,
+  isAssessmentDateWithinOneYear,
+  signatureIsAcceptable,
+} from "../src/lib/ccaMedicalNecessity";
 import { acceptableOverrideReason } from "../src/lib/overrideReason";
 import {
   clientLinkExpired,
@@ -834,6 +840,103 @@ async function main() {
     majorErrors: ["Assessment identity conflict"],
   })), false, "major CCA accuracy errors block client attestation");
   assert.equal(clientCcaAttestationReady(validCcaReview), true);
+  assert.equal(parseCcaReview(validCcaReview)?.sourceClinician, "Test Clinician");
+  assert.equal(parseCcaReview(validCcaReview)?.hasRecommendation, false);
+  {
+    const now = new Date(2026, 7, 30);
+    const iso = (year: number, month: number, day: number) =>
+      `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    assert.equal(isAssessmentDateWithinOneYear(iso(2025, 7, 30), now), false, "13-month-old CCA date fails in code");
+    assert.equal(isAssessmentDateWithinOneYear(iso(2025, 9, 30), now), true, "11-month-old CCA date passes in code");
+    assert.equal(isAssessmentDateWithinOneYear("", now), false, "undated CCA fails");
+    assert.equal(isAssessmentDateWithinOneYear(iso(2026, 9, 1), now), false, "future CCA date fails");
+    assert.equal(signatureIsAcceptable("electronic"), true);
+    assert.equal(signatureIsAcceptable("DocuSign"), true);
+    assert.equal(signatureIsAcceptable("missing"), false);
+
+    const missingSignature = finalizeCcaReview({
+      sourceClinician: "Pat QP, LCMHC",
+      assessmentDate: "08/01/2026",
+      signatureMethod: "missing",
+      primaryDiagnosis: { code: "F33.1", label: "Major depressive disorder, recurrent, moderate" },
+      recommendedServices: [{ name: "Peer Support", policyId: "", score: "Thin", reason: "" }],
+    }, { now });
+    assert.equal(missingSignature.hasSignature, false);
+    assert.equal(fourComponentsPass(missingSignature), false, "missing signature fails the four-component gate");
+
+    const oldDate = finalizeCcaReview({
+      sourceClinician: "Pat QP, LCMHC",
+      assessmentDate: "07/30/2025",
+      dateWithinOneYear: true,
+      signatureMethod: "wet-ink",
+      primaryDiagnosis: { code: "F33.1", label: "Major depressive disorder" },
+      recommendedServices: [{ name: "Outpatient therapy", policyId: "", score: "Supported", reason: "" }],
+    }, { now });
+    assert.equal(oldDate.dateWithinOneYear, false, "code rejects a 13-month-old date even if the model marked it current");
+    assert.equal(fourComponentsPass(oldDate), false);
+
+    const recentDate = finalizeCcaReview({
+      sourceClinician: "Pat QP, LCMHC",
+      assessmentDate: "09/30/2025",
+      signatureMethod: "electronic",
+      hasSignature: false,
+      primaryDiagnosis: { code: "F33.1", label: "Major depressive disorder" },
+      recommendedServices: [{ name: "Outpatient therapy", policyId: "", score: "Thin", reason: "" }],
+    }, { now });
+    assert.equal(recentDate.dateWithinOneYear, true, "11-month-old date passes");
+    assert.equal(recentDate.hasSignature, true, "electronic signature counts");
+    assert.equal(fourComponentsPass(recentDate), true);
+
+    const dual = finalizeCcaReview({
+      sourceClinician: "Pat QP, LCMHC",
+      assessmentDate: "08/01/2026",
+      signatureMethod: "typed",
+      primaryDiagnosis: { code: "F33.1", label: "Major depressive disorder, recurrent, moderate" },
+      sudDiagnoses: [{ code: "F14.20", label: "Cocaine use disorder, severe" }],
+      recommendedServices: [{ name: "Peer Support", policyId: "", score: "Thin", reason: "" }],
+      functionalFacts: [{ domain: "employment", present: true, detail: "Unemployed" }],
+    }, { now });
+    assert.equal(dual.dualDiagnosis, true, "MH + SUD is dual diagnosis");
+    assert.equal(dual.hasDiagnosis, true);
+    assert.equal(dual.recommendedServices[0]?.policyId, "8G");
+    assert.equal(dual.recommendedServices[0]?.score, "Supported");
+
+    const thinCst = finalizeCcaReview({
+      sourceClinician: "Pat QP, LCMHC",
+      assessmentDate: "08/01/2026",
+      signatureMethod: "docusign",
+      primaryDiagnosis: { code: "F31.2", label: "Bipolar disorder" },
+      recommendedServices: [{ name: "Community Support Team", policyId: "8A-6", score: "Supported", reason: "model guessed" }],
+      functionalFacts: [],
+    }, { now });
+    assert.equal(thinCst.recommendedServices[0]?.score, "Thin", "CST without functional facts is Thin");
+    assert.match(thinCst.recommendedServices[0]?.reason || "", /without functional facts/i);
+    assert.equal(fourComponentsPass(thinCst), true);
+    assert.notEqual(thinCst.recommendedServices[0]?.score, "Supported");
+
+    const mismatchIdentity = finalizeCcaReview({
+      sourceClinician: "Pat QP, LCMHC",
+      assessmentDate: "08/01/2026",
+      signatureMethod: "electronic",
+      sourceClientName: "Jordan Example",
+      sourceClientDob: "1990-02-02",
+      primaryDiagnosis: { code: "F33.1", label: "Major depressive disorder" },
+      recommendedServices: [{ name: "Medication management", policyId: "", score: "Thin", reason: "" }],
+    }, {
+      now,
+      app: {
+        clientName: "Other Person",
+        clientDob: "1991-03-03",
+        diagnosis: "Generalized anxiety",
+        clinician: "Different Clinician",
+        assessmentDate: "2026-01-01",
+        services: ["Peer Support"],
+      },
+    });
+    assert(mismatchIdentity.appMismatches.some((item) => item.field === "identity name"));
+    assert(mismatchIdentity.appMismatches.every((item) => !/ssn|medicaid|street/i.test(`${item.field} ${item.cca} ${item.app} ${item.note}`)));
+  }
+  ok("CCA four-component scan encodes date, electronic signature, dual diagnosis, and CST Thin scoring");
   const missingWithNoCca = missingRequired({}, true, null, {
     skipClinicalAssessmentAttestation: true,
   });

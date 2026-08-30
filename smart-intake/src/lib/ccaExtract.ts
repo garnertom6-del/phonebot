@@ -8,6 +8,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import type { Answers } from "./fillPdf";
 import type { CcaReview } from "./ccaReview";
+import { finalizeCcaReview } from "./ccaMedicalNecessity";
 import { formatDateForPeople, isDatePlaceholder, normalizeDateInput } from "./normalizeDateInput";
 
 export function ccaConfigured(): boolean {
@@ -66,8 +67,88 @@ function buildSchema(questions: Question[]) {
           otcMedications: { type: "array", items: { type: "string" } },
           majorErrors: { type: "array", items: { type: "string" } },
           warnings: { type: "array", items: { type: "string" } },
+          hasRecommendation: { type: "boolean" },
+          hasDiagnosis: { type: "boolean" },
+          hasSignature: { type: "boolean" },
+          signatureMethod: { type: "string", enum: ["electronic", "typed", "docusign", "wet-ink", "unknown", "missing"] },
+          dateIso: { type: "string" },
+          dateWithinOneYear: { type: "boolean" },
+          primaryDiagnosis: {
+            type: "object",
+            properties: { code: { type: "string" }, label: { type: "string" } },
+            required: ["code", "label"],
+            additionalProperties: false,
+          },
+          additionalDiagnoses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { code: { type: "string" }, label: { type: "string" } },
+              required: ["code", "label"],
+              additionalProperties: false,
+            },
+          },
+          sudDiagnoses: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: { code: { type: "string" }, label: { type: "string" } },
+              required: ["code", "label"],
+              additionalProperties: false,
+            },
+          },
+          dualDiagnosis: { type: "boolean" },
+          recommendedServices: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                policyId: { type: "string" },
+                score: { type: "string", enum: ["Supported", "Thin", "Mismatch"] },
+                reason: { type: "string" },
+              },
+              required: ["name", "policyId", "score", "reason"],
+              additionalProperties: false,
+            },
+          },
+          appMismatches: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                field: { type: "string" },
+                cca: { type: "string" },
+                app: { type: "string" },
+                note: { type: "string" },
+              },
+              required: ["field", "cca", "app", "note"],
+              additionalProperties: false,
+            },
+          },
+          functionalFacts: {
+            type: "array",
+            items: {
+              type: "object",
+              properties: {
+                domain: { type: "string", enum: ["employment", "budgeting", "housing", "help-needed", "adls"] },
+                present: { type: "boolean" },
+                detail: { type: "string" },
+              },
+              required: ["domain", "present", "detail"],
+              additionalProperties: false,
+            },
+          },
+          sourceClientName: { type: "string" },
+          sourceClientDob: { type: "string" },
         },
-        required: ["sourceClinician", "assessmentDate", "prescriptionMedications", "otcMedications", "majorErrors", "warnings"],
+        required: [
+          "sourceClinician", "assessmentDate", "prescriptionMedications", "otcMedications",
+          "majorErrors", "warnings", "hasRecommendation", "hasDiagnosis", "hasSignature",
+          "signatureMethod", "dateIso", "dateWithinOneYear", "primaryDiagnosis",
+          "additionalDiagnoses", "sudDiagnoses", "dualDiagnosis", "recommendedServices",
+          "appMismatches", "functionalFacts", "sourceClientName", "sourceClientDob",
+        ],
         additionalProperties: false,
       },
     },
@@ -224,7 +305,22 @@ export async function extractFromCca(
       "illegible or contradictory identity/date, a medication with a missing or conflicting dose, a " +
       "missing assessment author/date, or a recommendation that is not clear enough to map. Do not " +
       "invent a clinical error. Use warnings for items that need the CCA creator to clarify. Keep each " +
-      "review item under 240 characters.",
+      "review item under 240 characters. " +
+      "(10) Documentation scan only — never invent a service the clinician did not recommend, never " +
+      "claim the person qualifies for Medicaid coverage, and never put SSN, Medicaid ID, or a full " +
+      "street address in any ccaReview string. " +
+      "(11) Four required pieces: named recommended service(s); primary diagnosis (and dual MH+SUD " +
+      "when both are present, e.g. depression F33.1, bipolar F31.x, SUD F10–F19); a licensed " +
+      "clinician signature (electronic, typed, DocuSign, or wet ink all count; missing fails); and " +
+      "an assessment date. Record the date as written and in dateIso YYYY-MM-DD when possible. " +
+      "Undated or future dates fail. Code will reject dates older than 365 days even if omitted here. " +
+      "(12) List only recommended services the CCA actually names (examples: Peer Support, Peer " +
+      "Support Group, Medication management, Outpatient therapy, Community Support Team, Intensive " +
+      "In-Home). Map policyId when obvious (8G, 8A-6, 8C, 8A, 8A-5). Leave score/reason blank-capable; " +
+      "code rescores from facts. " +
+      "(13) functionalFacts: employment (unemployed / not in labor force), budgeting, housing, ADLs, " +
+      "and help-needed — present=true only when the CCA states that fact. sourceClientName and " +
+      "sourceClientDob are the identity printed on the CCA.",
     messages: [{
       role: "user",
       content: [
@@ -264,7 +360,7 @@ export async function extractFromCca(
     if (normalized === undefined || (Array.isArray(normalized) && normalized.length === 0)) continue;
     extracted[item.key] = normalized;
   }
-  const review: CcaReview = {
+  const review: CcaReview = finalizeCcaReview({
     sourceClinician: typeof raw.ccaReview?.sourceClinician === "string" ? raw.ccaReview.sourceClinician.trim() : "",
     assessmentDate: typeof raw.ccaReview?.assessmentDate === "string" ? raw.ccaReview.assessmentDate.trim() : "",
     prescriptionMedications: Array.isArray(raw.ccaReview?.prescriptionMedications)
@@ -279,7 +375,22 @@ export async function extractFromCca(
     warnings: Array.isArray(raw.ccaReview?.warnings)
       ? raw.ccaReview.warnings.map(String).map((item) => item.trim()).filter(Boolean).slice(0, 30)
       : [],
-  };
+    hasRecommendation: raw.ccaReview?.hasRecommendation === true,
+    hasDiagnosis: raw.ccaReview?.hasDiagnosis === true,
+    hasSignature: raw.ccaReview?.hasSignature === true,
+    signatureMethod: raw.ccaReview?.signatureMethod,
+    dateIso: typeof raw.ccaReview?.dateIso === "string" ? raw.ccaReview.dateIso : "",
+    dateWithinOneYear: raw.ccaReview?.dateWithinOneYear === true,
+    primaryDiagnosis: raw.ccaReview?.primaryDiagnosis ?? null,
+    additionalDiagnoses: raw.ccaReview?.additionalDiagnoses,
+    sudDiagnoses: raw.ccaReview?.sudDiagnoses,
+    dualDiagnosis: raw.ccaReview?.dualDiagnosis === true,
+    recommendedServices: raw.ccaReview?.recommendedServices,
+    appMismatches: [],
+    functionalFacts: raw.ccaReview?.functionalFacts,
+    sourceClientName: typeof raw.ccaReview?.sourceClientName === "string" ? raw.ccaReview.sourceClientName.trim() : "",
+    sourceClientDob: typeof raw.ccaReview?.sourceClientDob === "string" ? raw.ccaReview.sourceClientDob.trim() : "",
+  });
   if (review.prescriptionMedications.length) {
     extracted.medications = review.prescriptionMedications.join("\n");
   }

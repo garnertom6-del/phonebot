@@ -5,6 +5,8 @@ import { audit } from "@/lib/auditLog";
 import { ccaConfigured, extractFromCca } from "@/lib/ccaExtract";
 import { readFile } from "@/lib/storage";
 import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApply";
+import { appSnapshotFromAnswers, finalizeCcaReview } from "@/lib/ccaMedicalNecessity";
+import { loadAnswers } from "@/lib/intakeData";
 
 export const maxDuration = 300;
 
@@ -37,6 +39,14 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   } catch (error) {
     return NextResponse.json({ error: error instanceof Error ? error.message : "CCA re-scan failed" }, { status: 502 });
   }
+
+  const currentAnswers = await loadAnswers(intake.id);
+  extraction = {
+    ...extraction,
+    review: finalizeCcaReview(extraction.review, {
+      app: appSnapshotFromAnswers(currentAnswers, intake.client),
+    }),
+  };
 
   let applied;
   try {
