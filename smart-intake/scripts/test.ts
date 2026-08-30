@@ -2227,6 +2227,18 @@ async function main() {
     assert.deepEqual(questionByKey("ethnicity")!.options, ["Latino", "Non-Hispanic"]);
     assert(easyKeys.includes("consent_roi"));
     assert(easyKeys.includes("roi_understand_1"));
+    const smsKeys = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(!smsKeys.includes("mid_number"));
+    assert(!smsKeys.includes("is_minor_or_incompetent"));
+    assert(smsKeys.includes("education"));
+    assert(smsKeys.includes("income_sources"));
+    assert(smsKeys.includes("height"));
+    assert(smsKeys.includes("has_referrals"));
+    const employedSms = flattenVisible({ ...answers, employment_status: "Employed" } as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(employedSms.includes("occupation"));
+    assert(employedSms.includes("client_phone_work"));
+    const unemployedSms = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(!unemployedSms.includes("client_phone_work"));
     assert(staffInsurancePlanReady({}) === false);
     assert.equal(staffInsurancePlanReady({ provider_choice_plan: "Healthy Blue" }), true);
     assert(INSURANCE_BEFORE_SMS_MESSAGE.toLowerCase().includes("insurance"));

@@ -49,14 +49,13 @@ export function flattenVisible(
   const out: FlatQ[] = [];
   for (const s of SECTIONS) {
     if (s.key === "welcome") continue; // Easy Mode IS the mode - no intake_mode question
-    if (quick && s.key === "insurance" && !s.questions.some((q) => recordReviewKeys.has(q.key))) continue;
     for (const q of s.questions) {
       if (assessmentResign && q.key !== "consent_cca") continue;
       if (recordReviewKeys.size && !recordReviewKeys.has(q.key)) continue;
       if (!questionVisibleInCatalog(q, catalogId)) continue;
-      // Quick Intake: only the essentials + consents; the clinician's CCA
-      // fills the rest after upload by staff.
-      if (quick && !isQuickIntakeQuestion(q) && !recordReviewKeys.has(q.key)) continue;
+      // Quick / SMS: essentials, required consents, and follow-ups of those
+      // (occupation after Employed, diagnosis menu after Yes). CCA fills the rest.
+      if (quick && !isQuickIntakeQuestion(q) && !q.askIf && !recordReviewKeys.has(q.key)) continue;
       if (q.key === "consent_cca" && !ccaAttestationReady) continue;
       if (!recordReviewKeys.has(q.key) && !isClientQuestionVisible(q, answers, prefilledAnswers)) continue;
       if (recordReviewKeys.has(q.key) && (q.staffOnly || q.type === "info" || q.type === "heading")) continue;
