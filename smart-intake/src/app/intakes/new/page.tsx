@@ -5,7 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
-import { REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
+import { ETHNICITY_PACKET_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import { createdIntakeDashboardHref, deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
   assignIntakeContacts,
@@ -46,12 +46,9 @@ const DETAILS_NOTE_KEYS = new Set([
 ]);
 const ADVANCED_NOTE_KEYS = new Set(["provider_choice_plan", "record_number"]);
 
-const QUICK_NOTE_RACE_OPTIONS = [
-  "American Indian or Alaska Native", "Asian", "Black or African American",
-  "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
-];
+const QUICK_NOTE_RACE_OPTIONS = RACE_OPTIONS;
 const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
-const QUICK_NOTE_ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
+const QUICK_NOTE_ETHNICITY_OPTIONS = ETHNICITY_PACKET_OPTIONS;
 const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
 const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
 

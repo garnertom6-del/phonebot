@@ -2181,6 +2181,7 @@ async function main() {
   {
     const hiddenKeys = [
       "has_medicaid", "has_nchc", "language", "is_minor_or_incompetent", "client_phone_home",
+      "mid_number",
       "strengths", "needs", "medications", "otc_medications", "mh_history", "current_diagnosis_known",
       "medical_diagnoses", "treatments", "referred_for", "sub1_name", "roi1_thru_date",
       "intervention_valid_until",
@@ -2221,6 +2222,9 @@ async function main() {
     assert(!easyKeys.includes("sub1_name"));
     assert(!easyKeys.includes("medications"));
     assert(easyKeys.includes("client_email"));
+    assert(!easyKeys.includes("mid_number"));
+    assert(!questionByKey("race")!.options!.includes("Native American"));
+    assert.deepEqual(questionByKey("ethnicity")!.options, ["Latino", "Non-Hispanic"]);
     assert(easyKeys.includes("consent_roi"));
     assert(easyKeys.includes("roi_understand_1"));
     assert(staffInsurancePlanReady({}) === false);

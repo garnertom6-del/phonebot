@@ -18,7 +18,6 @@ const FOLLOW_UP_TYPES = new Set<QType>([
   "survey",
 ]);
 const FOLLOW_UP_ALLOWED_KEYS = new Set([
-  "mid_number",
   "client_email",
   "gender",
   "race",

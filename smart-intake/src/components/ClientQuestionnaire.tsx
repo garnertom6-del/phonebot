@@ -388,18 +388,18 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
     if (usesStrongMenu(q)) {
       return (
         <div>{label}
-          <p className="mb-2 rounded-lg bg-amber-50 p-2 text-sm font-bold text-amber-900">Tap this menu to choose one answer.</p>
+          <p className="mb-2 rounded-2xl bg-amber-50 p-3 text-base font-extrabold text-amber-950">Tap the big menu button to pick one answer.</p>
           <div className="relative">
             <select
               aria-label={brandText(q.label, branding)}
-              className="input min-h-[60px] appearance-none border-2 border-brand bg-brand-light pr-12 text-base font-bold text-brand shadow-sm"
+              className="min-h-[72px] w-full appearance-none rounded-2xl border-4 border-brand bg-white px-4 pr-14 text-xl font-black text-brand shadow-lg"
               value={String(v ?? "")}
               onChange={(e) => set(q.key, e.target.value)}
             >
-              <option value="">Tap to choose...</option>
+              <option value="">Tap here to choose…</option>
               {options.map((opt) => <option key={opt} value={opt}>{brandText(opt, branding)}</option>)}
             </select>
-            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-black text-brand">⌄</span>
+            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-3xl font-black text-brand">▾</span>
           </div>
         </div>
       );

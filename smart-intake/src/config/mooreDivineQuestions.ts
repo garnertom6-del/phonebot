@@ -99,9 +99,27 @@ export const HEIGHT_OPTIONS = Array.from({ length: 37 }, (_, i) => {
 export const EYE_COLOR_OPTIONS = ["Brown", "Blue", "Green", "Hazel", "Gray", "Other"];
 export const HAIR_COLOR_OPTIONS = ["Black", "Brown", "Blonde", "Red", "Gray", "White", "Other"];
 
+/** Client race list. Packet still maps a legacy "Native American" checkbox if staff stored it. */
+export const RACE_OPTIONS = [
+  "American Indian or Alaska Native",
+  "Asian",
+  "Black or African American",
+  "Caucasian or White",
+  "Multiracial",
+  "Native Hawaiian or Pacific Islander",
+];
+
+/** Shown after race for everyone except Black/African American and Caucasian/White. */
+export const ETHNICITY_CLIENT_OPTIONS = ["Latino", "Non-Hispanic"];
+
+/** Staff / packet ethnicity values, plus the cleaned client Non-Hispanic choice. */
+export const ETHNICITY_PACKET_OPTIONS = [
+  "Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black", "Non-Hispanic",
+];
+
 /** Status lists that should use the big native menu even with 4 or fewer choices. */
 export const STRONG_MENU_KEYS: ReadonlySet<string> = new Set([
-  "marital_status", "employment_status", "education", "veteran",
+  "race", "ethnicity", "marital_status", "employment_status", "education", "veteran",
   "income_sources", "referral_source", "height", "eye_color", "hair_color",
   "diagnosis_menu",
 ]);
@@ -168,15 +186,15 @@ export const SECTIONS: Section[] = [
       { key: "client_full_name", essential: true, label: "Client's full legal name", type: "text", required: true, voice: true },
       { key: "dob", essential: true, label: "Date of birth", type: "date", required: true },
       { key: "client_email", essential: true, label: "Email address", type: "email" },
-      { key: "mid_number", essential: true, label: "Medicaid ID number (MID#)", type: "text", voice: true, help: "Skip if you don't have it handy - staff can add it later." },
+      { key: "mid_number", essential: true, staffOnly: true, label: "Medicaid ID number (MID#)", type: "text", voice: true, help: "Staff already has this on the case page. Never ask the client." },
     ],
   },
   {
     key: "demographics", title: "Demographics", fastIntake: true,
     questions: [
       { key: "gender", essential: true, label: "Gender", type: "radio", required: true, options: ["Female", "Male", "Transgender", "Other"] },
-      { key: "race", essential: true, label: "Race", type: "radio", options: ["American Indian or Alaska Native", "Asian", "Black or African American", "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander"] },
-      { key: "ethnicity", essential: true, label: "Ethnicity", type: "radio", options: ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"], askIf: { key: "race", oneOf: ["American Indian or Alaska Native", "Asian", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander"] } },
+      { key: "race", essential: true, menu: true, label: "Race", type: "radio", options: RACE_OPTIONS },
+      { key: "ethnicity", essential: true, menu: true, label: "Ethnicity", type: "radio", options: ETHNICITY_CLIENT_OPTIONS, askIf: { key: "race", oneOf: ["American Indian or Alaska Native", "Asian", "Multiracial", "Native Hawaiian or Pacific Islander"] } },
       { key: "marital_status", essential: true, menu: true, label: "Marital status", type: "radio", options: MARITAL_STATUS_OPTIONS },
       { key: "veteran", menu: true, label: "Are you a veteran?", type: "yesno", options: YN },
       { key: "education", menu: true, label: "Highest education", type: "radio", options: EDUCATION_OPTIONS },
@@ -245,7 +263,7 @@ export const SECTIONS: Section[] = [
       { key: "presenting_need_chips", essential: true, appOnly: true, label: "What do you need help with? (pick all that fit)", type: "chips", options: PRESENTING_NEED_OPTIONS },
       { key: "why_want_services_chips", essential: true, appOnly: true, label: "Why do you want services?", type: "chips", options: WHY_SERVICES_OPTIONS },
       { key: "why_want_services_text", appOnly: true, label: "Tell us more about why you want services (optional)", type: "textarea", voice: true },
-      { key: "presenting_problem", essential: true, label: "Anything else about what brings you in?", type: "textarea", voice: true },
+      { key: "presenting_problem", essential: true, required: true, label: "Why do you want help?", type: "textarea", voice: true },
       { key: "other_agency_types", label: "Are you getting services anywhere else right now?", type: "chips", options: OTHER_AGENCY_OPTIONS },
       { key: "other_agency_where", label: "Where do you get that service?", type: "text", voice: true, askIf: { key: "other_agency_types", oneOf: ["Peer Support", "Therapy", "Medication management", "Community Support Team", "IIH", "Other"] } },
       { key: "other_agencies", staffOnly: true, label: "Are you getting services anywhere else right now?", help: "Filled from the client's chips plus where, or from the CCA.", type: "textarea", voice: true },

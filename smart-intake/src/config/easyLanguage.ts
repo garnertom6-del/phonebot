@@ -171,7 +171,14 @@ export const EASY: Record<string, EasyText> = {
     help: "Pick the one that fits you best.",
     options: { "Caucasian or White": "White" },
   },
-  ethnicity: { q: "What is your background?", help: "Pick the one that fits you best." },
+  ethnicity: {
+    q: "What is your background?",
+    help: "This is about Hispanic or Latino background, not race.",
+    options: {
+      Latino: "Hispanic or Latino",
+      "Non-Hispanic": "Non-Hispanic",
+    },
+  },
   marital_status: { q: "What is your marital status?", help: "Tap the menu and pick the one that fits." },
   veteran: { q: "Were you ever in the military?" },
   education: {
@@ -332,8 +339,8 @@ export const EASY: Record<string, EasyText> = {
     help: "Type or speak. You can skip this.",
   },
   presenting_problem: {
-    q: "Anything else about what brings you in?",
-    help: "Type or speak. You can skip this if the buttons already said it.",
+    q: "Why do you want help?",
+    help: "Type or speak. If you already tapped the buttons, you can repeat that in your own words.",
   },
   other_agency_types: {
     q: "Are you getting services anywhere else right now?",

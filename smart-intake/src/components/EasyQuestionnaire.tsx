@@ -161,8 +161,11 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, []);
 
   const cur = flat[Math.min(idx, Math.max(flat.length - 1, 0))];
-  const answeredCount = flat.filter((f) => isAnswered(answers[f.q.key])).length;
-  const percent = flat.length ? Math.round((answeredCount / flat.length) * 100) : 0;
+  const percent = flat.length ? Math.round(((idx + 1) / flat.length) * 100) : 0;
+  const consentItems = flat.filter((f) => f.q.type === "consent");
+  const consentNumber = cur?.q.type === "consent"
+    ? consentItems.findIndex((f) => f.q.key === cur.q.key) + 1
+    : 0;
   const firstName = clientName.split(" ")[0] || "there";
 
   /* ------------------------------ saving ------------------------------ */
@@ -572,7 +575,14 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   return (
     <div className="mx-auto max-w-md pb-40">
-      <ProgressBar percent={percent} label={`Question ${idx + 1} of ${flat.length} - ${percent}% done`} />
+      <ProgressBar
+        percent={percent}
+        label={
+          consentNumber
+            ? `Consent ${consentNumber} of ${consentItems.length} — question ${idx + 1} of ${flat.length}`
+            : `Question ${idx + 1} of ${flat.length}`
+        }
+      />
 
       <div className="mt-8">
         <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q, providerName, supportPhone)}</h2>
@@ -603,7 +613,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
               Next
             </button>
           </div>
-          {!isQuestionRequired(q, answers) && q.type !== "consent" && (
+          {q.type !== "consent" && !isQuestionRequired(q, answers) && (
             <button type="button" className="btn-ghost min-h-[44px] w-full px-4 py-2 text-sm text-slate-500" onClick={goNext}>
               Skip
             </button>
@@ -701,24 +711,13 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
     const options = q.options && q.options.length ? q.options : SURVEY_OPTIONS;
     if (usesStrongMenu(q)) {
       return (
-        <div className="space-y-3">
-          <p className="rounded-xl bg-amber-50 p-3 text-base font-bold text-amber-900">Tap the menu below to choose one answer.</p>
-          <div className="relative">
-            <select
-              aria-label={easyQ(q, providerName, supportPhone)}
-              className="input min-h-[64px] appearance-none border-2 border-brand bg-brand-light pr-12 text-lg font-extrabold text-brand shadow-md"
-              value={String(value ?? "")}
-              onChange={(e) => set(q.key, e.target.value)}
-            >
-              <option value="">Tap to choose...</option>
-              {options.map((opt) => (
-                <option key={opt} value={opt}>{easyOpt(q, opt, providerName, supportPhone)}</option>
-              ))}
-            </select>
-            <span aria-hidden="true" className="pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-2xl font-black text-brand">⌄</span>
-          </div>
-          <p className="text-sm font-semibold text-slate-600">After choosing, tap the blue Next button at the bottom.</p>
-        </div>
+        <StrongMenuSelect
+          label={easyQ(q, providerName, supportPhone)}
+          value={String(value ?? "")}
+          options={options}
+          optionLabel={(opt) => easyOpt(q, opt, providerName, supportPhone)}
+          onChange={(next) => set(q.key, next)}
+        />
       );
     }
     return (
@@ -761,9 +760,6 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             </button>
           );
         })}
-        <button type="button" className="btn-primary mt-2 min-h-[64px] w-full text-xl" onClick={() => onNext()}>
-          Done - Next
-        </button>
       </div>
     );
   }
@@ -775,9 +771,6 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
         <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
           enterKeyHint="next"
           onChange={(e) => set(q.key, e.target.value)} />
-        <button type="button" className="btn-primary min-h-[64px] w-full text-xl" onClick={() => onNext()}>
-          Next
-        </button>
       </div>
     );
   }
@@ -823,10 +816,44 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
             }
           }} />
       )}
-      <button type="button" className="btn-primary min-h-[64px] w-full text-xl"
-        onClick={() => onNext(pendingVoiceValue ?? undefined)}>
-        {pendingVoiceValue ? "Use speech & Next" : "Next"}
-      </button>
+      {pendingVoiceValue && (
+        <button type="button" className="btn-secondary min-h-[56px] w-full text-lg"
+          onClick={() => onNext(pendingVoiceValue)}>
+          Use speech & Next
+        </button>
+      )}
+    </div>
+  );
+}
+
+function StrongMenuSelect({ label, value, options, optionLabel, onChange }: {
+  label: string;
+  value: string;
+  options: string[];
+  optionLabel: (opt: string) => string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="space-y-3">
+      <p className="rounded-2xl bg-amber-50 p-4 text-lg font-extrabold leading-snug text-amber-950">
+        Tap the big menu button to pick one answer.
+      </p>
+      <label className="relative block">
+        <span className="sr-only">{label}</span>
+        <select
+          aria-label={label}
+          className="min-h-[88px] w-full appearance-none rounded-2xl border-4 border-brand bg-white px-5 pr-16 text-2xl font-black text-brand shadow-lg"
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+        >
+          <option value="">Tap here to choose…</option>
+          {options.map((opt) => (
+            <option key={opt} value={opt}>{optionLabel(opt)}</option>
+          ))}
+        </select>
+        <span aria-hidden="true" className="pointer-events-none absolute inset-y-0 right-5 flex items-center text-4xl font-black text-brand">▾</span>
+      </label>
+      <p className="text-base font-semibold text-slate-600">After you pick, tap the blue Next button at the bottom.</p>
     </div>
   );
 }

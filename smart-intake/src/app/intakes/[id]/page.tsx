@@ -15,7 +15,7 @@ import {
 } from "@/lib/ccaMedicalNecessity";
 import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix, staffInsurancePlanReady } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
-import { EDUCATION_OPTIONS, EMPLOYMENT_STATUS_OPTIONS, MARITAL_STATUS_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
+import { EDUCATION_OPTIONS, EMPLOYMENT_STATUS_OPTIONS, ETHNICITY_PACKET_OPTIONS, MARITAL_STATUS_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import {
   copiesMailtoHref,
   copiesShareMessage,
@@ -232,11 +232,7 @@ function useHelperDraft() {
   return ctx;
 }
 
-const RACE_OPTIONS = [
-  "American Indian or Alaska Native", "Asian", "Black or African American",
-  "Caucasian or White", "Multiracial", "Native American", "Native Hawaiian or Pacific Islander",
-];
-const ETHNICITY_OPTIONS = ["Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black"];
+const ETHNICITY_OPTIONS = ETHNICITY_PACKET_OPTIONS;
 const VETERAN_OPTIONS = ["Yes", "No"];
 const GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
 const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "German", "Other"];
