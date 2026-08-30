@@ -282,8 +282,13 @@ async function main() {
     fields: exclusiveFields,
     templateBytes: exclusiveTemplate,
   });
+  const operationalDefaultBoxes = new Set(["med_y", "min_n"]);
   for (const field of exclusiveFields) {
-    assert(emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} must stay empty when unanswered`);
+    if (operationalDefaultBoxes.has(field.fieldKey)) {
+      assert(!emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} is stamped by operational defaults`);
+    } else {
+      assert(emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} must stay empty when unanswered`);
+    }
   }
   ok("exclusive checkbox fill: Female-only, minor Y-only, medicaid Yes-only, consent true");
 
@@ -1738,7 +1743,7 @@ async function main() {
     "follow-up must exclude consent and staff-only fields",
   );
   assert.deepEqual(
-    clientFollowUpQuestions(["height", "weight"], { height: "5 ft 8 in", weight: "" })
+    clientFollowUpQuestions(["height", "weight"], { height: "5'8\"", weight: "" })
       .map((question) => question.key),
     ["weight"],
     "follow-up must omit answers already present",
@@ -1761,8 +1766,8 @@ async function main() {
   );
   assert.equal(
     validateFollowUpSubmission(safeFollowUpQuestions, {
-      height: "5 ft 8 in",
-      weight: "160 lb",
+      height: "5'8\"",
+      weight: "160",
       consent_hipaa: "Yes",
     }).ok,
     false,
@@ -1770,22 +1775,22 @@ async function main() {
   );
   assert.equal(
     validateFollowUpSubmission(safeFollowUpQuestions, {
-      height: "5 ft 8 in",
-      weight: "160 lb",
+      height: "5'8\"",
+      weight: "160",
     }).ok,
     true,
     "follow-up must accept valid requested answers",
   );
   const deferredFollowUp = validateFollowUpSubmission(
     safeFollowUpQuestions,
-    { height: "5 ft 8 in" },
+    { height: "5'8\"" },
     { skippedKeys: ["weight"] },
   );
   assert.equal(deferredFollowUp.ok, true, "client may defer an unknown requested answer to staff");
   assert.equal(
     validateFollowUpSubmission(
       safeFollowUpQuestions,
-      { height: "5 ft 8 in" },
+      { height: "5'8\"" },
       { skippedKeys: ["diagnosis_list"] },
     ).ok,
     false,
@@ -1899,7 +1904,7 @@ async function main() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        answers: { height: "5 ft 8 in", weight: "160 lb", consent_hipaa: "Yes" },
+        answers: { height: "5'8\"", weight: "160", consent_hipaa: "Yes" },
         attested: true,
       }),
     });
@@ -1914,14 +1919,14 @@ async function main() {
     );
 
     await saveAnswers(followUpIntake.id, {
-      weight: "170 lb",
+      weight: "170",
       presenting_problem: "Staff edit made after the client opened the follow-up",
     });
     const validFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
-        answers: { height: "5 ft 8 in", weight: "160 lb" },
+        answers: { height: "5'8\"", weight: "160" },
         skippedKeys: ["preferred_emergency_facility"],
         attested: true,
       }),
@@ -1931,8 +1936,8 @@ async function main() {
     });
     assert.equal(validFollowUp.status, 200, "valid follow-up answers must save");
     const savedFollowUpAnswers = await loadAnswers(followUpIntake.id);
-    assert.equal(savedFollowUpAnswers.height, "5 ft 8 in");
-    assert.equal(savedFollowUpAnswers.weight, "170 lb", "follow-up must not overwrite a newer staff answer");
+    assert.equal(savedFollowUpAnswers.height, "5'8\"");
+    assert.equal(savedFollowUpAnswers.weight, "170", "follow-up must not overwrite a newer staff answer");
     assert.equal(
       savedFollowUpAnswers.presenting_problem,
       "Staff edit made after the client opened the follow-up",
@@ -1948,7 +1953,7 @@ async function main() {
     assert.match(completedFollowUp?.attestationSha256 || "", /^[a-f0-9]{64}$/);
     assert.equal(
       JSON.parse(completedFollowUp?.attestationJson || "{}").answers.height,
-      "5 ft 8 in",
+      "5'8\"",
     );
     assert.deepEqual(
       JSON.parse(completedFollowUp?.skippedKeys || "[]"),
@@ -2049,7 +2054,7 @@ async function main() {
       params: { token: secureFollowUpToken },
     });
     assert.equal(replayFollowUp.status, 409, "completed follow-up links must reject replay");
-    assert.equal((await loadAnswers(followUpIntake.id)).height, "5 ft 8 in", "replay must not overwrite saved answers");
+    assert.equal((await loadAnswers(followUpIntake.id)).height, "5'8\"", "replay must not overwrite saved answers");
     ok("one-time client follow-up securely merges answers and rejects replay");
   } finally {
     await prisma.auditLog.deleteMany({ where: { intakeId: followUpIntake.id } });
