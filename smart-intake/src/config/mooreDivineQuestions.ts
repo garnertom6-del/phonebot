@@ -91,8 +91,8 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "client_full_name", essential: true, label: "Client's full legal name", type: "text", required: true, voice: true },
       { key: "dob", essential: true, label: "Date of birth", type: "date", required: true },
-      { key: "mid_number", essential: true, label: "Medicaid ID number (MID#)", type: "text", voice: true, help: "Skip if you don't have it handy - staff can add it later." },
       { key: "client_email", essential: true, label: "Email address", type: "email" },
+      { key: "mid_number", essential: true, label: "Medicaid ID number (MID#)", type: "text", voice: true, help: "Skip if you don't have it handy - staff can add it later." },
     ],
   },
   {
