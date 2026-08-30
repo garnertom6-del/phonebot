@@ -21,7 +21,7 @@ import { fillPacket, loadTemplateBytes, resolveValue } from "../src/lib/fillPdf"
 import { wrapText, sanitizePdfText } from "../src/lib/pdfCoordinates";
 import { messageForPdfPreviewFailure, parsePdfPreviewErrorBody } from "../src/lib/pdfPreviewError";
 import { resolveStaffProvider, resolveStaffProviderForIntake } from "../src/lib/staffProviderScope";
-import { signatureSendHint } from "../src/lib/signatureStatus";
+import { beginSignatureSend, signatureSendHint } from "../src/lib/signatureStatus";
 import { materialCcaChanges } from "../src/lib/ccaApply";
 import {
   packetFieldsForTemplate,
@@ -46,8 +46,8 @@ import {
   formatUsPhoneDisplay,
   INVALID_CONTACT_MESSAGE,
 } from "../src/lib/intakeContacts";
-import { extractIntakeNoteFields, parseHelperNotes } from "../src/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness } from "../src/lib/newIntakeReadiness";
+import { emptyExtractedNoteFields, extractIntakeNoteFields, extractedNoteFieldState, parseHelperNotes } from "../src/lib/parseIntakeNotes";
+import { buildNewIntakeReadiness, newIntakeCreateLabel } from "../src/lib/newIntakeReadiness";
 import {
   canOfferCompletedPacketEmail,
   defaultIntakeLocation,
@@ -342,8 +342,28 @@ async function main() {
   });
   assert.equal(sendHintCcaWouldHaveBlocked.enabled, true);
   assert(sendHintCcaWouldHaveBlocked.title.includes("re-signed"));
+  assert.equal(sendHintCcaWouldHaveBlocked.reason, sendHintCcaWouldHaveBlocked.title);
   assert(!/CCA/i.test(sendHintCcaWouldHaveBlocked.title));
   ok("Send missing signatures uses the signature reason, not a CCA blocker");
+
+  const blockedPacketHint = signatureSendHint({
+    packetReady: false,
+    packetMessage: "Master admin must approve and activate this provider's packet first.",
+    statuses: [{
+      key: "client_guardian", label: "Client / guardian", state: "missing", required: true, onPacket: true,
+      reason: "Not signed yet.",
+    }],
+    docusignEnvelopeId: null,
+  });
+  assert.equal(blockedPacketHint.enabled, false);
+  assert(blockedPacketHint.reason.includes("approve and activate"));
+  const blockedClick = beginSignatureSend(blockedPacketHint);
+  assert.equal(blockedClick.action, "blocked");
+  assert.equal(blockedClick.action === "blocked" ? blockedClick.message : "", blockedPacketHint.reason);
+  const readyClick = beginSignatureSend(sendHintCcaWouldHaveBlocked);
+  assert.equal(readyClick.action, "proceed");
+  assert(readyClick.action === "proceed" && readyClick.confirm.includes("DocuSign"));
+  ok("Send missing signatures click always returns a confirm dialog or a visible blocked reason");
 
   assert.deepEqual(
     materialCcaChanges(
@@ -790,6 +810,12 @@ async function main() {
   assert.equal(readyIntakeReadiness.ready, true);
   assert.equal(readyIntakeReadiness.title, "Ready to create the secure link");
   ok("create-intake readiness requires identity and contact, not Record#");
+  assert.equal(newIntakeCreateLabel({ hasSmsPhone: true, sendSmsAfterCreate: false }), "Create intake");
+  assert.equal(newIntakeCreateLabel({ hasSmsPhone: true, sendSmsAfterCreate: true }), "Create and text the link");
+  assert.equal(newIntakeCreateLabel({ isCreating: true, hasSmsPhone: true, sendSmsAfterCreate: false }), "Creating intake...");
+  assert.equal(newIntakeCreateLabel({ isCreating: true, hasSmsPhone: true, sendSmsAfterCreate: true }), "Creating and texting the link...");
+  assert.equal(newIntakeCreateLabel({ packetContextError: true, hasSmsPhone: true, sendSmsAfterCreate: true }), "Sign in to create an intake");
+  ok("create-intake primary button stays Create intake until staff checks the immediate-SMS box");
   const validCcaReview = JSON.stringify({
     sourceClinician: "Test Clinician",
     assessmentDate: "2026-08-28",
@@ -940,7 +966,18 @@ async function main() {
   const phoneOnlyEmergency = parseHelperNotes("Emergency contact: 3365550199");
   assert.equal(phoneOnlyEmergency.ec1_name, undefined, "a phone-only emergency contact must not populate the name field");
   assert.equal(phoneOnlyEmergency.ec1_cell_phone, "3365550199");
-  ok("pasted CCA / NC Tracks notes parse into confirmable name, DOB, address, phone, emergency, and MID fields");
+  const emptyFromPaste = emptyExtractedNoteFields(extractedNotes, () => "");
+  assert.equal(emptyFromPaste.length, extractedNotes.length);
+  assert.equal(emptyExtractedNoteFields(extractedNotes, (field) => field.value).length, 0);
+  const staffTypedName = emptyExtractedNoteFields(
+    extractedNotes,
+    (field) => field.key === "client_full_name" ? "Already Typed" : "",
+  );
+  assert.equal(staffTypedName.length, extractedNotes.length - 1);
+  assert(!staffTypedName.some((field) => field.key === "client_full_name"));
+  assert.equal(extractedNoteFieldState(extractedNotes[0], "Already Typed"), "replace");
+  assert.equal(extractedNoteFieldState(extractedNotes[0], extractedNotes[0].value), "applied");
+  ok("Use these applies only empty extracted chips and leaves typed fields for replace");
 
   assert.equal(defaultIntakeLocation(undefined), "");
   assert.equal(defaultIntakeLocation("Greensboro"), "Greensboro");

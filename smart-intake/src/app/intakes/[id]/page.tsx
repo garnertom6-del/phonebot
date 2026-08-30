@@ -29,7 +29,7 @@ import { clientFollowUpQuestions, isBlankFollowUpValue } from "@/lib/clientFollo
 import { hasSmsDeliveryFailure } from "@/lib/dashboardFlash";
 import { buildCasePageStatus, type CaseWorkflowStep } from "@/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "@/lib/packetChecklist";
-import { signatureSendHint } from "@/lib/signatureStatus";
+import { beginSignatureSend, signatureSendHint } from "@/lib/signatureStatus";
 
 type PreflightFinding = {
   key: string;
@@ -597,7 +597,13 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     setNote(`${label}...`);
     if (label === "Generate Completed Packet") setIdentityMismatch(null);
     if (label === "Generate Completed Packet") setLastSignatureAudit(null);
-    const r = await fn();
+    let r: Response;
+    try {
+      r = await fn();
+    } catch {
+      setNote(`${label} failed: check your connection and try again.`);
+      return;
+    }
     const b = await r.json().catch(() => ({}));
     if (label === "Generate Completed Packet") {
       if (!r.ok && b.code === "IDENTITY_MISMATCH") {
@@ -1089,34 +1095,52 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
             <p className="mt-1 text-sm">{caseStatus.detail}</p>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap gap-2">
-            {caseStatus.sendCopiesAllowed ? (
-              <button className="btn-primary px-3 py-2 text-sm" disabled={copiesBusy} onClick={() => { void sendCopiesLink(); }}>
+            <div className="flex min-w-0 flex-col gap-1">
+              <button
+                type="button"
+                className={caseStatus.sendCopiesAllowed ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
+                aria-disabled={!caseStatus.sendCopiesAllowed}
+                aria-describedby={caseStatus.sendCopiesAllowed ? undefined : "send-copies-reason"}
+                disabled={copiesBusy}
+                onClick={() => { void sendCopiesLink(); }}
+              >
                 {copiesBusy ? "Sending client copies..." : "Send client copies"}
               </button>
-            ) : (
+              {!caseStatus.sendCopiesAllowed && (
+                <p id="send-copies-reason" className="max-w-xs text-xs leading-5 text-slate-600">
+                  {caseStatus.detail}
+                </p>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-col gap-1">
               <button
+                type="button"
                 className="btn-ghost px-3 py-2 text-sm"
-                disabled
-                title={caseStatus.detail}
+                aria-disabled={!signatureSend.enabled}
+                aria-describedby="signature-send-reason"
+                onClick={() => {
+                  const next = beginSignatureSend(signatureSend);
+                  if (next.action === "blocked") {
+                    setNote(next.message);
+                    return;
+                  }
+                  if (!window.confirm(next.confirm)) {
+                    setNote("DocuSign send cancelled.");
+                    return;
+                  }
+                  void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({ allowStaffSigner: true }),
+                  }));
+                }}
               >
-                Send client copies blocked
+                Send missing signatures
               </button>
-            )}
-            <button
-              className="btn-ghost px-3 py-2 text-sm"
-              disabled={!signatureSend.enabled}
-              title={signatureSend.title}
-              onClick={() => {
-                if (!window.confirm("Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.")) return;
-                void act("DocuSign", () => fetch(`/api/intakes/${i.id}/docusign`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({ allowStaffSigner: true }),
-                }));
-              }}
-            >
-              Send missing signatures
-            </button>
+              <p id="signature-send-reason" className="max-w-xs text-xs leading-5 text-slate-600">
+                {signatureSend.reason}
+              </p>
+            </div>
             <button className="btn-ghost shrink-0 whitespace-nowrap px-3 py-2 text-sm" onClick={() => { void setProviderPacketEmail(!providerPacketEmailEnabled); }}>
               Email completed PDF to provider: {providerPacketEmailEnabled ? "On" : "Off"}
             </button>
