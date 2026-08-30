@@ -8,6 +8,7 @@ import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLink
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { consumeDashboardFlash, dashboardHrefWithTab, dashboardTabFromQuery } from "@/lib/dashboardFlash";
 import { FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE } from "@/lib/insurancePlans";
+import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
 
 interface Row {
   id: string;
@@ -624,11 +625,7 @@ function Dashboard() {
                 {!readOnly && <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
                 {(isMaster || canManageProvider) && <Link href="/admin/users" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Staff logins</Link>}
                 {isMaster && <Link href="/admin/pdf-mapping" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">PDF mapping</Link>}
-                {isMaster && <a href="/api/admin/backup?confirmPhi=yes" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100" onClick={(event) => {
-                  if (!window.confirm("This backup contains protected health information. Download it only to a private, encrypted location. Continue?")) {
-                    event.preventDefault();
-                  }
-                }}>Download backup</a>}
+                {isMaster && <PhiBackupDownloadButton className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100" />}
                 <button
                   className="rounded-md px-3 py-2 text-left text-sm font-semibold hover:bg-slate-100"
                   onClick={async () => {

@@ -25,6 +25,7 @@ import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
 import IntakeOrientationAudio from "./IntakeOrientationAudio";
 import ConsentAudio from "./ConsentAudio";
+import { interstitialGuardUntil, isInterstitialClickGuarded } from "@/lib/easyInterstitialGuard";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
@@ -127,6 +128,8 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const idxRef = useRef(idx); idxRef.current = idx;
   const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const clickGuardUntilRef = useRef(0);
+  const [clickGuardUntil, setClickGuardUntil] = useState(0);
   // what the server already has - autosaves send only the diff, not all 200+ answers
   const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
 
@@ -231,6 +234,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, [saveNow]);
 
   const set = useCallback((key: string, value: Answers[string]) => {
+    if (isInterstitialClickGuarded(clickGuardUntilRef.current)) return;
     setAnswers((a) => {
       const next: Answers = { ...a, [key]: value };
       if (key === "race") {
@@ -302,11 +306,19 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   /** Tap an answer -> brief highlight, then move to the next question. */
   const pickAndAdvance = useCallback((key: string, value: Answers[string], display: string) => {
+    if (isInterstitialClickGuarded(clickGuardUntilRef.current)) return;
     set(key, value);
     setJustPicked(display);
     if (advanceTimer.current) clearTimeout(advanceTimer.current);
     advanceTimer.current = setTimeout(goNext, 350);
   }, [set, goNext]);
+
+  const leaveBreak = useCallback(() => {
+    const until = interstitialGuardUntil();
+    clickGuardUntilRef.current = until;
+    setClickGuardUntil(until);
+    setPhase("question");
+  }, []);
 
   const nextFromInput = useCallback(async (pendingVoiceValue?: string) => {
     if (advanceTimer.current) {
@@ -340,12 +352,24 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     goNext();
   }, [goNext, saveNow]);
 
-  // Encouragement screens auto-advance after 1.2s (or tap to continue).
+  // Interstitials wait for a real tap. Auto-advancing here is what let the
+  // same pointer land on the next question's chips (live: Transgender).
+  // Answer chips still auto-advance via pickAndAdvance.
+
   useEffect(() => {
-    if (phase !== "break") return;
-    const t = setTimeout(() => setPhase("question"), 1200);
+    if (!clickGuardUntil) return;
+    const remaining = clickGuardUntil - Date.now();
+    if (remaining <= 0) {
+      clickGuardUntilRef.current = 0;
+      setClickGuardUntil(0);
+      return;
+    }
+    const t = setTimeout(() => {
+      clickGuardUntilRef.current = 0;
+      setClickGuardUntil(0);
+    }, remaining);
     return () => clearTimeout(t);
-  }, [phase, breakText]);
+  }, [clickGuardUntil]);
 
   // Safety net: if there is somehow nothing left to ask, go to signing.
   useEffect(() => {
@@ -493,8 +517,25 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   if (phase === "break") {
     return (
-      <button type="button" onClick={() => setPhase("question")}
-        className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col items-center justify-center text-center">
+      <button
+        type="button"
+        onPointerDown={(event) => {
+          // Consume the pointer so a synthesized click cannot hit the next
+          // question's chips after this screen unmounts.
+          event.preventDefault();
+        }}
+        onPointerUp={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          leaveBreak();
+        }}
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          leaveBreak();
+        }}
+        className="mx-auto flex min-h-[70vh] w-full max-w-md flex-col items-center justify-center text-center"
+      >
         <span className="text-2xl font-bold leading-relaxed text-brand">{breakText}</span>
         <span className="mt-6 text-base text-slate-400">Tap anywhere to keep going</span>
       </button>
@@ -605,9 +646,13 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   if (!cur) return null; // effect above redirects to the signature step
   const q = cur.q;
+  const answersLocked = isInterstitialClickGuarded(clickGuardUntil);
 
   return (
-    <div className={q.type === "consent" ? "mx-auto max-w-md pb-56" : "mx-auto max-w-md pb-40"}>
+    <div
+      className={q.type === "consent" ? "mx-auto max-w-md pb-56" : "mx-auto max-w-md pb-40"}
+      style={answersLocked ? { pointerEvents: "none" } : undefined}
+    >
       <ProgressBar
         percent={percent}
         label={

@@ -38,7 +38,14 @@ import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrit
 import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
 import { signatureForRole } from "../src/lib/signaturePlacement";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
-import { applyOperationalDefaults } from "../src/lib/answerDefaults";
+import { applyOperationalDefaults, ageAtDate, UNMAPPED_PACKET_CHOICES } from "../src/lib/answerDefaults";
+import { appendPcpPlanSignaturePage, pcpIddDocumented } from "../src/lib/pcpPlanSignaturePage";
+import { emptyCcaReview } from "../src/lib/ccaReview";
+import { PDFDocument } from "pdf-lib";
+import { extractPdfText } from "../src/lib/pdfText";
+import { PACKET_MAP } from "../src/config/mooreDivinePacketMap";
+import { interstitialGuardUntil, isInterstitialClickGuarded, INTERSTITIAL_CLICK_GUARD_MS } from "../src/lib/easyInterstitialGuard";
+import { PHI_BACKUP_PATH, phiBackupDownloadUrl } from "../src/lib/phiBackupDownload";
 import { clientLinkRenewalData, newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { clientDetailsSchema, isQuestionRequired, missingRequired, newIntakeSchema, percentComplete, clientAskedPercentComplete } from "../src/lib/validation";
 import {
@@ -2237,7 +2244,7 @@ async function main() {
   {
     const defaults = applyOperationalDefaults({});
     assert.equal(defaults.has_medicaid, undefined);
-    assert.equal(defaults.has_nchc, "No");
+    assert.equal(defaults.has_nchc, undefined);
     assert.equal(defaults.language, "English");
     assert.equal(defaults.is_minor_or_incompetent, undefined);
     assert.equal(defaults.program_can_meet_needs, undefined);
@@ -2548,6 +2555,203 @@ async function main() {
   assert.equal(normRecordName("John Snipes (Johnny)"), normRecordName("john snipes"), "preferred-name suffix is ignored");
   assert.notEqual(normRecordName("Markey Washington Jr"), normRecordName("Markey Washington"), "distinct names stay distinct");
   ok("DOB/name identity normalisers agree across gate and preflight (no false identity block)");
+
+  // ---- NC PLAN SIGNATURES page -------------------------------------------
+  // This page carries the client's signature onto a state form, so three
+  // rules are load-bearing: the signature is the drawn image and is never
+  // faked with type, no date is ever written, and the "I/DD services only"
+  // attestation is ticked only when the CCA documents an I/DD diagnosis.
+  {
+    const dxReview = (code: string, label: string) => ({
+      ...emptyCcaReview(), primaryDiagnosis: { code, label },
+    });
+    assert.equal(pcpIddDocumented(dxReview("F33.1", "Major depressive disorder, recurrent")), false,
+      "a depression diagnosis must not tick the I/DD box");
+    assert.equal(pcpIddDocumented(dxReview("F10.20", "Alcohol use disorder")), false,
+      "a substance use diagnosis must not tick the I/DD box");
+    assert.equal(pcpIddDocumented(dxReview("F71", "Moderate intellectual disability")), true,
+      "F70-F79 is I/DD");
+    assert.equal(pcpIddDocumented(dxReview("F84.0", "Autistic disorder")), true,
+      "F84 counts as I/DD on this form even though the service scorer treats it as mental health");
+    assert.equal(pcpIddDocumented(null), false, "no CCA means the I/DD box stays blank");
+    ok("PLAN SIGNATURES: the I/DD attestation is driven by the diagnosis, never ticked by default");
+
+    const onePagePacket = await (async () => {
+      const doc = await PDFDocument.create();
+      doc.addPage([612, 792]);
+      return doc.save();
+    })();
+    // a 1x1 transparent PNG is a valid captured signature for this test
+    const pngData = "data:image/png;base64,"
+      + "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+
+    const signedDate = "08/30/2026";
+    const signed = await appendPcpPlanSignaturePage(onePagePacket, {
+      clientName: "Marcus Anthony Whitfield-Brown",
+      dob: "03/14/1988", midNumber: "947123456M", recordNumber: "MDC-1042",
+      caseManagementAgency: "Moore Divine Care, Inc.",
+      clientIsOwnLegalRepresentative: true, iddDocumented: false,
+      signatures: { client: { role: "client", imageData: pngData, printedName: "Marcus Anthony Whitfield-Brown", signedDate } },
+    });
+    assert.equal(signed.signedBy, "client", "an adult signing for themselves uses the client block");
+    assert.deepEqual(signed.warnings, [], "a signed page reports no missing-signature warning");
+    const signedText = await extractPdfText(signed.pdfBytes);
+    assert.ok(signedText.includes("Marcus Anthony Whitfield-Brown"), "the printed name stays legible text");
+    assert.ok(!signedText.includes(signedDate), "no date is ever written on the PLAN SIGNATURES page");
+    ok("PLAN SIGNATURES: signed page carries a legible printed name and no date");
+
+    const unsigned = await appendPcpPlanSignaturePage(onePagePacket, {
+      clientName: "Unsigned Test", caseManagementAgency: "Moore Divine Care, Inc.",
+      clientIsOwnLegalRepresentative: true, iddDocumented: false, signatures: {},
+    });
+    assert.equal(unsigned.signedBy, null, "no captured signature means nothing was signed");
+    assert.ok(unsigned.warnings.some((w) => w.includes("left blank")),
+      "an unsigned page must warn rather than substitute a typed name");
+    ok("PLAN SIGNATURES: an unsigned form prints blank and warns - it never types a stand-in signature");
+
+    const guardianSigned = await appendPcpPlanSignaturePage(onePagePacket, {
+      clientName: "Jayden Sample", caseManagementAgency: "Moore Divine Care, Inc.",
+      clientIsOwnLegalRepresentative: false, iddDocumented: true,
+      guardianRelationship: "Mother",
+      signatures: { guardian: { role: "guardian", imageData: pngData, printedName: "Erica Sample", signedDate } },
+    });
+    assert.equal(guardianSigned.signedBy, "guardian", "a minor's page is signed in the guardian block");
+    const guardianText = await extractPdfText(guardianSigned.pdfBytes);
+    assert.ok(guardianText.includes("Erica Sample"), "the guardian's printed name is drawn");
+    assert.ok(guardianText.includes("Mother"), "the guardian's relationship is drawn");
+    assert.ok(!guardianText.includes(signedDate), "the guardian page is undated too");
+    ok("PLAN SIGNATURES: a guardian signs the legally-responsible-person block, with their relationship");
+  }
+
+  // ---- answers that must never be invented on a signed packet --------------
+  {
+    // A minor could complete and sign the whole packet as their own legal
+    // representative: is_minor_or_incompetent is staff-only, gates every
+    // guardian question, and nothing blocked submission when it was blank.
+    assert.equal(ageAtDate("2011-09-22", "2026-08-30"), 14, "age is calendar-accurate");
+    assert.equal(ageAtDate("2008-10-21", "2026-08-30"), 17, "birthday not yet reached this year");
+    assert.equal(ageAtDate("2008-08-30", "2026-08-30"), 18, "birthday on the intake date counts");
+    assert.equal(ageAtDate("", "2026-08-30"), null, "no DOB gives no age");
+
+    const minor = applyOperationalDefaults({ dob: "2011-09-22", intake_date: "2026-08-30" } as never);
+    assert.equal(minor.is_minor_or_incompetent, "Yes", "a 14-year-old is never their own legal representative");
+    const minorMisflagged = applyOperationalDefaults({
+      dob: "2011-09-22", intake_date: "2026-08-30", is_minor_or_incompetent: "No",
+    } as never);
+    assert.equal(minorMisflagged.is_minor_or_incompetent, "Yes", "a date of birth overrides a mistaken No");
+    const adultWithGuardian = applyOperationalDefaults({
+      dob: "1988-03-14", intake_date: "2026-08-30", is_minor_or_incompetent: "Yes",
+    } as never);
+    assert.equal(adultWithGuardian.is_minor_or_incompetent, "Yes", "staff may still flag an adult with a guardian");
+    ok("guardian status is derived from the date of birth, so a minor cannot sign for themselves");
+
+    // NC Health Choice covers children who do NOT qualify for Medicaid, so
+    // "No" is only true once Medicaid is established.
+    const noEvidence = applyOperationalDefaults({ client_full_name: "A B", dob: "2014-03-02" } as never, { forPdf: true });
+    assert.equal(noEvidence.has_nchc, undefined, "NCHC stays blank with no Medicaid evidence");
+    const onMedicaid = applyOperationalDefaults({ mid_number: "947123456M" } as never, { forPdf: true });
+    assert.equal(onMedicaid.has_nchc, "No", "an established Medicaid enrollment does imply NCHC No");
+    ok("NC Health Choice is derived from Medicaid, not invented for every client");
+  }
+
+  // ---- the diagnosis menu must not print sentinels as diagnoses ------------
+  {
+    const dunno = applyOperationalDefaults({ has_current_diagnosis: "Yes", diagnosis_menu: "I don't know" } as never);
+    assert.ok(!String(dunno.sa_primary_diagnosis || "").includes("know"), "\"I don't know\" is not a diagnosis");
+    assert.ok(!String(dunno.c_axis1 || "").includes("know"), "\"I don't know\" never reaches Axis I");
+    const other = applyOperationalDefaults({
+      diagnosis_menu: "Other", diagnosis_list: "Borderline personality disorder",
+    } as never);
+    assert.equal(other.sa_primary_diagnosis, "Borderline personality disorder",
+      "the real diagnosis outranks the Other sentinel");
+    const real = applyOperationalDefaults({ diagnosis_menu: "Major depressive disorder (F33.1)" } as never);
+    assert.equal(real.sa_primary_diagnosis, "Major depressive disorder (F33.1)", "a real menu diagnosis still prints");
+    ok("diagnosis menu sentinels never print as a clinical diagnosis");
+  }
+
+  // ---- the presenting problem must be idempotent ---------------------------
+  {
+    let a: Record<string, unknown> = {
+      presenting_need_chips: ["Therapy"], why_want_services_chips: ["I want to stay stable"],
+    };
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    const first = String(a.presenting_problem);
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    assert.equal(a.presenting_problem, first, "re-running the defaults must not grow the sentence");
+    a.presenting_need_chips = ["Therapy", "Need housing"];
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    a = applyOperationalDefaults(a as never) as Record<string, unknown>;
+    assert.equal(
+      a.presenting_problem, "Therapy, Need housing. I want to stay stable",
+      "adding a chip replaces the derived sentence instead of appending a second copy",
+    );
+    const typed = applyOperationalDefaults({
+      presenting_need_chips: ["Food"], presenting_problem: "My landlord is evicting me.",
+    } as never) as Record<string, unknown>;
+    assert.ok(String(typed.presenting_problem).includes("My landlord is evicting me."),
+      "what the client typed themselves is kept");
+    ok("the presenting problem no longer duplicates each time the client returns");
+  }
+
+  // ---- every client menu choice has a home on the packet -------------------
+  {
+    const boxed = new Set(PACKET_MAP.fields.map((f) => f.source || "").filter(Boolean));
+    const drifted: string[] = [];
+    for (const key of Object.keys(UNMAPPED_PACKET_CHOICES)) {
+      const question = questionByKey(key);
+      const allowed = new Set(UNMAPPED_PACKET_CHOICES[key]);
+      for (const option of question?.options || []) {
+        const printed = applyOperationalDefaults(
+          { [key]: option, race: "Black or African American" } as never, { forPdf: true },
+        ) as Record<string, unknown>;
+        if (boxed.has(`${key}=${String(printed[key])}`)) continue;
+        if (allowed.has(option)) continue;
+        drifted.push(`${key}="${option}"`);
+      }
+    }
+    assert.deepEqual(drifted, [],
+      `these menu choices print blank on the packet and are not declared in UNMAPPED_PACKET_CHOICES: ${drifted.join(", ")}`);
+    const mapped = applyOperationalDefaults(
+      { ethnicity: "Non-Hispanic", race: "Black or African American" } as never, { forPdf: true },
+    );
+    assert.equal(mapped.ethnicity, "Non-Hispanic", "race must not invent a packet ethnicity value");
+    assert.equal(ethnicityForRace("Black or African American"), "");
+    assert.equal(
+      applyOperationalDefaults({ employment_status: "Self-Employed" } as never, { forPdf: true }).employment_status,
+      "Employed", "self-employment ticks the Employed box");
+    assert.equal(
+      applyOperationalDefaults({ employment_status: "Retired" } as never, { forPdf: true }).employment_status,
+      "Not in Labor Force", "a retiree ticks Not in Labor Force");
+    ok("new menu choices either tick a real box or are declared as record-only");
+  }
+
+  // ---- Easy Mode interstitial tap must not select the next answer ----------
+  {
+    const now = 1_000_000;
+    const until = interstitialGuardUntil(now);
+    assert.equal(until, now + INTERSTITIAL_CLICK_GUARD_MS);
+    assert.equal(isInterstitialClickGuarded(until, now), true, "the tap that dismisses the interstitial is ignored");
+    assert.equal(isInterstitialClickGuarded(until, now + INTERSTITIAL_CLICK_GUARD_MS - 1), true);
+    assert.equal(isInterstitialClickGuarded(until, now + INTERSTITIAL_CLICK_GUARD_MS), false, "a later choice still advances");
+    assert.equal(isInterstitialClickGuarded(0, now), false);
+    ok("Easy Mode interstitial tap is consumed and does not select the next chip");
+  }
+
+  // ---- PHI backup confirm is not pre-baked in the href ---------------------
+  {
+    assert.equal(phiBackupDownloadUrl(false), PHI_BACKUP_PATH);
+    assert.equal(phiBackupDownloadUrl(true), `${PHI_BACKUP_PATH}?confirmPhi=yes`);
+    assert(!phiBackupDownloadUrl(false).includes("confirmPhi"), "unconfirmed href must not set confirmPhi");
+    const dashboardSrc = fs.readFileSync(path.join(process.cwd(), "src/app/dashboard/page.tsx"), "utf8");
+    const masterSrc = fs.readFileSync(path.join(process.cwd(), "src/app/master/dashboard/page.tsx"), "utf8");
+    const buttonSrc = fs.readFileSync(path.join(process.cwd(), "src/components/PhiBackupDownloadButton.tsx"), "utf8");
+    assert(!dashboardSrc.includes("confirmPhi=yes"), "staff More-tools must not pre-bake confirmPhi=yes");
+    assert(!masterSrc.includes("confirmPhi=yes"), "master header must not pre-bake confirmPhi=yes");
+    assert(buttonSrc.includes("href={PHI_BACKUP_PATH}"), "the visible href stays unconfirmed");
+    assert(buttonSrc.includes("window.confirm"), "backup requires an explicit confirm dialog");
+    assert(buttonSrc.includes("phiBackupDownloadUrl(true)"), "confirmPhi=yes is added only after confirm");
+    ok("PHI backup download requires a real confirm; href does not pre-set confirmPhi=yes");
+  }
 
   console.log(`\nAll ${passed} checks passed ✓`);
 }
