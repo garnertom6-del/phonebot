@@ -30,6 +30,7 @@ export interface Question {
   appOnly?: boolean;        // asked in the app only; not a paper-packet mapping field
   menu?: boolean;           // Easy Mode: use the big native <select> even with 4 or fewer options
   contactPicker?: boolean;  // optional Contact Picker (one contact the client chooses)
+  exclusiveOptions?: string[]; // chip choices such as None that clear other choices
   providers?: QuestionCatalogId[]; // omit = every provider catalog
 }
 
@@ -51,16 +52,20 @@ export const REFERRAL_SOURCE_OPTIONS = [
 ];
 
 export const MARITAL_STATUS_OPTIONS = [
-  "Single", "Married", "Separated", "Divorced", "Widowed", "Domestic partner / other",
+  "Single", "Married", "Separated", "Divorced", "Widowed",
+  "Partnered / Domestic Partnership", "Prefer not to answer",
 ];
 
 export const EMPLOYMENT_STATUS_OPTIONS = [
-  "Unemployed", "Disabled", "Employed", "Not in Labor Force",
+  "Unemployed", "Disabled", "Employed", "Self-Employed", "Student", "Retired", "Not in Labor Force",
 ];
 
 export const EDUCATION_OPTIONS = [
-  "Grade/Elementary", "High School", "GED", "College", "Graduate", "Post Graduate",
+  "Grade/Elementary", "Some High School", "High School/GED", "Trade / Technical School",
+  "Some College", "College", "Graduate", "Post Graduate", "Prefer not to answer",
 ];
+
+export const LANGUAGE_OPTIONS = ["English", "Spanish", "French", "German", "Other"];
 
 export const INCOME_SOURCE_OPTIONS = ["Employment", "Disability", "VA Benefits", "Other"];
 
@@ -107,30 +112,30 @@ export const RACE_OPTIONS = [
   "Caucasian or White",
   "Multiracial",
   "Native Hawaiian or Pacific Islander",
+  "Other",
+  "Prefer not to answer",
 ];
 
-/** Shown after race for everyone except Black/African American and Caucasian/White. */
-export const ETHNICITY_CLIENT_OPTIONS = ["Latino", "Non-Hispanic"];
+/** Asked separately from race so the app never infers ethnicity. */
+export const ETHNICITY_CLIENT_OPTIONS = ["Latino", "Non-Hispanic", "Not sure", "Prefer not to answer"];
 
 /** Staff / packet ethnicity values, plus the cleaned client Non-Hispanic choice. */
 export const ETHNICITY_PACKET_OPTIONS = [
   "Hispanic/White", "Non-Hispanic/White", "Latino", "Hispanic/Black", "Non-Hispanic/Black", "Non-Hispanic",
+  "Not sure", "Prefer not to answer",
 ];
 
 /** Status lists that should use the big native menu even with 4 or fewer choices. */
 export const STRONG_MENU_KEYS: ReadonlySet<string> = new Set([
   "race", "ethnicity", "marital_status", "employment_status", "education", "veteran",
-  "income_sources", "referral_source", "height", "eye_color", "hair_color",
+  "language", "income_sources", "referral_source", "height", "eye_color", "hair_color",
   "diagnosis_menu",
 ]);
 
-export const RACE_ETHNICITY_DEFAULTS: Record<string, string> = {
-  "Black or African American": "Non-Hispanic/Black",
-  "Caucasian or White": "Non-Hispanic/White",
-};
-
-export function ethnicityForRace(race: unknown): string {
-  return RACE_ETHNICITY_DEFAULTS[String(race || "")] || "";
+export function ethnicityForRace(_race: unknown): string {
+  // Race alone is not evidence of ethnicity. Keep this compatibility helper
+  // empty so older callers do not silently populate a different answer.
+  return "";
 }
 
 export function usesStrongMenu(q: Pick<Question, "key" | "menu" | "type" | "options">): boolean {
@@ -194,12 +199,12 @@ export const SECTIONS: Section[] = [
     questions: [
       { key: "gender", essential: true, label: "Gender", type: "radio", required: true, options: ["Female", "Male", "Transgender", "Other"] },
       { key: "race", essential: true, menu: true, label: "Race", type: "radio", options: RACE_OPTIONS },
-      { key: "ethnicity", essential: true, menu: true, label: "Ethnicity", type: "radio", options: ETHNICITY_CLIENT_OPTIONS, askIf: { key: "race", oneOf: ["American Indian or Alaska Native", "Asian", "Multiracial", "Native Hawaiian or Pacific Islander"] } },
+      { key: "ethnicity", essential: true, menu: true, label: "Ethnicity", type: "radio", options: ETHNICITY_CLIENT_OPTIONS, help: "Race does not tell us ethnicity. Choose the answer that fits you, or Prefer not to answer." },
       { key: "marital_status", essential: true, menu: true, label: "Marital status", type: "radio", options: MARITAL_STATUS_OPTIONS },
       { key: "veteran", essential: true, menu: true, label: "Are you a veteran?", type: "yesno", options: YN },
       { key: "education", essential: true, menu: true, label: "Highest education", type: "radio", options: EDUCATION_OPTIONS },
-      { key: "language", staffOnly: true, label: "Preferred language", type: "radio", options: ["English", "Spanish", "French", "German", "Other"] },
-      { key: "language_other", staffOnly: true, label: "Which language?", type: "text", voice: true, askIf: { key: "language", equals: "Other" } },
+      { key: "language", essential: true, menu: true, label: "Preferred language", type: "radio", options: LANGUAGE_OPTIONS },
+      { key: "language_other", label: "Which language?", type: "text", voice: true, askIf: { key: "language", equals: "Other" } },
       { key: "communication_level", label: "Communication level", type: "radio", options: ["Excellent", "Good", "Fair", "Poor"] },
     ],
   },
@@ -212,15 +217,15 @@ export const SECTIONS: Section[] = [
       { key: "address_state", essential: true, label: "State", type: "text", placeholder: "NC" },
       { key: "client_phone_cell", essential: true, label: "Cell phone", type: "phone", required: true },
       { key: "client_phone_home", staffOnly: true, label: "Home phone (same as cell unless different)", type: "phone" },
-      { key: "client_phone_work", label: "Work phone", type: "phone", askIf: { key: "employment_status", equals: "Employed" } },
+      { key: "client_phone_work", label: "Work phone", type: "phone", askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
       { key: "lives_with_whom", label: "Who do you live with?", type: "text", voice: true },
       { key: "lives_where", label: "Where (city/area)?", type: "text", voice: true },
       { key: "effects_on_home", staffOnly: true, label: "How do you get along with the people you live with?", type: "textarea", voice: true },
       { key: "employment_status", essential: true, menu: true, label: "Employment status", type: "radio", options: EMPLOYMENT_STATUS_OPTIONS },
-      { key: "occupation", label: "Occupation", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
-      { key: "employer_name", label: "Employer name", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
-      { key: "employer_address", label: "Employer address (optional)", type: "text", voice: true, askIf: { key: "employment_status", equals: "Employed" } },
-      { key: "employer_phone", label: "Employer phone", type: "phone", askIf: { key: "employment_status", equals: "Employed" } },
+      { key: "occupation", label: "Occupation", type: "text", voice: true, askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
+      { key: "employer_name", label: "Employer name", type: "text", voice: true, askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
+      { key: "employer_address", label: "Employer address (optional)", type: "text", voice: true, askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
+      { key: "employer_phone", label: "Employer phone", type: "phone", askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
     ],
   },
   {
@@ -264,7 +269,7 @@ export const SECTIONS: Section[] = [
       { key: "why_want_services_chips", essential: true, appOnly: true, label: "Why do you want services?", type: "chips", options: WHY_SERVICES_OPTIONS },
       { key: "why_want_services_text", appOnly: true, label: "Tell us more about why you want services (optional)", type: "textarea", voice: true },
       { key: "presenting_problem", essential: true, required: true, label: "Why do you want help?", type: "textarea", voice: true },
-      { key: "other_agency_types", essential: true, label: "Are you getting services anywhere else right now?", type: "chips", options: OTHER_AGENCY_OPTIONS },
+      { key: "other_agency_types", essential: true, label: "Are you getting services anywhere else right now?", type: "chips", options: OTHER_AGENCY_OPTIONS, exclusiveOptions: ["None", "I don't know"] },
       { key: "other_agency_where", label: "Where do you get that service?", type: "text", voice: true, askIf: { key: "other_agency_types", oneOf: ["Peer Support", "Therapy", "Medication management", "Community Support Team", "IIH", "Other"] } },
       { key: "other_agencies", staffOnly: true, label: "Are you getting services anywhere else right now?", help: "Filled from the client's chips plus where, or from the CCA.", type: "textarea", voice: true },
     ],

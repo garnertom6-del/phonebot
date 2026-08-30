@@ -72,6 +72,7 @@ import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
 import {
   COMPLETED_COPY_DELIVERY_KEY,
   completedCopyDeliveryChannels,
+  completedCopyDeliveryOptions,
 } from "../src/lib/clientCopyDelivery";
 import { buildSignatureStatuses, mappedSignatureSlotsFromFields, missingRequiredSignatures } from "../src/lib/signatureStatus";
 import { buildCasePageStatus } from "../src/lib/staffCaseStatus";
@@ -282,7 +283,7 @@ async function main() {
     fields: exclusiveFields,
     templateBytes: exclusiveTemplate,
   });
-  const operationalDefaultBoxes = new Set(["med_y", "min_n"]);
+  const operationalDefaultBoxes = new Set<string>();
   for (const field of exclusiveFields) {
     if (operationalDefaultBoxes.has(field.fieldKey)) {
       assert(!emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} is stamped by operational defaults`);
@@ -290,7 +291,7 @@ async function main() {
       assert(emptyFill.skipped.includes(field.fieldKey), `${field.fieldKey} must stay empty when unanswered`);
     }
   }
-  ok("exclusive checkbox fill: Female-only, minor Y-only, medicaid Yes-only, consent true");
+  ok("exclusive checkbox fill: unanswered Medicaid/minor stay blank; explicit choices remain exclusive");
 
   const wrapDoc = await PDFDocument.create();
   const wrapFont = await wrapDoc.embedFont(StandardFonts.HelveticaBold);
@@ -1246,7 +1247,7 @@ async function main() {
   assert.equal(packetBlockedCompletion.blockers.length, 1);
   assert.equal(packetBlockedCompletion.blockers[0]?.code, "provider_packet_not_ready");
   assert.deepEqual(COPY_ALLOWED_STATUSES, ["COMPLETED"]);
-  assert.deepEqual(completedCopyDeliveryChannels({}), {
+  assert.deepEqual(completedCopyDeliveryChannels({ client_email: "client@example.com" }), {
     sms: true,
     email: true,
     label: "text message and email",
@@ -1256,11 +1257,17 @@ async function main() {
     email: false,
     label: "text message",
   });
-  assert.deepEqual(completedCopyDeliveryChannels({ [COMPLETED_COPY_DELIVERY_KEY]: "Email" }), {
+  assert.deepEqual(completedCopyDeliveryChannels({ client_email: "client@example.com", [COMPLETED_COPY_DELIVERY_KEY]: "Email" }), {
     sms: false,
     email: true,
     label: "email",
   });
+  assert.deepEqual(completedCopyDeliveryChannels({ client_email: NONE_REPORTED_BY_CLIENT }), {
+    sms: true,
+    email: false,
+    label: "text message",
+  });
+  assert.deepEqual(completedCopyDeliveryOptions({ client_email: NONE_REPORTED_BY_CLIENT }), ["Text message"]);
   assert.equal(questionByKey(COMPLETED_COPY_DELIVERY_KEY)?.essential, true);
   assert.equal(questionByKey(COMPLETED_COPY_DELIVERY_KEY)?.required, false);
   assert.equal(
@@ -2130,6 +2137,12 @@ async function main() {
     "missingRequired failed to flag items");
   assert.strictEqual(missingRequired(answers, true).length, 0, "Angela should have no missing required");
   assert(percentComplete(answers) > 60, "percent complete unexpectedly low");
+  assert.equal(
+    missingRequired({ consent_hipaa: "Declined acknowledgment" }, true).some((item) => item.key === "consent_hipaa"),
+    false,
+    "declining the NPP acknowledgment must not block the intake",
+  );
+  assert.equal(consentsFromAnswers({ consent_hipaa: "Declined acknowledgment" }).consent_hipaa, false);
   ok("required-field validation + missing checklist");
 
   // 8. sample PDFs
@@ -2148,24 +2161,27 @@ async function main() {
   assert(!jResult.skipped.includes("cca_guardian_sig"), "guardian CCA signature missing");
   ok("guardian signature flows to required slots for a youth client");
 
-  assert.equal(applyOperationalDefaults({}).severity_of_need, "Routine", "Routine 14-day start is the operational default");
-  ok("severity of need defaults to Routine");
+  assert.equal(applyOperationalDefaults({}).severity_of_need, undefined, "unanswered severity of need must stay blank");
+  assert.equal(applyOperationalDefaults({}).program_can_meet_needs, undefined, "program fit must require staff or CCA evidence");
+  assert.equal(applyOperationalDefaults({}).ability_to_provide, undefined, "service eligibility must require staff or CCA evidence");
+  ok("clinical and program eligibility answers are not invented");
 
   {
     const defaults = applyOperationalDefaults({});
-    assert.equal(defaults.has_medicaid, "Yes");
+    assert.equal(defaults.has_medicaid, undefined);
     assert.equal(defaults.has_nchc, "No");
-    assert.equal(defaults.language, "English");
-    assert.equal(defaults.is_minor_or_incompetent, "No");
-    assert.equal(defaults.program_can_meet_needs, "Yes");
-    assert.equal(defaults.ability_to_provide, "Yes");
-    assert.equal(ethnicityForRace("Black or African American"), "Non-Hispanic/Black");
-    assert.equal(ethnicityForRace("Caucasian or White"), "Non-Hispanic/White");
+    assert.equal(defaults.language, undefined);
+    assert.equal(defaults.is_minor_or_incompetent, undefined);
+    assert.equal(defaults.program_can_meet_needs, undefined);
+    assert.equal(defaults.ability_to_provide, undefined);
+    assert.equal(applyOperationalDefaults({ mid_number: "987654321A" }).has_medicaid, "Yes");
+    assert.equal(ethnicityForRace("Black or African American"), "");
+    assert.equal(ethnicityForRace("Caucasian or White"), "");
     assert.equal(ethnicityForRace("Asian"), "");
     const black = applyOperationalDefaults({ race: "Black or African American" });
-    assert.equal(black.ethnicity, "Non-Hispanic/Black");
+    assert.equal(black.ethnicity, undefined);
     const white = applyOperationalDefaults({ race: "Caucasian or White" });
-    assert.equal(white.ethnicity, "Non-Hispanic/White");
+    assert.equal(white.ethnicity, undefined);
     const asian = applyOperationalDefaults({ race: "Asian" });
     assert.equal(asian.ethnicity, undefined);
     const skipped = applySkippedClientPlaceholders({ employment_status: "Employed" });
@@ -2175,12 +2191,12 @@ async function main() {
     assert.equal(unemployedSkip.client_phone_work, undefined);
     const guardianKept = applyOperationalDefaults({ is_minor_or_incompetent: "Yes", guardian_name: "Erica Sample" });
     assert.equal(guardianKept.is_minor_or_incompetent, "Yes");
-    ok("operational defaults: Medicaid/NCHC/English/minor/race ethnicity/email skip");
+    ok("operational defaults use evidence for Medicaid, guardian status, language, and ethnicity");
   }
 
   {
     const hiddenKeys = [
-      "has_medicaid", "has_nchc", "language", "is_minor_or_incompetent", "client_phone_home",
+      "has_medicaid", "has_nchc", "is_minor_or_incompetent", "client_phone_home",
       "mid_number",
       "strengths", "needs", "medications", "otc_medications", "mh_history", "current_diagnosis_known",
       "medical_diagnoses", "treatments", "referred_for", "sub1_name", "roi1_thru_date",
@@ -2197,9 +2213,9 @@ async function main() {
       assert.equal(isClientQuestionVisible(q!, answers), false, `${key} must be hidden from the SMS client`);
     }
     const ethnicityQ = questionByKey("ethnicity");
-    assert.equal(isClientQuestionVisible(ethnicityQ!, answers), false, "Black/African American skips ethnicity");
+    assert.equal(isClientQuestionVisible(ethnicityQ!, answers), true, "ethnicity must be asked separately from race");
     const asianAnswers = applyOperationalDefaults({ race: "Asian" });
-    assert.equal(isClientQuestionVisible(ethnicityQ!, asianAnswers), true, "other races still get ethnicity");
+    assert.equal(isClientQuestionVisible(ethnicityQ!, asianAnswers), true, "every race gets an independent ethnicity choice");
     const workPhone = questionByKey("client_phone_work");
     assert.equal(isClientQuestionVisible(workPhone!, answers), false, "work phone hidden when unemployed");
     const employed = { ...answers, employment_status: "Employed" };
@@ -2213,30 +2229,35 @@ async function main() {
     assert.equal(usesStrongMenu(questionByKey("marital_status")!), true);
     assert.equal(usesStrongMenu(questionByKey("employment_status")!), true);
     assert.equal(usesStrongMenu(questionByKey("education")!), true);
+    assert.equal(usesStrongMenu(questionByKey("language")!), true);
     assert.equal(usesStrongMenu(questionByKey("veteran")!), true);
     assert.equal(usesStrongMenu(questionByKey("referral_source")!), true);
     const easyKeys = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, false, false, false, new Set<string>()).map((row) => row.q.key);
     assert(!easyKeys.includes("has_nchc"));
-    assert(!easyKeys.includes("language"));
-    assert(!easyKeys.includes("ethnicity"));
+    assert(easyKeys.includes("language"));
+    assert(easyKeys.includes("ethnicity"));
     assert(!easyKeys.includes("sub1_name"));
     assert(!easyKeys.includes("medications"));
     assert(easyKeys.includes("client_email"));
     assert(!easyKeys.includes("mid_number"));
     assert(!questionByKey("race")!.options!.includes("Native American"));
-    assert.deepEqual(questionByKey("ethnicity")!.options, ["Latino", "Non-Hispanic"]);
+    assert.deepEqual(questionByKey("ethnicity")!.options, ["Latino", "Non-Hispanic", "Not sure", "Prefer not to answer"]);
     assert(easyKeys.includes("consent_roi"));
     assert(easyKeys.includes("roi_understand_1"));
     const smsKeys = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
     assert(!smsKeys.includes("mid_number"));
     assert(!smsKeys.includes("is_minor_or_incompetent"));
     assert(smsKeys.includes("education"));
+    assert(smsKeys.includes("language"));
     assert(smsKeys.includes("income_sources"));
     assert(smsKeys.includes("height"));
     assert(smsKeys.includes("has_referrals"));
     const employedSms = flattenVisible({ ...answers, employment_status: "Employed" } as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
     assert(employedSms.includes("occupation"));
     assert(employedSms.includes("client_phone_work"));
+    const selfEmployedSms = flattenVisible({ ...answers, employment_status: "Self-Employed" } as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
+    assert(selfEmployedSms.includes("occupation"));
+    assert(selfEmployedSms.includes("client_phone_work"));
     const unemployedSms = flattenVisible(answers as Record<string, string | boolean | number | string[]>, answers as Record<string, string | boolean | number | string[]>, true, false, false, new Set<string>()).map((row) => row.q.key);
     assert(!unemployedSms.includes("client_phone_work"));
     assert(staffInsurancePlanReady({}) === false);

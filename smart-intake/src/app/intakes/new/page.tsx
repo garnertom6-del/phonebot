@@ -5,7 +5,15 @@ import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { canGenerateRecordNumber, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
-import { ETHNICITY_PACKET_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
+import {
+  EDUCATION_OPTIONS,
+  EMPLOYMENT_STATUS_OPTIONS,
+  ETHNICITY_PACKET_OPTIONS,
+  LANGUAGE_OPTIONS,
+  MARITAL_STATUS_OPTIONS,
+  RACE_OPTIONS,
+  REFERRAL_SOURCE_OPTIONS,
+} from "@/config/mooreDivineQuestions";
 import { createdIntakeDashboardHref, deliveryDashboardFlash, storeDashboardFlash } from "@/lib/dashboardFlash";
 import {
   assignIntakeContacts,
@@ -41,7 +49,7 @@ const IDENTITY_KEYS = new Set(["fullName", "dob"]);
 const DETAILS_FORM_KEYS = new Set(["midNumber", "intakeDate", "location", "guardianName", "guardianEmail", "guardianPhone"]);
 const DETAILS_NOTE_KEYS = new Set([
   "mid_number", "address_street", "address_city", "address_state", "living_arrangement",
-  "gender", "race", "ethnicity", "veteran", "employment_status", "pcp_name", "pcp_phone",
+  "gender", "race", "ethnicity", "marital_status", "education", "language", "veteran", "employment_status", "pcp_name", "pcp_phone",
   "ec1_name", "ec1_cell_phone",
 ]);
 const ADVANCED_NOTE_KEYS = new Set(["provider_choice_plan", "record_number"]);
@@ -49,7 +57,7 @@ const ADVANCED_NOTE_KEYS = new Set(["provider_choice_plan", "record_number"]);
 const QUICK_NOTE_RACE_OPTIONS = RACE_OPTIONS;
 const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
 const QUICK_NOTE_ETHNICITY_OPTIONS = ETHNICITY_PACKET_OPTIONS;
-const QUICK_NOTE_EMPLOYMENT_OPTIONS = ["Not in Labor Force", "Unemployed", "Disabled", "Employed"];
+const QUICK_NOTE_EMPLOYMENT_OPTIONS = EMPLOYMENT_STATUS_OPTIONS;
 const QUICK_NOTE_YES_NO_OPTIONS = ["Yes", "No"];
 
 const NOTE_TARGETS: Record<string, { kind: "form"; key: FieldKey } | { kind: "quick"; key: string }> = {
@@ -65,6 +73,9 @@ const NOTE_TARGETS: Record<string, { kind: "form"; key: FieldKey } | { kind: "qu
   gender: { kind: "quick", key: "gender" },
   race: { kind: "quick", key: "race" },
   ethnicity: { kind: "quick", key: "ethnicity" },
+  marital_status: { kind: "quick", key: "marital_status" },
+  education: { kind: "quick", key: "education" },
+  language: { kind: "quick", key: "language" },
   veteran: { kind: "quick", key: "veteran" },
   employment_status: { kind: "quick", key: "employment_status" },
   provider_choice_plan: { kind: "quick", key: "provider_choice_plan" },
@@ -957,6 +968,27 @@ export default function NewIntake() {
                 <select className="input" value={quickAnswers.veteran || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, veteran: e.target.value }))}>
                   <option value="">Select yes or no</option>
                   {QUICK_NOTE_YES_NO_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Marital status</span>
+                <select className="input" value={quickAnswers.marital_status || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, marital_status: e.target.value }))}>
+                  <option value="">Select marital status</option>
+                  {MARITAL_STATUS_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Education</span>
+                <select className="input" value={quickAnswers.education || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, education: e.target.value }))}>
+                  <option value="">Select education</option>
+                  {EDUCATION_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
+                </select>
+              </label>
+              <label>
+                <span className="label">Preferred language</span>
+                <select className="input" value={quickAnswers.language || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, language: e.target.value }))}>
+                  <option value="">Select language</option>
+                  {LANGUAGE_OPTIONS.map((option) => <option key={option} value={option}>{option}</option>)}
                 </select>
               </label>
               <label>

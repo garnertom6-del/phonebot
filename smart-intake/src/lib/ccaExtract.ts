@@ -242,8 +242,8 @@ function setGatingParents(extracted: Answers) {
 }
 
 function setCcaWorkflowDefaults(extracted: Answers) {
-  // Do not invent a clinical severity. Staff must choose Emergent/Urgent/Routine.
-  if (!extracted.program_can_meet_needs) extracted.program_can_meet_needs = "Yes";
+  // Do not invent clinical severity or whether the program can meet the need.
+  // Those decisions require the documented CCA and a qualified staff review.
   if (!extracted.placement_considerations && extracted.cca_recommendations) {
     extracted.placement_considerations = `Service match from CCA: ${String(extracted.cca_recommendations).slice(0, 170)}`;
   }
