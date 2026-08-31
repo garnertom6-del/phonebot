@@ -17,7 +17,8 @@ const FRIENDLY: Record<string, string> = {
 };
 
 /** Check the DocuSign envelope; when completed, pull the signed PDF into the record. */
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   if (!docusignConfigured()) {

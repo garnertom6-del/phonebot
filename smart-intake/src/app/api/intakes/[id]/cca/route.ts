@@ -10,7 +10,8 @@ import { loadAnswers } from "@/lib/intakeData";
 
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   if (!ccaConfigured()) {

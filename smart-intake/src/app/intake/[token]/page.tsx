@@ -4,7 +4,7 @@
  * Clients get Easy Mode by default: one big, simple question at a time -
  * tap an answer or speak it. Append ?mode=full for the dense wizard.
  */
-import { Suspense, useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState, use } from "react";
 import { useSearchParams } from "next/navigation";
 import ClientQuestionnaire from "@/components/ClientQuestionnaire";
 import EasyQuestionnaire from "@/components/EasyQuestionnaire";
@@ -85,7 +85,7 @@ function IntakeInner({ token }: { token: string }) {
                 Try this link again
               </button>
             )}
-            <a className="btn-ghost min-h-[48px] w-full" href={`/rights/${token}`}>
+            <a className="btn-ghost min-h-[48px] w-full" href="/rights">
               View client rights &amp; privacy
             </a>
             {problem.code === "INTAKE_FINISHED" && (
@@ -124,7 +124,8 @@ function IntakeInner({ token }: { token: string }) {
   );
 }
 
-export default function ClientIntakePage({ params }: { params: { token: string } }) {
+export default function ClientIntakePage(props: { params: Promise<{ token: string }> }) {
+  const params = use(props.params);
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-brand p-3 text-white shadow-md">

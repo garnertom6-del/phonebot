@@ -16,7 +16,8 @@ import { clientCcaAttestationReady } from "@/lib/ccaReview";
 
 export const maxDuration = 90;
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({

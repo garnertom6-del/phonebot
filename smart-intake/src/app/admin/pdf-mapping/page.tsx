@@ -1,4 +1,5 @@
 "use client";
+import { use } from "react";
 import Link from "next/link";
 import dynamic from "next/dynamic";
 
@@ -8,11 +9,12 @@ function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export default function PdfMappingPage({
-  searchParams,
-}: {
-  searchParams?: { providerId?: string | string[]; templateId?: string | string[] };
-}) {
+export default function PdfMappingPage(
+  props: {
+    searchParams: Promise<{ providerId?: string | string[]; templateId?: string | string[] }>;
+  }
+) {
+  const searchParams = use(props.searchParams);
   const providerId = firstParam(searchParams?.providerId);
   const templateId = firstParam(searchParams?.templateId);
   const providerMode = !!providerId || !!templateId;

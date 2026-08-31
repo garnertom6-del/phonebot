@@ -11,10 +11,10 @@ export function bindTestCookies(reader: CookieReader | null) {
   testCookies = reader;
 }
 
-export function readRequestCookie(name: string): string | undefined {
+export async function readRequestCookie(name: string): Promise<string | undefined> {
   if (testCookies) return testCookies.get(name)?.value;
   try {
-    return cookies().get(name)?.value;
+    return (await cookies()).get(name)?.value;
   } catch {
     return undefined;
   }

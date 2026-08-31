@@ -16,7 +16,8 @@ function jsonError(error: string, status: number, extra: Record<string, unknown>
   return NextResponse.json({ error, ...extra }, { status });
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const { user, provider, deny } = await requireStaffForIntake(params.id);
     if (deny) return deny;

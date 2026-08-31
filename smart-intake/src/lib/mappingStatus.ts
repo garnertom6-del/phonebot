@@ -22,7 +22,12 @@ function validScore(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 100;
 }
 
-function parseIssues(value: string | null | undefined): { blockingIssues?: unknown; warnings?: unknown } {
+function parseIssues(value: string | null | undefined): {
+  blockingIssues?: unknown;
+  warnings?: unknown;
+  missingRequired?: unknown;
+  overrideReason?: unknown;
+} {
   if (!value) return {};
   try {
     const parsed = JSON.parse(value);
@@ -64,6 +69,20 @@ export function packetDisplayStatus(template: PacketStatusInput | null | undefin
     && !!template.approvedAt;
 
   if (approvedLive) {
+    const issues = parseIssues(template.mappingIssues);
+    const missingRequired = Array.isArray(issues.missingRequired) ? issues.missingRequired.length : 0;
+    const overrideReason = typeof issues.overrideReason === "string" && issues.overrideReason.trim()
+      ? issues.overrideReason.trim()
+      : null;
+    if (missingRequired > 0) {
+      return {
+        key: "needs_review",
+        label: overrideReason ? "Active with override" : "Unresolved mappings",
+        detail: `${missingRequired} required mapping${missingRequired === 1 ? " is" : "s are"} still missing.${overrideReason ? ` Recorded override: ${overrideReason}` : ""}`,
+        scoreLabel: `${missingRequired} missing`,
+        className: "bg-amber-100 text-amber-900",
+      };
+    }
     return {
       key: "approved_active",
       label: "Approved-active",

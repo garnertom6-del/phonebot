@@ -5,7 +5,8 @@ import { appBaseUrl } from "@/lib/baseUrl";
 import { audit } from "@/lib/auditLog";
 import { sendProviderPortalEmail, sendProviderPortalSms } from "@/lib/notify";
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, deny } = await requireMaster();
   if (deny) return deny;
   const body = await req.json().catch(() => ({}));

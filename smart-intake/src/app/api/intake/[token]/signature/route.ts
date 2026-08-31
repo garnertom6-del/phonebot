@@ -27,7 +27,8 @@ function dobMatches(entered: string, onFile: string): boolean {
   return !!entered && !!onFile && norm(entered) === norm(onFile);
 }
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const intake = await prisma.intake.findUnique({
     where: { token: params.token },
     include: {
@@ -54,7 +55,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   const userAgent = req.headers.get("user-agent")?.slice(0, 250) || null;
   try {
     await prisma.$transaction(async (tx) => {
-      if (!await lockOpenClientIntake(tx, intake.id)) throw new SignatureClosedError();
+      if (!(await lockOpenClientIntake(tx, intake.id))) throw new SignatureClosedError();
       const current = await tx.intake.findUnique({
         where: { id: intake.id },
         include: { client: true },

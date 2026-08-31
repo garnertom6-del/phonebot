@@ -14,7 +14,8 @@ function s(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
 
-export async function POST(_req: Request, { params }: { params: { id: string } }) {
+export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({

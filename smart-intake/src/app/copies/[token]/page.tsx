@@ -10,7 +10,8 @@ import {
   requireProviderPacketForCompletion,
 } from "@/lib/providerPacketTemplates";
 
-export default async function CopiesPage({ params }: { params: { token: string } }) {
+export default async function CopiesPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const intake = await findIntakeByCopyToken(params.token);
   if (!intake || !copyLinkIsAvailable(intake)) {
     notFound();
@@ -25,6 +26,7 @@ export default async function CopiesPage({ params }: { params: { token: string }
             This intake is still pending staff completion. The CCA, required answers, review, QP signature, and final packet must be ready first. Please contact {providerDisplayName(intake.provider?.name)}
             {" "}at {providerPhone(intake.provider?.phone, intake.provider?.name)} if you believe this is a mistake.
           </p>
+          <p className="mt-3 text-sm"><a className="text-brand underline" href="/rights">View client rights and privacy information</a></p>
         </section>
       </main>
     );

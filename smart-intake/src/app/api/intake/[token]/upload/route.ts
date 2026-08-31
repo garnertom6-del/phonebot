@@ -18,7 +18,8 @@ const ALLOWED_MIME = new Set([
 ]);
 const ALLOWED_EXT = /\.(pdf|jpe?g|png|gif|webp|heic|heif)$/i;
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const intake = await prisma.intake.findUnique({
     where: { token: params.token },
     include: {
@@ -51,7 +52,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   let moved = false;
   try {
     await prisma.$transaction(async (tx) => {
-      if (!await lockOpenClientIntake(tx, intake.id)) throw new UploadClosedError();
+      if (!(await lockOpenClientIntake(tx, intake.id))) throw new UploadClosedError();
       moveFile(stagedRel, rel);
       moved = true;
       await tx.uploadedDocument.create({

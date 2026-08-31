@@ -108,10 +108,12 @@ const remainingEwRequired = [
   "gender", "has_medicaid", "is_minor_or_incompetent", "ec1_cell_phone",
   "consent_orientation", "consent_rights", "consent_treatment", "consent_bill_of_rights",
   "consent_emergency_info", "consent_emergency_care", "consent_hipaa", "consent_confidentiality",
-  "welcome_letter_ack", "consent_cca",
 ];
 const ewRequired = packetRequiredEntries(ewCtx);
-const mapped = PACKET_MAP.fields.filter((field) => !remainingEwRequired.includes(field.source.split(/[=~]/)[0]));
+const mapped = PACKET_MAP.fields.filter((field) => (
+  !remainingEwRequired.includes(field.source.split(/[=~]/)[0])
+  && !remainingEwRequired.includes(field.consentKey || "")
+));
 const ewHealth = assessMapping(mapped, 39, PACKET_MAP.pageWidth, PACKET_MAP.pageHeight, mapped.length, ewCtx);
 const reported = new Set(ewHealth.missingRequired.map((item) => item.key));
 for (const key of remainingEwRequired) {

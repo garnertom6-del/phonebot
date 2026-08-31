@@ -56,7 +56,8 @@ function templateResponse(template: {
   };
 }
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { deny } = await requireProviderAdmin({ providerId: params.id });
   if (deny) return deny;
 
@@ -70,7 +71,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return NextResponse.json(templateResponse(template));
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, deny } = await requireProviderAdmin({ providerId: params.id });
   if (deny) return deny;
 

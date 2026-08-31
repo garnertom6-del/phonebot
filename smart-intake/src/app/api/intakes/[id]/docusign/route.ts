@@ -3,7 +3,8 @@ import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { sendIntakeToDocuSign } from "@/lib/sendDocuSign";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const readiness = await generationReadinessForIntake(params.id, provider!.id, { allowMissingSignatures: true });

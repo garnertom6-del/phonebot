@@ -18,9 +18,10 @@ export type CreateIntakeHousing = {
 };
 
 /**
- * Blank street means no fixed address. Staff should not have to find a second
- * tab. An explicit homeless control still wins and drops any typed street so a
- * made-up address is not saved.
+ * Housing status is a recorded fact, so absence of a street address must stay
+ * unknown. Only an explicit staff/client selection may mark someone homeless.
+ * An explicit homeless selection drops a typed street so a made-up or stale
+ * address is not saved.
  */
 export function resolveCreateIntakeHousing(input: CreateIntakeHousingInput): CreateIntakeHousing {
   const street = (input.addressStreet || "").trim();
@@ -28,10 +29,9 @@ export function resolveCreateIntakeHousing(input: CreateIntakeHousingInput): Cre
   const state = (input.addressState || "").trim();
   const living = (input.livingArrangement || "").trim();
   const explicitHomeless = !!input.homelessSelected || living.toLowerCase() === "homeless";
-  const homeless = explicitHomeless || !street;
   return {
-    homeless,
-    livingArrangement: homeless ? "Homeless" : living,
+    homeless: explicitHomeless,
+    livingArrangement: explicitHomeless ? "Homeless" : living,
     addressStreet: explicitHomeless ? "" : street,
     addressCity: city,
     addressState: state,

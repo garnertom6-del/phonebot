@@ -1,6 +1,15 @@
 "use client";
 import Link from "next/link";
-import { createContext, type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
+import {
+  createContext,
+  type ReactNode,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+  use,
+} from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
 import CoveragePanel from "@/components/CoveragePanel";
 import ManualSendPanel from "@/components/ManualSendPanel";
@@ -245,7 +254,8 @@ const LIVING_ARRANGEMENT_OPTIONS = [
 const YES_NO_OPTIONS = ["Yes", "No"];
 const REFERRAL_OPTIONS = REFERRAL_SOURCE_OPTIONS;
 
-export default function IntakeDetail({ params }: { params: { id: string } }) {
+export default function IntakeDetail(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [d, setD] = useState<Detail | null>(null);
   const [loadError, setLoadError] = useState<"missing" | "error" | null>(null);
   const [note, setNote] = useState("");

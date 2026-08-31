@@ -36,7 +36,8 @@ function nullableText(value: string | null | undefined) {
   return text ? text : null;
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, deny } = await requireMaster();
   if (deny) return deny;
 
@@ -121,7 +122,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   return NextResponse.json({ provider, adminUpdated: !!data.adminEmail });
 }
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, deny } = await requireMaster();
   if (deny) return deny;
   const body = await req.json().catch(() => ({}));

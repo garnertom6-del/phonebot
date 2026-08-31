@@ -16,7 +16,8 @@ function parseMappings(rows: Array<{ fieldKey: string; page: number; data: strin
   return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
 }
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, deny } = await requireMaster();
   if (deny) return deny;
   const body = await req.json().catch(() => ({}));
@@ -63,9 +64,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     template.fieldMappings.length,
     mappingContextFrom(template),
   );
+  if (health.missingRequired.length > 0) {
+    return NextResponse.json({
+      error: `This packet cannot be approved while ${health.missingRequired.length} required mapping${health.missingRequired.length === 1 ? " is" : "s are"} missing. Map every required field and run the quality check again.`,
+      health,
+    }, { status: 409 });
+  }
   if (!health.ready && overrideReason.length < 8) {
     return NextResponse.json({
-      error: "This packet is not ready for approval. Map the missing required fields, or send an override reason of at least 8 characters.",
+      error: "This packet still has a quality issue. Correct it, or provide a recorded override reason of at least 8 characters.",
       health,
     }, { status: 409 });
   }

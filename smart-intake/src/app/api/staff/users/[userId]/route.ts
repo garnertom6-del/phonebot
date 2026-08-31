@@ -23,7 +23,8 @@ const patchSchema = z.object({
 });
 
 /** Update a staff member: rename, reset password, change role, enable/disable. */
-export async function PATCH(req: NextRequest, { params }: { params: { userId: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ userId: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireProviderAdmin();
   if (deny) return deny;
   const parsed = patchSchema.safeParse(await req.json());

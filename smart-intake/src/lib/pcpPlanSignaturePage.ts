@@ -70,6 +70,10 @@ export interface PcpPlanSignatureInput {
   midNumber?: string | null;
   recordNumber?: string | null;
   caseManagementAgency?: string | null;
+  /** True only after the actual current plan was reviewed and accepted. */
+  planReviewedAndAgreed: boolean;
+  /** True only when free provider choice was separately confirmed. */
+  freeChoiceConfirmed: boolean;
   /** False when a parent or legal guardian signs instead of the client. */
   clientIsOwnLegalRepresentative: boolean;
   /** Only true when the CCA documents an I/DD diagnosis. */
@@ -162,8 +166,8 @@ export async function appendPcpPlanSignaturePage(
   write(copied, font, TEXT.recordNumber, input.recordNumber);
 
   // Section I attestations.
-  tick(copied, bold, BOX.agreesWithPlan);
-  tick(copied, bold, BOX.freeChoiceOfProvider);
+  if (input.planReviewedAndAgreed) tick(copied, bold, BOX.agreesWithPlan);
+  if (input.freeChoiceConfirmed) tick(copied, bold, BOX.freeChoiceOfProvider);
   if (input.iddDocumented) tick(copied, bold, BOX.iddServicesOnly);
 
   // Who is signing decides which block is used and how "Self" is answered.

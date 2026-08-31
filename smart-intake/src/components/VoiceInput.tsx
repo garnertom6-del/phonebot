@@ -7,6 +7,8 @@
 import { useEffect, useRef, useState } from "react";
 
 interface Props {
+  id?: string;
+  ariaLabel?: string;
   value: string;
   onChange: (v: string) => void;
   onPendingValueChange?: (v: string | null) => void;
@@ -62,7 +64,7 @@ function mergeTranscriptChunks(chunks: string[]): string {
   return merged.join(" ");
 }
 
-export default function VoiceInput({ value, onChange, onPendingValueChange, multiline, placeholder, inputMode, enterKeyHint, autoComplete, onEnter }: Props) {
+export default function VoiceInput({ id, ariaLabel, value, onChange, onPendingValueChange, multiline, placeholder, inputMode, enterKeyHint, autoComplete, onEnter }: Props) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
@@ -118,10 +120,12 @@ export default function VoiceInput({ value, onChange, onPendingValueChange, mult
   }
 
   const field = multiline ? (
-    <textarea className="input min-h-[110px]" value={value} placeholder={placeholder}
+    <textarea id={id} aria-label={ariaLabel} className="input min-h-[110px]" value={value} placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)} />
   ) : (
     <input
+      id={id}
+      aria-label={ariaLabel}
       className="input min-h-[56px] text-lg"
       type={inputMode === "tel" ? "tel" : inputMode === "email" ? "email" : "text"}
       value={value}
@@ -155,7 +159,7 @@ export default function VoiceInput({ value, onChange, onPendingValueChange, mult
       {preview !== null && !recording && (
         <div className="mt-2 rounded-lg border border-brand/40 bg-brand-light p-3">
           <p className="mb-1 text-xs font-semibold text-brand">Here is what we heard. Fix it if needed, then tap &quot;Use this answer&quot;:</p>
-          <textarea className="input mb-2 min-h-[60px]" value={preview} onChange={(e) => setPreview(e.target.value)} />
+          <textarea aria-label={`${ariaLabel || "Answer"} speech preview`} className="input mb-2 min-h-[60px]" value={preview} onChange={(e) => setPreview(e.target.value)} />
           <div className="flex gap-2">
             <button type="button" className="btn-primary px-3 py-1.5 text-sm" onClick={accept}>Use this answer</button>
             <button type="button" className="btn-ghost px-3 py-1.5 text-sm" onClick={() => setPreview(null)}>Discard</button>

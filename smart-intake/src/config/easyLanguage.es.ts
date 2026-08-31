@@ -533,10 +533,10 @@ export const EASY_ES: Record<string, EasyText> = {
   },
 
   consent_treatment_plan_participation: {
-    q: "¿Ayudó a hacer su plan de cuidado, y le parece bien?",
+    q: "¿Revisó el plan de cuidado actual, y le parece bien?",
     consentSimple:
-      "Esto dice que usted habló con el personal sobre su plan de cuidado y le gusta el rumbo. " +
-      "Si alguna vez quiere cambios, solo díganos - es su plan.",
+      "Esto dice que el plan actual está listo, que revisó las metas con el personal y que está de acuerdo con el rumbo actual. " +
+      "Puede pedir cambios y recibirá una copia del plan terminado.",
   },
   consent_receipt_treatment_plan: {
     q: "¿Recibió una copia de su plan de cuidado?",

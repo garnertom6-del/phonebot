@@ -19,7 +19,8 @@ import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { provider, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
@@ -123,7 +124,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   return attachSelectedProviderCookie(payload, provider!.id);
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const body = await req.json();

@@ -519,10 +519,10 @@ export const EASY: Record<string, EasyText> = {
 
   /* ---------- treatment_plan ---------- */
   consent_treatment_plan_participation: {
-    q: "Did you help make your care plan, and does it feel right?",
+    q: "Did you review the current care plan, and does it feel right?",
     consentSimple:
-      "This says you will help make your person-centered plan. You will get a copy when it is finished. " +
-      "Staff will write the date later. If you ever want changes, just tell us - it's your plan.",
+      "This says the actual plan is ready, you reviewed its goals with staff, and you agree with its current direction. " +
+      "You may ask for changes, and you will get a copy of the completed plan.",
   },
   consent_receipt_treatment_plan: {
     q: "Did you get a copy of your care plan?",

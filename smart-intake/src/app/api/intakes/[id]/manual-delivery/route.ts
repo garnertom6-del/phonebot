@@ -23,7 +23,8 @@ const PURPOSE_EVENT: Record<z.infer<typeof requestSchema>["purpose"], AuditEvent
   "follow-up": "follow_up_sent",
 };
 
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const parsed = requestSchema.safeParse(await req.json().catch(() => ({})));
