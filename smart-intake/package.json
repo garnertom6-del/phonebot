@@ -13,9 +13,11 @@
     "generate:samples": "tsx scripts/generate-samples.ts",
     "check:mapping": "tsx scripts/check-mapping.ts",
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && tsx scripts/check-mapping.ts && tsx scripts/test.ts",
-    "test": "tsx scripts/test.ts",
-    "postinstall": "prisma generate && node scripts/copy-pdf-worker.mjs"
+    "verify": "tsc --noEmit && tsx scripts/check-mapping.ts && npm test",
+    "test": "tsx scripts/test.ts && tsx --tsconfig scripts/tsconfig.a11y.json scripts/run-a11y.ts && tsx scripts/run-upgrade.ts",
+    "postinstall": "prisma generate && node scripts/copy-pdf-worker.mjs",
+    "test:a11y": "tsx --tsconfig scripts/tsconfig.a11y.json scripts/run-a11y.ts",
+    "test:upgrade": "tsx scripts/run-upgrade.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

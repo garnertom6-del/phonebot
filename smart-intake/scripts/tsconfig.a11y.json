@@ -1,0 +1,5 @@
+{
+  "//": "tsx runs scripts with the classic JSX runtime, which the app's components do not use. This config only flips JSX to the automatic runtime so the real client components can be rendered inside the test suite.",
+  "extends": "../tsconfig.json",
+  "compilerOptions": { "jsx": "react-jsx" }
+}

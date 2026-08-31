@@ -600,7 +600,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         </div>
 
         {submitError && (
-          <div className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
+          <div role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
             <p className="text-lg font-bold">{missing.length > 0 ? "We still need a few things:" : "We could not send your answers."}</p>
             {missing.length > 0 ? (
               <ul className="mt-2 list-inside list-disc space-y-1 text-base">
@@ -674,7 +674,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       </div>
 
       {nudge && (
-        <p className="mt-4 rounded-xl bg-amber-50 p-4 text-lg font-semibold text-amber-700">{nudge}</p>
+        <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-lg font-semibold text-amber-700">{nudge}</p>
       )}
 
       <div
@@ -702,27 +702,37 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   );
 }
 
+/**
+ * Save status. The wrapper is a permanent live region: a screen reader only
+ * announces changes inside a node that was already on the page, so swapping
+ * the whole indicator in and out would stay silent. Clients using VoiceOver or
+ * TalkBack now hear "Saving", "Saved", or the failure instead of guessing.
+ */
 function SaveIndicator({ saving, saveError, onRetry }: {
   saving: boolean;
   saveError: string;
   onRetry: () => void;
 }) {
-  if (saving) return <span className="min-w-[76px] text-center text-xs text-slate-400">Saving...</span>;
-  if (saveError) {
-    return (
-      <button type="button" className="btn-ghost min-h-[44px] min-w-[92px] px-3 text-xs text-red-700" onClick={onRetry}>
-        Retry save
-      </button>
-    );
-  }
-  return <span className="min-w-[76px] text-center text-xs text-slate-400">Saved</span>;
+  return (
+    <div role="status" aria-live="polite" aria-atomic="true" className="min-w-[76px] text-center">
+      {saving ? (
+        <span className="text-xs text-slate-400">Saving...</span>
+      ) : saveError ? (
+        <button type="button" className="btn-ghost min-h-[44px] min-w-[92px] px-3 text-xs text-red-700" onClick={onRetry}>
+          Not saved - retry
+        </button>
+      ) : (
+        <span className="text-xs text-slate-400">Saved</span>
+      )}
+    </div>
+  );
 }
 
 /* ------------------------------------------------------------------ */
 /*  One big answer widget per question type                            */
 /* ------------------------------------------------------------------ */
 
-function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, providerName, providerPhone: supportPhone }: {
+export function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, providerName, providerPhone: supportPhone }: {
   q: Question;
   value: Answers[string] | undefined;
   justPicked: string | null;
@@ -877,6 +887,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
     return (
       <div className="space-y-4">
         <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
+          aria-label={easyQ(q, providerName, supportPhone)}
           enterKeyHint="next"
           onChange={(e) => set(q.key, e.target.value)} />
       </div>
@@ -904,6 +915,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
       {q.voice || multiline ? (
         <VoiceInput value={String(value ?? "")} onChange={(x) => set(q.key, x)}
           onPendingValueChange={setPendingVoiceValue}
+          ariaLabel={easyQ(q, providerName, supportPhone)}
           multiline={multiline} placeholder={q.placeholder} inputMode={inputMode}
           enterKeyHint="next"
           autoComplete={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "off"}
@@ -911,6 +923,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
       ) : (
         <input
           className="input min-h-[64px] text-xl"
+          aria-label={easyQ(q, providerName, supportPhone)}
           type={q.type === "email" ? "email" : q.type === "phone" ? "tel" : "text"}
           inputMode={q.type === "phone" ? "tel" : q.type === "email" ? "email" : q.type === "number" ? "numeric" : undefined}
           autoComplete={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "off"}
