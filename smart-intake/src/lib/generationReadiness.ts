@@ -4,7 +4,7 @@ import { loadAnswers, nonMaterialAnswerKeys } from "@/lib/intakeData";
 import { missingOptional, missingRequired } from "@/lib/validation";
 import { buildRulePreflight, type PreflightFinding } from "@/lib/intakePreflight";
 import { buildSignatureStatuses, type SignatureStatus } from "@/lib/signatureStatus";
-import { buildPlanCompleteness, buildRecordConflicts, type RecordConflict } from "@/lib/recordIntegrity";
+import { buildPlanCompleteness, buildRecordConflicts, planFalseCompleteFromFieldCount, type RecordConflict } from "@/lib/recordIntegrity";
 import { clientCcaAttestationReady, parseCcaReview, type CcaReview } from "@/lib/ccaReview";
 import { providerPacketReadiness, signatureSlotProfileForProvider } from "@/lib/providerPacketTemplates";
 import { acceptableOverrideReason } from "@/lib/overrideReason";
@@ -24,7 +24,8 @@ export type GenerationBlockerCode =
   | "staff_review_required"
   | "preflight_required"
   | "preflight_finding"
-  | "provider_packet_not_ready";
+  | "provider_packet_not_ready"
+  | "plan_incomplete";
 
 export type GenerationBlocker = {
   code: GenerationBlockerCode;
@@ -156,6 +157,12 @@ export async function generationReadinessForIntake(
   const lastStaffReview = intake.auditLogs.find((log) => log.event === "staff_reviewed")?.createdAt || null;
   const lastPreflight = intake.auditLogs.find((log) => log.event === "preflight_reviewed")?.createdAt || null;
   const reviewSourceAt = latestMaterialAnswer?.updatedAt || null;
+  const staffReviewed = !!(lastStaffReview && (!reviewSourceAt || lastStaffReview >= reviewSourceAt));
+  const planCompleteness = buildPlanCompleteness(answers, {
+    staffReviewed,
+    hasRequiredPlanSignature: hasValidClientSignature,
+    hasCca: intake.uploadedDocuments.length > 0,
+  });
   const blockers: GenerationBlocker[] = [];
 
   if (intake.archived) blockers.push({ code: "archived", message: "Restore this intake before generating a packet." });
@@ -185,6 +192,16 @@ export async function generationReadinessForIntake(
   if (!lastStaffReview || (reviewSourceAt && lastStaffReview < reviewSourceAt)) {
     blockers.push({ code: "staff_review_required", message: "Save a staff review after the latest intake-content change." });
   }
+  if (planFalseCompleteFromFieldCount(planCompleteness)) {
+    const unmet = [...planCompleteness.pcp.gates, ...planCompleteness.crisis.gates]
+      .filter((gate) => !gate.met && gate.key !== "fields")
+      .map((gate) => gate.key);
+    const unique = [...new Set(unmet)];
+    blockers.push({
+      code: "plan_incomplete",
+      message: `PCP/crisis plan fields are filled, but required gates are still open (${unique.join(", ") || "review, signatures, date, source"}). Field count alone cannot mark the plan complete.`,
+    });
+  }
   if (!lastPreflight || (sourceUpdatedAt && lastPreflight < sourceUpdatedAt)) {
     blockers.push({ code: "preflight_required", message: "Run preflight again after the latest answers or CCA change." });
   }
@@ -207,7 +224,7 @@ export async function generationReadinessForIntake(
     conflicts,
     ccaReview,
     ccaWarnings: ccaReview?.warnings || [],
-    planCompleteness: buildPlanCompleteness(answers),
+    planCompleteness,
     preflightFindings: ruleFindings,
     unresolvedPreflight,
     contentRevision: intake.contentRevision,

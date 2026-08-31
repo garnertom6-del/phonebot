@@ -36,6 +36,11 @@ import {
 } from "../src/lib/providerPacketTemplates";
 import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrites";
 import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
+import { stampDraftWatermark, packetDownloadFileName, DRAFT_WATERMARK_TEXT } from "../src/lib/draftPdf";
+import { bindTestCookies } from "../src/lib/requestCookies";
+import { createSessionValue, SESSION_COOKIE } from "../src/lib/auth";
+import { SELECTED_PROVIDER_COOKIE } from "../src/lib/staffGuard";
+import { saveFile, deleteFile } from "../src/lib/storage";
 import { signatureForRole } from "../src/lib/signaturePlacement";
 import { consentsFromAnswers, loadAnswers, loadSignatures, saveAnswers } from "../src/lib/intakeData";
 import { applyOperationalDefaults, ageAtDate, UNMAPPED_PACKET_CHOICES } from "../src/lib/answerDefaults";
@@ -85,7 +90,7 @@ import {
 import { buildSignatureStatuses, mappedSignatureSlotsFromFields, missingRequiredSignatures } from "../src/lib/signatureStatus";
 import { buildCasePageStatus } from "../src/lib/staffCaseStatus";
 import { buildPacketChecklistChips } from "../src/lib/packetChecklist";
-import { buildPlanCompleteness, buildRecordConflicts, signatureIntegrity } from "../src/lib/recordIntegrity";
+import { buildPlanCompleteness, buildRecordConflicts, planFalseCompleteFromFieldCount, signatureIntegrity } from "../src/lib/recordIntegrity";
 import { clientCcaAttestationReady, parseCcaReview } from "../src/lib/ccaReview";
 import {
   finalizeCcaReview,
@@ -133,6 +138,11 @@ import {
 } from "../src/app/api/follow-up/[token]/route";
 import { POST as uploadClientDocumentByToken } from "../src/app/api/intake/[token]/upload/route";
 import { POST as saveClientSignatureByToken } from "../src/app/api/intake/[token]/signature/route";
+import { GET as getCompletedCopyPacket } from "../src/app/api/copies/[token]/packet/route";
+import { GET as getIntakePdf } from "../src/app/api/intakes/[id]/pdf/route";
+import { GET as getProviderSettings } from "../src/app/api/provider/settings/route";
+import { GET as getPacketMapping } from "../src/app/api/mapping/route";
+import { GET as getProviderPacketTemplate } from "../src/app/api/master/providers/[id]/packet-template/route";
 
 const prisma = new PrismaClient();
 
@@ -1332,6 +1342,92 @@ async function main() {
   assert(accuracyConflicts.some((conflict) => conflict.key === "emergency_name_is_phone"));
   assert(accuracyConflicts.some((conflict) => conflict.key === "helper_employment_status_conflict"));
   assert.equal(buildPlanCompleteness({ crisis_warning_signs: "Pacing" }).crisis.state, "incomplete");
+  const filledPcpFields = {
+    pcp_name: "Dr Example",
+    pcp_phone: "3365550100",
+    pcp_address: "1 Main St",
+    preferred_emergency_facility: "Moses Cone",
+    dis_pcp_plan: "Coordinate with PCP after intake.",
+  };
+  const filledCrisisFields = {
+    crisis_warning_signs: "Pacing",
+    crisis_steps: "Call support",
+    crisis_supports: "Aunt May",
+    dis_crisis_contact: "Aunt May",
+    dis_crisis_phone: "3365550199",
+  };
+  const fieldOnlyPcp = buildPlanCompleteness(filledPcpFields);
+  assert.equal(fieldOnlyPcp.pcp.state, "incomplete", "filled PCP fields alone are not complete");
+  assert.equal(fieldOnlyPcp.pcp.fieldsFilled, true);
+  assert.equal(planFalseCompleteFromFieldCount(fieldOnlyPcp), true);
+  assert.equal(
+    buildPlanCompleteness(filledPcpFields, { staffReviewed: true, hasRequiredPlanSignature: true, hasCca: true }).pcp.gates.find((gate) => gate.key === "date")?.met,
+    false,
+    "missing date gate keeps the plan incomplete",
+  );
+  assert.equal(
+    buildPlanCompleteness({ ...filledPcpFields, pcp_plan_date: "pending" }, { staffReviewed: true, hasRequiredPlanSignature: true, hasCca: true }).pcp.gates.find((gate) => gate.key === "date")?.met,
+    false,
+    "placeholder dates are not a real plan date",
+  );
+  assert.equal(
+    buildPlanCompleteness({ ...filledPcpFields, pcp_plan_date: "2026-08-01" }, { staffReviewed: true, hasRequiredPlanSignature: true, hasCca: true }).pcp.gates.find((gate) => gate.key === "source")?.met,
+    false,
+    "missing source gate keeps the plan incomplete",
+  );
+  assert.equal(
+    buildPlanCompleteness({ ...filledPcpFields, pcp_plan_date: "2026-08-01", pcp_plan_source: "CCA" }, { staffReviewed: true, hasRequiredPlanSignature: true, hasCca: false }).pcp.gates.find((gate) => gate.key === "source")?.met,
+    false,
+    "CCA source without a CCA on the case is incomplete",
+  );
+  assert.equal(
+    buildPlanCompleteness({ ...filledPcpFields, pcp_plan_date: "2026-08-01", pcp_plan_source: "staff" }, { staffReviewed: false, hasRequiredPlanSignature: true, hasCca: true }).pcp.gates.find((gate) => gate.key === "staff_review")?.met,
+    false,
+    "missing staff review gate keeps the plan incomplete",
+  );
+  assert.equal(
+    buildPlanCompleteness({ ...filledPcpFields, pcp_plan_date: "2026-08-01", pcp_plan_source: "staff" }, { staffReviewed: true, hasRequiredPlanSignature: false, hasCca: true }).pcp.gates.find((gate) => gate.key === "signatures")?.met,
+    false,
+    "missing signature gate keeps the plan incomplete",
+  );
+  const gatedPcp = buildPlanCompleteness(
+    { ...filledPcpFields, pcp_plan_date: "08/01/2026", pcp_plan_source: "staff" },
+    { staffReviewed: true, hasRequiredPlanSignature: true, hasCca: false },
+  );
+  assert.equal(gatedPcp.pcp.state, "complete");
+  assert.equal(planFalseCompleteFromFieldCount(gatedPcp), false);
+  const gatedCrisis = buildPlanCompleteness(
+    { ...filledCrisisFields, crisis_plan_date: "2026-08-02", crisis_plan_source: "CCA" },
+    { staffReviewed: true, hasRequiredPlanSignature: true, hasCca: true },
+  );
+  assert.equal(gatedCrisis.crisis.state, "complete");
+  assert.equal(
+    buildCompletionReadiness({
+      archived: false,
+      submittedAt: new Date(),
+      missingRequired: [],
+      expectCca: true,
+      hasCca: true,
+      hasStaffSignature: true,
+      providerPacketReady: true,
+      packetState: "current",
+      planComplete: false,
+    }).blockers.some((blocker) => blocker.code === "plan_incomplete"),
+    true,
+    "complete path cannot treat a field-filled plan as done",
+  );
+  assert.equal(
+    buildPacketChecklistChips({
+      answers: filledPcpFields,
+      uploadedDocuments: [],
+      expectCca: true,
+      hasCca: true,
+      signatureStatuses: buildSignatureStatuses([]),
+      planCompleteness: fieldOnlyPcp,
+    }).find((chip) => chip.key === "pcp_plan")?.state,
+    "missing",
+    "case-page checklist stays missing until plan gates pass",
+  );
   assert.equal(acceptableOverrideReason("test"), false);
   assert.equal(acceptableOverrideReason("Verified from the signed CCA source document."), true);
   ok("signature identity/version locking, conflict detection, conditional plan completeness, and override quality gates");
@@ -2751,6 +2847,264 @@ async function main() {
     assert(buttonSrc.includes("window.confirm"), "backup requires an explicit confirm dialog");
     assert(buttonSrc.includes("phiBackupDownloadUrl(true)"), "confirmPhi=yes is added only after confirm");
     ok("PHI backup download requires a real confirm; href does not pre-set confirmPhi=yes");
+  }
+
+  // ---- 5. Completed-copy token when the intake token is expired ------------
+  {
+    const copyProvider = await prisma.provider.findUnique({ where: { slug: "moore-divine-care" } });
+    assert(copyProvider, "copy-token test needs the seeded Moore Divine provider");
+    const copyClient = await prisma.client.create({
+      data: {
+        providerId: copyProvider!.id,
+        fullName: "Copy Token Client",
+        dob: "1991-02-03",
+        email: "copy-token-client@example.com",
+      },
+    });
+    const expiredIntakeToken = newIntakeToken();
+    const copyIntake = await prisma.intake.create({
+      data: {
+        providerId: copyProvider!.id,
+        clientId: copyClient.id,
+        status: "COMPLETED",
+        submittedAt: new Date(),
+        token: expiredIntakeToken,
+        tokenExpiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+    const openExpiredToken = newIntakeToken();
+    const openExpiredIntake = await prisma.intake.create({
+      data: {
+        providerId: copyProvider!.id,
+        clientId: copyClient.id,
+        status: "IN_PROGRESS",
+        token: openExpiredToken,
+        tokenExpiresAt: new Date(Date.now() - 60_000),
+      },
+    });
+    const packetDoc = await PDFDocument.create();
+    packetDoc.addPage([612, 792]);
+    const packetRel = `generated/${copyIntake.id}/copy-token-final.pdf`;
+    saveFile(packetRel, Buffer.from(await packetDoc.save({ useObjectStreams: false })));
+    await prisma.generatedPdf.create({
+      data: { intakeId: copyIntake.id, filePath: packetRel, contentRevision: copyIntake.contentRevision },
+    });
+    try {
+      const delivered = await sendCompletedCopiesLink({
+        intakeId: copyIntake.id,
+        providerId: copyProvider!.id,
+        req: new Request("http://localhost"),
+      });
+      assert.notEqual(delivered.status, 410, "expired Easy Mode tokens must not block completed-copy delivery");
+      const copyLink = String(delivered.body.link || "");
+      assert(copyLink.includes("/copies/"), "completed-copy delivery must mint a copies URL");
+      const copyToken = copyLink.split("/copies/")[1] || "";
+      assert(copyToken && copyToken !== expiredIntakeToken, "copies link must use a dedicated copy token");
+      const stored = await prisma.intake.findUnique({
+        where: { id: copyIntake.id },
+        select: { token: true, copyToken: true, copyTokenExpiresAt: true },
+      });
+      assert.equal(stored?.token, expiredIntakeToken, "Easy Mode token must stay expired and unrotated");
+      assert.equal(stored?.copyToken, copyToken);
+      assert(stored?.copyTokenExpiresAt && stored.copyTokenExpiresAt.getTime() > Date.now());
+
+      const expiredEasy = await getClientIntakeByToken(
+        new NextRequest(`http://localhost/api/intake/${expiredIntakeToken}`),
+        { params: { token: expiredIntakeToken } },
+      );
+      const expiredEasyBody = await expiredEasy.json() as Record<string, unknown>;
+      assert.notEqual(expiredEasy.status, 200);
+      assert(!("answers" in expiredEasyBody), "expired/finished Easy Mode token must not serve the questionnaire");
+      const openExpired = await getClientIntakeByToken(
+        new NextRequest(`http://localhost/api/intake/${openExpiredToken}`),
+        { params: { token: openExpiredToken } },
+      );
+      const openExpiredBody = await openExpired.json() as Record<string, unknown>;
+      assert.equal(openExpired.status, 410);
+      assert.equal(openExpiredBody.code, "LINK_EXPIRED");
+      assert(!("answers" in openExpiredBody), "expired Easy Mode token must not revive the questionnaire");
+
+      const packetOk = await getCompletedCopyPacket(
+        new NextRequest(`http://localhost/api/copies/${copyToken}/packet`),
+        { params: { token: copyToken } },
+      );
+      assert.equal(packetOk.status, 200, "fresh copy token must serve the completed packet");
+      assert.equal(packetOk.headers.get("content-type"), "application/pdf");
+      const packetDenied = await getCompletedCopyPacket(
+        new NextRequest(`http://localhost/api/copies/${expiredIntakeToken}/packet`),
+        { params: { token: expiredIntakeToken } },
+      );
+      assert.equal(packetDenied.status, 404, "the expired Easy Mode token must not serve copies");
+      ok("completed-copy delivery mints a working copy token; expired Easy Mode token still rejects");
+    } finally {
+      await prisma.generatedPdf.deleteMany({ where: { intakeId: copyIntake.id } });
+      await prisma.intake.deleteMany({ where: { id: { in: [copyIntake.id, openExpiredIntake.id] } } });
+      await prisma.client.deleteMany({ where: { id: copyClient.id } });
+      deleteFile(packetRel);
+    }
+  }
+
+  // ---- 7. Draft PDF filename + watermark -----------------------------------
+  {
+    assert.equal(
+      packetDownloadFileName({ providerName: "Moore Divine Care", clientName: "Angela Demo", documentState: "DRAFT_PREVIEW" }),
+      "Moore-Divine-Care-Intake-Angela-Demo-DRAFT.pdf",
+    );
+    assert.equal(
+      packetDownloadFileName({ providerName: "Moore Divine Care", clientName: "Angela Demo", documentState: "CURRENT_FINAL" }),
+      "Moore-Divine-Care-Intake-Angela-Demo.pdf",
+    );
+    const blank = await PDFDocument.create();
+    blank.addPage([612, 792]);
+    const draftBytes = await stampDraftWatermark(await blank.save());
+    const draftText = await extractPdfText(draftBytes);
+    assert(draftText.includes(DRAFT_WATERMARK_TEXT), "draft bytes must contain a visible DRAFT watermark");
+    const unmarked = await extractPdfText(await blank.save());
+    assert(!unmarked.includes(DRAFT_WATERMARK_TEXT), "unwatermarked bytes must not contain DRAFT");
+
+    const masterUser = await prisma.user.findUnique({ where: { email: "[REDACTED]" } });
+    const angela = await prisma.client.findFirst({
+      where: { fullName: "Angela Demo" },
+      include: { intakes: { orderBy: { createdAt: "desc" }, take: 1 } },
+    });
+    assert(masterUser && angela?.intakes[0], "draft PDF route test needs Angela and master login");
+    bindTestCookies({
+      get: (name) => name === SESSION_COOKIE ? { value: createSessionValue(masterUser!.id) } : undefined,
+    });
+    try {
+      const preview = await getIntakePdf(
+        new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf?preview=1`),
+        { params: { id: angela!.intakes[0].id } },
+      );
+      assert.equal(preview.status, 200);
+      assert.equal(preview.headers.get("x-smart-intake-document-state"), "DRAFT_PREVIEW");
+      const previewDisposition = preview.headers.get("content-disposition") || "";
+      assert(previewDisposition.includes("DRAFT"), "preview Content-Disposition must say DRAFT");
+      const previewBytes = Buffer.from(await preview.arrayBuffer());
+      assert((await extractPdfText(previewBytes)).includes(DRAFT_WATERMARK_TEXT));
+
+      const finalPdf = await getIntakePdf(
+        new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf`),
+        { params: { id: angela!.intakes[0].id } },
+      );
+      if (finalPdf.status === 200) {
+        assert.equal(finalPdf.headers.get("x-smart-intake-document-state"), "CURRENT_FINAL");
+        const finalDisposition = finalPdf.headers.get("content-disposition") || "";
+        assert(!finalDisposition.includes("DRAFT"), "final Content-Disposition must not say DRAFT");
+        assert.notEqual(finalDisposition, previewDisposition);
+        const finalBytes = Buffer.from(await finalPdf.arrayBuffer());
+        const finalText = await extractPdfText(finalBytes);
+        assert(
+          (await extractPdfText(previewBytes)).split(DRAFT_WATERMARK_TEXT).length
+            > finalText.split(DRAFT_WATERMARK_TEXT).length,
+          "preview bytes must carry the DRAFT watermark that the current final packet does not",
+        );
+      }
+      ok("draft/preview PDFs are labeled and watermarked DRAFT; current final packet is not");
+    } finally {
+      bindTestCookies(null);
+    }
+  }
+
+  // ---- 8. Provider-admin /provider/settings E2E including cross-provider denial
+  {
+    const settingsSrc = fs.readFileSync(path.join(process.cwd(), "src/app/provider/settings/page.tsx"), "utf8");
+    assert(!settingsSrc.includes("master/dashboard"), "provider settings must not re-export the master dashboard");
+    assert(!/Create provider/i.test(settingsSrc), "provider settings must not be the master Create-providers UI");
+
+    const stamp = Date.now();
+    const providerA = await prisma.provider.create({
+      data: { name: `Settings E2E A ${stamp}`, slug: `settings-e2e-a-${stamp}` },
+    });
+    const providerB = await prisma.provider.create({
+      data: { name: `Settings E2E B ${stamp}`, slug: `settings-e2e-b-${stamp}` },
+    });
+    const passwordHash = await bcrypt.hash("IntakeDemo123!", 4);
+    const adminA = await prisma.user.create({
+      data: { email: `settings-admin-a-${stamp}@example.com`, passwordHash, name: "Settings Admin A", role: "staff" },
+    });
+    const adminB = await prisma.user.create({
+      data: { email: `settings-admin-b-${stamp}@example.com`, passwordHash, name: "Settings Admin B", role: "staff" },
+    });
+    const staffA = await prisma.user.create({
+      data: { email: `settings-staff-a-${stamp}@example.com`, passwordHash, name: "Settings Staff A", role: "staff" },
+    });
+    await prisma.userMembership.createMany({
+      data: [
+        { userId: adminA.id, providerId: providerA.id, role: "PROVIDER_ADMIN", active: true },
+        { userId: adminB.id, providerId: providerB.id, role: "PROVIDER_ADMIN", active: true },
+        { userId: staffA.id, providerId: providerA.id, role: "STAFF", active: true },
+      ],
+    });
+    const masterUser = await prisma.user.findUnique({ where: { email: "[REDACTED]" } });
+    assert(masterUser, "provider-admin settings E2E needs the seeded master user");
+
+    const withSession = (userId: string, providerId?: string) => {
+      bindTestCookies({
+        get: (name) => {
+          if (name === SESSION_COOKIE) return { value: createSessionValue(userId) };
+          if (providerId && name === SELECTED_PROVIDER_COOKIE) return { value: providerId };
+          return undefined;
+        },
+      });
+    };
+
+    try {
+      withSession(adminA.id);
+      const ownSettings = await getProviderSettings(new NextRequest("http://localhost/api/provider/settings"));
+      assert.equal(ownSettings.status, 200, "authenticated provider-admin can load their own settings");
+      const ownBody = await ownSettings.json() as { provider?: { id?: string }; settingsPath?: string };
+      assert.equal(ownBody.provider?.id, providerA.id);
+      assert.equal(ownBody.settingsPath, "/provider/settings");
+      ok("provider-admin /provider/settings E2E: authenticated admin loads own settings");
+
+      const crossQuery = await getProviderSettings(
+        new NextRequest(`http://localhost/api/provider/settings?providerId=${providerB.id}`),
+      );
+      assert.equal(crossQuery.status, 403, "provider-admin A must be denied provider B settings via providerId");
+      withSession(adminA.id, providerB.id);
+      const crossCookie = await getProviderSettings(new NextRequest("http://localhost/api/provider/settings"));
+      assert.equal(crossCookie.status, 403, "provider-admin A must be denied provider B settings via cookie swap");
+      withSession(staffA.id);
+      const staffSettings = await getProviderSettings(new NextRequest("http://localhost/api/provider/settings"));
+      assert.equal(staffSettings.status, 403, "staff cannot load provider-admin settings");
+      ok("provider-admin /provider/settings E2E: cross-provider cookie/providerId swap is denied");
+
+      withSession(adminA.id);
+      const mappingOwn = await getPacketMapping(
+        new NextRequest(`http://localhost/api/mapping?providerId=${providerA.id}`),
+      );
+      assert.notEqual(mappingOwn.status, 403, "provider-admin can access their own packet mapping surface");
+      const mappingCross = await getPacketMapping(
+        new NextRequest(`http://localhost/api/mapping?providerId=${providerB.id}`),
+      );
+      assert.equal(mappingCross.status, 403, "provider-admin A must be denied provider B packet mapping");
+      const templateCross = await getProviderPacketTemplate(
+        new NextRequest(`http://localhost/api/master/providers/${providerB.id}/packet-template`),
+        { params: { id: providerB.id } },
+      );
+      assert.equal(templateCross.status, 403, "provider-admin A must be denied provider B packet-template admin surface");
+      withSession(staffA.id);
+      const staffMappingB = await getPacketMapping(
+        new NextRequest(`http://localhost/api/mapping?providerId=${providerB.id}`),
+      );
+      assert.equal(staffMappingB.status, 403, "staff of A must be denied provider B packet mapping");
+      withSession(masterUser!.id);
+      const masterSettingsB = await getProviderSettings(
+        new NextRequest(`http://localhost/api/provider/settings?providerId=${providerB.id}`),
+      );
+      assert.equal(masterSettingsB.status, 200, "master can still access provider B settings");
+      const masterMappingB = await getPacketMapping(
+        new NextRequest(`http://localhost/api/mapping?providerId=${providerB.id}`),
+      );
+      assert.notEqual(masterMappingB.status, 403, "master can still access provider B packet mapping");
+      ok("provider-admin /provider/settings E2E: staff of A denied on B packet mapping; master can access");
+    } finally {
+      bindTestCookies(null);
+      await prisma.userMembership.deleteMany({ where: { providerId: { in: [providerA.id, providerB.id] } } });
+      await prisma.user.deleteMany({ where: { id: { in: [adminA.id, adminB.id, staffA.id] } } });
+      await prisma.provider.deleteMany({ where: { id: { in: [providerA.id, providerB.id] } } });
+    }
   }
 
   console.log(`\nAll ${passed} checks passed ✓`);

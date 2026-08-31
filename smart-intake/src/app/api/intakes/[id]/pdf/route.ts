@@ -10,10 +10,7 @@ import {
   requireProviderPacketForCompletion,
 } from "@/lib/providerPacketTemplates";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
-
-function fileSafe(value: string) {
-  return value.replace(/\W+/g, "-").replace(/^-+|-+$/g, "") || "Intake";
-}
+import { packetDownloadFileName, stampDraftWatermark } from "@/lib/draftPdf";
 
 function jsonError(error: string, status: number, extra: Record<string, unknown> = {}) {
   return NextResponse.json({ error, ...extra }, { status });
@@ -47,10 +44,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
     let fillWarnings: string[] = [];
     const packet = await packetFreshnessForIntake(intake.id);
     let documentState: "DRAFT_PREVIEW" | "CURRENT_FINAL";
-    if (!fresh && packet.state === "current" && packet.filePath && fileExists(packet.filePath)) {
-      bytes = readFile(packet.filePath);
-      documentState = "CURRENT_FINAL";
-    } else if (fresh || preview) {
+    if (fresh || preview) {
       const answers = await loadAnswers(intake.id);
       const result = await fillPacket({
         answers,
@@ -59,9 +53,12 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         templateBytes: packetTemplate.bytes,
         fields: packetTemplate.fields,
       });
-      bytes = Buffer.from(result.pdfBytes);
+      bytes = Buffer.from(await stampDraftWatermark(result.pdfBytes));
       fillWarnings = result.warnings;
       documentState = "DRAFT_PREVIEW";
+    } else if (packet.state === "current" && packet.filePath && fileExists(packet.filePath)) {
+      bytes = readFile(packet.filePath);
+      documentState = "CURRENT_FINAL";
     } else {
       return jsonError(
         packet.state === "stale"
@@ -77,7 +74,11 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
       userId: user!.id,
       detail: documentState,
     });
-    const name = `${fileSafe(provider!.name)}-Intake-${fileSafe(intake.client.fullName)}.pdf`;
+    const name = packetDownloadFileName({
+      providerName: provider!.name,
+      clientName: intake.client.fullName,
+      documentState,
+    });
     const response = new NextResponse(bytes as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",

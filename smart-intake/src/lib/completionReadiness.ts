@@ -18,7 +18,8 @@ export type CompletionBlockerCode =
   | "staff_signature_missing"
   | "provider_packet_not_ready"
   | "packet_missing"
-  | "packet_stale";
+  | "packet_stale"
+  | "plan_incomplete";
 
 export type CompletionBlocker = {
   code: CompletionBlockerCode;
@@ -41,6 +42,7 @@ export function buildCompletionReadiness(input: {
   providerPacketReady: boolean;
   providerPacketMessage?: string;
   packetState: PacketFreshnessState;
+  planComplete?: boolean;
 }): CompletionReadiness {
   const blockers: CompletionBlocker[] = [];
 
@@ -78,6 +80,12 @@ export function buildCompletionReadiness(input: {
     blockers.push({
       code: "packet_stale",
       message: "Answers or signatures changed after the packet was generated. Generate it again.",
+    });
+  }
+  if (input.planComplete === false) {
+    blockers.push({
+      code: "plan_incomplete",
+      message: "PCP/crisis plan fields are filled, but staff review, required signatures, a real date, and a documented CCA/staff source are still required. Field count alone cannot mark the plan complete.",
     });
   }
 

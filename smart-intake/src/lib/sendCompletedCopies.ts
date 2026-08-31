@@ -2,6 +2,7 @@ import { prisma } from "./prisma";
 import { appBaseUrl } from "./baseUrl";
 import { audit } from "./auditLog";
 import { loadAnswers } from "./intakeData";
+import { ensureCompletedCopyToken, copiesPath } from "./copyTokens";
 import {
   AUTO_SEND_COMPLETED_COPIES_KEY,
   AUTO_EMAIL_PROVIDER_PACKET_KEY,
@@ -54,17 +55,6 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   if (!intake) {
     return { status: 404, body: { ok: false, error: "Not found", sent: [], failed: [] } };
   }
-  if (intake.tokenExpiresAt < new Date()) {
-    return {
-      status: 410,
-      body: {
-        ok: false,
-        error: "The secure link expired. Extend it before sending client copies.",
-        sent: [],
-        failed: [],
-      },
-    };
-  }
   if (
     intake.archived
     || !intake.submittedAt
@@ -100,7 +90,8 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
     throw error;
   }
 
-  const link = `${appBaseUrl(opts.req)}/copies/${intake.token}`;
+  const copyAccess = await ensureCompletedCopyToken(intake.id);
+  const link = `${appBaseUrl(opts.req)}${copiesPath(copyAccess.copyToken)}`;
   const attempts: NotifyResult[] = [];
   const answers = await loadAnswers(intake.id);
   const answeredClient = answeredClientFields(answers);

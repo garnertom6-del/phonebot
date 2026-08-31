@@ -2,6 +2,7 @@ import { SECTIONS, questionCatalogId, questionVisibleInCatalog } from "@/config/
 import { askIfSatisfied } from "@/lib/validation";
 import type { SignatureStatus } from "@/lib/signatureStatus";
 import { missingRequiredSignatures } from "@/lib/signatureStatus";
+import type { PlanCompletenessSummary } from "@/lib/recordIntegrity";
 
 export type PacketChecklistState = "keep" | "missing" | "na";
 
@@ -49,6 +50,11 @@ function consentsState(
   return complete ? "keep" : "missing";
 }
 
+function planChipState(summary?: { state: string }): PacketChecklistState {
+  if (!summary || summary.state === "not_started") return "na";
+  return summary.state === "complete" ? "keep" : "missing";
+}
+
 /**
  * Paper EWC-style packet items staff can scan without opening the PDF.
  * Keep/missing/N/A only from answers, uploads, and signatures already on the case.
@@ -60,6 +66,10 @@ export function buildPacketChecklistChips(input: {
   hasCca: boolean;
   signatureStatuses: SignatureStatus[];
   provider?: { name?: string | null; slug?: string | null } | string | null;
+  planCompleteness?: {
+    pcp: Pick<PlanCompletenessSummary, "state">;
+    crisis: Pick<PlanCompletenessSummary, "state">;
+  };
 }): PacketChecklistChip[] {
   const additionalEvals = Array.isArray(input.answers.additional_evals)
     ? input.answers.additional_evals.map((value) => String(value).toLowerCase())
@@ -118,6 +128,16 @@ export function buildPacketChecklistChips(input: {
       key: "signatures",
       label: "Signatures",
       state: signatureMissing.length ? "missing" : "keep",
+    },
+    {
+      key: "pcp_plan",
+      label: "PCP / person-centered plan",
+      state: planChipState(input.planCompleteness?.pcp),
+    },
+    {
+      key: "crisis_plan",
+      label: "Crisis plan",
+      state: planChipState(input.planCompleteness?.crisis),
     },
   ];
 }

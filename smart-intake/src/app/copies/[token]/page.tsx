@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
-import { prisma } from "@/lib/prisma";
 import { loadAnswers } from "@/lib/intakeData";
 import { buildCompletedCopySections, COPY_ALLOWED_STATUSES } from "@/lib/completedCopies";
+import { copyLinkIsAvailable, findIntakeByCopyToken } from "@/lib/completedCopiesLookup";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
 import PrintPageButton from "@/components/PrintPageButton";
 import {
@@ -11,21 +11,8 @@ import {
 } from "@/lib/providerPacketTemplates";
 
 export default async function CopiesPage({ params }: { params: { token: string } }) {
-  const intake = await prisma.intake.findUnique({
-    where: { token: params.token },
-    include: {
-      client: true,
-      provider: true,
-      signatures: { select: { id: true, role: true, printedName: true, signedDate: true } },
-    },
-  });
-  if (
-    !intake
-    || intake.archived
-    || !intake.submittedAt
-    || intake.tokenExpiresAt < new Date()
-    || (intake.provider && intake.provider.status !== "ACTIVE")
-  ) {
+  const intake = await findIntakeByCopyToken(params.token);
+  if (!intake || !copyLinkIsAvailable(intake)) {
     notFound();
   }
 

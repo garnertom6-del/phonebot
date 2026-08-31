@@ -432,6 +432,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
     hasCca,
     signatureStatuses: d.signatureStatuses,
     provider: i.provider,
+    planCompleteness: d.planCompleteness || undefined,
   });
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
@@ -1183,11 +1184,7 @@ export default function IntakeDetail({ params }: { params: { id: string } }) {
         </div>
       </section>
       <WorkflowSteps steps={caseStatus.steps} />
-      <PacketChecklistChips
-        chips={packetChecklist}
-        pcp={d.planCompleteness?.pcp}
-        crisis={d.planCompleteness?.crisis}
-      />
+      <PacketChecklistChips chips={packetChecklist} />
       <SignatureSlotsRow statuses={d.signatureStatuses} reviewHref={`/intakes/${i.id}/review#staff-signatures`} />
       {(d.accuracyConflicts?.length || 0) > 0 && (
         <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-3 text-amber-950">
@@ -2346,12 +2343,8 @@ function WorkflowSteps({ steps }: { steps: CaseWorkflowStep[] }) {
 
 function PacketChecklistChips({
   chips,
-  pcp,
-  crisis,
 }: {
   chips: ReturnType<typeof buildPacketChecklistChips>;
-  pcp?: { completed: number; total: number };
-  crisis?: { completed: number; total: number };
 }) {
   const tone = (state: string) => (
     state === "keep" ? "bg-emerald-100 text-emerald-800" :
@@ -2370,8 +2363,6 @@ function PacketChecklistChips({
             {chip.label}: {mark(chip.state)}
           </span>
         ))}
-        {pcp && <span className="badge bg-white text-slate-700 ring-1 ring-slate-200">PCP plan: {pcp.completed}/{pcp.total}</span>}
-        {crisis && <span className="badge bg-white text-slate-700 ring-1 ring-slate-200">Crisis plan: {crisis.completed}/{crisis.total}</span>}
       </div>
     </div>
   );

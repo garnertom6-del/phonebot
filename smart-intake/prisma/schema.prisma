@@ -89,6 +89,8 @@ model Intake {
   docusignEnvelopeId String? // set when a DocuSign envelope is sent
   token              String    @unique
   tokenExpiresAt     DateTime
+  copyToken          String?   @unique
+  copyTokenExpiresAt DateTime?
   intakeDate         String?
   location           String?
   linkSentAt         DateTime?
