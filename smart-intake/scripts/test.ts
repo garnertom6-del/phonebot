@@ -36,7 +36,7 @@ import {
 } from "../src/lib/providerPacketTemplates";
 import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrites";
 import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
-import { stampDraftWatermark, packetDownloadFileName, DRAFT_WATERMARK_TEXT } from "../src/lib/draftPdf";
+import { packetDownloadFileName } from "../src/lib/draftPdf";
 import { bindTestCookies } from "../src/lib/requestCookies";
 import { createSessionValue, SESSION_COOKIE } from "../src/lib/auth";
 import { SELECTED_PROVIDER_COOKIE } from "../src/lib/staffGuard";
@@ -2958,14 +2958,14 @@ async function main() {
 
       const expiredEasy = await getClientIntakeByToken(
         new NextRequest(`http://localhost/api/intake/${expiredIntakeToken}`),
-        { params: { token: expiredIntakeToken } },
+        { params: Promise.resolve({ token: expiredIntakeToken }) },
       );
       const expiredEasyBody = await expiredEasy.json() as Record<string, unknown>;
       assert.notEqual(expiredEasy.status, 200);
       assert(!("answers" in expiredEasyBody), "expired/finished Easy Mode token must not serve the questionnaire");
       const openExpired = await getClientIntakeByToken(
         new NextRequest(`http://localhost/api/intake/${openExpiredToken}`),
-        { params: { token: openExpiredToken } },
+        { params: Promise.resolve({ token: openExpiredToken }) },
       );
       const openExpiredBody = await openExpired.json() as Record<string, unknown>;
       assert.equal(openExpired.status, 410);
@@ -2974,13 +2974,13 @@ async function main() {
 
       const packetOk = await getCompletedCopyPacket(
         new NextRequest(`http://localhost/api/copies/${copyToken}/packet`),
-        { params: { token: copyToken } },
+        { params: Promise.resolve({ token: copyToken }) },
       );
       assert.equal(packetOk.status, 200, "fresh copy token must serve the completed packet");
       assert.equal(packetOk.headers.get("content-type"), "application/pdf");
       const packetDenied = await getCompletedCopyPacket(
         new NextRequest(`http://localhost/api/copies/${expiredIntakeToken}/packet`),
-        { params: { token: expiredIntakeToken } },
+        { params: Promise.resolve({ token: expiredIntakeToken }) },
       );
       assert.equal(packetDenied.status, 404, "the expired Easy Mode token must not serve copies");
       ok("completed-copy delivery mints a working copy token; expired Easy Mode token still rejects");
@@ -2992,7 +2992,7 @@ async function main() {
     }
   }
 
-  // ---- 7. Draft PDF filename + watermark -----------------------------------
+  // ---- 7. Draft PDF filename + no watermark --------------------------------
   {
     assert.equal(
       packetDownloadFileName({ providerName: "Moore Divine Care", clientName: "Angela Demo", documentState: "DRAFT_PREVIEW" }),
@@ -3002,14 +3002,6 @@ async function main() {
       packetDownloadFileName({ providerName: "Moore Divine Care", clientName: "Angela Demo", documentState: "CURRENT_FINAL" }),
       "Moore-Divine-Care-Intake-Angela-Demo.pdf",
     );
-    const blank = await PDFDocument.create();
-    blank.addPage([612, 792]);
-    const draftBytes = await stampDraftWatermark(await blank.save());
-    const draftText = await extractPdfText(draftBytes);
-    assert(draftText.includes(DRAFT_WATERMARK_TEXT), "draft bytes must contain a visible DRAFT watermark");
-    const unmarked = await extractPdfText(await blank.save());
-    assert(!unmarked.includes(DRAFT_WATERMARK_TEXT), "unwatermarked bytes must not contain DRAFT");
-
     const masterUser = await prisma.user.findFirst({ where: { role: "master" } });
     const angela = await prisma.client.findFirst({
       where: { fullName: "Angela Demo" },
@@ -3022,33 +3014,26 @@ async function main() {
     try {
       const preview = await getIntakePdf(
         new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf?preview=1`),
-        { params: { id: angela!.intakes[0].id } },
+        { params: Promise.resolve({ id: angela!.intakes[0].id }) },
       );
       assert.equal(preview.status, 200);
       assert.equal(preview.headers.get("x-smart-intake-document-state"), "DRAFT_PREVIEW");
       const previewDisposition = preview.headers.get("content-disposition") || "";
       assert(previewDisposition.includes("DRAFT"), "preview Content-Disposition must say DRAFT");
-      const previewBytes = Buffer.from(await preview.arrayBuffer());
-      assert((await extractPdfText(previewBytes)).includes(DRAFT_WATERMARK_TEXT));
+      await preview.arrayBuffer();
 
       const finalPdf = await getIntakePdf(
         new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf`),
-        { params: { id: angela!.intakes[0].id } },
+        { params: Promise.resolve({ id: angela!.intakes[0].id }) },
       );
       if (finalPdf.status === 200) {
         assert.equal(finalPdf.headers.get("x-smart-intake-document-state"), "CURRENT_FINAL");
         const finalDisposition = finalPdf.headers.get("content-disposition") || "";
         assert(!finalDisposition.includes("DRAFT"), "final Content-Disposition must not say DRAFT");
         assert.notEqual(finalDisposition, previewDisposition);
-        const finalBytes = Buffer.from(await finalPdf.arrayBuffer());
-        const finalText = await extractPdfText(finalBytes);
-        assert(
-          (await extractPdfText(previewBytes)).split(DRAFT_WATERMARK_TEXT).length
-            > finalText.split(DRAFT_WATERMARK_TEXT).length,
-          "preview bytes must carry the DRAFT watermark that the current final packet does not",
-        );
+        await finalPdf.arrayBuffer();
       }
-      ok("draft/preview PDFs are labeled and watermarked DRAFT; current final packet is not");
+      ok("draft/preview PDFs are labeled by filename and response state without a watermark");
     } finally {
       bindTestCookies(null);
     }
@@ -3129,7 +3114,7 @@ async function main() {
       assert.equal(mappingCross.status, 403, "provider-admin A must be denied provider B packet mapping");
       const templateCross = await getProviderPacketTemplate(
         new NextRequest(`http://localhost/api/master/providers/${providerB.id}/packet-template`),
-        { params: { id: providerB.id } },
+        { params: Promise.resolve({ id: providerB.id }) },
       );
       assert.equal(templateCross.status, 403, "provider-admin A must be denied provider B packet-template admin surface");
       withSession(staffA.id);
