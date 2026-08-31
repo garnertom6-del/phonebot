@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { PDFDocument } from "pdf-lib";
 import { prisma } from "@/lib/prisma";
-import { isMasterUser, requireProviderAdmin } from "@/lib/staffGuard";
+import { requireProviderAdmin } from "@/lib/staffGuard";
 import { saveFile } from "@/lib/storage";
 import { audit } from "@/lib/auditLog";
 
@@ -57,11 +57,8 @@ function templateResponse(template: {
 }
 
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider: currentProvider, deny } = await requireProviderAdmin();
+  const { deny } = await requireProviderAdmin({ providerId: params.id });
   if (deny) return deny;
-  if (!isMasterUser(user!) && currentProvider!.id !== params.id) {
-    return NextResponse.json({ error: "You can only view packet templates for your provider." }, { status: 403 });
-  }
 
   const targetProvider = await prisma.provider.findUnique({ where: { id: params.id }, select: { id: true } });
   if (!targetProvider) return NextResponse.json({ error: "Provider not found" }, { status: 404 });
@@ -74,11 +71,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 }
 
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
-  const { user, provider: currentProvider, deny } = await requireProviderAdmin();
+  const { user, deny } = await requireProviderAdmin({ providerId: params.id });
   if (deny) return deny;
-  if (!isMasterUser(user!) && currentProvider!.id !== params.id) {
-    return NextResponse.json({ error: "You can only upload packet templates for your provider." }, { status: 403 });
-  }
 
   const targetProvider = await prisma.provider.findUnique({
     where: { id: params.id },

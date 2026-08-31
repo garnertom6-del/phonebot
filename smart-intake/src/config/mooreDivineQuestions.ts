@@ -723,6 +723,9 @@ export const STAFF_FIELDS: { group: string; fields: Question[] }[] = [
       { key: "pcp_plan_agency_name", label: "Case management agency name", type: "text" },
       { key: "pcp_plan_client_printed_name", label: "Client printed name", type: "text" },
       { key: "pcp_plan_date", label: "Staff dates this page later (leave blank on SMS)", type: "date" },
+      { key: "pcp_plan_source", staffOnly: true, label: "PCP / person-centered plan source", type: "radio", options: ["CCA", "staff"] },
+      { key: "crisis_plan_date", staffOnly: true, label: "Crisis plan date", type: "date" },
+      { key: "crisis_plan_source", staffOnly: true, label: "Crisis plan source", type: "radio", options: ["CCA", "staff"] },
     ],
   },
   {

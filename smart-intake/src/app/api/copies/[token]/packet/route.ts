@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { fileExists, readFile } from "@/lib/storage";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
+import { copyPacketIsReady, findIntakeByCopyToken } from "@/lib/completedCopiesLookup";
 import {
   ProviderPacketNotReadyError,
   requireProviderPacketForCompletion,
@@ -18,21 +18,8 @@ function fileSafe(value: string): string {
 }
 
 export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
-  const intake = await prisma.intake.findUnique({
-    where: { token: params.token },
-    include: {
-      client: { select: { fullName: true } },
-      provider: { select: { id: true, name: true, status: true } },
-    },
-  });
-  if (
-    !intake
-    || intake.archived
-    || intake.status !== "COMPLETED"
-    || intake.tokenExpiresAt < new Date()
-    || !intake.provider
-    || intake.provider.status !== "ACTIVE"
-  ) {
+  const intake = await findIntakeByCopyToken(params.token);
+  if (!intake || !intake.provider || !copyPacketIsReady(intake)) {
     return NextResponse.json({ error: "The completed packet is not available from this link." }, { status: 404 });
   }
 

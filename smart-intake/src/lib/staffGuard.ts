@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
-import { cookies } from "next/headers";
 import { currentUser } from "./auth";
+import { readRequestCookie } from "./requestCookies";
 import { isMasterUser, resolveStaffProvider, resolveStaffProviderForIntake } from "./staffProviderScope";
 
 export { isMasterUser } from "./staffProviderScope";
@@ -35,7 +35,7 @@ export async function requireStaff(opts?: {
     : await resolveStaffProvider(user, {
       providerId: opts?.providerId,
       providerSlug: opts?.providerSlug,
-      fallbackProviderId: cookies().get(SELECTED_PROVIDER_COOKIE)?.value,
+      fallbackProviderId: readRequestCookie(SELECTED_PROVIDER_COOKIE),
     });
 
   if (!scoped.ok) {
@@ -81,7 +81,10 @@ export async function requireMaster() {
   return { user, deny: null };
 }
 
-export async function requireProviderAdmin() {
+export async function requireProviderAdmin(opts?: {
+  providerId?: string | null;
+  providerSlug?: string | null;
+}) {
   const user = await currentUser();
   if (!user) {
     return {
@@ -91,11 +94,39 @@ export async function requireProviderAdmin() {
       deny: NextResponse.json({ error: "Not signed in" }, { status: 401 }),
     };
   }
+
+  const requestedProviderId = opts?.providerId?.trim() || "";
+  const requestedProviderSlug = opts?.providerSlug?.trim() || "";
+  // Admin surfaces treat a selected-provider cookie as an explicit target so a
+  // cookie/`providerId` swap cannot silently open another provider's settings.
+  const cookieProviderId = requestedProviderId || requestedProviderSlug
+    ? ""
+    : (readRequestCookie(SELECTED_PROVIDER_COOKIE) || "");
+  const targetProviderId = requestedProviderId || cookieProviderId || null;
+
   if (isMasterUser(user)) {
-    return { user, provider: null, membership: null, deny: null };
+    if (!targetProviderId && !requestedProviderSlug) {
+      return { user, provider: null, membership: null, deny: null };
+    }
+    const scoped = await resolveStaffProvider(user, {
+      providerId: targetProviderId,
+      providerSlug: requestedProviderSlug || null,
+    });
+    if (!scoped.ok) {
+      return {
+        user,
+        provider: null,
+        membership: null,
+        deny: NextResponse.json({ error: scoped.error }, { status: scoped.status }),
+      };
+    }
+    return { user, provider: scoped.provider, membership: null, deny: null };
   }
 
-  const ctx = await requireStaff();
+  const ctx = await requireStaff({
+    providerId: targetProviderId,
+    providerSlug: requestedProviderSlug || null,
+  });
   if (ctx.deny) return ctx;
   if (ctx.membership?.role === "PROVIDER_ADMIN") {
     return { ...ctx, deny: null };

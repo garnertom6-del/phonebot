@@ -1,6 +1,6 @@
 import crypto from "crypto";
-import { cookies } from "next/headers";
 import { prisma } from "./prisma";
+import { readRequestCookie } from "./requestCookies";
 
 const SECRET = () => {
   const secret = process.env.SESSION_SECRET;
@@ -32,7 +32,7 @@ export function verifySessionValue(value: string | undefined): string | null {
 }
 
 export async function currentUser() {
-  const userId = verifySessionValue(cookies().get(COOKIE)?.value);
+  const userId = verifySessionValue(readRequestCookie(COOKIE));
   if (!userId) return null;
   return prisma.user.findUnique({ where: { id: userId } });
 }

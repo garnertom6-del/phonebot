@@ -7,6 +7,7 @@ import { loadAnswers, saveAnswers, saveAnswersInTransaction, syncStructuredRows 
 import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { ensureCompletedCopyToken } from "@/lib/copyTokens";
 import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { clientCcaAttestationReady, parseCcaReview } from "@/lib/ccaReview";
@@ -201,6 +202,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     await prisma.intake.update({ where: { id: intake.id }, data: { status: body.status } });
     if (body.status === "COMPLETED") {
       try {
+        await ensureCompletedCopyToken(intake.id);
         completionDelivery = await autoSendCompletedCopiesIfEnabled({
           intakeId: intake.id,
           providerId: provider!.id,

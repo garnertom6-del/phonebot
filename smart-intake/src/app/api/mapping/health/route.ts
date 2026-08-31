@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireMaster } from "@/lib/staffGuard";
+import { requireMaster, requireProviderAdmin } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { assessMapping } from "@/lib/mappingHealth";
 import { mappingContextFrom } from "@/lib/mappingCatalog";
@@ -82,8 +82,28 @@ async function filenameWarningFor(template: {
 }
 
 export async function GET(req: NextRequest) {
-  const { deny } = await requireMaster();
-  if (deny) return deny;
+  const providerId = req.nextUrl.searchParams.get("providerId");
+  const templateId = req.nextUrl.searchParams.get("templateId");
+  if (!providerId && !templateId) {
+    const { deny } = await requireMaster();
+    if (deny) return deny;
+  } else {
+    let targetProviderId = providerId;
+    if (!targetProviderId && templateId) {
+      const template = await prisma.pdfTemplate.findUnique({
+        where: { id: templateId },
+        select: { providerId: true },
+      });
+      targetProviderId = template?.providerId || null;
+    }
+    if (targetProviderId) {
+      const { deny } = await requireProviderAdmin({ providerId: targetProviderId });
+      if (deny) return deny;
+    } else {
+      const { deny } = await requireMaster();
+      if (deny) return deny;
+    }
+  }
   const template = await templateFromRequest(req);
   if (!template) return NextResponse.json({ error: "Packet template not found." }, { status: 404 });
   const health = healthFor(template);

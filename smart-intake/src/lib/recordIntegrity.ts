@@ -1,5 +1,6 @@
 import { isPlausiblePhone } from "@/lib/intakeContacts";
 import { parseHelperNotes } from "@/lib/parseIntakeNotes";
+import { isDatePlaceholder, normalizeDateInput } from "@/lib/normalizeDateInput";
 import type { Answers } from "@/lib/fillPdf";
 
 export type ClientIdentity = {
@@ -200,12 +201,152 @@ export function buildRecordConflicts(answers: Answers, client: ClientIdentity): 
   return conflicts;
 }
 
-export function buildPlanCompleteness(answers: Answers) {
-  const pcpKeys = ["pcp_name", "pcp_phone", "pcp_address", "preferred_emergency_facility", "dis_pcp_plan"];
-  const crisisKeys = ["crisis_warning_signs", "crisis_steps", "crisis_supports", "dis_crisis_contact", "dis_crisis_phone"];
-  const summary = (keys: string[]) => {
-    const missing = keys.filter((key) => !String(answers[key] ?? "").trim());
-    return { total: keys.length, completed: keys.length - missing.length, missing, state: missing.length === keys.length ? "not_started" : missing.length ? "incomplete" : "complete" } as const;
+export const PLAN_SOURCE_VALUES = ["CCA", "staff"] as const;
+export type PlanSourceValue = typeof PLAN_SOURCE_VALUES[number];
+export type PlanCompletenessState = "not_started" | "incomplete" | "complete";
+export type PlanGateKey = "fields" | "staff_review" | "signatures" | "date" | "source";
+
+export type PlanGate = {
+  key: PlanGateKey;
+  met: boolean;
+  detail: string;
+};
+
+export type PlanCompletenessSummary = {
+  total: number;
+  completed: number;
+  missing: string[];
+  state: PlanCompletenessState;
+  gates: PlanGate[];
+  /** True when every text field has a value but a required gate is still open. */
+  fieldsFilled: boolean;
+};
+
+export type PlanCompletenessContext = {
+  staffReviewed?: boolean;
+  hasRequiredPlanSignature?: boolean;
+  hasCca?: boolean;
+};
+
+export const PCP_PLAN_FIELD_KEYS = ["pcp_name", "pcp_phone", "pcp_address", "preferred_emergency_facility", "dis_pcp_plan"] as const;
+export const CRISIS_PLAN_FIELD_KEYS = ["crisis_warning_signs", "crisis_steps", "crisis_supports", "dis_crisis_contact", "dis_crisis_phone"] as const;
+
+function documentedPlanSource(value: unknown, hasCca: boolean): PlanSourceValue | "" {
+  const raw = String(value ?? "").trim().toLowerCase();
+  if (raw === "cca") return hasCca ? "CCA" : "";
+  if (raw === "staff") return "staff";
+  return "";
+}
+
+function realPlanDate(value: unknown): string {
+  if (isDatePlaceholder(value)) return "";
+  return normalizeDateInput(value);
+}
+
+function summarizePlan(input: {
+  answers: Answers;
+  fieldKeys: readonly string[];
+  dateKey: string;
+  sourceKey: string;
+  staffReviewed: boolean;
+  hasRequiredPlanSignature: boolean;
+  hasCca: boolean;
+}): PlanCompletenessSummary {
+  const missing = input.fieldKeys.filter((key) => !String(input.answers[key] ?? "").trim());
+  const fieldsFilled = missing.length === 0;
+  const date = realPlanDate(input.answers[input.dateKey]);
+  const source = documentedPlanSource(input.answers[input.sourceKey], input.hasCca);
+  const gates: PlanGate[] = [
+    {
+      key: "fields",
+      met: fieldsFilled,
+      detail: fieldsFilled ? "Required plan fields are filled." : `Fill ${missing.length} remaining plan field${missing.length === 1 ? "" : "s"}.`,
+    },
+    {
+      key: "staff_review",
+      met: input.staffReviewed,
+      detail: input.staffReviewed ? "Staff reviewed the latest plan content." : "Save a staff review before treating this plan as complete.",
+    },
+    {
+      key: "signatures",
+      met: input.hasRequiredPlanSignature,
+      detail: input.hasRequiredPlanSignature
+        ? "Required plan signature is captured."
+        : "Capture the required client or guardian signature before treating this plan as complete.",
+    },
+    {
+      key: "date",
+      met: !!date,
+      detail: date ? `Plan date ${date}.` : "Enter a real plan date. Words such as pending or N/A do not count.",
+    },
+    {
+      key: "source",
+      met: !!source,
+      detail: source
+        ? `Documented source: ${source}.`
+        : input.answers[input.sourceKey] && String(input.answers[input.sourceKey]).trim().toLowerCase() === "cca" && !input.hasCca
+          ? "Source is CCA, but no CCA is on the case."
+          : "Document the plan source as CCA or staff.",
+    },
+  ];
+  const unmet = gates.filter((gate) => !gate.met);
+  const nothingStarted = !fieldsFilled
+    && missing.length === input.fieldKeys.length
+    && !input.staffReviewed
+    && !input.hasRequiredPlanSignature
+    && !date
+    && !source;
+  const state: PlanCompletenessState = unmet.length === 0
+    ? "complete"
+    : nothingStarted
+      ? "not_started"
+      : "incomplete";
+  return {
+    total: input.fieldKeys.length,
+    completed: input.fieldKeys.length - missing.length,
+    missing,
+    state,
+    gates,
+    fieldsFilled,
   };
-  return { pcp: summary(pcpKeys), crisis: summary(crisisKeys) };
+}
+
+/**
+ * Plan chips and generation/complete gates. Field count alone never marks a
+ * PCP or crisis plan complete — staff review, required signature, a real date,
+ * and a documented CCA/staff source must all be present.
+ */
+export function buildPlanCompleteness(
+  answers: Answers,
+  context: PlanCompletenessContext = {},
+) {
+  const staffReviewed = !!context.staffReviewed;
+  const hasRequiredPlanSignature = !!context.hasRequiredPlanSignature;
+  const hasCca = !!context.hasCca;
+  return {
+    pcp: summarizePlan({
+      answers,
+      fieldKeys: PCP_PLAN_FIELD_KEYS,
+      dateKey: "pcp_plan_date",
+      sourceKey: "pcp_plan_source",
+      staffReviewed,
+      hasRequiredPlanSignature,
+      hasCca,
+    }),
+    crisis: summarizePlan({
+      answers,
+      fieldKeys: CRISIS_PLAN_FIELD_KEYS,
+      dateKey: "crisis_plan_date",
+      sourceKey: "crisis_plan_source",
+      staffReviewed,
+      hasRequiredPlanSignature,
+      hasCca,
+    }),
+  };
+}
+
+export function planFalseCompleteFromFieldCount(
+  completeness: ReturnType<typeof buildPlanCompleteness>,
+): boolean {
+  return [completeness.pcp, completeness.crisis].some((plan) => plan.fieldsFilled && plan.state !== "complete");
 }

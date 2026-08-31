@@ -5,6 +5,7 @@ import { audit } from "@/lib/auditLog";
 import { checkDocuSignStatus, downloadDocuSignDocument, docusignConfigured } from "@/lib/docusign";
 import { saveFile } from "@/lib/storage";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
+import { ensureCompletedCopyToken } from "@/lib/copyTokens";
 import { completionReadinessForIntake } from "@/lib/completionReadiness";
 
 const FRIENDLY: Record<string, string> = {
@@ -67,6 +68,7 @@ export async function POST(_req: NextRequest, { params }: { params: { id: string
       }
 
       await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
+      await ensureCompletedCopyToken(intake.id);
       const delivery = await autoSendCompletedCopiesIfEnabled({
         intakeId: intake.id,
         providerId: provider!.id,

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireMaster } from "@/lib/staffGuard";
+import { requireMaster, requireProviderAdmin } from "@/lib/staffGuard";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import { mappingOverrides } from "@/lib/intakeData";
 import { saveProviderPacketMappings } from "@/lib/providerPacketMappingWrites";
@@ -53,8 +53,27 @@ async function templateByRequest(req: NextRequest) {
   return { template, providerSpecific: false, requestedProvider: null };
 }
 
+async function requireMappingReadAccess(req: NextRequest) {
+  const providerId = req.nextUrl.searchParams.get("providerId");
+  const templateId = req.nextUrl.searchParams.get("templateId");
+  let targetProviderId = providerId;
+  if (!targetProviderId && templateId) {
+    const template = await prisma.pdfTemplate.findUnique({
+      where: { id: templateId },
+      select: { providerId: true },
+    });
+    targetProviderId = template?.providerId || null;
+  }
+  if (!targetProviderId) {
+    const master = await requireMaster();
+    if (master.deny) return master;
+    return { user: master.user, provider: null, membership: null, deny: null as NextResponse | null };
+  }
+  return requireProviderAdmin({ providerId: targetProviderId });
+}
+
 export async function GET(req: NextRequest) {
-  const { deny } = await requireMaster();
+  const { deny } = await requireMappingReadAccess(req);
   if (deny) return deny;
   const target = await templateByRequest(req);
   if (target.providerSpecific && !target.template) {
