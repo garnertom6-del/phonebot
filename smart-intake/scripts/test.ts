@@ -2962,7 +2962,7 @@ async function main() {
     const unmarked = await extractPdfText(await blank.save());
     assert(!unmarked.includes(DRAFT_WATERMARK_TEXT), "unwatermarked bytes must not contain DRAFT");
 
-    const masterUser = await prisma.user.findUnique({ where: { email: "[REDACTED]" } });
+    const masterUser = await prisma.user.findFirst({ where: { role: "master" } });
     const angela = await prisma.client.findFirst({
       where: { fullName: "Angela Demo" },
       include: { intakes: { orderBy: { createdAt: "desc" }, take: 1 } },
@@ -3036,7 +3036,7 @@ async function main() {
         { userId: staffA.id, providerId: providerA.id, role: "STAFF", active: true },
       ],
     });
-    const masterUser = await prisma.user.findUnique({ where: { email: "[REDACTED]" } });
+    const masterUser = await prisma.user.findFirst({ where: { role: "master" } });
     assert(masterUser, "provider-admin settings E2E needs the seeded master user");
 
     const withSession = (userId: string, providerId?: string) => {
