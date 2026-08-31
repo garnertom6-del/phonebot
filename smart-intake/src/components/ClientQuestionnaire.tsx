@@ -377,8 +377,10 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       </div>
     );
   }
+  const inputId = `client-question-${q.key}`;
+  const accessibleLabel = brandText(q.label, branding);
   const label = (
-      <label className="label">
+      <label className="label" htmlFor={inputId}>
         {brandText(q.label, branding)} {q.required && <span className="text-red-500">*</span>}
         {q.help && <span className="block font-normal text-xs text-slate-400">{brandText(q.help, branding)}</span>}
       </label>
@@ -391,7 +393,8 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
           <p className="mb-2 rounded-2xl bg-amber-50 p-3 text-base font-extrabold text-amber-950">Tap the big menu button to pick one answer.</p>
           <div className="relative">
             <select
-              aria-label={brandText(q.label, branding)}
+              id={inputId}
+              aria-label={accessibleLabel}
               className="min-h-[72px] w-full appearance-none rounded-2xl border-4 border-brand bg-white px-4 pr-14 text-xl font-black text-brand shadow-lg"
               value={String(v ?? "")}
               onChange={(e) => set(q.key, e.target.value)}
@@ -444,7 +447,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
   if (q.type === "date") {
     return (
       <div>{label}
-        <input type="date" className="input max-w-[240px]" value={String(v ?? "")}
+        <input id={inputId} aria-label={accessibleLabel} type="date" className="input max-w-[240px]" value={String(v ?? "")}
           onChange={(e) => set(q.key, e.target.value)} />
       </div>
     );
@@ -456,14 +459,14 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
         <p className="mb-2 text-xs text-slate-500">You can type or speak. Optional: pick one person from your phone if your phone offers it.</p>
       )}
       {q.voice ? (
-        <VoiceInput value={String(v ?? "")} onChange={(x) => set(q.key, x)} multiline={multiline}
+        <VoiceInput id={inputId} ariaLabel={accessibleLabel} value={String(v ?? "")} onChange={(x) => set(q.key, x)} multiline={multiline}
           placeholder={q.placeholder}
           inputMode={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "text"} />
       ) : multiline ? (
-        <textarea className="input min-h-[110px]" value={String(v ?? "")} placeholder={q.placeholder}
+        <textarea id={inputId} aria-label={accessibleLabel} className="input min-h-[110px]" value={String(v ?? "")} placeholder={q.placeholder}
           onChange={(e) => set(q.key, e.target.value)} />
       ) : (
-        <input className="input" value={String(v ?? "")} placeholder={q.placeholder}
+        <input id={inputId} aria-label={accessibleLabel} className="input" value={String(v ?? "")} placeholder={q.placeholder}
           type={q.type === "email" ? "email" : q.type === "phone" ? "tel" : "text"}
           onChange={(e) => set(q.key, e.target.value)} />
       )}

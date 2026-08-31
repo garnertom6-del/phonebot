@@ -18,7 +18,8 @@ import {
  * Dormant until NCTRACKS_EDI_* is configured (see README_NCTRACKS_EDI.md).
  */
 
-export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { provider, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
@@ -38,7 +39,8 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
   });
 }
 
-export async function POST(_req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   if (!nctracksEdiConfigured()) {

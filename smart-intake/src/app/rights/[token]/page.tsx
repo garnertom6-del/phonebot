@@ -6,7 +6,8 @@ import PrintPageButton from "@/components/PrintPageButton";
 
 const RIGHTS_SECTION_KEYS = new Set(["orientation", "rights", "hipaa", "confidentiality"]);
 
-export default async function ClientRightsPage({ params }: { params: { token: string } }) {
+export default async function ClientRightsPage(props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const intake = await prisma.intake.findUnique({
     where: { token: params.token },
     select: {

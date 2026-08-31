@@ -3,7 +3,8 @@ import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { sendCompletedPacketToProvider } from "@/lib/sendCompletedCopies";
 
 /** Sends the latest completed packet to the provider's configured email address. */
-export async function POST(req: Request, { params }: { params: { id: string } }) {
+export async function POST(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const result = await sendCompletedPacketToProvider({

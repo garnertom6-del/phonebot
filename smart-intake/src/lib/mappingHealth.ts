@@ -104,7 +104,13 @@ export function assessMapping(
     }
   }
 
-  const mappedSources = new Set(fields.map((field) => sourceKey(field.source)).filter(Boolean));
+  // Consent questions are commonly represented by a signature/initial box
+  // whose source is the signature image and whose consentKey controls whether
+  // that box may be drawn. Count that physical consent-controlled placement as
+  // the question's mapping instead of reporting a false required gap.
+  const mappedSources = new Set(
+    fields.flatMap((field) => [sourceKey(field.source), field.consentKey || ""]).filter(Boolean),
+  );
   const requiredEntries = packetRequiredEntries(context);
   for (const entry of requiredEntries) {
     if (mappedSources.has(entry.key)) continue;

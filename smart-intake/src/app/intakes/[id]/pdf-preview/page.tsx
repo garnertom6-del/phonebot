@@ -1,13 +1,15 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useState, use } from "react";
 import PdfPreview from "@/components/PdfPreview";
 import { messageForPdfPreviewFailure, parsePdfPreviewErrorBody } from "@/lib/pdfPreviewError";
 
-export default function PdfPreviewPage({ params }: { params: { id: string } }) {
+export default function PdfPreviewPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [bust, setBust] = useState(0);
   const [pdfUrl, setPdfUrl] = useState("");
   const [warning, setWarning] = useState("");
+  const [documentState, setDocumentState] = useState<"DRAFT_PREVIEW" | "CURRENT_FINAL" | "">("");
   const [failure, setFailure] = useState<{ title: string; detail: string; backHref: string } | null>(null);
   const [loading, setLoading] = useState(true);
 
@@ -18,6 +20,7 @@ export default function PdfPreviewPage({ params }: { params: { id: string } }) {
     setLoading(true);
     setFailure(null);
     setWarning("");
+    setDocumentState("");
     setPdfUrl("");
     void (async () => {
       try {
@@ -35,6 +38,8 @@ export default function PdfPreviewPage({ params }: { params: { id: string } }) {
           return;
         }
         const fillWarnings = Number(response.headers.get("X-Smart-Intake-Fill-Warnings") || 0);
+        const nextDocumentState = response.headers.get("X-Smart-Intake-Document-State");
+        setDocumentState(nextDocumentState === "CURRENT_FINAL" ? "CURRENT_FINAL" : "DRAFT_PREVIEW");
         if (fillWarnings > 0) {
           setWarning(`${fillWarnings} field${fillWarnings === 1 ? "" : "s"} could not be drawn and ${fillWarnings === 1 ? "was" : "were"} left blank. The rest of the packet is shown below.`);
         }
@@ -60,7 +65,7 @@ export default function PdfPreviewPage({ params }: { params: { id: string } }) {
         <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setBust(Date.now())}>Refresh</button>
-          {pdfUrl && <a className="btn-primary" href={pdfUrl} download>Download shown PDF</a>}
+          {pdfUrl && <a className="btn-primary" href={pdfUrl} download>{documentState === "CURRENT_FINAL" ? "Download current final PDF" : "Download draft preview"}</a>}
         </div>
       </div>
       {failure ? (
@@ -74,6 +79,13 @@ export default function PdfPreviewPage({ params }: { params: { id: string } }) {
         </section>
       ) : (
         <>
+          {pdfUrl && (
+            <p className={`mb-3 rounded-lg border p-3 text-sm font-semibold ${documentState === "CURRENT_FINAL" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-950"}`} role="status">
+              {documentState === "CURRENT_FINAL"
+                ? "Current final packet: this is the saved, generated record."
+                : "Draft preview: this reflects the current answers but is not the saved final record."}
+            </p>
+          )}
           {warning && (
             <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="status">
               {warning}

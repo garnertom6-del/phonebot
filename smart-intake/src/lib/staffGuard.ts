@@ -35,7 +35,7 @@ export async function requireStaff(opts?: {
     : await resolveStaffProvider(user, {
       providerId: opts?.providerId,
       providerSlug: opts?.providerSlug,
-      fallbackProviderId: readRequestCookie(SELECTED_PROVIDER_COOKIE),
+      fallbackProviderId: await readRequestCookie(SELECTED_PROVIDER_COOKIE),
     });
 
   if (!scoped.ok) {
@@ -101,7 +101,7 @@ export async function requireProviderAdmin(opts?: {
   // cookie/`providerId` swap cannot silently open another provider's settings.
   const cookieProviderId = requestedProviderId || requestedProviderSlug
     ? ""
-    : (readRequestCookie(SELECTED_PROVIDER_COOKIE) || "");
+    : ((await readRequestCookie(SELECTED_PROVIDER_COOKIE)) || "");
   const targetProviderId = requestedProviderId || cookieProviderId || null;
 
   if (isMasterUser(user)) {

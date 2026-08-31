@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, use } from "react";
 import { PLAN_SOURCE_VALUES } from "@/lib/recordIntegrity";
 
 type Answers = Record<string, string | boolean | number | string[]>;
@@ -33,7 +33,8 @@ function planBadge(summary?: PlanSummary) {
   return { className: "bg-amber-100 text-amber-800", label: "Incomplete" };
 }
 
-export default function PlansPage({ params }: { params: { id: string } }) {
+export default function PlansPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const [answers, setAnswers] = useState<Answers>({});
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
@@ -64,6 +65,7 @@ export default function PlansPage({ params }: { params: { id: string } }) {
       ["pcp_plan_source", answers.pcp_plan_source ?? ""],
       ["crisis_plan_date", answers.crisis_plan_date ?? ""],
       ["crisis_plan_source", answers.crisis_plan_source ?? ""],
+      ["plan_ready_for_client_review", answers.plan_ready_for_client_review ?? "No"],
     ]);
     const r = await fetch(`/api/intakes/${params.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
@@ -116,6 +118,18 @@ export default function PlansPage({ params }: { params: { id: string } }) {
             </select>
           </label>
         </div>
+      </section>
+
+      <section className="card mt-4" aria-labelledby="plan-review-heading">
+        <h2 id="plan-review-heading" className="text-lg font-bold text-brand">Client plan-review gate</h2>
+        <p className="mt-1 text-sm text-slate-600">Choose Yes only after the actual treatment plan is complete and ready for the client or guardian to review. This does not record consent by itself; it makes the plan-review consent available at the client link.</p>
+        <label className="mt-3 block max-w-sm" htmlFor="plan-ready-for-review">
+          <span className="label">Actual treatment plan ready for client review</span>
+          <select id="plan-ready-for-review" className="input" value={String(answers.plan_ready_for_client_review ?? "No")} onChange={(e) => set("plan_ready_for_client_review", e.target.value)}>
+            <option value="No">No - keep plan consent unavailable</option>
+            <option value="Yes">Yes - make plan review consent available</option>
+          </select>
+        </label>
       </section>
 
       <section id="crisis-plan" className="card mt-4 scroll-mt-4" aria-labelledby="crisis-heading">

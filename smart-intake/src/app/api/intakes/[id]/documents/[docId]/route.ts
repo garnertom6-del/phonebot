@@ -12,9 +12,8 @@ const SAFE_MIME = new Set([
 ]);
 
 /** Staff-only download of a client-uploaded document (insurance card, etc.). */
-export async function GET(
-  _req: Request, { params }: { params: { id: string; docId: string } },
-) {
+export async function GET(_req: Request, props: { params: Promise<{ id: string; docId: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const doc = await prisma.uploadedDocument.findFirst({

@@ -75,6 +75,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [providerSpecific, setProviderSpecific] = useState(false);
   const [mappingStatus, setMappingStatus] = useState("DRAFT");
   const [mappingScore, setMappingScore] = useState<number | null>(null);
+  const [mappingIssues, setMappingIssues] = useState<string | null>(null);
   const [approvedAt, setApprovedAt] = useState<string | null>(null);
   const [isActivePacket, setIsActivePacket] = useState(false);
   const [health, setHealth] = useState<MappingHealth | null>(null);
@@ -126,6 +127,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setProviderSpecific(!!d.providerSpecific);
       setMappingStatus(d.mappingStatus || "DRAFT");
       setMappingScore(typeof d.mappingScore === "number" ? d.mappingScore : null);
+      setMappingIssues(typeof d.mappingIssues === "string" ? d.mappingIssues : null);
       setApprovedAt(d.approvedAt || null);
       setIsActivePacket(!!d.isActive);
       setFilenameWarning(d.filenameWarning || null);
@@ -199,6 +201,7 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const displayStatus = packetDisplayStatus({
     mappingStatus,
     mappingScore,
+    mappingIssues,
     isActive: isActivePacket,
     approvedAt,
   });
@@ -511,6 +514,11 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     const healthBody = await healthResponse.json().catch(() => ({}));
     const nextHealth = healthBody.health as MappingHealth | undefined;
     setHealth(nextHealth || null);
+    if (nextHealth?.missingRequired?.length) {
+      setShowOverride(false);
+      setNote(`Approval blocked: map all ${nextHealth.missingRequired.length} required field${nextHealth.missingRequired.length === 1 ? "" : "s"} first.`);
+      return;
+    }
     if (!healthResponse.ok || !nextHealth?.ready) {
       if (!override || overrideReason.trim().length < 8) {
         setShowOverride(true);
@@ -539,6 +547,13 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     setIsActivePacket(true);
     setApprovedAt(new Date().toISOString());
     setMappingScore(body.health?.score ?? nextHealth?.score ?? null);
+    setMappingIssues(JSON.stringify({
+      blockingIssues: body.health?.blockingIssues ?? nextHealth?.blockingIssues ?? [],
+      warnings: body.health?.warnings ?? nextHealth?.warnings ?? [],
+      missingRequired: body.health?.missingRequired ?? nextHealth?.missingRequired ?? [],
+      overrideReason: override ? overrideReason.trim() : null,
+      filenameWarning: filenameWarning?.message || null,
+    }));
     setShowOverride(false);
     setNote("Packet approved and activated for provider signatures.");
   }
@@ -579,7 +594,8 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   }
 
   const canApproveClean = !dirty && mappingStatus !== "MAPPING" && unmappedRequired.length === 0 && (!health || health.ready);
-  const needsOverride = providerSpecific && mappingStatus !== "APPROVED" && (unmappedRequired.length > 0 || showOverride || (health != null && !health.ready) || !!filenameWarning);
+  const hasRequiredGaps = unmappedRequired.length > 0 || !!health?.missingRequired.length;
+  const needsOverride = providerSpecific && mappingStatus !== "APPROVED" && !hasRequiredGaps && (showOverride || (health != null && !health.ready) || !!filenameWarning);
   const pageFields = fields.filter((f) => f.page === pageNum);
   const sel = fields.find((f) => f.fieldKey === selected);
 
@@ -671,15 +687,19 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
             }}
           />
         )}
+        {providerSpecific && mappingStatus !== "APPROVED" && hasRequiredGaps && (
+          <div role="alert" className="mb-3 rounded-lg border border-red-300 bg-red-50 p-3 text-sm text-red-950">
+            <p className="font-semibold">Approval blocked: required mappings are missing</p>
+            <p className="mt-1">Map all {health?.missingRequired.length || unmappedRequired.length} required field{(health?.missingRequired.length || unmappedRequired.length) === 1 ? "" : "s"}. Required mappings cannot be bypassed with an override.</p>
+          </div>
+        )}
         {needsOverride && (
           <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm">
             <p className="font-semibold text-amber-950">Approval override</p>
             <p className="mt-1 text-amber-900">
-              {unmappedRequired.length
-                ? `${unmappedRequired.length} required field${unmappedRequired.length === 1 ? " is" : "s are"} still unmapped. Map them, or type a reason of at least 8 characters to approve anyway.`
-                : "Required fields are missing or the filename looks wrong. Type a reason to approve anyway. This is recorded in the audit log."}
+              A non-required quality warning or filename warning remains. Type a reason to approve anyway. This is recorded in the audit log.
             </p>
-            <textarea className="input mt-2" rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Why this packet can go live without the missing required mappings" />
+            <textarea className="input mt-2" rows={2} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} placeholder="Why this non-required warning is acceptable" />
             <button className="btn-primary mt-2 px-3 py-1.5 text-xs" disabled={dirty || mappingStatus === "MAPPING" || overrideReason.trim().length < 8} onClick={() => void approvePacket(true)}>
               Approve with override
             </button>

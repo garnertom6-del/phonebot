@@ -6,7 +6,8 @@ import { signatureSchema } from "@/lib/validation";
 import { loadAnswers, saveAnswers } from "@/lib/intakeData";
 
 /** Staff-side signature capture (staff, clinician, witness, medical director). */
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const parsed = signatureSchema.safeParse(await req.json());

@@ -10,13 +10,14 @@ import {
   requireProviderPacketForCompletion,
 } from "@/lib/providerPacketTemplates";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
-import { packetDownloadFileName, stampDraftWatermark } from "@/lib/draftPdf";
+import { packetDownloadFileName } from "@/lib/draftPdf";
 
 function jsonError(error: string, status: number, extra: Record<string, unknown> = {}) {
   return NextResponse.json({ error, ...extra }, { status });
 }
 
-export async function GET(req: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   try {
     const { user, provider, deny } = await requireStaffForIntake(params.id);
     if (deny) return deny;
@@ -53,7 +54,7 @@ export async function GET(req: NextRequest, { params }: { params: { id: string }
         templateBytes: packetTemplate.bytes,
         fields: packetTemplate.fields,
       });
-      bytes = Buffer.from(await stampDraftWatermark(result.pdfBytes));
+      bytes = Buffer.from(result.pdfBytes);
       fillWarnings = result.warnings;
       documentState = "DRAFT_PREVIEW";
     } else if (packet.state === "current" && packet.filePath && fileExists(packet.filePath)) {

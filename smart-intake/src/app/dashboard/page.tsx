@@ -763,7 +763,7 @@ function Dashboard() {
           const latestTouch = row.lastActivityAt || row.submittedAt || row.createdAt;
           const missingPreview = row.missingRequired.length
             ? row.missingRequired.slice(0, 3).map((item) => item.label).join(", ")
-            : "Everything required is in.";
+            : "Client-answer fields are in; staff review and packet checks may still remain.";
           const statusLabel = STATUS_LABELS[row.status] || row.status.replaceAll("_", " ");
           const rowBusy = busyRowIds.has(row.id);
           const linkExpired = clientLinkExpired(row.tokenExpiresAt);

@@ -17,7 +17,8 @@ function fileSafe(value: string): string {
   return value.replace(/[^a-z0-9._-]+/gi, "-").replace(/^-+|-+$/g, "") || "Intake";
 }
 
-export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const intake = await findIntakeByCopyToken(params.token);
   if (!intake || !intake.provider || !copyPacketIsReady(intake)) {
     return NextResponse.json({ error: "The completed packet is not available from this link." }, { status: 404 });

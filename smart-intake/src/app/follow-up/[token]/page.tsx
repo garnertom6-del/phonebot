@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import type { ClientFollowUpQuestion } from "@/lib/clientFollowUp";
 
 type AnswerValue = string | string[];
@@ -98,7 +98,8 @@ function QuestionControl({
   );
 }
 
-export default function ClientFollowUpPage({ params }: { params: { token: string } }) {
+export default function ClientFollowUpPage(props: { params: Promise<{ token: string }> }) {
+  const params = use(props.params);
   const [state, setState] = useState<"loading" | "ready" | "error" | "done">("loading");
   const [data, setData] = useState<FollowUpData | null>(null);
   const [problem, setProblem] = useState("");
@@ -238,6 +239,7 @@ export default function ClientFollowUpPage({ params }: { params: { token: string
             <div className="mt-5 grid gap-2">
               <button type="button" className="btn-primary w-full" onClick={() => { void load(); }}>Try again</button>
               {providerPhone && <a className="btn-ghost w-full" href={`tel:${providerPhone.replace(/[^\d+]/g, "")}`}>Call {providerName}</a>}
+              <a className="btn-ghost w-full" href="/rights">View client rights &amp; privacy</a>
             </div>
           </section>
         )}

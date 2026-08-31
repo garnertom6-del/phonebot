@@ -4,7 +4,8 @@ import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { setAutoEmailProviderPacket, setAutoSendCompletedCopies } from "@/lib/sendCompletedCopies";
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export async function PATCH(req: Request, props: { params: Promise<{ id: string }> }) {
+  const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
 

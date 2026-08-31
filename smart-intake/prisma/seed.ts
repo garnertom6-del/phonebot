@@ -11,6 +11,9 @@ import fs from "fs";
 import path from "path";
 import { newIntakeToken, tokenExpiry } from "../src/lib/tokens";
 import { syncStructuredRows } from "../src/lib/intakeData";
+import { PACKET_MAP } from "../src/config/mooreDivinePacketMap";
+import { assessMapping } from "../src/lib/mappingHealth";
+import { mappingContextFrom } from "../src/lib/mappingCatalog";
 
 const prisma = new PrismaClient();
 
@@ -251,6 +254,24 @@ async function main() {
     select: { approvedAt: true, approvedByUserId: true, mappingScore: true },
   });
   const defaultPacketApprovedAt = existingDefaultPacket?.approvedAt || new Date();
+  const defaultMappingHealth = assessMapping(
+    PACKET_MAP.fields,
+    PACKET_MAP.pageCount,
+    PACKET_MAP.pageWidth,
+    PACKET_MAP.pageHeight,
+    PACKET_MAP.fields.length,
+    mappingContextFrom({
+      providerName: DEFAULT_PROVIDER.name,
+      providerSlug: DEFAULT_PROVIDER.slug,
+      originalFileName: "MooreDivineCare_Intake_Packet-1.pdf",
+    }),
+  );
+  const defaultMappingIssues = JSON.stringify({
+    blockingIssues: defaultMappingHealth.blockingIssues,
+    warnings: defaultMappingHealth.warnings,
+    missingRequired: defaultMappingHealth.missingRequired,
+    overrideReason: defaultMappingHealth.ready ? null : "Legacy default packet; required gaps must be reviewed before the next approval.",
+  });
   await prisma.pdfTemplate.upsert({
     where: { name: "Moore Divine Care Client Intake Package" },
     create: {
@@ -263,7 +284,8 @@ async function main() {
       providerId: provider.id,
       isActive: true,
       mappingStatus: "APPROVED",
-      mappingScore: 100,
+      mappingScore: defaultMappingHealth.score,
+      mappingIssues: defaultMappingIssues,
       approvedAt: defaultPacketApprovedAt,
       approvedByUserId: existingDefaultPacket?.approvedByUserId || admin.id,
     },
@@ -276,7 +298,8 @@ async function main() {
       providerId: provider.id,
       isActive: true,
       mappingStatus: "APPROVED",
-      mappingScore: existingDefaultPacket?.mappingScore ?? 100,
+      mappingScore: defaultMappingHealth.score,
+      mappingIssues: defaultMappingIssues,
       approvedAt: defaultPacketApprovedAt,
       approvedByUserId: existingDefaultPacket?.approvedByUserId || admin.id,
     },

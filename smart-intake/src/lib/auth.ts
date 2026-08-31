@@ -32,7 +32,7 @@ export function verifySessionValue(value: string | undefined): string | null {
 }
 
 export async function currentUser() {
-  const userId = verifySessionValue(readRequestCookie(COOKIE));
+  const userId = verifySessionValue(await readRequestCookie(COOKIE));
   if (!userId) return null;
   return prisma.user.findUnique({ where: { id: userId } });
 }

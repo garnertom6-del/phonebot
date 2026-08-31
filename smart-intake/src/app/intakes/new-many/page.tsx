@@ -1,7 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { makeRecordNumber, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 
 type Draft = {
   fullName: string;
@@ -15,6 +15,7 @@ type Draft = {
   guardianName: string;
   guardianEmail: string;
   guardianPhone: string;
+  providerChoicePlan: string;
 };
 
 type Created = {
@@ -30,6 +31,7 @@ type Failure = { row: number; clientName?: string; error: string };
 const COLUMNS: Array<[keyof Draft, string, string, string?]> = [
   ["fullName", "Client full name *", "text", "min-w-56"],
   ["dob", "DOB *", "date", "min-w-40"],
+  ["providerChoicePlan", "Insurance / MCO *", "select", "min-w-56"],
   ["recordNumber", "Record# *", "text", "min-w-32"],
   ["midNumber", "MID#", "text", "min-w-32"],
   ["email", "Email", "email", "min-w-48"],
@@ -52,6 +54,7 @@ function blankDraft(): Draft {
     guardianName: "",
     guardianEmail: "",
     guardianPhone: "",
+    providerChoicePlan: "",
   };
 }
 
@@ -69,13 +72,14 @@ function parsePastedRows(text: string): Draft[] {
       const row = blankDraft();
       row.fullName = cells[0]?.trim() || "";
       row.dob = cells[1]?.trim() || "";
-      row.recordNumber = cells[2]?.trim() || "";
-      row.midNumber = cells[3]?.trim() || "";
-      row.email = cells[4]?.trim() || "";
-      row.phone = cells[5]?.trim() || "";
-      row.guardianName = cells[6]?.trim() || "";
-      row.guardianEmail = cells[7]?.trim() || "";
-      row.guardianPhone = cells[8]?.trim() || "";
+      row.providerChoicePlan = cells[2]?.trim() || "";
+      row.recordNumber = cells[3]?.trim() || "";
+      row.midNumber = cells[4]?.trim() || "";
+      row.email = cells[5]?.trim() || "";
+      row.phone = cells[6]?.trim() || "";
+      row.guardianName = cells[7]?.trim() || "";
+      row.guardianEmail = cells[8]?.trim() || "";
+      row.guardianPhone = cells[9]?.trim() || "";
       return row;
     });
 }
@@ -128,7 +132,7 @@ export default function CreateManyIntakes() {
           generated = makeRecordNumber(recordPanel);
         } while (used.has(generated.toLowerCase()));
         used.add(generated.toLowerCase());
-        return { ...row, recordNumber: generated };
+        return { ...row, providerChoicePlan: row.providerChoicePlan || recordPanel, recordNumber: generated };
       });
     });
   }
@@ -142,13 +146,13 @@ export default function CreateManyIntakes() {
     setError("");
     setCreated([]);
     setFailures([]);
-    const missing = rows.findIndex((row) => hasDraftData(row) && (!row.fullName || !row.dob || !row.recordNumber));
+    const missing = rows.findIndex((row) => hasDraftData(row) && (!row.fullName || !row.dob || !row.providerChoicePlan || !row.recordNumber));
     if (!activeRows.length) {
       setError("Add at least one intake.");
       return;
     }
     if (missing >= 0) {
-      setError(`Row ${missing + 1} needs client name, DOB, and Record#.`);
+      setError(`Row ${missing + 1} needs client name, DOB, insurance / MCO, and Record#.`);
       return;
     }
     const recordRows = new Map<string, number>();
@@ -197,7 +201,7 @@ export default function CreateManyIntakes() {
           className="input min-h-24 font-mono text-xs"
           value={pasteText}
           onChange={(e) => setPasteText(e.target.value)}
-          placeholder={"Full name\tDOB\tRecord#\tMID#\tEmail\tPhone\tGuardian\tGuardian email\tGuardian phone"}
+          placeholder={"Full name\tDOB\tInsurance/MCO\tRecord#\tMID#\tEmail\tPhone\tGuardian\tGuardian email\tGuardian phone"}
         />
         <div className="mt-3 flex flex-wrap gap-2">
           <button type="button" className="btn-secondary" onClick={importPaste}>Import pasted rows</button>
@@ -240,7 +244,31 @@ export default function CreateManyIntakes() {
           </div>
         </div>
 
-        <div className="overflow-x-auto rounded-lg border border-slate-200">
+        <div className="space-y-3 md:hidden">
+          {rows.map((row, index) => (
+            <fieldset key={index} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <legend className="px-1 font-bold text-brand">Client row {index + 1}</legend>
+              <div className="mt-2 grid gap-3">
+                {COLUMNS.map(([key, label, type]) => (
+                  <label key={key}>
+                    <span className="label">{label}</span>
+                    {type === "select" ? (
+                      <select className="input min-h-11" value={row[key]} onChange={(e) => updateRow(index, key, e.target.value)}>
+                        <option value="">Select insurance / MCO</option>
+                        {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => <option key={plan} value={plan}>{plan}</option>)}
+                      </select>
+                    ) : (
+                      <input className="input min-h-11" type={type} value={row[key]} onChange={(e) => updateRow(index, key, e.target.value)} />
+                    )}
+                  </label>
+                ))}
+              </div>
+              <button type="button" className="btn-ghost mt-3 w-full px-2 py-2 text-sm" onClick={() => removeRow(index)}>Remove row {index + 1}</button>
+            </fieldset>
+          ))}
+        </div>
+
+        <div className="hidden overflow-x-auto rounded-lg border border-slate-200 md:block">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase text-slate-500">
               <tr>
@@ -253,14 +281,27 @@ export default function CreateManyIntakes() {
               {rows.map((row, index) => (
                 <tr key={index} className="border-t border-slate-100">
                   <td className="px-3 py-2 text-slate-400">{index + 1}</td>
-                  {COLUMNS.map(([key, , type, width]) => (
+                  {COLUMNS.map(([key, label, type, width]) => (
                     <td key={key} className="px-3 py-2">
-                      <input
-                        className={`input h-9 ${width || "min-w-32"}`}
-                        type={type}
-                        value={row[key]}
-                        onChange={(e) => updateRow(index, key, e.target.value)}
-                      />
+                      {type === "select" ? (
+                        <select
+                          aria-label={`${label.replace(" *", "")}, row ${index + 1}`}
+                          className={`input h-9 ${width || "min-w-32"}`}
+                          value={row[key]}
+                          onChange={(e) => updateRow(index, key, e.target.value)}
+                        >
+                          <option value="">Select insurance / MCO</option>
+                          {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => <option key={plan} value={plan}>{plan}</option>)}
+                        </select>
+                      ) : (
+                        <input
+                          aria-label={`${label.replace(" *", "")}, row ${index + 1}`}
+                          className={`input h-9 ${width || "min-w-32"}`}
+                          type={type}
+                          value={row[key]}
+                          onChange={(e) => updateRow(index, key, e.target.value)}
+                        />
+                      )}
                     </td>
                   ))}
                   <td className="px-3 py-2">
@@ -274,7 +315,7 @@ export default function CreateManyIntakes() {
 
         {error && <p className="mt-3 text-sm font-semibold text-red-600">{error}</p>}
         <div className="mt-5 flex flex-wrap gap-2">
-          <button className="btn-primary" disabled={busy}>{busy ? "Creating..." : "Create Many"}</button>
+          <button className="btn-primary" disabled={busy || activeRows.length === 0}>{busy ? "Creating..." : "Create Many"}</button>
           <button type="button" className="btn-ghost" onClick={() => setRows([blankDraft(), blankDraft(), blankDraft()])}>Clear</button>
         </div>
       </form>

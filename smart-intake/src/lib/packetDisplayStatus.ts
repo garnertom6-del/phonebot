@@ -8,6 +8,7 @@ export type PacketDisplayTemplate = {
   isActive: boolean;
   mappingStatus: string;
   mappingScore?: number | null;
+  mappingIssues?: string | null;
   approvedAt?: string | Date | null;
 };
 
@@ -31,6 +32,24 @@ function scoreLabelFor(template: PacketDisplayTemplate, fallback: string): strin
 
 function badge(label: string, scoreLabel: string): string {
   return `${label} · ${scoreLabel}`;
+}
+
+function mappingIssueSummary(value: string | null | undefined): {
+  missingRequired: number;
+  overrideReason: string | null;
+} {
+  if (!value) return { missingRequired: 0, overrideReason: null };
+  try {
+    const parsed = JSON.parse(value) as { missingRequired?: unknown; overrideReason?: unknown };
+    return {
+      missingRequired: Array.isArray(parsed?.missingRequired) ? parsed.missingRequired.length : 0,
+      overrideReason: typeof parsed?.overrideReason === "string" && parsed.overrideReason.trim()
+        ? parsed.overrideReason.trim()
+        : null,
+    };
+  } catch {
+    return { missingRequired: 0, overrideReason: null };
+  }
 }
 
 /**
@@ -59,6 +78,7 @@ export function packetDisplayStatus(
     otherProviderNames,
   )?.message ?? null;
   const validScore = isValidProviderPacketMappingScore(template.mappingScore);
+  const issueSummary = mappingIssueSummary(template.mappingIssues);
 
   if (template.isActive && (template.mappingStatus !== "APPROVED" || !validScore || !template.approvedAt)) {
     const label = "Not ready - approval required";
@@ -74,6 +94,18 @@ export function packetDisplayStatus(
   }
 
   if (template.isActive) {
+    if (issueSummary.missingRequired > 0) {
+      const label = issueSummary.overrideReason ? "Active with override" : "Active with unresolved mappings";
+      const scoreLabel = `${issueSummary.missingRequired} required missing`;
+      return {
+        label,
+        scoreLabel,
+        detail: `${issueSummary.missingRequired} required mapping${issueSummary.missingRequired === 1 ? " is" : "s are"} unresolved.${issueSummary.overrideReason ? ` Recorded override: ${issueSummary.overrideReason}` : ""}`,
+        className: "bg-amber-100 text-amber-900",
+        badge: badge(label, scoreLabel),
+        filenameWarning,
+      };
+    }
     const label = "Active";
     const scoreLabel = scoreLabelFor(template, SCORE_UNAVAILABLE);
     return {

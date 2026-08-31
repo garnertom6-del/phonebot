@@ -36,7 +36,7 @@ import {
 } from "../src/lib/providerPacketTemplates";
 import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrites";
 import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
-import { stampDraftWatermark, packetDownloadFileName, DRAFT_WATERMARK_TEXT } from "../src/lib/draftPdf";
+import { packetDownloadFileName } from "../src/lib/draftPdf";
 import { bindTestCookies } from "../src/lib/requestCookies";
 import { createSessionValue, SESSION_COOKIE } from "../src/lib/auth";
 import { SELECTED_PROVIDER_COOKIE } from "../src/lib/staffGuard";
@@ -368,6 +368,19 @@ async function main() {
   assert.equal(parsePdfPreviewErrorBody('{"error":"Not found"}')?.error, "Not found");
   assert.equal(parsePdfPreviewErrorBody(""), null);
   ok("PDF preview maps 409/500/404 to human messages instead of raw JSON");
+
+  const pdfPreviewRouteSource = fs.readFileSync(
+    path.join(process.cwd(), "src/app/api/intakes/[id]/pdf/route.ts"),
+    "utf8",
+  );
+  const pdfPreviewPageSource = fs.readFileSync(
+    path.join(process.cwd(), "src/app/intakes/[id]/pdf-preview/page.tsx"),
+    "utf8",
+  );
+  assert(!/watermark/i.test(pdfPreviewRouteSource));
+  assert(!/watermark/i.test(pdfPreviewPageSource));
+  assert(!pdfPreviewRouteSource.includes("DRAFT PREVIEW - NOT A FINAL RECORD"));
+  ok("PDF previews and downloads never add or advertise a watermark");
 
   const sendHintCcaWouldHaveBlocked = signatureSendHint({
     packetReady: true,
@@ -725,6 +738,18 @@ async function main() {
   assert.equal(missingScoreBadge.badge, "Needs review · Score unavailable");
   assert(!missingScoreBadge.scoreLabel.toLowerCase().includes("review"), "missing scores must never use Review as a fake score");
   ok("packet badge shows Score unavailable when mapping score is missing");
+
+  const unresolvedActiveBadge = packetDisplayStatus({
+    originalFileName: "provider-packet.pdf",
+    isActive: true,
+    mappingStatus: "APPROVED",
+    mappingScore: 100,
+    approvedAt: new Date(),
+    mappingIssues: JSON.stringify({ missingRequired: [{ key: "client_full_name" }], overrideReason: "Legacy approval" }),
+  }, "Provider");
+  assert.equal(unresolvedActiveBadge.label, "Active with override");
+  assert.equal(unresolvedActiveBadge.scoreLabel, "1 required missing");
+  ok("an approved active packet cannot hide unresolved required mappings behind a 100% badge");
 
   const wellianceListPayload = buildMasterProviderListExtras({
     name: "Welliance Care",
@@ -1124,8 +1149,8 @@ async function main() {
   assert.equal(defaultIntakeLocation("  High Point  "), "High Point");
   assert.equal(defaultIntakeLocation(""), "");
   const blankStreetHousing = resolveCreateIntakeHousing({ addressState: "NC" });
-  assert.equal(blankStreetHousing.homeless, true);
-  assert.equal(blankStreetHousing.livingArrangement, "Homeless");
+  assert.equal(blankStreetHousing.homeless, false, "a missing address must not invent homelessness");
+  assert.equal(blankStreetHousing.livingArrangement, "");
   assert.equal(blankStreetHousing.addressStreet, "");
   assert.equal(blankStreetHousing.addressState, "NC");
   const filledStreetHousing = resolveCreateIntakeHousing({
@@ -1186,7 +1211,7 @@ async function main() {
   assert.ok(lookupRecord.error);
   const bcbsRecord = resolveCreateRecordNumber("", "Blue Cross Blue Shield");
   assert.equal(bcbsRecord.shouldGenerate, true);
-  ok("create-intake layout helpers: no Greensboro default, blank street is homeless, packet email stays off until approved, Record# can auto-generate");
+  ok("create-intake layout helpers: no Greensboro default, blank street stays unknown, packet email stays off until approved, Record# can auto-generate");
   assert.equal(
     buildDashboardReadiness({
       status: "SIGNED",
@@ -2066,7 +2091,7 @@ async function main() {
       },
     });
     const followUpGetRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`);
-    const followUpGet = await getClientFollowUp(followUpGetRequest, { params: { token: secureFollowUpToken } });
+    const followUpGet = await getClientFollowUp(followUpGetRequest, { params: Promise.resolve({ token: secureFollowUpToken }) });
     const followUpGetBody = await followUpGet.json() as {
       questions?: Array<{ key: string }>;
     };
@@ -2087,7 +2112,7 @@ async function main() {
       }),
     });
     const forbiddenFollowUp = await submitClientFollowUp(forbiddenFollowUpRequest, {
-      params: { token: secureFollowUpToken },
+      params: Promise.resolve({ token: secureFollowUpToken }),
     });
     assert.equal(forbiddenFollowUp.status, 400, "follow-up must reject unrequested consent changes");
     assert.equal(
@@ -2110,7 +2135,7 @@ async function main() {
       }),
     });
     const validFollowUp = await submitClientFollowUp(validFollowUpRequest, {
-      params: { token: secureFollowUpToken },
+      params: Promise.resolve({ token: secureFollowUpToken }),
     });
     assert.equal(validFollowUp.status, 200, "valid follow-up answers must save");
     const savedFollowUpAnswers = await loadAnswers(followUpIntake.id);
@@ -2150,7 +2175,7 @@ async function main() {
     );
     const originalLinkAfterFollowUp = await getClientIntakeByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(originalLinkAfterFollowUp.status, 200, "invalidated content must reopen only for review and re-signing");
     const identityMismatchAfterFollowUp = await saveClientSignatureByToken(
@@ -2166,7 +2191,7 @@ async function main() {
           dobCheck: "1990-01-01",
         }),
       }),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(identityMismatchAfterFollowUp.status, 409, "a different printed identity must not replace the signature");
     const replacementSignature = await saveClientSignatureByToken(
@@ -2182,12 +2207,12 @@ async function main() {
           dobCheck: followUpClient.dob,
         }),
       }),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(replacementSignature.status, 200, "the current matching identity must be able to re-sign");
     const originalLinkAfterReplacementSignature = await getClientIntakeByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(originalLinkAfterReplacementSignature.status, 409, "a current replacement signature must close the client link again");
     const autosaveAfterSubmit = await saveClientIntakeByToken(
@@ -2196,14 +2221,14 @@ async function main() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ answers: { weight: "999 lb" } }),
       }),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(autosaveAfterSubmit.status, 409, "a current re-signed client token must not autosave answers");
     const uploadAfterSubmit = await uploadClientDocumentByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/upload`, {
         method: "POST",
       }),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(uploadAfterSubmit.status, 409, "submitted client token must not upload new documents");
     await prisma.intake.update({
@@ -2212,7 +2237,7 @@ async function main() {
     });
     const originalLinkAfterStaffStatusChange = await getClientIntakeByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
-      { params: { token: followUpIntake.token } },
+      { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(
       originalLinkAfterStaffStatusChange.status,
@@ -2229,7 +2254,7 @@ async function main() {
       }),
     });
     const replayFollowUp = await submitClientFollowUp(replayFollowUpRequest, {
-      params: { token: secureFollowUpToken },
+      params: Promise.resolve({ token: secureFollowUpToken }),
     });
     assert.equal(replayFollowUp.status, 409, "completed follow-up links must reject replay");
     assert.equal((await loadAnswers(followUpIntake.id)).height, "5'8\"", "replay must not overwrite saved answers");
@@ -2253,13 +2278,13 @@ async function main() {
   const intake = client!.intakes[0];
   assert(["SIGNED", "COMPLETED"].includes(intake.status), "Angela must be a finished intake for token replay checks");
   const clientRequest = new NextRequest(`http://localhost/api/intake/${intake.token}`);
-  const closedGet = await getClientIntakeByToken(clientRequest, { params: { token: intake.token } });
+  const closedGet = await getClientIntakeByToken(clientRequest, { params: Promise.resolve({ token: intake.token }) });
   const closedGetBody = await closedGet.json() as Record<string, unknown>;
   assert.equal(closedGet.status, 409, "finished client links must be closed");
   assert.equal(closedGet.headers.get("cache-control"), "private, no-store, max-age=0");
   assert.equal(closedGetBody.code, "INTAKE_FINISHED");
   assert(!("answers" in closedGetBody), "finished client links must not return saved answers");
-  const replaySubmit = await submitClientIntakeByToken(clientRequest, { params: { token: intake.token } });
+  const replaySubmit = await submitClientIntakeByToken(clientRequest, { params: Promise.resolve({ token: intake.token }) });
   assert.equal(replaySubmit.status, 409, "finished client links must reject replayed submission");
   const unchangedIntake = await prisma.intake.findUnique({ where: { id: intake.id }, select: { status: true } });
   assert.equal(unchangedIntake?.status, intake.status, "replayed submission must not downgrade intake status");
@@ -2531,6 +2556,11 @@ async function main() {
   const consentBox = newCatalogField(catalogEntryByKey("consent_hipaa")!, 12, 40, 400);
   assert.equal(consentBox.type, "checkbox");
   assert.equal(consentBox.source, "consent_hipaa=true");
+  const consentMappedHealth = assessMapping([
+    { ...consentBox, source: "signature", type: "signature", role: "client", consentKey: "consent_hipaa" },
+  ], 12, 612, 792, 1);
+  assert(!consentMappedHealth.missingRequired.some((item) => item.key === "consent_hipaa"),
+    "a consent-controlled physical signature box satisfies that consent mapping");
   ok("intake mapping catalog can place answer keys onto a packet");
 
   const emptyHealth = assessMapping([], 3, 612, 792, 0);
@@ -2557,7 +2587,7 @@ async function main() {
     "intake_mode", "gender", "has_medicaid", "is_minor_or_incompetent", "ec1_cell_phone",
     "consent_provider_choice", "consent_orientation", "consent_rights", "consent_treatment",
     "consent_bill_of_rights", "consent_emergency_info", "consent_emergency_care", "consent_hipaa",
-    "consent_confidentiality", "welcome_letter_ack", "consent_cca",
+    "consent_confidentiality",
   ];
   const remainingForEw = liveUnmapped.filter((key) => key !== "intake_mode" && key !== "consent_provider_choice");
   const ewRequired = packetRequiredEntries(ewCtx);
@@ -2686,6 +2716,7 @@ async function main() {
       clientName: "Marcus Anthony Whitfield-Brown",
       dob: "03/14/1988", midNumber: "947123456M", recordNumber: "MDC-1042",
       caseManagementAgency: "Moore Divine Care, Inc.",
+      planReviewedAndAgreed: true, freeChoiceConfirmed: true,
       clientIsOwnLegalRepresentative: true, iddDocumented: false,
       signatures: { client: { role: "client", imageData: pngData, printedName: "Marcus Anthony Whitfield-Brown", signedDate } },
     });
@@ -2698,6 +2729,7 @@ async function main() {
 
     const unsigned = await appendPcpPlanSignaturePage(onePagePacket, {
       clientName: "Unsigned Test", caseManagementAgency: "Moore Divine Care, Inc.",
+      planReviewedAndAgreed: true, freeChoiceConfirmed: true,
       clientIsOwnLegalRepresentative: true, iddDocumented: false, signatures: {},
     });
     assert.equal(unsigned.signedBy, null, "no captured signature means nothing was signed");
@@ -2707,6 +2739,7 @@ async function main() {
 
     const guardianSigned = await appendPcpPlanSignaturePage(onePagePacket, {
       clientName: "Jayden Sample", caseManagementAgency: "Moore Divine Care, Inc.",
+      planReviewedAndAgreed: true, freeChoiceConfirmed: true,
       clientIsOwnLegalRepresentative: false, iddDocumented: true,
       guardianRelationship: "Mother",
       signatures: { guardian: { role: "guardian", imageData: pngData, printedName: "Erica Sample", signedDate } },
@@ -2763,6 +2796,21 @@ async function main() {
     const real = applyOperationalDefaults({ diagnosis_menu: "Major depressive disorder (F33.1)" } as never);
     assert.equal(real.sa_primary_diagnosis, "Major depressive disorder (F33.1)", "a real menu diagnosis still prints");
     ok("diagnosis menu sentinels never print as a clinical diagnosis");
+  }
+
+  // ---- plan notes and plan agreement must never be invented -----------------
+  {
+    const defaults = applyOperationalDefaults({
+      needs: "Housing support",
+      treatments: "Continue therapy",
+      crisis_warning_signs: "Pacing",
+      crisis_steps: "Call a support person",
+    } as never) as Record<string, unknown>;
+    assert.equal(defaults.dis_pcp_plan, undefined,
+      "needs, treatment notes, and crisis notes must not be relabeled as a completed PCP plan");
+    assert.equal(defaults.consent_treatment_plan_participation, undefined,
+      "operational defaults must not invent treatment-plan agreement");
+    ok("PCP plan content and plan-review consent remain explicit, source-backed fields");
   }
 
   // ---- the presenting problem must be idempotent ---------------------------
@@ -2910,14 +2958,14 @@ async function main() {
 
       const expiredEasy = await getClientIntakeByToken(
         new NextRequest(`http://localhost/api/intake/${expiredIntakeToken}`),
-        { params: { token: expiredIntakeToken } },
+        { params: Promise.resolve({ token: expiredIntakeToken }) },
       );
       const expiredEasyBody = await expiredEasy.json() as Record<string, unknown>;
       assert.notEqual(expiredEasy.status, 200);
       assert(!("answers" in expiredEasyBody), "expired/finished Easy Mode token must not serve the questionnaire");
       const openExpired = await getClientIntakeByToken(
         new NextRequest(`http://localhost/api/intake/${openExpiredToken}`),
-        { params: { token: openExpiredToken } },
+        { params: Promise.resolve({ token: openExpiredToken }) },
       );
       const openExpiredBody = await openExpired.json() as Record<string, unknown>;
       assert.equal(openExpired.status, 410);
@@ -2926,13 +2974,13 @@ async function main() {
 
       const packetOk = await getCompletedCopyPacket(
         new NextRequest(`http://localhost/api/copies/${copyToken}/packet`),
-        { params: { token: copyToken } },
+        { params: Promise.resolve({ token: copyToken }) },
       );
       assert.equal(packetOk.status, 200, "fresh copy token must serve the completed packet");
       assert.equal(packetOk.headers.get("content-type"), "application/pdf");
       const packetDenied = await getCompletedCopyPacket(
         new NextRequest(`http://localhost/api/copies/${expiredIntakeToken}/packet`),
-        { params: { token: expiredIntakeToken } },
+        { params: Promise.resolve({ token: expiredIntakeToken }) },
       );
       assert.equal(packetDenied.status, 404, "the expired Easy Mode token must not serve copies");
       ok("completed-copy delivery mints a working copy token; expired Easy Mode token still rejects");
@@ -2944,7 +2992,7 @@ async function main() {
     }
   }
 
-  // ---- 7. Draft PDF filename + watermark -----------------------------------
+  // ---- 7. Draft PDF filename + no watermark --------------------------------
   {
     assert.equal(
       packetDownloadFileName({ providerName: "Moore Divine Care", clientName: "Angela Demo", documentState: "DRAFT_PREVIEW" }),
@@ -2954,14 +3002,6 @@ async function main() {
       packetDownloadFileName({ providerName: "Moore Divine Care", clientName: "Angela Demo", documentState: "CURRENT_FINAL" }),
       "Moore-Divine-Care-Intake-Angela-Demo.pdf",
     );
-    const blank = await PDFDocument.create();
-    blank.addPage([612, 792]);
-    const draftBytes = await stampDraftWatermark(await blank.save());
-    const draftText = await extractPdfText(draftBytes);
-    assert(draftText.includes(DRAFT_WATERMARK_TEXT), "draft bytes must contain a visible DRAFT watermark");
-    const unmarked = await extractPdfText(await blank.save());
-    assert(!unmarked.includes(DRAFT_WATERMARK_TEXT), "unwatermarked bytes must not contain DRAFT");
-
     const masterUser = await prisma.user.findFirst({ where: { role: "master" } });
     const angela = await prisma.client.findFirst({
       where: { fullName: "Angela Demo" },
@@ -2974,33 +3014,26 @@ async function main() {
     try {
       const preview = await getIntakePdf(
         new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf?preview=1`),
-        { params: { id: angela!.intakes[0].id } },
+        { params: Promise.resolve({ id: angela!.intakes[0].id }) },
       );
       assert.equal(preview.status, 200);
       assert.equal(preview.headers.get("x-smart-intake-document-state"), "DRAFT_PREVIEW");
       const previewDisposition = preview.headers.get("content-disposition") || "";
       assert(previewDisposition.includes("DRAFT"), "preview Content-Disposition must say DRAFT");
-      const previewBytes = Buffer.from(await preview.arrayBuffer());
-      assert((await extractPdfText(previewBytes)).includes(DRAFT_WATERMARK_TEXT));
+      await preview.arrayBuffer();
 
       const finalPdf = await getIntakePdf(
         new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf`),
-        { params: { id: angela!.intakes[0].id } },
+        { params: Promise.resolve({ id: angela!.intakes[0].id }) },
       );
       if (finalPdf.status === 200) {
         assert.equal(finalPdf.headers.get("x-smart-intake-document-state"), "CURRENT_FINAL");
         const finalDisposition = finalPdf.headers.get("content-disposition") || "";
         assert(!finalDisposition.includes("DRAFT"), "final Content-Disposition must not say DRAFT");
         assert.notEqual(finalDisposition, previewDisposition);
-        const finalBytes = Buffer.from(await finalPdf.arrayBuffer());
-        const finalText = await extractPdfText(finalBytes);
-        assert(
-          (await extractPdfText(previewBytes)).split(DRAFT_WATERMARK_TEXT).length
-            > finalText.split(DRAFT_WATERMARK_TEXT).length,
-          "preview bytes must carry the DRAFT watermark that the current final packet does not",
-        );
+        await finalPdf.arrayBuffer();
       }
-      ok("draft/preview PDFs are labeled and watermarked DRAFT; current final packet is not");
+      ok("draft/preview PDFs are labeled by filename and response state without a watermark");
     } finally {
       bindTestCookies(null);
     }
@@ -3081,7 +3114,7 @@ async function main() {
       assert.equal(mappingCross.status, 403, "provider-admin A must be denied provider B packet mapping");
       const templateCross = await getProviderPacketTemplate(
         new NextRequest(`http://localhost/api/master/providers/${providerB.id}/packet-template`),
-        { params: { id: providerB.id } },
+        { params: Promise.resolve({ id: providerB.id }) },
       );
       assert.equal(templateCross.status, 403, "provider-admin A must be denied provider B packet-template admin surface");
       withSession(staffA.id);

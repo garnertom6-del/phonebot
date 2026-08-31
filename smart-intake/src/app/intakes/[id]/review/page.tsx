@@ -6,7 +6,7 @@
  */
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, use } from "react";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import SignaturePad from "@/components/SignaturePad";
@@ -28,9 +28,10 @@ const SIGNER_OPTIONS: { role: StaffSignatureRole; label: string; padLabel: strin
   { role: "witness", label: "Witness", padLabel: "Witness signature" },
   { role: "medicalDirector", label: "Medical director", padLabel: "Medical director signature" },
 ];
-const CARE_TEAM_ROLES: StaffSignatureRole[] = ["staff", "clinician", "witness"];
+const CARE_TEAM_ROLES: StaffSignatureRole[] = ["staff", "clinician"];
 
-export default function ReviewPage({ params }: { params: { id: string } }) {
+export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
+  const params = use(props.params);
   const router = useRouter();
   const [answers, setAnswers] = useState<Answers>({});
   const [clientName, setClientName] = useState("");
@@ -38,7 +39,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
   const [selectedSignerRoles, setSelectedSignerRoles] = useState<StaffSignatureRole[]>([]);
   const [signatures, setSignatures] = useState<SignatureRecord[]>([]);
   const [signatureStatuses, setSignatureStatuses] = useState<SignatureStatus[]>([]);
-  const [sameSignatureForSelected, setSameSignatureForSelected] = useState(true);
+  const [sameSignatureForSelected, setSameSignatureForSelected] = useState(false);
   const [activeSignerIndex, setActiveSignerIndex] = useState(0);
   const [isSigning, setIsSigning] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -324,7 +325,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
         </div>
         <label className="mb-3 flex items-start gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm">
           <input type="checkbox" className="mt-0.5 h-4 w-4" checked={sameSignatureForSelected} onChange={(event) => setSameSignatureForSelected(event.target.checked)} disabled={isSigning} />
-          <span><b>Same person and same signature for selected roles</b><br /><span className="text-xs text-slate-600">Use this when the QP, witness, and clinician are the same person. Each role is still recorded separately.</span></span>
+          <span><b>I confirm the same authorized person is serving in every selected role</b><br /><span className="text-xs text-slate-600">Off by default. Turn this on only after confirming the signer is authorized for each selected role. Witness signatures must always be captured separately.</span></span>
         </label>
         <div className="flex flex-wrap gap-2">
           {SIGNER_OPTIONS.map((option) => (
@@ -340,7 +341,7 @@ export default function ReviewPage({ params }: { params: { id: string } }) {
             Select required re-signatures
           </button>
           <button type="button" className="btn-ghost px-3 py-1.5 text-sm" disabled={isSigning} onClick={selectCareTeam}>
-            Select QP + clinician + witness
+            Select QP + clinician
           </button>
           <button type="button" className="btn-ghost px-3 py-1.5 text-sm" disabled={isSigning || !selectedSignerRoles.length}
             onClick={() => setSelectedSignerRoles([])}>

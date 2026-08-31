@@ -92,7 +92,8 @@ function lookupStatus(code: string | null): number {
   return 404;
 }
 
-export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const { error, code, provider, intake } = await findByToken(params.token);
   if (error || !intake) {
     return NextResponse.json(
@@ -159,7 +160,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   );
 }
 
-export async function PATCH(req: NextRequest, { params }: { params: { token: string } }) {
+export async function PATCH(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const { error, code, provider, intake } = await findByToken(params.token);
   if (error || !intake) {
     return NextResponse.json({ error, code, provider }, { status: lookupStatus(code) });
@@ -182,7 +184,7 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
     : null;
   try {
     await prisma.$transaction(async (tx) => {
-      if (!await lockOpenClientIntake(tx, intake.id)) throw new IntakeClosedError();
+      if (!(await lockOpenClientIntake(tx, intake.id))) throw new IntakeClosedError();
       const current = await tx.intake.findUnique({
         where: { id: intake.id },
         include: { client: true },
@@ -227,7 +229,8 @@ export async function PATCH(req: NextRequest, { params }: { params: { token: str
   return NextResponse.json({ ok: true });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   // final submit
   const { error, code, provider, intake } = await findByToken(params.token);
   if (error || !intake) {
@@ -235,7 +238,7 @@ export async function POST(req: NextRequest, { params }: { params: { token: stri
   }
   try {
     await prisma.$transaction(async (tx) => {
-      if (!await lockOpenClientIntake(tx, intake.id)) throw new IntakeClosedError();
+      if (!(await lockOpenClientIntake(tx, intake.id))) throw new IntakeClosedError();
       const current = await tx.intake.findUnique({
         where: { id: intake.id },
         include: {

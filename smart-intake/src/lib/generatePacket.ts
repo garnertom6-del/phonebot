@@ -214,17 +214,27 @@ export async function generatePacketForIntake(
     orderBy: { createdAt: "desc" },
     select: { reviewJson: true },
   });
-  const pcp = await appendPcpPlanSignaturePage(result.pdfBytes, {
-    clientName: packetClientName,
-    dob: intake.client.dob || String(answers.dob || ""),
-    midNumber: String(answers.mid_number || ""),
-    recordNumber: String(answers.record_number || ""),
-    caseManagementAgency: intake.provider?.name || "",
-    clientIsOwnLegalRepresentative: String(answers.is_minor_or_incompetent || "").toLowerCase() !== "yes",
-    guardianRelationship: String(answers.guardian_relationship || ""),
-    iddDocumented: pcpIddDocumented(parseCcaReview(latestCcaDocument?.reviewJson)),
-    signatures,
-  });
+  const planReviewedAndAgreed = answers.plan_ready_for_client_review === "Yes"
+    && answers.consent_treatment_plan_participation === true;
+  const pcp = planReviewedAndAgreed
+    ? await appendPcpPlanSignaturePage(result.pdfBytes, {
+      clientName: packetClientName,
+      dob: intake.client.dob || String(answers.dob || ""),
+      midNumber: String(answers.mid_number || ""),
+      recordNumber: String(answers.record_number || ""),
+      caseManagementAgency: intake.provider?.name || "",
+      planReviewedAndAgreed,
+      freeChoiceConfirmed: answers.consent_provider_choice === true,
+      clientIsOwnLegalRepresentative: String(answers.is_minor_or_incompetent || "").toLowerCase() !== "yes",
+      guardianRelationship: String(answers.guardian_relationship || ""),
+      iddDocumented: pcpIddDocumented(parseCcaReview(latestCcaDocument?.reviewJson)),
+      signatures,
+    })
+    : {
+      pdfBytes: result.pdfBytes,
+      warnings: ["PLAN SIGNATURES page not appended: the actual plan review and client agreement are not both recorded."],
+      signedBy: null,
+    };
 
   const { pdfBytes, sha256 } = await appendCertificatePage(pcp.pdfBytes, {
     clientName: packetClientName,

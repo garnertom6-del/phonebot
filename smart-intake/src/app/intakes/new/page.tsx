@@ -910,10 +910,10 @@ export default function NewIntake() {
           </label>
           {housingPreview.homeless ? (
             <p className="mt-2 text-sm text-amber-800">
-              Street is blank, so this intake uses the no-fixed-address path. The packet will mark the client as homeless, skip the street-address requirement, and let the client continue without repeating that question. Open Details only if you have a confirmed street.
+              You explicitly selected no fixed address. The packet will mark the client as homeless and will not require a street address. Clear this selection if housing status is not confirmed.
             </p>
           ) : (
-            <p className="mt-2 text-sm text-amber-800">Check this if the client has no fixed address. Do not enter a made-up street.</p>
+            <p className="mt-2 text-sm text-amber-800">Check this only when the client&apos;s no-fixed-address status is confirmed. A blank street stays unknown and will be asked later; it does not mean homeless.</p>
           )}
           {housingPreview.homeless && <input type="hidden" name="livingArrangement" value="Homeless" />}
         </div>

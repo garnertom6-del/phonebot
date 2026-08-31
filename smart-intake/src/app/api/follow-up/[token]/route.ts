@@ -64,7 +64,8 @@ function unavailableResponse(
   return NextResponse.json({ error, code, provider }, { status, headers: PRIVATE_NO_STORE });
 }
 
-export async function GET(req: NextRequest, { params }: { params: { token: string } }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const followUp = await findFollowUp(params.token);
   if (!followUp) return unavailableResponse("This follow-up link is not valid.", "INVALID_LINK", 404);
   const provider = followUp.intake.provider
@@ -137,7 +138,8 @@ export async function GET(req: NextRequest, { params }: { params: { token: strin
   }, { headers: PRIVATE_NO_STORE });
 }
 
-export async function POST(req: NextRequest, { params }: { params: { token: string } }) {
+export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {
+  const params = await props.params;
   const followUp = await findFollowUp(params.token);
   if (!followUp) return unavailableResponse("This follow-up link is not valid.", "INVALID_LINK", 404);
   const provider = followUp.intake.provider

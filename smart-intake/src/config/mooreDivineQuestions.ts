@@ -465,12 +465,12 @@ export const SECTIONS: Section[] = [
     intro: "This permission lets us share your records so your care team can work together. It lasts one year from intake. You will get a copy the same way you chose for your completed papers.",
     questions: [
       {
-        key: "consent_roi", essential: true, label: "Consent to permit use and disclose (ROI)", type: "consent", required: true,
+        key: "consent_roi", essential: true, appOnly: true, label: "Consent to permit use and disclose (ROI)", type: "consent", required: true,
         consentText: "I give Moore Divine Care, Inc. consent to use and disclose my protected health information for treatment, payment, and health-care operations, including information regarding treatment, hospitalization, and outpatient care, and not limited to HIV/AIDS, drug abuse, alcoholism or other substance abuse. I understand my alcohol and/or drug treatment records are protected under 42 C.F.R. Part 2 and HIPAA (45 C.F.R. Pts. 160 & 164) and cannot be disclosed without my written consent unless otherwise provided; HIV-related information is released only per G.S. 130A-143. This authorization is voluntary and valid for one (1) year from my signature or until I revoke it. The same consent is used on each Release of Information page in the packet.",
       },
-      { key: "roi_understand_1", essential: true, label: "I understand my records are protected and cannot be shared without my written consent unless the law allows it.", type: "yesno", options: ["Yes"], required: true },
-      { key: "roi_understand_2", essential: true, label: "I understand I can take this permission back at any time by telling staff in writing.", type: "yesno", options: ["Yes"], required: true },
-      { key: "roi_understand_3", essential: true, label: "I understand this permission lasts one year from today's intake date.", type: "yesno", options: ["Yes"], required: true },
+      { key: "roi_understand_1", essential: true, appOnly: true, label: "I understand my records are protected and cannot be shared without my written consent unless the law allows it.", type: "yesno", options: ["Yes"], required: true },
+      { key: "roi_understand_2", essential: true, appOnly: true, label: "I understand I can take this permission back at any time by telling staff in writing.", type: "yesno", options: ["Yes"], required: true },
+      { key: "roi_understand_3", essential: true, appOnly: true, label: "I understand this permission lasts one year from today's intake date.", type: "yesno", options: ["Yes"], required: true },
       ...[1, 2, 3].flatMap((i): Question[] => [
         { key: `roi${i}_recipient`, label: `Release ${i} - who may we share records with?`, type: "text", voice: true, askIf: i === 1 ? undefined : { key: `roi${i - 1}_recipient`, truthy: true } },
         { key: `roi${i}_items`, label: `Release ${i} - what may we share?`, type: "chips", options: ["Admission/ Screening Assessment", "HIV related information", "Service Notes", "VO", "Medication history/ physician orders", "Psychological testing", "Service Plan", "LME", "Discharge Information", "Substance Abuse Information", "Psychiatric Evaluation", "Reciprocal exchange permitted", "Accounting of Disclosure Report", "NCTOPPS"], askIf: { key: `roi${i}_recipient`, truthy: true } },
@@ -507,7 +507,8 @@ export const SECTIONS: Section[] = [
   {
     key: "treatment_plan", title: "Treatment Plan Participation",
     questions: [
-      { key: "consent_treatment_plan_participation", label: "Treatment Plan Participation", type: "consent", required: true, consentText: "I have met (or will meet) in person with agency staff to review and discuss my concerns regarding the goals and outcomes represented in the treatment plan. The goals and clinical direction meet my expectations and I am in agreement with the direction of services. I will receive a copy of my person-centered plan when it is completed. Staff will date this page later." },
+      { key: "plan_ready_for_client_review", staffOnly: true, appOnly: true, label: "The actual treatment plan is ready for client review", type: "yesno", options: YN },
+      { key: "consent_treatment_plan_participation", label: "Review and agreement with the current treatment plan", type: "consent", required: true, askIf: { key: "plan_ready_for_client_review", equals: "Yes" }, consentText: "I met with agency staff and reviewed the current treatment plan, including its goals and outcomes. I had the opportunity to ask questions and request changes. The goals and clinical direction reflect my choices and I agree with the current direction of services. I understand that I may request changes and will receive a copy of the completed person-centered plan." },
       { key: "consent_receipt_treatment_plan", staffOnly: true, label: "Receipt of Treatment Plan", type: "consent", consentText: "I have received and understand the current treatment plan for my child or myself, and I have been given a copy of the current treatment plan." },
     ],
   },
@@ -544,7 +545,7 @@ export const SECTIONS: Section[] = [
   {
     key: "welcome_letter", title: "Welcome Letter", fastIntake: true,
     intro: "A welcome letter from the Executive and Leadership Team (Karen Jones, Nurse Practitioner; Tonya Jones, Clinical Director; Thadeous Young, Qualified Professional). Office hours: Greensboro Office, Monday through Friday, 10am-4pm. Emergency number: 336-285-5204. The mission: dedicated to the empowerment of You, our client, striving to assist you, your family and other stakeholders in achieving an enhanced quality of life through effective, efficient person-centered services.",
-    questions: [{ key: "welcome_letter_ack", essential: true, staffOnly: true, label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
+    questions: [{ key: "welcome_letter_ack", essential: true, staffOnly: true, appOnly: true, label: "I have received the welcome letter", type: "yesno", options: ["Yes"], required: true }],
   },
   {
     key: "survey", title: "First-Contact Survey",
@@ -575,7 +576,7 @@ export const SECTIONS: Section[] = [
   {
     key: "cca", title: "Clinical Assessment Signature", fastIntake: true,
     questions: [{
-      key: "consent_cca", label: "Comprehensive Clinical Assessment Signature Page", type: "consent", required: true,
+      key: "consent_cca", appOnly: true, label: "Comprehensive Clinical Assessment Signature Page", type: "consent", required: true,
       consentText: "My signature affirms that I have met with this clinician either face to face, via telemedicine, or another approved form as mandated by law, and agree with the information gathered during this assessment. I understand the conclusions and recommendations are based on the information I gave the clinician and on collateral supports/contacts, represent my needs at the time of the assessment, and may change based on ongoing assessment of my needs.",
     }],
   },
