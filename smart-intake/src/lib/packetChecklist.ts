@@ -2,7 +2,6 @@ import { SECTIONS, questionCatalogId, questionVisibleInCatalog } from "@/config/
 import { askIfSatisfied } from "@/lib/validation";
 import type { SignatureStatus } from "@/lib/signatureStatus";
 import { missingRequiredSignatures } from "@/lib/signatureStatus";
-import type { PlanCompletenessSummary } from "@/lib/recordIntegrity";
 
 export type PacketChecklistState = "keep" | "missing" | "na";
 
@@ -67,8 +66,8 @@ export function buildPacketChecklistChips(input: {
   signatureStatuses: SignatureStatus[];
   provider?: { name?: string | null; slug?: string | null } | string | null;
   planCompleteness?: {
-    pcp: Pick<PlanCompletenessSummary, "state">;
-    crisis: Pick<PlanCompletenessSummary, "state">;
+    pcp: { state: string };
+    crisis: { state: string };
   };
 }): PacketChecklistChip[] {
   const additionalEvals = Array.isArray(input.answers.additional_evals)

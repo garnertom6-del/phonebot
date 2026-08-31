@@ -38,12 +38,12 @@ export async function ensureCompletedCopyToken(intakeId: string, now = Date.now(
   if (!intake) {
     throw new Error("Intake not found");
   }
-  if (copyTokenIsLive(intake.copyToken, intake.copyTokenExpiresAt, now)) {
+  if (copyTokenIsLive(intake.copyToken, intake.copyTokenExpiresAt, now) && intake.copyToken && intake.copyTokenExpiresAt) {
     return {
-      copyToken: intake.copyToken!,
+      copyToken: intake.copyToken,
       copyTokenExpiresAt: intake.copyTokenExpiresAt instanceof Date
         ? intake.copyTokenExpiresAt
-        : new Date(intake.copyTokenExpiresAt as Date),
+        : new Date(intake.copyTokenExpiresAt),
       minted: false,
     };
   }
