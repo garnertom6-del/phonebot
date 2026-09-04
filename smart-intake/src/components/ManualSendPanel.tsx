@@ -12,10 +12,10 @@
  * "Mark as sent by hand" records the delivery so the dashboard stops saying
  * "Not sent yet" and the audit log shows who sent it and how.
  */
-import { useEffect, useMemo, useState } from "react";
-import { qrSvgData } from "@/lib/qrSvg";
+import { useEffect, useState } from "react";
 import { formatUsPhoneDisplay } from "@/lib/intakeContacts";
 import ComputerSmsActions, { type ManualSmsPurpose } from "@/components/ComputerSmsActions";
+import QrCodeSvg from "@/components/QrCodeSvg";
 
 export type ManualSendMethod = "sms" | "in_person" | "email";
 
@@ -44,28 +44,6 @@ type Props = {
   /** Called after the intake is marked as sent so the parent can refresh. */
   onMarked?: (linkSentAt: string, method: ManualSendMethod) => void;
 };
-
-function QrSquare({ value, label, level = "M" }: { value: string; label: string; level?: "L" | "M" }) {
-  const data = useMemo(() => qrSvgData(value, level), [value, level]);
-  if (!data) {
-    return (
-      <div className="flex aspect-square w-full items-center justify-center rounded-lg border border-dashed border-slate-300 bg-white p-3 text-center text-xs text-slate-500">
-        QR code unavailable
-      </div>
-    );
-  }
-  return (
-    <svg
-      viewBox={`0 0 ${data.size} ${data.size}`}
-      role="img"
-      aria-label={label}
-      className="aspect-square w-full rounded-lg border border-slate-200 bg-white p-2 text-slate-900"
-      shapeRendering="crispEdges"
-    >
-      <path d={data.path} fill="currentColor" />
-    </svg>
-  );
-}
 
 export default function ManualSendPanel({
   intakeId, clientLink, message, phone, phoneRole, purpose = "intake", email, smsHref, mailtoHref, reason, linkSentAt, disabled, blockReason, hideRecordButtons, onMarked,
@@ -150,7 +128,7 @@ export default function ManualSendPanel({
           <p className="font-semibold text-slate-900">Client is with you?</p>
           <p className="mt-1 text-xs text-slate-600">Turn the screen toward them. Their phone camera opens the secure form - no text message needed.</p>
           <div className="mx-auto mt-3 max-w-[220px]">
-            <QrSquare value={disabled ? "" : clientLink} label="QR code that opens the client's secure intake form" />
+            <QrCodeSvg value={disabled ? "" : clientLink} label="QR code that opens the client's secure intake form" />
           </div>
         </div>
         <div className="rounded-lg border border-brand/20 bg-brand-light/30 p-3">
@@ -161,7 +139,7 @@ export default function ManualSendPanel({
               : <>Add the client&apos;s cell number to use this. You can still copy the message below.</>}
           </p>
           <div className="mx-auto mt-3 max-w-[220px]">
-            <QrSquare level="L" value={disabled || !phone || !smsHref ? "" : smsHref} label="QR code that opens your phone's Messages app with the client's number and the message" />
+            <QrCodeSvg level="L" value={disabled || !phone || !smsHref ? "" : smsHref} label="QR code that opens your phone's Messages app with the client's number and the message" />
           </div>
         </div>
       </div>

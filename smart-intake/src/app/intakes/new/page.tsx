@@ -32,6 +32,7 @@ import {
   resolveCreateIntakeHousing,
 } from "@/lib/newIntakeHousing";
 import ManualSendPanel from "@/components/ManualSendPanel";
+import QrCodeSvg from "@/components/QrCodeSvg";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -52,7 +53,6 @@ const DETAILS_NOTE_KEYS = new Set([
   "gender", "race", "ethnicity", "marital_status", "education", "language", "veteran", "employment_status", "pcp_name", "pcp_phone",
   "ec1_name", "ec1_cell_phone",
 ]);
-const ADVANCED_NOTE_KEYS = new Set(["provider_choice_plan", "record_number"]);
 
 const QUICK_NOTE_RACE_OPTIONS = RACE_OPTIONS;
 const QUICK_NOTE_GENDER_OPTIONS = ["Female", "Male", "Transgender", "Other"];
@@ -110,7 +110,6 @@ export default function NewIntake() {
   const [referralSource, setReferralSource] = useState("");
   const [homelessSelected, setHomelessSelected] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recordGeneratorNote, setRecordGeneratorNote] = useState("");
   const [recordNumberWasGenerated, setRecordNumberWasGenerated] = useState(false);
   const [expectCca, setExpectCca] = useState(true);
@@ -144,6 +143,7 @@ export default function NewIntake() {
   const [packetSetupHref, setPacketSetupHref] = useState("");
   const [packetContextError, setPacketContextError] = useState("");
   const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false);
+  const [showQrAfterCreate, setShowQrAfterCreate] = useState(false);
   // "Today" for the date pickers must be computed in the browser: this page is
   // pre-rendered once at build time, so a date computed inside the JSX freezes
   // at the deploy date (the DOB picker was stuck on the last deploy's date).
@@ -245,14 +245,12 @@ export default function NewIntake() {
     let useAddress = false;
     let useHomeless = false;
     let openDetails = false;
-    let openAdvanced = false;
     for (const field of fields) {
       const target = NOTE_TARGETS[field.key];
       if (!target) continue;
       const current = (target.kind === "form" ? form[target.key] : quickAnswers[target.key]) || "";
       if (onlyIfEmpty && current.trim()) continue;
       if (DETAILS_NOTE_KEYS.has(field.key)) openDetails = true;
-      if (ADVANCED_NOTE_KEYS.has(field.key)) openAdvanced = true;
       if (target.kind === "form") {
         formPatch[target.key] = field.value;
         if (target.key === "addressStreet" || target.key === "addressCity" || target.key === "addressState") useAddress = true;
@@ -273,7 +271,6 @@ export default function NewIntake() {
     if (useHomeless) setHomelessSelected(true);
     else if (useAddress) setHomelessSelected(false);
     if (openDetails) setDetailsOpen(true);
-    if (openAdvanced) setAdvancedOpen(true);
   }
 
   function ingestHelperNotes(notes: string, fillEmpty: boolean) {
@@ -441,7 +438,7 @@ export default function NewIntake() {
       window.setTimeout(focusFirstMissing, 0);
       return;
     }
-    if (sendSmsAfterCreate && !recordPanel.trim()) {
+    if ((sendSmsAfterCreate || showQrAfterCreate) && !recordPanel.trim()) {
       setForm((current) => ({ ...current, ...nextForm }));
       setError(`${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`);
       window.setTimeout(() => {
@@ -535,6 +532,31 @@ export default function NewIntake() {
             Saved under {providerName}. On the dashboard, this intake is in <b>Waiting on client</b> until the client submits it.
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
+          {showQrAfterCreate && (
+            <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/30 p-4" data-testid="create-intake-qr">
+              {insuranceReady ? (
+                <>
+                  <h2 className="font-bold text-slate-900">QR code for the secure link</h2>
+                  <p className="mt-1 text-sm text-slate-600">
+                    Turn the screen toward the client. Their phone camera opens the intake — no text required.
+                    You can still send SMS from this page if the number is confirmed.
+                  </p>
+                  <div className="mx-auto mt-3 max-w-[240px]">
+                    <QrCodeSvg value={result.clientLink} label="QR code that opens the client's secure intake form" />
+                  </div>
+                  {result.publicLinkReady === false && (
+                    <p className="mt-3 text-sm font-semibold text-amber-900">
+                      This QR opens the local workspace link shown above. Do not have a remote client scan it.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <p className="text-sm font-semibold text-amber-950" role="alert">
+                  {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
+                </p>
+              )}
+            </div>
+          )}
           {result.publicLinkReady === false ? (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">Local workspace only</p>
@@ -870,12 +892,42 @@ export default function NewIntake() {
                 )}
               </div>
             )}
+            <div id="new-intake-qr" className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
+              <label className="flex min-h-11 items-start gap-3 font-semibold text-slate-900">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-5 w-5 shrink-0"
+                  checked={showQrAfterCreate}
+                  onChange={(event) => setShowQrAfterCreate(event.target.checked)}
+                />
+                <span>
+                  Show QR code for the secure link
+                  <span className="mt-1 block text-xs font-normal text-slate-600">
+                    Optional. After you create the intake, a scannable QR appears so the client can open the link on their phone instead of (or in addition to) SMS.
+                  </span>
+                </span>
+              </label>
+              {showQrAfterCreate && !recordPanel.trim() && (
+                <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
+                  {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
+                  <button
+                    type="button"
+                    className="mt-2 block text-left font-bold text-brand underline"
+                    onClick={() => {
+                      window.setTimeout(() => document.getElementById("new-intake-record-panel")?.focus(), 0);
+                    }}
+                  >
+                    Fill the insurance plan
+                  </button>
+                </p>
+              )}
+            </div>
           </div>
         </div>
         <div id="new-intake-insurance" className="mt-4 rounded-xl border border-brand/30 bg-brand-light/40 p-4">
           <h2 className="font-bold text-brand">Type of insurance / MCO</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Required before any SMS, copy, or &quot;I sent this SMS&quot; action. Staff fills this — it is not asked on the phone.
+            Required before any SMS, QR, copy, or &quot;I sent this SMS&quot; action. Staff fills this — it is not asked on the phone.
           </p>
           <label className="mt-3 block">
             <span className="label">Insurance plan</span>
@@ -916,6 +968,116 @@ export default function NewIntake() {
             <p className="mt-2 text-sm text-amber-800">Check this only when the client&apos;s no-fixed-address status is confirmed. A blank street stays unknown and will be asked later; it does not mean homeless.</p>
           )}
           {housingPreview.homeless && <input type="hidden" name="livingArrangement" value="Homeless" />}
+        </div>
+        <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
+          <h2 className="font-bold text-brand">Record number</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            The insurance plan above sets the Record# workflow and marks the plan on the packet so the client is not asked again.
+          </p>
+          {!recordPanel.trim() && (
+            <p className="mt-3 text-sm font-semibold text-amber-900">Pick the insurance plan above first.</p>
+          )}
+          {recordMode === "generate" && (
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
+              <span className="text-xs text-slate-600">
+                Format <b>{recordNumberPrefix(recordPanel)}-12345</b>. Leave the box blank and one is generated when you save; duplicates are rejected within this provider.
+              </span>
+            </div>
+          )}
+          {recordMode === "lookup" && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+              <p className="font-semibold">Sign in to {recordPanel}&apos;s provider portal, find the member, then type the record number here.</p>
+              {recordLookupLink && (
+                <>
+                  <a className="btn-ghost mt-2 inline-flex px-3 py-1.5 text-xs" href={recordLookupLink.url} target="_blank" rel="noreferrer" title={recordLookupLink.description}>
+                    Open {recordLookupLink.portal}
+                  </a>
+                  <p className="mt-2 text-xs text-amber-800">{recordLookupLink.description}</p>
+                </>
+              )}
+            </div>
+          )}
+          {recordMode === "manual" && (
+            <p className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
+              Enter the official <b>{recordPanel}</b> Record# when you have it. If left blank, the app creates a temporary internal Record# so the secure client link is not delayed.
+            </p>
+          )}
+          <label className="mt-3 block">
+            <span className="label">Record#{recordMode === "lookup" ? " *" : " (optional)"}</span>
+            <input className="input" id="new-intake-recordNumber" name="recordNumber" value={form.recordNumber || ""}
+              onChange={(e) => {
+                setRecordNumberWasGenerated(false);
+                setForm((current) => ({ ...current, recordNumber: e.target.value }));
+              }}
+              placeholder={recordMode === "lookup" ? "Enter the official lookup Record#" : recordMode === "manual" ? "Enter official or leave blank for a temporary number" : "Generate, type, or leave blank"} />
+          </label>
+          {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
+        </div>
+        <div id="new-intake-nctracks" className="scroll-mt-28 mt-4 rounded-xl border border-slate-200 bg-white p-4">
+          <h2 className="font-bold text-slate-900">NC Tracks</h2>
+          <p className="mt-1 text-sm text-slate-600">
+            Upload a card or open NC Tracks if you already have it. Paste stays at the top of this page.
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="NC Tracks starter options">
+            {([
+              ["upload", "Upload"],
+              ["howto", "How it works"],
+              ["nctracks", "Open NC Tracks"],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                id={`nctracks-tab-${key}`}
+                type="button"
+                role="tab"
+                aria-selected={ncTracksTab === key}
+                aria-controls="nctracks-tabpanel"
+                tabIndex={ncTracksTab === key ? 0 : -1}
+                onClick={() => selectNcTracksTab(key)}
+                className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${
+                  ncTracksTab === key ? "bg-brand text-white" : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div id="nctracks-tabpanel" role="tabpanel" aria-labelledby={`nctracks-tab-${ncTracksTab}`}>
+          {ncTracksTab === "upload" && (
+            <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
+              <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
+                {ncTracksFile ? "Replace NC Tracks file" : "Choose NC Tracks screenshot / card / PDF"}
+                <input
+                  type="file"
+                  className="hidden"
+                  accept="application/pdf,image/*"
+                  onChange={(e) => setNcTracksFile(e.target.files?.[0] || null)}
+                />
+              </label>
+              <p className="mt-2 text-sm text-slate-600">
+                Upload a screenshot, photo, or PDF from Downloads. After the intake is created, the app
+                scans it and fills MID, PCP, Medicaid plan, and other matching helper fields.
+              </p>
+              {ncTracksFile && <p className="mt-2 text-sm font-semibold text-slate-700">{ncTracksFile.name}</p>}
+            </div>
+          )}
+          {ncTracksTab === "howto" && (
+            <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
+              The app cannot safely read another signed-in browser tab by itself. The good workflows are:
+              paste quick notes at the top of this page, upload a card / PDF to scan, or open NC Tracks in a new tab.
+            </div>
+          )}
+          {ncTracksTab === "nctracks" && (
+            <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
+              NC Tracks opens in a new tab. Copy Recipient ID, PCP, and plan details back to Paste at the top, or upload a screenshot.
+              <div className="mt-3">
+                <a className="btn-secondary px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank" rel="noreferrer">
+                  Open NC Tracks again
+                </a>
+              </div>
+            </div>
+          )}
+          </div>
         </div>
         <details
           id="new-intake-details"
@@ -1048,125 +1210,6 @@ export default function NewIntake() {
                 <span className="label">Emergency phone</span>
                 <input className="input" value={quickAnswers.ec1_cell_phone || ""} onChange={(e) => setQuickAnswers((current) => ({ ...current, ec1_cell_phone: e.target.value }))} placeholder="10-digit number from the record" />
               </label>
-            </div>
-          </div>
-        </details>
-        <details
-          id="new-intake-advanced"
-          className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"
-          open={advancedOpen}
-          onToggle={(event) => setAdvancedOpen((event.currentTarget as HTMLDetailsElement).open)}
-        >
-          <summary className="cursor-pointer font-bold text-slate-900">Advanced</summary>
-          <p className="mt-1 text-sm text-slate-600">Record# and NC Tracks. Insurance plan is set above. A Record# is generated if you skip this.</p>
-          <div id="new-intake-record" className="scroll-mt-28 mt-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
-            <h3 className="font-bold text-brand">Record number</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              The insurance plan above sets the Record# workflow and marks the plan on the packet so the client is not asked again.
-            </p>
-            {!recordPanel.trim() && (
-              <p className="mt-3 text-sm font-semibold text-amber-900">Pick the insurance plan above first.</p>
-            )}
-            {recordMode === "generate" && (
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                <button type="button" className="btn-secondary" onClick={generateRecordNumber}>Generate Record#</button>
-                <span className="text-xs text-slate-600">
-                  Format <b>{recordNumberPrefix(recordPanel)}-12345</b>. Leave the box blank and one is generated when you save; duplicates are rejected within this provider.
-                </span>
-              </div>
-            )}
-            {recordMode === "lookup" && (
-              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                <p className="font-semibold">Sign in to {recordPanel}&apos;s provider portal, find the member, then type the record number here.</p>
-                {recordLookupLink && (
-                  <>
-                    <a className="btn-ghost mt-2 inline-flex px-3 py-1.5 text-xs" href={recordLookupLink.url} target="_blank" rel="noreferrer" title={recordLookupLink.description}>
-                      Open {recordLookupLink.portal}
-                    </a>
-                    <p className="mt-2 text-xs text-amber-800">{recordLookupLink.description}</p>
-                  </>
-                )}
-              </div>
-            )}
-            {recordMode === "manual" && (
-              <p className="mt-3 rounded-lg border border-slate-200 bg-white p-3 text-sm text-slate-700">
-                Enter the official <b>{recordPanel}</b> Record# when you have it. If left blank, the app creates a temporary internal Record# so the secure client link is not delayed.
-              </p>
-            )}
-            <label className="mt-3 block">
-              <span className="label">Record#{recordMode === "lookup" ? " *" : " (optional)"}</span>
-              <input className="input" id="new-intake-recordNumber" name="recordNumber" value={form.recordNumber || ""}
-                onChange={(e) => {
-                  setRecordNumberWasGenerated(false);
-                  setForm((current) => ({ ...current, recordNumber: e.target.value }));
-                }}
-                placeholder={recordMode === "lookup" ? "Enter the official lookup Record#" : recordMode === "manual" ? "Enter official or leave blank for a temporary number" : "Generate, type, or leave blank"} />
-            </label>
-            {recordGeneratorNote && <p className="mt-2 text-sm font-semibold text-brand">{recordGeneratorNote}</p>}
-          </div>
-          <div id="new-intake-optional" className="scroll-mt-28 mt-4 rounded-xl border border-slate-200 bg-white p-4">
-            <h3 className="font-bold text-slate-900">NC Tracks</h3>
-            <p className="mt-1 text-sm text-slate-600">
-              Upload a card or open NC Tracks if you already have it. Paste stays at the top of this page.
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="NC Tracks starter options">
-              {([
-                ["upload", "Upload"],
-                ["howto", "How it works"],
-                ["nctracks", "Open NC Tracks"],
-              ] as const).map(([key, label]) => (
-                <button
-                  key={key}
-                  id={`nctracks-tab-${key}`}
-                  type="button"
-                  role="tab"
-                  aria-selected={ncTracksTab === key}
-                  aria-controls="nctracks-tabpanel"
-                  tabIndex={ncTracksTab === key ? 0 : -1}
-                  onClick={() => selectNcTracksTab(key)}
-                  className={`min-h-11 rounded-full px-3 py-2 text-sm font-semibold ${
-                    ncTracksTab === key ? "bg-brand text-white" : "bg-white text-slate-600 hover:bg-slate-100"
-                  }`}
-                >
-                  {label}
-                </button>
-              ))}
-            </div>
-            <div id="nctracks-tabpanel" role="tabpanel" aria-labelledby={`nctracks-tab-${ncTracksTab}`}>
-            {ncTracksTab === "upload" && (
-              <div className="mt-4 rounded-lg border border-dashed border-slate-300 bg-slate-50 p-4">
-                <label className="btn-primary inline-flex cursor-pointer items-center justify-center px-4 py-2">
-                  {ncTracksFile ? "Replace NC Tracks file" : "Choose NC Tracks screenshot / card / PDF"}
-                  <input
-                    type="file"
-                    className="hidden"
-                    accept="application/pdf,image/*"
-                    onChange={(e) => setNcTracksFile(e.target.files?.[0] || null)}
-                  />
-                </label>
-                <p className="mt-2 text-sm text-slate-600">
-                  Upload a screenshot, photo, or PDF from Downloads. After the intake is created, the app
-                  scans it and fills MID, PCP, Medicaid plan, and other matching helper fields.
-                </p>
-                {ncTracksFile && <p className="mt-2 text-sm font-semibold text-slate-700">{ncTracksFile.name}</p>}
-              </div>
-            )}
-            {ncTracksTab === "howto" && (
-              <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
-                The app cannot safely read another signed-in browser tab by itself. The good workflows are:
-                paste quick notes at the top of this page, upload a card / PDF to scan, or open NC Tracks in a new tab.
-              </div>
-            )}
-            {ncTracksTab === "nctracks" && (
-              <div className="mt-4 rounded-lg bg-slate-50 p-4 text-sm text-slate-600">
-                NC Tracks opens in a new tab. Copy Recipient ID, PCP, and plan details back to Paste at the top, or upload a screenshot.
-                <div className="mt-3">
-                  <a className="btn-secondary px-3 py-1.5 text-sm" href="https://www.nctracks.nc.gov/" target="_blank" rel="noreferrer">
-                    Open NC Tracks again
-                  </a>
-                </div>
-              </div>
-            )}
             </div>
           </div>
         </details>

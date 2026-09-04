@@ -1899,6 +1899,36 @@ async function main() {
   assert.equal(recordNumberMode(""), "");
   ok("single insurance dropdown groups every plan and matches the Record# rules");
 
+  {
+    const createSrc = fs.readFileSync(path.join(process.cwd(), "src/app/intakes/new/page.tsx"), "utf8");
+    const recordCard = createSrc.indexOf('id="new-intake-record"');
+    const nctracksCard = createSrc.indexOf('id="new-intake-nctracks"');
+    const nctracksTabs = createSrc.indexOf("NC Tracks starter options");
+    const detailsStart = createSrc.indexOf('id="new-intake-details"');
+    const advancedStart = createSrc.indexOf('id="new-intake-advanced"');
+    const qrOption = createSrc.includes("Show QR code for the secure link");
+    assert(recordCard >= 0, "Record# card must exist on Create New Intake");
+    assert(nctracksCard >= 0 && nctracksTabs >= 0, "NC Tracks card and Upload / How it works / Open NC Tracks tabs must exist");
+    assert(createSrc.includes('id={`nctracks-tab-${key}`}'), "NC Tracks tabs keep the existing tab ids");
+    assert(createSrc.includes("/api/intakes/${intakeId}/nctracks-upload"), "NC Tracks file still uploads after create");
+    assert(detailsStart >= 0, "Details accordion stays on the create page");
+    assert(recordCard < detailsStart, "Record# must be on the home screen, not inside Details");
+    assert(nctracksCard < detailsStart, "NC Tracks must be on the home screen, not inside Details");
+    assert.equal(advancedStart, -1, "Advanced accordion is gone so Record# / NC Tracks are not buried");
+    assert.equal(createSrc.split('id="new-intake-recordNumber"').length - 1, 1, "exactly one Record# input");
+    assert(qrOption, "create page must include a QR option on the home screen");
+    assert(createSrc.includes("data-testid=\"create-intake-qr\""), "post-create QR panel is marked for the create success screen");
+    assert(!createSrc.includes("showQrAfterCreate && result.publicLinkReady !== false"), "QR still renders for a local workspace link");
+    assert(createSrc.includes("QrCodeSvg"), "QR is rendered with the client-side QrCodeSvg helper");
+    assert(!/api\.qrserver|chart\.googleapis|qrcode\.tec-it|qrtag/i.test(createSrc), "must not leak the token URL to an external QR image API");
+    assert(createSrc.includes("const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false)"), "sendSmsAfterCreate remains opt-in");
+    assert(createSrc.includes("Fast Intake"), "Fast Intake stays on the create page");
+    assert(createSrc.includes("Homeless / no fixed address"), "homeless explicit checkbox stays on the home screen");
+    const qrGate = createSrc.includes("sendSmsAfterCreate || showQrAfterCreate");
+    assert(qrGate, "showing/sharing the QR still requires the insurance plan, same as SMS");
+    ok("create page shows Record#, NC Tracks, and QR on the home screen");
+  }
+
   // Lookup-only plans must point staff at a real provider-portal sign-in, never a
   // public provider directory (the old links opened "find a provider" pages).
   const expectedLookupPortals = new Map([
