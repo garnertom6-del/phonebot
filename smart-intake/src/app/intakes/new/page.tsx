@@ -532,7 +532,7 @@ export default function NewIntake() {
             Saved under {providerName}. On the dashboard, this intake is in <b>Waiting on client</b> until the client submits it.
           </p>
           <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
-          {showQrAfterCreate && result.publicLinkReady !== false && (
+          {showQrAfterCreate && (
             <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/30 p-4" data-testid="create-intake-qr">
               {insuranceReady ? (
                 <>
@@ -544,6 +544,11 @@ export default function NewIntake() {
                   <div className="mx-auto mt-3 max-w-[240px]">
                     <QrCodeSvg value={result.clientLink} label="QR code that opens the client's secure intake form" />
                   </div>
+                  {result.publicLinkReady === false && (
+                    <p className="mt-3 text-sm font-semibold text-amber-900">
+                      This QR opens the local workspace link shown above. Do not have a remote client scan it.
+                    </p>
+                  )}
                 </>
               ) : (
                 <p className="text-sm font-semibold text-amber-950" role="alert">
