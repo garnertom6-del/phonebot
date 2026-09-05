@@ -48,7 +48,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
   const uniquePart = `${Date.now()}-${crypto.randomUUID()}`;
   const stagedRel = `uploads/.staging/${intake.id}-${uniquePart}-${safeName}`;
   const rel = `uploads/${intake.id}/${docType}-${uniquePart}-${safeName}`;
-  saveFile(stagedRel, Buffer.from(await file.arrayBuffer()));
+  try {
+    saveFile(stagedRel, Buffer.from(await file.arrayBuffer()));
+  } catch (error) {
+    // A full or unmounted storage disk otherwise surfaces as a blank 500 and
+    // the client can only say "failed". Name the cause in the server log.
+    console.error("[upload] could not write the file to storage", error);
+    return NextResponse.json({
+      error: "The server could not save this file (document storage is unavailable). Tell your provider - nothing was lost on your end.",
+    }, { status: 507 });
+  }
   let moved = false;
   try {
     await prisma.$transaction(async (tx) => {
@@ -73,7 +82,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
         error: "This intake was submitted while the document was uploading. The signed record was not changed.",
       }, { status: 409 });
     }
-    throw error;
+    console.error("[upload] could not record the document", error);
+    return NextResponse.json({
+      error: "The server could not record this document. Please try again, and tell your provider if it keeps failing.",
+    }, { status: 500 });
   }
   await audit("document_uploaded", {
     providerId: intake.providerId || undefined,

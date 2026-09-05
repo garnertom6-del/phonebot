@@ -28,6 +28,14 @@ const UPLOAD_TYPES = [
   ["standing_orders", "Physician standing orders"],
 ] as const;
 
+/** Green only for a real success - a failure must not read as "saved". */
+function uploadStatusTone(status?: string): string {
+  if (!status) return "text-slate-500";
+  if (status.startsWith("Uploaded:")) return "text-emerald-600";
+  if (status === "Uploading...") return "text-slate-500";
+  return "text-red-600";
+}
+
 export default function ClientQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string;
   initialAnswers: Answers; initialStatus: string;
@@ -218,12 +226,27 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
     else setError((await res.json()).error || "Signature failed");
   }
 
-  async function upload(docType: string, file: File) {
+  async function upload(docType: string, file: File, input: HTMLInputElement) {
     const fd = new FormData();
     fd.set("file", file); fd.set("docType", docType);
     setUploadStatus((s) => ({ ...s, [docType]: "Uploading..." }));
-    const res = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
-    setUploadStatus((s) => ({ ...s, [docType]: res.ok ? `Uploaded: ${file.name}` : "Upload failed" }));
+    try {
+      const res = await fetch(`/api/intake/${token}/upload`, { method: "POST", body: fd });
+      // Show the server's reason ("link expired", "file too large", ...) instead of
+      // a bare "Upload failed" the client cannot act on.
+      const body = await res.json().catch(() => ({} as { error?: string }));
+      setUploadStatus((s) => ({
+        ...s,
+        [docType]: res.ok
+          ? `Uploaded: ${file.name}`
+          : body.error || `Upload failed (error ${res.status}). Please try again.`,
+      }));
+    } catch {
+      setUploadStatus((s) => ({ ...s, [docType]: "Connection problem. Check your signal and try again." }));
+    } finally {
+      // Let the same file be picked again after a failed upload.
+      input.value = "";
+    }
   }
 
   const answeredCount = useMemo(() => {
@@ -283,11 +306,14 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
                 <div key={type} className="flex items-center justify-between gap-2 text-sm">
                   <span>{label}</span>
                   <span className="flex items-center gap-2">
-                    <span className="text-xs text-emerald-600">{uploadStatus[type]}</span>
+                    <span className={`text-xs ${uploadStatusTone(uploadStatus[type])}`}>{uploadStatus[type]}</span>
                     <label className="btn-ghost cursor-pointer px-2 py-1 text-xs">
                       Upload
                       <input type="file" className="hidden" accept="image/*,.pdf"
-                        onChange={(e) => e.target.files?.[0] && upload(type, e.target.files[0])} />
+                        onChange={(e) => {
+                          const file = e.currentTarget.files?.[0];
+                          if (file) void upload(type, file, e.currentTarget);
+                        }} />
                     </label>
                   </span>
                 </div>
