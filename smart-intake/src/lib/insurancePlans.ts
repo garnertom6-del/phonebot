@@ -226,10 +226,14 @@ export function staffInsurancePlanReady(answers: Record<string, unknown> | null 
 }
 
 export const INSURANCE_BEFORE_SMS_MESSAGE =
-  "Fill the type of insurance / MCO / Medicaid plan before the SMS goes out. Staff sets the plan in back-office setup. Do not send the client link until the plan is filled.";
+  "Choose the type of insurance / MCO / Medicaid plan before sharing the client link. Staff sets the plan in back-office setup.";
 
 export const FILL_INSURANCE_NEXT_STEP =
-  "Open Type of insurance, pick the plan / MCO, save, then send.";
+  "Open Type of insurance, pick the plan / MCO, then send or show the QR.";
+
+/** One create-page alert — covers SMS and QR without repeating the long SMS lecture. */
+export const INSURANCE_BEFORE_CREATE_SHARE_MESSAGE =
+  "Choose the insurance / MCO / Medicaid plan before you text or show a QR. Staff sets the plan here.";
 
 /** Staff-facing block reason, or null when SMS/copy/open/I-sent may fire. */
 export function insuranceSmsBlockReason(

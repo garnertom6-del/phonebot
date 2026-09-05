@@ -1,10 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import {
   EDUCATION_OPTIONS,
   EMPLOYMENT_STATUS_OPTIONS,
@@ -25,7 +24,7 @@ import {
   extractedNoteFieldState,
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness, newIntakeCreateLabel } from "@/lib/newIntakeReadiness";
+import { buildNewIntakeReadiness, newIntakeCreateLabel, newIntakeQrCreateLabel } from "@/lib/newIntakeReadiness";
 import {
   DEFAULT_INTAKE_STATE,
   canOfferCompletedPacketEmail,
@@ -102,7 +101,6 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
 }
 
 export default function NewIntake() {
-  const router = useRouter();
   // Leave the date blank during prerender. The mount effect below fills the
   // browser's current local date so a deployment never freezes this default.
   const [form, setForm] = useState<Record<string, string>>({ intakeDate: "", addressState: DEFAULT_INTAKE_STATE });
@@ -121,7 +119,6 @@ export default function NewIntake() {
   const [sendStatus, setSendStatus] = useState("");
   const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
   const [sendBusy, setSendBusy] = useState(false);
-  const [redirecting, setRedirecting] = useState(false);
   const [ncTracksTab, setNcTracksTab] = useState<NcTracksTab>("upload");
   const [helperNotes, setHelperNotes] = useState("");
   const [quickAnswers, setQuickAnswers] = useState<Record<string, string>>({});
@@ -144,6 +141,8 @@ export default function NewIntake() {
   const [packetContextError, setPacketContextError] = useState("");
   const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false);
   const [showQrAfterCreate, setShowQrAfterCreate] = useState(false);
+  const [createIntent, setCreateIntent] = useState<"create" | "qr">("create");
+  const createIntentRef = useRef<"create" | "qr">("create");
   // "Today" for the date pickers must be computed in the browser: this page is
   // pre-rendered once at build time, so a date computed inside the JSX freezes
   // at the deploy date (the DOB picker was stuck on the last deploy's date).
@@ -367,6 +366,8 @@ export default function NewIntake() {
     }
   }
 
+  // Stay on the create success screen after SMS. Never router.replace here —
+  // a visible QR must not be stolen, and staff tap Done — dashboard themselves.
   async function sendCreatedLink(intakeId: string) {
     if (!recordPanel.trim()) {
       setSendStatusKind("error");
@@ -393,10 +394,8 @@ export default function NewIntake() {
         const flash = deliveryDashboardFlash(sent, failed);
         if (flash) {
           setSendStatusKind(flash.kind);
-          setSendStatus(`${parts.join(" | ")} Returning to the dashboard...`);
+          setSendStatus(parts.join(" | ") || "Link sent.");
           storeDashboardFlash(flash);
-          setRedirecting(true);
-          window.setTimeout(() => router.replace(createdIntakeDashboardHref(intakeId, providerId)), 700);
         } else {
           setSendStatusKind("error");
           setSendStatus(parts.length ? parts.join(" | ") : "No message was accepted. Check the saved phone number or email and try again.");
@@ -425,6 +424,21 @@ export default function NewIntake() {
     window.setTimeout(() => target?.focus({ preventScroll: true }), 250);
   }
 
+  function setIntent(intent: "create" | "qr") {
+    createIntentRef.current = intent;
+    setCreateIntent(intent);
+    if (intent === "qr") setShowQrAfterCreate(true);
+  }
+
+  function startCreate(intent: "create" | "qr") {
+    setIntent(intent);
+    if (!intakeReadiness.ready) {
+      focusFirstMissing();
+      return;
+    }
+    formRef.current?.requestSubmit();
+  }
+
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const nextForm = readFieldValues(e.currentTarget, form);
@@ -438,9 +452,12 @@ export default function NewIntake() {
       window.setTimeout(focusFirstMissing, 0);
       return;
     }
-    if ((sendSmsAfterCreate || showQrAfterCreate) && !recordPanel.trim()) {
+    const wantQr = createIntentRef.current === "qr" || showQrAfterCreate;
+    const requiresInsuranceForShare = sendSmsAfterCreate || wantQr;
+    if (requiresInsuranceForShare && !recordPanel.trim()) {
       setForm((current) => ({ ...current, ...nextForm }));
-      setError(`${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`);
+      setShowQrAfterCreate(wantQr);
+      setError(INSURANCE_BEFORE_CREATE_SHARE_MESSAGE);
       window.setTimeout(() => {
         document.getElementById("new-intake-record-panel")?.scrollIntoView({ behavior: "smooth", block: "center" });
         (document.getElementById("new-intake-record-panel") as HTMLElement | null)?.focus();
@@ -489,6 +506,7 @@ export default function NewIntake() {
       if (res.ok) {
         const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean };
         await applyStarterInfo(created.id);
+        setShowQrAfterCreate(wantQr);
         setResult(created);
         if (assigned.phone && sendSmsAfterCreate && created.publicLinkReady !== false) {
           await sendCreatedLink(created.id);
@@ -531,32 +549,37 @@ export default function NewIntake() {
           <p className="mt-3 rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm font-semibold text-emerald-800" role="status">
             Saved under {providerName}. On the dashboard, this intake is in <b>Waiting on client</b> until the client submits it.
           </p>
-          <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
           {showQrAfterCreate && (
-            <div className="mt-4 rounded-xl border border-brand/20 bg-brand-light/30 p-4" data-testid="create-intake-qr">
+            <div className="mt-4 rounded-xl border-2 border-brand/30 bg-brand-light/40 p-5" data-testid="create-intake-qr">
               {insuranceReady ? (
                 <>
-                  <h2 className="font-bold text-slate-900">QR code for the secure link</h2>
+                  <h2 className="text-lg font-bold text-slate-900">Scan to open the secure intake</h2>
                   <p className="mt-1 text-sm text-slate-600">
-                    Turn the screen toward the client. Their phone camera opens the intake — no text required.
+                    Turn the screen toward the client. Their phone camera opens the form — no text required.
                     You can still send SMS from this page if the number is confirmed.
                   </p>
-                  <div className="mx-auto mt-3 max-w-[240px]">
-                    <QrCodeSvg value={result.clientLink} label="QR code that opens the client's secure intake form" />
+                  <div className="mx-auto mt-4 w-full max-w-[320px]">
+                    <QrCodeSvg
+                      value={result.clientLink}
+                      label="QR code that opens the client's secure intake form"
+                      className="aspect-square w-full rounded-xl border border-slate-200 bg-white p-3 text-slate-900"
+                    />
                   </div>
+                  <p className="mt-3 text-center text-sm font-semibold text-slate-800">Secure client link QR</p>
                   {result.publicLinkReady === false && (
                     <p className="mt-3 text-sm font-semibold text-amber-900">
-                      This QR opens the local workspace link shown above. Do not have a remote client scan it.
+                      This QR opens the local workspace link shown below. Do not have a remote client scan it.
                     </p>
                   )}
                 </>
               ) : (
                 <p className="text-sm font-semibold text-amber-950" role="alert">
-                  {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
+                  {INSURANCE_BEFORE_CREATE_SHARE_MESSAGE}
                 </p>
               )}
             </div>
           )}
+          <div className="mt-3 break-all rounded-lg bg-slate-100 p-3 font-mono text-sm">{result.clientLink}</div>
           {result.publicLinkReady === false ? (
             <div className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900">
               <p className="font-semibold">Local workspace only</p>
@@ -578,17 +601,17 @@ export default function NewIntake() {
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
                 <button
                   className="btn-primary"
-                  disabled={sendBusy || redirecting || !hasContact || !insuranceReady}
+                  disabled={sendBusy || !hasContact || !insuranceReady}
                   onClick={() => { void sendCreatedLink(result.id); }}
                 >
-                  {redirecting ? "Returning to dashboard..." : sendBusy ? "Sending..." : !insuranceReady ? "Fill insurance first" : hasContact ? "Send to saved contacts" : "No saved contact"}
+                  {sendBusy ? "Sending..." : !insuranceReady ? "Fill insurance first" : hasContact ? "Send to saved contacts" : "No saved contact"}
                 </button>
                 <Link href={`/intakes/${result.id}`} className="btn-secondary text-center">
                   Open saved intake
                 </Link>
               </div>
               <Link href={savedIntakeDashboardHref} className="btn-ghost mt-3 block min-h-11 w-full px-4 py-3 text-center">
-                Dashboard — show this saved intake
+                Done — dashboard
               </Link>
               {!hasContact && (
                 <p className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">
@@ -653,10 +676,14 @@ export default function NewIntake() {
   }
 
   const submitLabel = newIntakeCreateLabel({
-    isCreating,
+    isCreating: isCreating && createIntent === "create",
     packetContextError: !!packetContextError,
     hasSmsPhone: !!smsPhone,
     sendSmsAfterCreate,
+  });
+  const qrSubmitLabel = newIntakeQrCreateLabel({
+    isCreating: isCreating && createIntent === "qr",
+    packetContextError: !!packetContextError,
   });
   const emptyExtracted = emptyExtractedNoteFields(extractedFields, noteFieldCurrentValue);
 
@@ -872,55 +899,26 @@ export default function NewIntake() {
                   <span>
                     I confirmed this mobile number and want to text the link immediately.
                     <span className="mt-1 block text-xs font-normal text-blue-900">
-                      Leave unchecked to create the intake without sending a text. Checking this changes the button to Create and text the link.
+                      Leave unchecked to create the intake without sending a text. Checking this changes the primary button to Create and text the link. SMS stays optional if you use Create and show QR.
                     </span>
                   </span>
                 </label>
-                {sendSmsAfterCreate && !recordPanel.trim() && (
-                  <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
-                    {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
-                    <button
-                      type="button"
-                      className="mt-2 block text-left font-bold text-brand underline"
-                      onClick={() => {
-                        window.setTimeout(() => document.getElementById("new-intake-record-panel")?.focus(), 0);
-                      }}
-                    >
-                      Fill the insurance plan
-                    </button>
-                  </p>
-                )}
               </div>
             )}
-            <div id="new-intake-qr" className="mt-3 rounded-lg border border-slate-200 bg-white p-3">
-              <label className="flex min-h-11 items-start gap-3 font-semibold text-slate-900">
-                <input
-                  type="checkbox"
-                  className="mt-0.5 h-5 w-5 shrink-0"
-                  checked={showQrAfterCreate}
-                  onChange={(event) => setShowQrAfterCreate(event.target.checked)}
-                />
-                <span>
-                  Show QR code for the secure link
-                  <span className="mt-1 block text-xs font-normal text-slate-600">
-                    Optional. After you create the intake, a scannable QR appears so the client can open the link on their phone instead of (or in addition to) SMS.
-                  </span>
-                </span>
-              </label>
-              {showQrAfterCreate && !recordPanel.trim() && (
-                <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="alert">
-                  {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
-                  <button
-                    type="button"
-                    className="mt-2 block text-left font-bold text-brand underline"
-                    onClick={() => {
-                      window.setTimeout(() => document.getElementById("new-intake-record-panel")?.focus(), 0);
-                    }}
-                  >
-                    Fill the insurance plan
-                  </button>
-                </p>
-              )}
+            <div id="new-intake-qr" className="mt-3 rounded-lg border border-brand/20 bg-white p-3">
+              <p className="font-semibold text-slate-900">QR for the secure link</p>
+              <p className="mt-1 text-sm text-slate-600">
+                Creates the intake and shows a scannable QR on this page. The client points their camera at it — no text required. SMS stays optional.
+              </p>
+              <button
+                type="button"
+                data-testid="create-and-show-qr"
+                className="btn-secondary mt-3 min-h-11 w-full disabled:cursor-not-allowed disabled:opacity-70"
+                disabled={isCreating || !!packetContextError}
+                onClick={() => startCreate("qr")}
+              >
+                {qrSubmitLabel}
+              </button>
             </div>
           </div>
         </div>
@@ -945,8 +943,8 @@ export default function NewIntake() {
             </select>
           </label>
           {!recordPanel.trim() && (
-            <p className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="status">
-              {INSURANCE_BEFORE_SMS_MESSAGE} {FILL_INSURANCE_NEXT_STEP}
+            <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="status">
+              {INSURANCE_BEFORE_CREATE_SHARE_MESSAGE}
             </p>
           )}
         </div>
@@ -1248,9 +1246,25 @@ export default function NewIntake() {
             )}
           </div>
         )}
-        <button type="submit" className="btn-primary mt-5 hidden min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70 sm:block" disabled={isCreating || !!packetContextError}>
-          {submitLabel}
-        </button>
+        <div className="mt-5 hidden gap-3 sm:grid sm:grid-cols-2">
+          <button
+            type="submit"
+            className="btn-primary min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={isCreating || !!packetContextError}
+            onClick={() => setIntent("create")}
+          >
+            {submitLabel}
+          </button>
+          <button
+            type="button"
+            data-testid="create-and-show-qr-footer"
+            className="btn-secondary min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70"
+            disabled={isCreating || !!packetContextError}
+            onClick={() => startCreate("qr")}
+          >
+            {qrSubmitLabel}
+          </button>
+        </div>
         {smsPhone && (
           <p className="mt-2 text-center text-xs text-slate-500">
             Uses cell {formatUsPhoneDisplay(smsPhone)} as the SMS destination.
@@ -1261,17 +1275,28 @@ export default function NewIntake() {
         className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur sm:hidden"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
       >
-        <div className="mx-auto flex max-w-xl items-center gap-3">
-          <span className="min-w-[64px] text-center text-xs font-bold text-slate-600" aria-live="polite">
-            {intakeReadiness.completedRequired}/{intakeReadiness.totalRequired}<br />ready
-          </span>
+        <div className="mx-auto flex max-w-xl flex-col gap-2">
+          <div className="flex items-center gap-3">
+            <span className="min-w-[64px] text-center text-xs font-bold text-slate-600" aria-live="polite">
+              {intakeReadiness.completedRequired}/{intakeReadiness.totalRequired}<br />ready
+            </span>
+            <button
+              type="button"
+              className="btn-primary min-h-12 flex-1 disabled:cursor-not-allowed disabled:opacity-70"
+              disabled={isCreating || !!packetContextError}
+              onClick={() => startCreate("create")}
+            >
+              {intakeReadiness.ready ? submitLabel : intakeReadiness.title}
+            </button>
+          </div>
           <button
             type="button"
-            className="btn-primary min-h-12 flex-1 disabled:cursor-not-allowed disabled:opacity-70"
+            data-testid="create-and-show-qr-mobile"
+            className="btn-secondary min-h-11 w-full disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isCreating || !!packetContextError}
-            onClick={() => intakeReadiness.ready ? formRef.current?.requestSubmit() : focusFirstMissing()}
+            onClick={() => startCreate("qr")}
           >
-            {intakeReadiness.ready ? submitLabel : intakeReadiness.title}
+            {qrSubmitLabel}
           </button>
         </div>
       </div>

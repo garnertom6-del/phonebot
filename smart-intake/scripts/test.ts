@@ -59,7 +59,7 @@ import {
   INVALID_CONTACT_MESSAGE,
 } from "../src/lib/intakeContacts";
 import { emptyExtractedNoteFields, extractIntakeNoteFields, extractedNoteFieldState, parseHelperNotes } from "../src/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness, newIntakeCreateLabel } from "../src/lib/newIntakeReadiness";
+import { buildNewIntakeReadiness, newIntakeCreateLabel, newIntakeQrCreateLabel } from "../src/lib/newIntakeReadiness";
 import {
   canOfferCompletedPacketEmail,
   defaultIntakeLocation,
@@ -78,7 +78,7 @@ import { isQuickIntakeQuestion, questionByKey, questionCatalogId, SECTIONS, ethn
 import { flattenVisible } from "../src/components/EasyQuestionnaire";
 import { easyClientSectionIntro } from "../src/config/easyLanguage";
 import { applySkippedClientPlaceholders, NONE_REPORTED_BY_CLIENT } from "../src/lib/answerDefaults";
-import { INSURANCE_BEFORE_SMS_MESSAGE, insuranceSmsBlockReason, staffInsurancePlanReady } from "../src/lib/insurancePlans";
+import { INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, insuranceSmsBlockReason, staffInsurancePlanReady } from "../src/lib/insurancePlans";
 import { evaluatePacketFreshness } from "../src/lib/packetFreshness";
 import { buildCompletionReadiness } from "../src/lib/completionReadiness";
 import { COPY_ALLOWED_STATUSES } from "../src/lib/completedCopies";
@@ -884,6 +884,10 @@ async function main() {
   assert.equal(newIntakeCreateLabel({ isCreating: true, hasSmsPhone: true, sendSmsAfterCreate: true }), "Creating and texting the link...");
   assert.equal(newIntakeCreateLabel({ packetContextError: true, hasSmsPhone: true, sendSmsAfterCreate: true }), "Sign in to create an intake");
   ok("create-intake primary button stays Create intake until staff checks the immediate-SMS box");
+  assert.equal(newIntakeQrCreateLabel({}), "Create and show QR");
+  assert.equal(newIntakeQrCreateLabel({ isCreating: true }), "Creating intake and QR...");
+  assert.equal(newIntakeQrCreateLabel({ packetContextError: true }), "Sign in to create an intake");
+  ok("create-intake QR action is a first-class Create and show QR path");
   const validCcaReview = JSON.stringify({
     sourceClinician: "Test Clinician",
     assessmentDate: "2026-08-28",
@@ -1906,7 +1910,7 @@ async function main() {
     const nctracksTabs = createSrc.indexOf("NC Tracks starter options");
     const detailsStart = createSrc.indexOf('id="new-intake-details"');
     const advancedStart = createSrc.indexOf('id="new-intake-advanced"');
-    const qrOption = createSrc.includes("Show QR code for the secure link");
+    const qrOption = createSrc.includes("Create and show QR");
     assert(recordCard >= 0, "Record# card must exist on Create New Intake");
     assert(nctracksCard >= 0 && nctracksTabs >= 0, "NC Tracks card and Upload / How it works / Open NC Tracks tabs must exist");
     assert(createSrc.includes('id={`nctracks-tab-${key}`}'), "NC Tracks tabs keep the existing tab ids");
@@ -1916,17 +1920,33 @@ async function main() {
     assert(nctracksCard < detailsStart, "NC Tracks must be on the home screen, not inside Details");
     assert.equal(advancedStart, -1, "Advanced accordion is gone so Record# / NC Tracks are not buried");
     assert.equal(createSrc.split('id="new-intake-recordNumber"').length - 1, 1, "exactly one Record# input");
-    assert(qrOption, "create page must include a QR option on the home screen");
+    assert(qrOption, "create page must include a Create and show QR action on the home screen");
+    assert(createSrc.includes("data-testid=\"create-and-show-qr\""), "home-screen QR action is a dedicated button");
+    assert(createSrc.includes("Creates the intake and shows a scannable QR on this page"), "QR helper describes the home-screen create-and-show path");
+    assert(!createSrc.includes("After you create the intake, a scannable QR appears"), "old post-create-only QR helper copy is gone");
+    assert(!createSrc.includes("Show QR code for the secure link"), "QR is a create action, not a buried after-create checkbox");
     assert(createSrc.includes("data-testid=\"create-intake-qr\""), "post-create QR panel is marked for the create success screen");
+    assert(createSrc.includes("Scan to open the secure intake"), "success QR is labeled for the client to scan now");
     assert(!createSrc.includes("showQrAfterCreate && result.publicLinkReady !== false"), "QR still renders for a local workspace link");
     assert(createSrc.includes("QrCodeSvg"), "QR is rendered with the client-side QrCodeSvg helper");
     assert(!/api\.qrserver|chart\.googleapis|qrcode\.tec-it|qrtag/i.test(createSrc), "must not leak the token URL to an external QR image API");
     assert(createSrc.includes("const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false)"), "sendSmsAfterCreate remains opt-in");
     assert(createSrc.includes("Fast Intake"), "Fast Intake stays on the create page");
     assert(createSrc.includes("Homeless / no fixed address"), "homeless explicit checkbox stays on the home screen");
-    const qrGate = createSrc.includes("sendSmsAfterCreate || showQrAfterCreate");
-    assert(qrGate, "showing/sharing the QR still requires the insurance plan, same as SMS");
-    ok("create page shows Record#, NC Tracks, and QR on the home screen");
+    assert(createSrc.includes("sendSmsAfterCreate || wantQr"), "showing/sharing the QR still requires the insurance plan, same as SMS");
+    assert(createSrc.includes("INSURANCE_BEFORE_CREATE_SHARE_MESSAGE"), "create page uses one softened insurance-before-share alert");
+    assert(!createSrc.includes("sendSmsAfterCreate && !recordPanel.trim()"), "SMS checkbox does not repeat the insurance warning");
+    assert(!createSrc.includes("showQrAfterCreate && !recordPanel.trim()"), "QR checkbox does not repeat the insurance warning");
+    assert.equal(
+      createSrc.split("Fill the insurance plan").length - 1,
+      0,
+      "insurance warning is not triplicated with Fill the insurance plan jumps under SMS and QR",
+    );
+    assert(!createSrc.includes("router.replace"), "create success never auto-redirects to the dashboard");
+    assert(!createSrc.includes("Returning to the dashboard"), "SMS success stays on the create success screen");
+    assert(!createSrc.includes("setRedirecting"), "post-create SMS does not start a dashboard redirect");
+    assert(createSrc.includes("Done — dashboard"), "staff leave the success screen with an explicit Dashboard / Done link");
+    ok("create page shows Record#, NC Tracks, and a home-screen Create and show QR action");
   }
 
   // Lookup-only plans must point staff at a real provider-portal sign-in, never a
@@ -2508,6 +2528,9 @@ async function main() {
     assert(staffInsurancePlanReady({}) === false);
     assert.equal(staffInsurancePlanReady({ provider_choice_plan: "Healthy Blue" }), true);
     assert(INSURANCE_BEFORE_SMS_MESSAGE.toLowerCase().includes("insurance"));
+    assert(INSURANCE_BEFORE_CREATE_SHARE_MESSAGE.toLowerCase().includes("insurance"));
+    assert(INSURANCE_BEFORE_CREATE_SHARE_MESSAGE.toLowerCase().includes("qr"));
+    assert(!INSURANCE_BEFORE_SMS_MESSAGE.toLowerCase().includes("do not send the client link until the plan is filled"));
     const smsGateEmpty = insuranceSmsBlockReason({});
     assert(smsGateEmpty);
     assert.equal(!!smsGateEmpty, true, "computer SMS, Twilio send, and I-sent-this stay blocked until a plan is filled");

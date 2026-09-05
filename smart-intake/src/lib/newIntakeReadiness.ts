@@ -64,3 +64,13 @@ export function newIntakeCreateLabel(input: {
   if (input.packetContextError) return "Sign in to create an intake";
   return textNow ? "Create and text the link" : "Create intake";
 }
+
+/** Secondary home-screen action: create the intake and show a scannable QR. */
+export function newIntakeQrCreateLabel(input: {
+  isCreating?: boolean;
+  packetContextError?: boolean;
+}): string {
+  if (input.isCreating) return "Creating intake and QR...";
+  if (input.packetContextError) return "Sign in to create an intake";
+  return "Create and show QR";
+}
