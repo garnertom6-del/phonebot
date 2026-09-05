@@ -366,7 +366,7 @@ export default function NewIntake() {
     }
   }
 
-  // Stay on the create success screen after SMS. Never router.replace here —
+  // Stay on the create success screen after SMS. Do not navigate away —
   // a visible QR must not be stolen, and staff tap Done — dashboard themselves.
   async function sendCreatedLink(intakeId: string) {
     if (!recordPanel.trim()) {

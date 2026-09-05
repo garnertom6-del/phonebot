@@ -1942,7 +1942,15 @@ async function main() {
       0,
       "insurance warning is not triplicated with Fill the insurance plan jumps under SMS and QR",
     );
-    assert(!createSrc.includes("router.replace"), "create success never auto-redirects to the dashboard");
+    const sendCreatedStart = createSrc.indexOf("async function sendCreatedLink");
+    const sendCreatedEnd = createSrc.indexOf("function focusFirstMissing");
+    const sendCreatedSrc = sendCreatedStart >= 0 && sendCreatedEnd > sendCreatedStart
+      ? createSrc.slice(sendCreatedStart, sendCreatedEnd)
+      : "";
+    assert(sendCreatedSrc.length > 0, "sendCreatedLink must still exist for optional post-create SMS");
+    assert(!sendCreatedSrc.includes("router.replace("), "sendCreatedLink must not router.replace after SMS when QR may be on screen");
+    assert(!sendCreatedSrc.includes("createdIntakeDashboardHref"), "sendCreatedLink must not navigate to the dashboard after SMS");
+    assert(!createSrc.includes("router.replace("), "create success never auto-redirects to the dashboard");
     assert(!createSrc.includes("Returning to the dashboard"), "SMS success stays on the create success screen");
     assert(!createSrc.includes("setRedirecting"), "post-create SMS does not start a dashboard redirect");
     assert(createSrc.includes("Done — dashboard"), "staff leave the success screen with an explicit Dashboard / Done link");
