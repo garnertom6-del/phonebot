@@ -22,6 +22,8 @@ SKILL = R.SKILL
 UNVERIFIED = ("DRAFT - the CARF section map behind this document has NOT been checked "
               "against the purchased manual. Set manual_verified: true before use.")
 
+DATE_OFFENDERS = []
+
 AREA_ORDER = ["1.A", "1.B", "1.C", "1.D", "1.E", "1.F", "1.G", "1.H", "1.I", "1.J",
               "1.K", "1.L", "1.M", "1.N", "2.A", "2.B", "2.C", "2.D", "2.E", "2.F",
               "2.G", "2.H", "3.CI", "3.PEER"]
@@ -89,6 +91,24 @@ class Sink:
 
 def sub(text, tk):
     return R.substitute(text, tk)
+
+
+DATE_RE = __import__("re").compile(
+    r"\b(\d{4}-\d{1,2}-\d{1,2}|\d{1,2}/\d{1,2}/\d{2,4}|"
+    r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+\d{1,2},\s*\d{4})\b")
+
+
+def assert_blank_dates(body, label, offenders):
+    """A form or plan must never ship with a date already written in it.
+
+    Every date on a form is something a person fills in when the thing actually
+    happens. A pre-printed date is either wrong or an invitation to sign off on
+    an event that did not occur, so the build refuses to produce one. Scores and
+    ratings ship blank for the same reason - see SKILL.md.
+    """
+    for m in DATE_RE.finditer(body):
+        offenders.append((label, m.group(0), body[max(0, m.start() - 60):m.end() + 20]
+                          .replace("\n", " ").strip()))
 
 
 def load(kind, name, tk):
@@ -201,6 +221,7 @@ def build_plans(s, tk, verified):
     for pid in PLAN_ORDER:
         meta = metas[pid]
         _, body = load("plans", pid, tk)
+        assert_blank_dates(body, f"plan {pid}", DATE_OFFENDERS)
         s.heading(sub(meta.get("title", pid), tk), 1)
         s.table([["CARF area", "Review cycle", "Approved by"],
                        [meta.get("area", ""), meta.get("cycle", ""),
@@ -242,6 +263,7 @@ def build_forms(s, tk, smap, verified):
     for fid in names:
         meta = metas[fid]
         _, body = load("forms", fid, tk)
+        assert_blank_dates(body, f"form {fid}", DATE_OFFENDERS)
         s.heading(sub(meta.get("title", fid), tk), 1)
         s.table([["CARF area", "Who completes it", "When", "Filed in"],
                        [meta.get("area", ""), sub(meta.get("who", ""), tk),
@@ -558,6 +580,17 @@ and you have found it before the surveyor did.
 
 ---
 
+## About the blanks on the forms
+
+Every form in this packet ships with **no dates and no scores filled in**. That is
+deliberate. A date printed on a form is either wrong, or it invites someone to sign off
+on something that did not happen that day — and that is how a paperwork gap turns into a
+falsified record. Fill each date in when the thing actually happens, in the hand of the
+person who did it.
+
+The only dates already written down are in the workbook's check-off list and calendar,
+and those say when something is **due**. They never claim it was done.
+
 ## The one rule that matters more than all of this
 
 **Never write a date for something that did not happen, and never enter a number you cannot
@@ -645,6 +678,20 @@ def main():
             except Exception as e:
                 print(f"  ! {kind.upper()} failed for {name}: {e}")
         print(f"  wrote {name}.docx + .pdf")
+
+    if DATE_OFFENDERS:
+        print("\nPRE-FILLED DATE GUARD — build refused.\n")
+        print("  A form or plan carries a date that is already written in. Every date on a")
+        print("  form belongs to the person who fills it when the thing actually happens.\n")
+        seen = set()
+        for label, found, ctx in DATE_OFFENDERS:
+            if (label, found) in seen:
+                continue
+            seen.add((label, found))
+            print(f"  - {label}: \"{found}\"")
+            print(f"      ...{ctx}...")
+        print("\n  Replace it with a blank line (Date: ____________) or a [DATE] prompt.")
+        sys.exit(3)
 
     xlsx = os.path.join(outdir, "05_Self_Study_Checklist.xlsx")
     build_checklist(xlsx, tk, smap)

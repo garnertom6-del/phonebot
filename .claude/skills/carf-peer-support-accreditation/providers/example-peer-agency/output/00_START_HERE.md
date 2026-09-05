@@ -99,6 +99,17 @@ and you have found it before the surveyor did.
 
 ---
 
+## About the blanks on the forms
+
+Every form in this packet ships with **no dates and no scores filled in**. That is
+deliberate. A date printed on a form is either wrong, or it invites someone to sign off
+on something that did not happen that day — and that is how a paperwork gap turns into a
+falsified record. Fill each date in when the thing actually happens, in the hand of the
+person who did it.
+
+The only dates already written down are in the workbook's check-off list and calendar,
+and those say when something is **due**. They never claim it was done.
+
 ## The one rule that matters more than all of this
 
 **Never write a date for something that did not happen, and never enter a number you cannot

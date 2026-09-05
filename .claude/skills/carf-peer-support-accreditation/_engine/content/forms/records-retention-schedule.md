@@ -33,3 +33,9 @@ file: Compliance file
 | | | | | | | |
 
 **If {{AGENCY}} closes:** custodian of records will be ______________________, located at ______________________, and persons served will be notified by ____________. Documented before closure.
+
+---
+
+Completed by: ______________________  Signature: ______________________  Date: ____________
+
+Reviewed by: ______________________  Signature: ______________________  Date: ____________

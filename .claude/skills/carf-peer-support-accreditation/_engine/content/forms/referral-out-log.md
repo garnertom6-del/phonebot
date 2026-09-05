@@ -27,3 +27,9 @@ Quarter: ________  Total not accepted: ________
 
 Pattern suggesting a barrier or a service gap: ______________________________
 Reported to leadership on: ____________  Action: ____________
+
+---
+
+Completed by: ______________________  Signature: ______________________  Date: ____________
+
+Reviewed by: ______________________  Signature: ______________________  Date: ____________

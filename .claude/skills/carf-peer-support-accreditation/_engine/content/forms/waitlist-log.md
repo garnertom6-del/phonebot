@@ -17,3 +17,9 @@ file: Program file
 Month: ________  On list at month end: ________  Mean days waiting: ________  Longest wait: ________
 Removed without service: ________  Reasons: ______________________________
 Reported under measure A4 on: ____________
+
+---
+
+Completed by: ______________________  Signature: ______________________  Date: ____________
+
+Reviewed by: ______________________  Signature: ______________________  Date: ____________

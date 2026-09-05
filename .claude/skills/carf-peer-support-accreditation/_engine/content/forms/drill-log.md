@@ -20,3 +20,9 @@ file: Safety file
 
 Types drilled this year: ______________________________________________
 Types NOT yet drilled: _______________________________________________  Scheduled for: ____________
+
+---
+
+Completed by: ______________________  Signature: ______________________  Date: ____________
+
+Reviewed by: ______________________  Signature: ______________________  Date: ____________

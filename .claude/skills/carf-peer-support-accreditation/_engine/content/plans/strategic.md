@@ -40,7 +40,7 @@ Every goal needs a measurable objective, a named position, a date, and a resourc
 
 | # | Goal | Measurable objective | Responsible position | Target date | Resources needed |
 |---|---|---|---|---|---|
-| 1 | Achieve CARF accreditation for {{PROGRAM_NAME}} | Survey completed and accreditation awarded | {{CEO_TITLE}} | {{SURVEY_TARGET}} | Consultant, staff time, manual purchase, survey fee |
+| 1 | Achieve CARF accreditation for {{PROGRAM_NAME}} | Survey completed and accreditation awarded | {{CEO_TITLE}} | [DATE] | Consultant, staff time, manual purchase, survey fee |
 | 2 | [GOAL] | [OBJECTIVE WITH A NUMBER] | [POSITION] | [DATE] | [RESOURCES] |
 | 3 | [GOAL] | [OBJECTIVE WITH A NUMBER] | [POSITION] | [DATE] | [RESOURCES] |
 | 4 | [GOAL] | [OBJECTIVE WITH A NUMBER] | [POSITION] | [DATE] | [RESOURCES] |

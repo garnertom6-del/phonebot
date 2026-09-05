@@ -35,3 +35,9 @@ You have the right to:
 **No one at {{AGENCY}} will punish you for complaining. That is a promise and it is a rule.**
 
 Ask us for this in another language or format any time.
+
+---
+
+Version date: ____________
+
+Given to: ______________________  Date given: ____________  Given by: ______________________  Credential: ________

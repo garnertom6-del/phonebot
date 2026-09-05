@@ -244,9 +244,39 @@ The five findings that most often bite (also in `00_START_HERE.md`):
 4. Training documented but competency never demonstrated (1.I)
 5. Findings identified but never verified as closed (2.H)
 
+## EVERY DATE AND EVERY SCORE SHIPS BLANK
+
+A form leaves this engine with **no date and no score already written in it**. Not the
+date it was generated, not the provider's target survey month, not a specimen rating.
+
+The reason is not tidiness. A date printed on a form is either wrong, or it is an
+invitation to sign off on something that did not happen on that day — and a signed form
+carrying a date nobody checked is exactly the artefact that turns a documentation gap
+into a falsified record. The same goes for a score: a rating scale with a value already
+in it is a suggestion, and a surveyor reading an identical rating down a column knows
+what happened.
+
+This is enforced, not trusted:
+
+- `assert_blank_dates()` scans every form and plan **after** token substitution and
+  **refuses the build** if any real date format (`2027-03-15`, `3/15/27`, `March 15, 2027`)
+  appears in the body. Exit code 3, with the offending form and the surrounding text.
+- Rating scales ship as header rows with empty cells. Totals, percentages and score
+  boxes ship as blank lines.
+- Dates that are *computed*, not filled — the due dates on the check-off list and the
+  compliance calendar — live in the workbook, never on a form. Those say when something
+  is **due**; they never assert that it was **done**.
+
+The only dates in a generated document are the build stamp in the footer and on the
+title page, which describe when the file was produced and are not fields anyone signs.
+
+When you add a form: write `Date: ____________`, never a date. When a plan needs a
+target date, write `[DATE]`. The guard will catch you if you forget.
+
 ## HOUSE RULES
 
 - **Never invent** a name, date, credential, licence number, or statistic. Blank it and log it.
+- **Never pre-fill a date or a score on a form.** See the section above. The build enforces it.
 - **Never enter data into the workbook on the provider's behalf**, and never let a report
   imply an event happened. A gap you can explain survives a survey; a fabricated drill date
   or satisfaction score is fraud, and it is the one thing that ends an agency. If a provider

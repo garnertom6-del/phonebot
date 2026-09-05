@@ -55,6 +55,19 @@ multiplying by `shifts` (drills are required on every shift), `sites` (quarterly
 plan per person). Each instance carries its due date, owner, the evidence that proves it,
 and a status of OVERDUE / due within 30 days / upcoming.
 
+## Every date and every score ships blank
+
+No form leaves the engine with a date or a rating already in it — not the build date, not
+the provider's target survey month, not a specimen score. A pre-printed date is either
+wrong or an invitation to sign off on something that did not happen that day.
+
+`assert_blank_dates()` scans every form and plan after token substitution and **refuses
+the build** (exit 3) if any real date format appears in the body, naming the form and
+showing the surrounding text. Rating scales ship as header rows with empty cells.
+
+Computed dates — the due dates on the check-off list and compliance calendar — live in
+the workbook only. They say when something is **due**; they never assert it was **done**.
+
 ## The three rules
 
 1. **No CARF text, ever.** The standards are copyrighted and sold by CARF. Nothing in
