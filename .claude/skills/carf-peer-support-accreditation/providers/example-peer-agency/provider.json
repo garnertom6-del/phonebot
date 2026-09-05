@@ -9,20 +9,26 @@
   "zip": "27401",
   "phone": "(336) 555-0100",
   "website": null,
-  "counties_served": ["Guilford", "Forsyth", "Alamance"],
-
+  "counties_served": [
+    "Guilford",
+    "Forsyth",
+    "Alamance"
+  ],
   "manual_year": "2026",
   "manual_verified": false,
-
-  "programs": ["community_integration"],
+  "programs": [
+    "community_integration"
+  ],
   "peer_delivered": true,
   "population": "adults",
-  "settings": ["office", "community", "home"],
-
+  "settings": [
+    "office",
+    "community",
+    "home"
+  ],
   "accreditation_type": "initial",
   "target_survey_month": "2027-06",
   "six_months_of_data_start": "2026-10-01",
-
   "ceo": null,
   "ceo_title": "Chief Executive Officer",
   "program_director": null,
@@ -32,19 +38,36 @@
   "privacy_officer": null,
   "compliance_officer": null,
   "governing_body": "Board of Directors",
-
   "state_peer_credential": "NC Certified Peer Support Specialist (NCCPSS)",
   "state_licensure": null,
-  "payers": ["NC Medicaid", "LME-MCO"],
+  "payers": [
+    "NC Medicaid",
+    "LME-MCO"
+  ],
   "ehr": null,
-
   "handles_sud_records": false,
   "administers_medication": false,
   "uses_restrictive_interventions": false,
   "provides_transportation": true,
   "uses_telehealth": false,
   "operates_vehicles": true,
-
   "effective_date": null,
-  "consultant": "Successful Solutions"
+  "consultant": "Successful Solutions",
+  "cycle_start": "2026-10-01",
+  "shifts": [
+    "Day shift",
+    "Evening shift"
+  ],
+  "sites": [
+    "Main office"
+  ],
+  "vehicles": [
+    "Van 1"
+  ],
+  "staff": [
+    {
+      "name": "[FILL IN]",
+      "role": "Peer Support Specialist"
+    }
+  ]
 }

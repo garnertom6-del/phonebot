@@ -175,6 +175,12 @@ def render_markdown(doc, md, base_level=1):
         i += 1
 
 
+def image(doc, path, width_in=6.6):
+    doc.add_picture(path, width=Inches(width_in))
+    doc.paragraphs[-1].alignment = WD_ALIGN_PARAGRAPH.CENTER
+    return doc.paragraphs[-1]
+
+
 def title_page(doc, agency, doc_title, subtitle, meta_lines, warning=None):
     for _ in range(4):
         doc.add_paragraph()

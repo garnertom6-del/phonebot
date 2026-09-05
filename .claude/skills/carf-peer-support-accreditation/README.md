@@ -6,20 +6,28 @@ One engine, many providers. **The only thing that changes per provider is one JS
 ## Quick start
 
 ```bash
-# 1. Create the provider record (or open PROVIDER_INTAKE_FORM.html and let them fill it in)
+# 1. Interview the provider (_engine/content/meta/intake-interview.md is the script),
+#    or hand them PROVIDER_INTAKE_FORM.html to fill in themselves.
 mkdir -p providers/my-client
 cp providers/EXAMPLE_provider.json providers/my-client/provider.json
 #    edit it
 
-# 2. Build
+# 2. Build the documents, the dated check-off list, and the empty data workbook
 python3 _engine/build_provider.py my-client
 
-# 3. Everything lands in providers/my-client/output/
-#    Read 00_START_HERE.md first, then BLANKS_TO_COMPLETE.md
+# 3. The provider works providers/my-client/data/Evidence_and_Data_Workbook.xlsx,
+#    entering real events as they happen.
+
+# 4. Analyse whatever they have entered - monthly
+python3 _engine/analyze.py my-client
 ```
 
-Requires Python 3 and `pip install python-docx reportlab openpyxl`. Nothing else — PDFs are
-generated natively, so LibreOffice and Word are not needed anywhere.
+Requires Python 3 and `pip install python-docx reportlab openpyxl matplotlib pillow`.
+Nothing else — PDFs and charts are generated natively, so LibreOffice and Word are not
+needed anywhere.
+
+Re-running step 2 is always safe: it rebuilds every document from `provider.json` and
+**never overwrites a workbook that already has data in it**.
 
 ## What comes out
 
@@ -32,8 +40,20 @@ generated natively, so LibreOffice and Word are not needed anywhere.
 | `03_Forms_Packet` (.docx + .pdf) | ~79 | 72 forms and tools |
 | `04_Roadmap_and_Survey_Prep` (.docx + .pdf) | ~14 | 12-month countdown, training matrix, mock survey guide, evidence binder index |
 | `05_Self_Study_Checklist.xlsx` | — | Every required document with owner, status, gap, due date; plus an interview-prep sheet |
+| `06_Surveyor_Interview_Bank` (.docx + .pdf) | ~16 | ~65 real surveyor questions by role, each with what is being tested, the shape of a strong answer, what sinks you, and the document they ask for next |
+| `07_Performance_Analysis_Report` (.docx + .pdf) | varies | Built by `analyze.py` from the provider's own data: charts, trends against target, drill coverage by shift, incident/grievance trends, record-review defects, access times, satisfaction, outcomes, workforce compliance — and an honest "no data yet" wherever a sheet is empty |
+| `../data/Evidence_and_Data_Workbook.xlsx` | — | **The spine.** A dated MASTER CHECK-OFF LIST of every required item (typically 550–700 instances), a month-by-month compliance calendar, 12 data logs, the measure set, and the evidence register |
 
 `TRACKER.csv` at the skill root carries one row per provider, sorted by target survey month.
+
+## The check-off list
+
+`_engine/content/meta/obligations.json` holds 136 recurring obligations across 14 sections.
+`calendar_engine.py` expands them into dated instances from the provider's `cycle_start`,
+multiplying by `shifts` (drills are required on every shift), `sites` (quarterly inspections),
+`vehicles` (monthly inspections) and `staff` (supervision, competency, appraisal, wellness
+plan per person). Each instance carries its due date, owner, the evidence that proves it,
+and a status of OVERDUE / due within 30 days / upcoming.
 
 ## The three rules
 
@@ -44,6 +64,10 @@ generated natively, so LibreOffice and Word are not needed anywhere.
    DRAFT. Only a person with the purchased manual open sets it to `true`.
 3. **CARF accredits programs, not job titles.** There is no peer support accreditation. Peer
    support is the workforce that delivers a program — usually **Community Integration**.
+
+And one rule for the data side: **never enter a provider's data for them, and never let a
+report imply an event happened.** An empty sheet produces an honest "no data entered yet"
+block. A gap you can explain survives a survey; a fabricated drill date does not.
 
 See `SKILL.md` for the full reasoning behind each, and for the capability gate.
 

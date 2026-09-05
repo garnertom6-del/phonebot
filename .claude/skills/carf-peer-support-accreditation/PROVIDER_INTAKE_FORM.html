@@ -105,7 +105,25 @@ stays stamped DRAFT until a human checks the section map against the purchased m
   </div>
 </fieldset>
 
-<fieldset><legend>4. Credentials, payers, systems</legend>
+<fieldset><legend>4. Operations — these drive the compliance calendar</legend>
+  <div class="info">These multiply the required items. Drills are required on <strong>every shift
+  that delivers service</strong>; each site needs its own quarterly inspection; each vehicle a
+  monthly one; and supervision, competency, appraisal and wellness plans expand per staff member.</div>
+  <label>Date the program started (or will start) delivering services and creating records
+  <span class="hint">every due date is computed from this</span></label>
+  <input type="text" id="cycle_start" placeholder="2026-10-01">
+  <label>Shifts that deliver service <span class="hint">comma separated</span></label>
+  <input type="text" id="shifts" placeholder="Day shift, Evening shift">
+  <label>Sites you control <span class="hint">comma separated</span></label>
+  <input type="text" id="sites" placeholder="Main office, Satellite office">
+  <label>Vehicles used for work <span class="hint">comma separated</span></label>
+  <input type="text" id="vehicles" placeholder="Van 1, Van 2">
+  <label>Staff with client contact <span class="hint">one per line: Name | Role | Hire date. Leave blank if unknown.</span></label>
+  <textarea id="staff" rows="4" placeholder="A. Rivera | Peer Support Specialist | 2026-10-01"></textarea>
+  <label>Fiscal year start</label><input type="text" id="fiscal_year_start" placeholder="2026-07-01">
+</fieldset>
+
+<fieldset><legend>5. Credentials, payers, systems</legend>
   <label>State peer support credential, by its exact name</label>
   <input type="text" id="state_peer_credential" placeholder="NC Certified Peer Support Specialist (NCCPSS)">
   <div class="row">
@@ -115,7 +133,7 @@ stays stamped DRAFT until a human checks the section map against the purchased m
   <label>Payers <span class="hint">comma separated</span></label><input type="text" id="payers" placeholder="NC Medicaid, LME-MCO">
 </fieldset>
 
-<fieldset><legend>5. Named people</legend>
+<fieldset><legend>6. Named people</legend>
   <div class="info"><strong>Leave blank anything you do not know.</strong> The builder never invents a
   name — a blank prints as <code>[FILL IN: role]</code> and lands in the blanks report.</div>
   <div class="row">
@@ -137,7 +155,7 @@ stays stamped DRAFT until a human checks the section map against the purchased m
   <p class="hint">One person may hold several of these. Put the same name in each — the manual records the assignment.</p>
 </fieldset>
 
-<fieldset><legend>6. Timeframes — your choices, not CARF's</legend>
+<fieldset><legend>7. Timeframes — your choices, not CARF's</legend>
   <div class="warn">Your state licensure rule or a payer contract may be stricter than these.
   <strong>The strictest one wins.</strong> Check before you adopt them.</div>
   <div class="row">
@@ -153,7 +171,7 @@ stays stamped DRAFT until a human checks the section map against the purchased m
   <div class="row"><div><label>Record retention (years)</label><input type="text" id="tf_RETENTION_YEARS" value="7"></div></div>
 </fieldset>
 
-<fieldset><legend>7. Build</legend>
+<fieldset><legend>8. Build</legend>
   <label>Folder slug <span class="hint">lowercase, hyphens only — becomes providers/&lt;slug&gt;/</span></label>
   <input type="text" id="slug" placeholder="successful-solutions-client">
   <label>Consultant</label><input type="text" id="consultant" value="Successful Solutions">
@@ -174,6 +192,13 @@ const v = id => (document.getElementById(id).value || "").trim() || null;
 const b = id => document.getElementById(id).checked;
 const list = s => { const x = v(s); return x ? x.split(",").map(t=>t.trim()).filter(Boolean) : null; };
 const boxes = id => [...document.querySelectorAll("#"+id+" input:checked")].map(e=>e.value);
+function staffList(){
+  const raw = v("staff"); if (!raw) return null;
+  return raw.split("\n").map(l=>l.trim()).filter(Boolean).map(l=>{
+    const [name, role, hire_date] = l.split("|").map(x=>(x||"").trim());
+    return {name: name || null, role: role || null, hire_date: hire_date || null};
+  });
+}
 
 function build(){
   const tf = {};
@@ -191,6 +216,10 @@ function build(){
     accreditation_type: v("accreditation_type"),
     target_survey_month: v("target_survey_month"),
     six_months_of_data_start: v("six_months_of_data_start"),
+    cycle_start: v("cycle_start") || v("six_months_of_data_start"),
+    fiscal_year_start: v("fiscal_year_start"),
+    shifts: list("shifts"), sites: list("sites"), vehicles: list("vehicles"),
+    staff: staffList(),
     ceo: v("ceo"), ceo_title: v("ceo_title"), program_director: v("program_director"),
     clinical_supervisor: v("clinical_supervisor"), qi_coordinator: v("qi_coordinator"),
     safety_officer: v("safety_officer"), privacy_officer: v("privacy_officer"),

@@ -1,3 +1,6 @@
-# Working copies for real clients stay local; only the example is committed.
+# Real client folders stay local. Only the example ships.
 providers/*/output/
+providers/*/data/
 !providers/example-peer-agency/output/
+!providers/example-peer-agency/data/
+__pycache__/

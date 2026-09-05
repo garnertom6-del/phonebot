@@ -1,6 +1,6 @@
 ---
 name: carf-peer-support-accreditation
-description: "Build a complete CARF accreditation packet for a peer-support-delivered behavioral health provider — the Policy and Procedure Manual (58 policies organized by CARF standard area), the 12 annual written plans, the 72-form packet, the 12-month readiness roadmap, the training matrix, the mock survey interview guide, the evidence binder index, the self-study conformance checklist, and the blanks-to-complete report, as editable DOCX plus print-ready PDF plus XLSX. Use when the user wants to get a provider CARF accredited, mentions CARF, the Behavioral Health Standards Manual, ASPIRE to Excellence, a CARF survey or resurvey, a Community Integration program, peer support specialist accreditation, a CARF self-study, an accreditation readiness assessment, a mock survey, or a CARF Quality Improvement Plan. One engine, many providers: the only thing that changes per provider is one JSON file."
+description: "Run a provider all the way to CARF accreditation, over and over, from one JSON record. Interviews the provider section by section (finance, technology, HR, safety, rights, records, peer workforce), then builds: the Policy and Procedure Manual (58 policies by CARF area), the 12 annual written plans, the 72-form packet, the surveyor interview bank with model answers for staff AND persons served, the 12-month roadmap, the training matrix, the evidence binder index, the self-study checklist, a dated MASTER CHECK-OFF LIST of every required item/drill/review/survey with due dates and overdue flags, an Evidence and Data Workbook the provider fills in, and a Performance Analysis Report with real charts, trends and measured data computed from what they entered. Use when the user wants to get a provider CARF accredited or ready for survey, add or onboard a provider, mentions CARF, the Behavioral Health Standards Manual, ASPIRE to Excellence, a CARF survey or resurvey, Community Integration, peer support accreditation, a self-study, readiness assessment, mock survey, compliance calendar, CARF analysis or trends, or a CARF Quality Improvement Plan."
 ---
 
 # CARF Accreditation Packet — Peer-Delivered Community Programs
@@ -96,6 +96,25 @@ TRACKER.csv                       one row per provider, sorted by target survey 
 **Do not copy `_engine/` for a new provider.** Do not hand-edit the generated Word files and then
 rebuild — the rebuild overwrites them. Fix `provider.json` and rebuild.
 
+## THE TWO WAYS TO USE IT
+
+**Lane A — build the packet.** `build_provider.py` produces every document plus the
+dated check-off list and the empty data workbook. Run it as soon as you have a
+provider record; run it again any time the record changes.
+
+**Lane B — analyse their evidence.** Once the provider has entered real data in the
+workbook, `analyze.py` reads it back and produces the Performance Analysis Report
+with charts, trends and gap findings. Run it monthly. It never invents a number: an
+empty sheet produces a "NO DATA ENTERED YET" block naming the sheet and what it proves.
+
+```
+python3 _engine/build_provider.py <slug>      # lane A - documents + checklist + workbook
+python3 _engine/analyze.py       <slug>       # lane B - analysis from their real data
+```
+
+`build_provider.py` **never overwrites a workbook that already has data in it.** It
+says so and moves on. Pass `--new-workbook` to build a fresh one alongside.
+
 ## HOW TO RUN IT
 
 ### If the user gives you a provider record
@@ -161,9 +180,28 @@ it to `_engine/content/`, wire it into `standards_map.json`, then extend `SUPPOR
 | `03_Forms_Packet` | 72 forms — consents, rights, grievance, person-centered plan, progress note, crisis plan, discharge, competency, supervision, record review, incident, drill, and the peer-specific ones |
 | `04_Roadmap_and_Survey_Prep` | 12-month countdown with owners, training matrix, mock survey interview guide, evidence binder index |
 | `05_Self_Study_Checklist.xlsx` | Every required document with owner, status, gap, and due date; second sheet is interview prep |
+| `06_Surveyor_Interview_Bank` | ~65 real surveyor questions by role — CEO, board, program director, supervisor, peer specialists, persons served, billing — each with what the surveyor is really testing, the shape of a strong answer, what sinks you, and the document they ask for next. Plus the mock-survey scoring sheet. |
+| `07_Performance_Analysis_Report` | Produced by `analyze.py` from the provider's own entered data: charts, quarterly trends against target, drill coverage by shift, incident and grievance trends, record review scores and defect ranking, access times, satisfaction by question, outcomes by life domain, natural-supports growth, workforce compliance, accessibility progress, PI projects — and an honest "no data yet" block wherever a sheet is empty |
+| `../data/Evidence_and_Data_Workbook.xlsx` | **The spine.** Sheet 01 is the MASTER CHECK-OFF LIST — every required item, drill, review, survey, plan and report, expanded into dated instances with owner, evidence, status and overdue flag. Sheet 02 is the same by month. Sheets 03–14 are the data logs. Sheet 15 is the measure set. Sheet 16 is the evidence register. |
 
-DOCX and PDF for 01–04. PDFs are generated natively by ReportLab — the packet never depends on
-LibreOffice or Word being installed.
+DOCX and PDF for 01–04, 06 and 07. PDFs are generated natively by ReportLab — the packet never
+depends on LibreOffice or Word being installed.
+
+## THE CHECK-OFF LIST AND THE CALENDAR
+
+`_engine/content/meta/obligations.json` holds 136 recurring obligations across 14 sections
+(governance, strategy, legal, finance, risk, safety, HR, technology, rights, accessibility,
+performance, service delivery, records, peer workforce). `calendar_engine.py` expands them
+into dated instances from the provider's `cycle_start`, multiplying by the things that
+multiply:
+
+- **`shifts`** — fire and evacuation drills are required on every shift that delivers service
+- **`sites`** — each needs its own quarterly safety inspection
+- **`vehicles`** — each needs a monthly inspection
+- **`staff`** — supervision, competency, appraisal, disclosure plan and wellness plan expand per person
+
+A typical small agency lands around 550–700 dated items. Each carries the evidence that
+proves it, the owner, and a status of OVERDUE / due within 30 days / upcoming.
 
 ## THE TIMEFRAMES ARE THE AGENCY'S, NOT CARF'S
 
@@ -172,6 +210,23 @@ LibreOffice or Word being installed.
 blanks report. They are organizational choices. **State licensure rules and payer contracts are
 often stricter, and the strictest one wins.** Always tell the user to check them; never present a
 default as a CARF requirement. Override them in a `timeframes` object in `provider.json`.
+
+## PREPARING THEM FOR THE INTERVIEWS
+
+`06_Surveyor_Interview_Bank` exists because leadership can describe a system the direct
+staff have never experienced, and surveyors know it. When the CEO's answer and the peer
+specialist's answer disagree, the surveyor believes the peer specialist.
+
+Two rules to state every time you hand it over:
+
+1. **These are not scripts.** A rehearsed line from someone who does not do the thing is
+   worse than an honest "I'd have to check" — it turns a documentation gap into a
+   credibility problem, and that spreads to every other answer. Use the model answers as
+   the *shape* of a good answer; the brackets are facts the person supplies from their own
+   work. If they cannot fill the brackets, that is the finding, and you found it first.
+2. **Never coach a person served.** Ask if they are willing to talk, say it is voluntary
+   and that nothing changes either way, then leave them alone. Coaching is a rights
+   violation on its own terms and the fastest way to lose an accreditation.
 
 ## WHEN THE USER ASKS "WILL THIS PASS?"
 
@@ -192,6 +247,11 @@ The five findings that most often bite (also in `00_START_HERE.md`):
 ## HOUSE RULES
 
 - **Never invent** a name, date, credential, licence number, or statistic. Blank it and log it.
+- **Never enter data into the workbook on the provider's behalf**, and never let a report
+  imply an event happened. A gap you can explain survives a survey; a fabricated drill date
+  or satisfaction score is fraud, and it is the one thing that ends an agency. If a provider
+  asks you to "just fill in" a log so it looks complete, decline and say why — then help them
+  build the real record from whatever they actually have.
 - **Never claim** a document conforms to a standard. Say what the document does and what evidence
   it produces.
 - **Never tell a provider they are ready** on the strength of the paperwork alone.

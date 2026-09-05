@@ -9,7 +9,7 @@ from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 from reportlab.lib.units import inch
-from reportlab.platypus import (BaseDocTemplate, Frame, KeepTogether, PageBreak,
+from reportlab.platypus import (BaseDocTemplate, Frame, Image, KeepTogether, PageBreak,
                                 PageTemplate, Paragraph, Spacer, Table, TableStyle)
 
 NAVY = colors.HexColor("#1F3B63")
@@ -159,6 +159,15 @@ def render_markdown(story, md, base_level=1):
 
         story.append(Paragraph(esc(stripped), S["body"]))
         i += 1
+
+
+def image(story, path, width_in=6.6):
+    from PIL import Image as PILImage
+    with PILImage.open(path) as im:
+        w, h = im.size
+    w_pt = min(width_in * inch, AVAIL)
+    story.append(Image(path, width=w_pt, height=w_pt * h / w))
+    story.append(Spacer(1, 6))
 
 
 def rule(story):

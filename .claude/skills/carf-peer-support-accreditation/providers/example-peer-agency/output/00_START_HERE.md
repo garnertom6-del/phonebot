@@ -1,5 +1,5 @@
 # START HERE — Example Peer Recovery Services, Inc.
-### Your CARF accreditation packet, and exactly what to do with it
+### Your CARF accreditation system, and exactly what to do with it
 
 Generated 2026-09-05. Target survey: 2027-06.
 
@@ -18,7 +18,7 @@ You apply for a program — for you, **Community Integration** — and peer supp
 and the service model that delivers it. The peer-specific requirements live in Section 1.I
 (credential, competency, supervision), Section 2.A and 2.C (program description, planning with
 the person), and the Section 3 program standards. This packet covers all of them, and adds a
-cross-cutting peer section (3.PEER) so nothing peer-specific falls between the cracks.
+cross-cutting peer section so nothing peer-specific falls between the cracks.
 
 ---
 
@@ -27,67 +27,81 @@ cross-cutting peer section (3.PEER) so nothing peer-specific falls between the c
 | File | What it is | What to do with it |
 |---|---|---|
 | `BLANKS_TO_COMPLETE.md` | Everything missing or defaulted | **Read this before anything else** |
-| `01_Policy_and_Procedure_Manual.docx` | 58 policies, organized by CARF area | Read, edit to fit you, adopt, sign |
-| `02_Annual_Plans.docx` | The 12 written plans CARF expects | Fill in every [BRACKET], sign, date |
-| `03_Forms_Packet.docx` | 72 forms the policies refer to | Print the ones you will actually use |
-| `04_Roadmap_and_Survey_Prep.docx` | 12-month countdown, training matrix, mock survey guide, evidence binder index | Work the roadmap; rehearse with the guide |
-| `05_Self_Study_Checklist.xlsx` | Every required document, with a status column | Your master tracker until survey day |
-| PDFs | Print-ready versions | Hand to the board, the surveyor, staff |
+| `01_Policy_and_Procedure_Manual` | 58 policies, organized by CARF area | Read, edit to fit you, adopt, sign |
+| `02_Annual_Plans` | The 12 written plans CARF expects | Fill in every [BRACKET], sign, date |
+| `03_Forms_Packet` | 72 forms the policies refer to | Print the ones you will actually use |
+| `04_Roadmap_and_Survey_Prep` | 12-month countdown, training matrix, evidence binder index | Work the roadmap |
+| `05_Self_Study_Checklist.xlsx` | Every required document, with a status column | Your conformance tracker |
+| `06_Surveyor_Interview_Bank` | What surveyors ask staff and the people you serve, with the shape of a strong answer and what sinks you | Rehearse with it 60 days out |
+| `07_Performance_Analysis_Report` | Built from YOUR data, with charts | Re-run it monthly |
+
+And one level up, in **`../data/`**:
+
+| File | What it is |
+|---|---|
+| `Evidence_and_Data_Workbook.xlsx` | **The spine of the whole thing.** 582 dated required items, a compliance calendar, 12 data logs, the measure set, and the evidence register |
 
 ---
 
 ## Do it in this order
 
-**Step 1 — Buy the manual.** carf.org. You cannot do this properly without it. Budget for it.
+**Step 1 — Buy the manual.** carf.org. You cannot do this properly without it.
 
 **Step 2 — Open `BLANKS_TO_COMPLETE.md`.** Fill in what is missing in
 `providers/example-peer-agency/provider.json`, then rebuild:
-`python3 _engine/build_provider.py <slug>`. Do not hand-edit the Word files first — a rebuild
-overwrites them.
+`python3 _engine/build_provider.py example-peer-agency`. Do not hand-edit the Word files
+first — a rebuild overwrites them. (Your workbook is never overwritten.)
 
 **Step 3 — Verify the section map** against the manual. Set `manual_verified: true`. Rebuild.
 The DRAFT stamp disappears.
 
 **Step 4 — Read the whole policy manual.** Every policy is a statement about your agency.
-Change anything that is not true of you. Where the policy describes what you *intend* to do,
-change your practice to match — or change the policy.
+Change anything that is not true of you. Where it describes what you *intend* to do, change
+your practice to match — or change the policy.
 
-**Step 5 — Adopt it.** Your governing body approves the manual, in a meeting, and it goes in
+**Step 5 — Adopt it.** Your governing body approves the manual in a meeting, and it goes in
 the minutes. Date every policy.
 
-**Step 6 — Start generating evidence today.** This is the part people get wrong. CARF does not
+**Step 6 — Open the workbook and work sheet `01 MASTER CHECK-OFF LIST`.**
+It has **582 dated items** — every drill, every review, every survey, every plan, every
+report — with the date each is due and who owns it.
+Filter Status = OVERDUE and start there.
+
+**Step 7 — Start generating evidence today.** This is the part people get wrong. CARF does not
 want to see that you wrote a policy last month. It wants to see that you have been *running*
-this — data, drills, record reviews, supervision notes, incident analyses, a completed annual
-analysis. That takes months of real operation. Open the roadmap and start the clock.
+this — drills, record reviews, supervision notes, incident analyses, satisfaction results, a
+completed annual analysis. Enter each one in the workbook the day it happens.
 
-**Step 7 — Work `05_Self_Study_Checklist.xlsx` weekly.** Every row gets a "yes" and a date.
+**Step 8 — Run the analysis monthly.**
+`python3 _engine/analyze.py example-peer-agency`
+That reads your workbook and produces `07_Performance_Analysis_Report` with real charts,
+real trends, and an honest list of what is still missing. It never invents a number.
 
-**Step 8 — Mock survey, at least 60 days out.** Use the interview guide in document 04. Have
-someone outside the program ask the questions. Write down the real answers. Every shrug is a gap.
+**Step 9 — Mock survey, at least 60 days out.** Use `06_Surveyor_Interview_Bank`. Have someone
+outside the program ask the questions. Write down the real answers. Every shrug is a gap —
+and you have found it before the surveyor did.
 
 ---
 
 ## The five things that most often go wrong
 
-1. **Goals written in staff language.** A surveyor will read a goal aloud and ask the person
+1. **Goals written in staff language.** A surveyor reads a goal aloud and asks the person
    served if those are their words. Write goals in quotation marks, in the person's voice.
 2. **Drills on one shift only.** Every shift that delivers service needs drills, and at least
    one a year must be unannounced.
-3. **Results never shared.** Section 1.N asks not only that you analyze performance, but that
-   you tell staff, persons served, and stakeholders what you found. Document the distribution.
+3. **Results never shared.** Analysing performance is half of area 1.N. Telling staff and the
+   people you serve what you found is the other half, and it is the most-missed requirement
+   in the manual.
 4. **Training with no competency.** A sign-in sheet proves attendance. CARF asks how you know
-   the person can actually do the work. Direct observation, documented.
+   the person can do the work. Direct observation, documented.
 5. **Findings that were never closed.** Finding a problem is half. The tracker must show
    somebody verified the fix.
 
 ---
 
-## When you are stuck
+## The one rule that matters more than all of this
 
-Re-run the builder any time — it is safe and it always rebuilds from `provider.json`:
-
-```
-python3 _engine/build_provider.py <slug>
-```
-
-Everything lands in `providers/<slug>/output/`.
+**Never write a date for something that did not happen, and never enter a number you cannot
+trace to a source.** A gap you can explain is survivable at survey. A fabricated record is
+fraud, and it is the one thing that ends an agency. Every tool here is built to make a gap
+visible rather than paper over it — that is the point of it.
