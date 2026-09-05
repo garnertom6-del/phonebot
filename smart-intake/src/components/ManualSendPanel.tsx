@@ -13,9 +13,10 @@
  * "Not sent yet" and the audit log shows who sent it and how.
  */
 import { useEffect, useState } from "react";
-import { formatUsPhoneDisplay } from "@/lib/intakeContacts";
 import ComputerSmsActions, { type ManualSmsPurpose } from "@/components/ComputerSmsActions";
 import QrCodeSvg from "@/components/QrCodeSvg";
+import PhoneSmsHandoff from "@/components/PhoneSmsHandoff";
+import { isUnreachableClientLink } from "@/lib/shareLinks";
 
 export type ManualSendMethod = "sms" | "in_person" | "email";
 
@@ -53,12 +54,15 @@ export default function ManualSendPanel({
   const [markedAt, setMarkedAt] = useState<string | null>(linkSentAt || null);
   const [markError, setMarkError] = useState("");
   const [computerSmsNote, setComputerSmsNote] = useState("");
+  const [confirmedSent, setConfirmedSent] = useState(false);
 
   useEffect(() => { setMarkedAt(linkSentAt || null); }, [linkSentAt]);
+  useEffect(() => { setConfirmedSent(false); }, [intakeId, clientLink, message, phone, email]);
 
-  const phoneDisplay = phone ? formatUsPhoneDisplay(phone) : "";
+  const sharingBlocked = !!disabled || isUnreachableClientLink(clientLink);
 
   async function copy(kind: "message" | "link") {
+    if (sharingBlocked) return;
     try {
       await navigator.clipboard.writeText(kind === "message" ? message : clientLink);
       setCopied(kind);
@@ -69,6 +73,7 @@ export default function ManualSendPanel({
   }
 
   async function markSent(method: ManualSendMethod) {
+    if (sharingBlocked || !confirmedSent) return;
     setMarking(method);
     setMarkError("");
     try {
@@ -95,13 +100,14 @@ export default function ManualSendPanel({
     <div className="rounded-xl border border-slate-200 bg-white p-4" data-testid="manual-send-panel">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h3 className="font-bold text-slate-900">Send it by hand</h3>
+          <h3 className="font-bold text-slate-900">Text without Twilio or share in person</h3>
           <p className="mt-1 text-sm text-slate-600">
-            Works without the texting service. Nothing here contains the client&apos;s name or health details.
+            Use an organization-approved work phone. The client sees that phone&apos;s number, and normal carrier charges may apply. Keep health details and raw documents out of texts; send only the private link.
           </p>
+          <p className="mt-1 text-xs text-slate-600">This is a staff-sent alternative, not automatic delivery. Honor opt-out replies in the sending app. Treat the private link as confidential.</p>
         </div>
         {markedAt && (
-          <span className="badge bg-emerald-100 text-emerald-800">Sent {new Date(markedAt).toLocaleString()}</span>
+          <span className="badge bg-emerald-100 text-emerald-800">Send recorded {new Date(markedAt).toLocaleString()}</span>
         )}
       </div>
 
@@ -117,9 +123,9 @@ export default function ManualSendPanel({
         </p>
       )}
 
-      {disabled && (
+      {sharingBlocked && !blockReason && (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
-          This link has expired. Renew it first so the client does not open a dead link.
+          {isUnreachableClientLink(clientLink) ? "This link only works on this computer. Open the live app before sharing with a remote client." : "This link is not available for sharing. Check its status and renew it if it has expired."}
         </p>
       )}
 
@@ -128,32 +134,22 @@ export default function ManualSendPanel({
           <p className="font-semibold text-slate-900">Client is with you?</p>
           <p className="mt-1 text-xs text-slate-600">Turn the screen toward them. Their phone camera opens the secure form - no text message needed.</p>
           <div className="mx-auto mt-3 max-w-[220px]">
-            <QrCodeSvg value={disabled ? "" : clientLink} label="QR code that opens the client's secure intake form" />
+            <QrCodeSvg value={sharingBlocked ? "" : clientLink} label="QR code that opens the client's secure intake form" />
           </div>
         </div>
-        <div className="rounded-lg border border-brand/20 bg-brand-light/30 p-3">
-          <p className="font-semibold text-slate-900">Client is somewhere else?</p>
-          <p className="mt-1 text-xs text-slate-600">
-            {phone
-              ? <>Scan this with <b>your</b> phone. Your Messages app opens to {phoneDisplay} with the message filled in - just tap Send.</>
-              : <>Add the client&apos;s cell number to use this. You can still copy the message below.</>}
-          </p>
-          <div className="mx-auto mt-3 max-w-[220px]">
-            <QrCodeSvg level="L" value={disabled || !phone || !smsHref ? "" : smsHref} label="QR code that opens your phone's Messages app with the client's number and the message" />
-          </div>
-        </div>
+        <PhoneSmsHandoff phone={phone} message={message} disabled={sharingBlocked} />
       </div>
 
       <p className="mt-4 break-all whitespace-pre-wrap rounded-lg bg-slate-100 p-3 text-sm text-slate-700" data-testid="manual-send-message">{message}</p>
 
       <div className="mt-3 flex flex-wrap gap-2">
-        <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={disabled} onClick={() => { void copy("message"); }}>
+        <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={sharingBlocked} onClick={() => { void copy("message"); }}>
           {copied === "message" ? "Message copied" : "Copy message"}
         </button>
-        <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={disabled} onClick={() => { void copy("link"); }}>
+        <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={sharingBlocked} onClick={() => { void copy("link"); }}>
           {copied === "link" ? "Link copied" : "Copy secure link"}
         </button>
-        {email && mailtoHref && !disabled && (
+        {email && mailtoHref && !sharingBlocked && (
           <a className="btn-ghost px-3 py-2 text-sm" href={mailtoHref}>Open email</a>
         )}
       </div>
@@ -166,7 +162,7 @@ export default function ManualSendPanel({
             role={phoneRole || undefined}
             message={message}
             link={clientLink}
-            disabled={disabled}
+            disabled={sharingBlocked}
             hideRecordSent
             onStatus={setComputerSmsNote}
           />
@@ -179,16 +175,20 @@ export default function ManualSendPanel({
       {!hideRecordButtons && (
       <div className="mt-4 border-t border-slate-200 pt-3">
         <p className="text-sm font-semibold text-slate-900">Done? Record how the client got the link</p>
-        <p className="mt-1 text-xs text-slate-600">This clears &quot;Not sent yet&quot; on the dashboard and writes who sent it and how to the audit log.</p>
+        <p className="mt-1 text-xs text-slate-600">This records your report, not carrier-confirmed delivery. Copying or opening Messages does not send anything.</p>
+        <label className="mt-3 flex items-start gap-2 text-sm">
+          <input type="checkbox" className="mt-1" checked={confirmedSent} disabled={sharingBlocked || !!marking} onChange={(event) => setConfirmedSent(event.target.checked)} />
+          I actually sent the link to the correct recipient, or watched the client open it in person.
+        </label>
         <div className="mt-2 flex flex-wrap gap-2">
-          <button type="button" className="btn-primary px-3 py-2 text-sm" disabled={disabled || !!marking} onClick={() => { void markSent("sms"); }}>
+          <button type="button" className="btn-primary px-3 py-2 text-sm" disabled={sharingBlocked || !!marking || !confirmedSent || !phone} onClick={() => { void markSent("sms"); }}>
             {marking === "sms" ? "Saving..." : "I texted it from my phone"}
           </button>
-          <button type="button" className="btn-secondary px-3 py-2 text-sm" disabled={disabled || !!marking} onClick={() => { void markSent("in_person"); }}>
+          <button type="button" className="btn-secondary px-3 py-2 text-sm" disabled={sharingBlocked || !!marking || !confirmedSent} onClick={() => { void markSent("in_person"); }}>
             {marking === "in_person" ? "Saving..." : "Client scanned it here"}
           </button>
           {email && (
-            <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={disabled || !!marking} onClick={() => { void markSent("email"); }}>
+            <button type="button" className="btn-ghost px-3 py-2 text-sm" disabled={sharingBlocked || !!marking || !confirmedSent} onClick={() => { void markSent("email"); }}>
               {marking === "email" ? "Saving..." : "I emailed it"}
             </button>
           )}
