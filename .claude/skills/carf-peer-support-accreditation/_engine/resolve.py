@@ -107,8 +107,19 @@ class Resolver:
                 f"population '{pop}': the bundled content is written for adults. Serving "
                 f"adolescents requires added content on guardianship, education, family "
                 f"involvement, and child protective reporting that is not in this engine.")
+        site_based = {"drop_in_center", "clubhouse", "activity_center", "day_program"}
         for s in self.p.get("settings", []):
-            if s not in SUPPORTED["settings"]:
+            if s in SUPPORTED["settings"]:
+                continue
+            if s in site_based:
+                errs.append(
+                    f"setting '{s}': CARF names this as a Community Integration setting, but the "
+                    f"bundled content does not yet cover a staffed drop-in site. Missing before "
+                    f"this can build: attendance records, group activity planning and "
+                    f"staff-to-participant ratios, open-access hours, food handling if meals are "
+                    f"served, and - for a clubhouse - the member governance structure the model "
+                    f"depends on. Write that content first.")
+            else:
                 errs.append(
                     f"setting '{s}': 24-hour/residential standards are not carried by this "
                     f"engine.")

@@ -43,7 +43,14 @@ Never fill one in on their behalf, and never guess a name, a date, or a credenti
 | 2.5 | When do you want the survey? | `target_survey_month` |
 | 2.6 | When did — or will — the program start delivering services and creating records? | `cycle_start`, `six_months_of_data_start` |
 | 2.7 | Adults, adolescents, older adults, or a mix? **(gated)** | `population` |
-| 2.8 | Where is service delivered — office, community, people's homes, telehealth, residential? **(gated)** | `settings` |
+| 2.8 | Where is service delivered? Ask about each by name: the office, out in the community, people's homes, telehealth, a **drop-in centre**, a **psychosocial clubhouse**, an **activity centre**, a **day programme**, residential. **(gated)** | `settings` |
+
+*Why ask about the last four by name:* CARF's own Community Integration program description lists
+psychosocial clubhouse, drop-in centre, activity centre and day programme as settings for this
+program. A provider will often not volunteer "we have a drop-in" when asked where they deliver
+service, because to them it is just the office. Ask about each one. A staffed site the agency
+opens to participants changes safety inspections, drills, rights posting, attendance records and
+staffing ratios, and the bundled content does not cover it yet — the gate will tell you so.
 
 ## 3. The five structural yes/no questions — ask them plainly
 These change the factual claims the manual makes about the agency. Get them right.

@@ -124,9 +124,14 @@
           "community",
           "home",
           "telehealth",
-          "residential"
+          "residential",
+          "drop_in_center",
+          "clubhouse",
+          "activity_center",
+          "day_program"
         ]
-      }
+      },
+      "description": "Where service is actually delivered. CARF's own Community Integration program description names psychosocial clubhouse, drop-in center, activity center and day program as settings for this program, so they are asked about by name at intake. Only office, community, home and telehealth are supported by the bundled content today - the rest fire the capability gate."
     },
     "accreditation_type": {
       "enum": [
