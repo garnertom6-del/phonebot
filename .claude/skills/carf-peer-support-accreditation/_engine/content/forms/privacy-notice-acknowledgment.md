@@ -1,6 +1,6 @@
 ---
 title: Acknowledgment of Receipt — Notice of Privacy Practices
-area: 1.K
+area: 1.J
 who: Person served
 when: At admission
 file: Record of the person served

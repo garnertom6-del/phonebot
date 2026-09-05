@@ -1,6 +1,6 @@
 ---
 title: Grievance and Complaint Log
-area: 1.K
+area: 1.J
 who: {{PROGRAM_DIRECTOR}}
 when: Every complaint, formal and informal; analyzed quarterly
 file: Grievance file

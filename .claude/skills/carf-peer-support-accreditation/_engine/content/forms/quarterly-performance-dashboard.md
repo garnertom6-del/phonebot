@@ -1,6 +1,6 @@
 ---
 title: Quarterly Performance Dashboard
-area: 1.M
+area: 1.L
 who: {{QI_COORDINATOR}}
 when: Quarterly, within [N] days of quarter end
 file: QI file; presented to leadership

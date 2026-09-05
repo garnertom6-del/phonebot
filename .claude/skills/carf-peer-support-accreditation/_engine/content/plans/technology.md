@@ -1,7 +1,7 @@
 ---
 id: technology
 title: Technology and System Plan
-area: 1.J
+area: X.TECH
 cycle: Reviewed at least annually
 approver: {{CEO_TITLE}}
 ---

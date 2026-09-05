@@ -1,6 +1,6 @@
 ---
 title: My Wellness and Recovery Plan
-area: 2.C / 3.CI
+area: 2.C / 3.C
 who: The person served, supported by their Peer Support Specialist
 when: Early in service; reviewed at each plan review
 file: Record of the person served; the person keeps their own copy

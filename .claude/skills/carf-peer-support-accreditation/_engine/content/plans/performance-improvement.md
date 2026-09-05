@@ -1,7 +1,7 @@
 ---
 id: performance-improvement
 title: Performance Improvement Plan and Annual Analysis Template
-area: 1.N
+area: 1.M
 cycle: Written at least annually
 approver: {{CEO_TITLE}}
 ---

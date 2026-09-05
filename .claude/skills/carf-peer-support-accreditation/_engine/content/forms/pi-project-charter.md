@@ -1,6 +1,6 @@
 ---
 title: Performance Improvement Project Charter
-area: 1.N
+area: 1.M
 who: Project owner
 when: One per improvement project
 file: QI file

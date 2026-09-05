@@ -1,6 +1,6 @@
 ---
 title: "You Said, We Did" — Results Summary for Persons Served and Stakeholders
-area: 1.N / 1.D
+area: 1.M / 1.D
 who: {{QI_COORDINATOR}}
 when: Within 90 days of the annual analysis
 file: Posted, handed out, and logged

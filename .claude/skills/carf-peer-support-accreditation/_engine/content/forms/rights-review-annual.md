@@ -1,6 +1,6 @@
 ---
 title: Annual Review — Were Rights Actually Honored?
-area: 1.K
+area: 1.J
 who: {{PROGRAM_DIRECTOR}} and {{QI_COORDINATOR}}
 when: Annually
 file: QI file

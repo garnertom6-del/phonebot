@@ -1,6 +1,6 @@
 ---
 title: Consent for Services
-area: 1.K
+area: 1.J
 who: Person served or legal representative
 when: Before first service; renewed at least annually and on material change
 file: Record of the person served

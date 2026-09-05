@@ -1,6 +1,6 @@
 ---
 title: Accessibility Barrier Survey
-area: 1.L
+area: 1.K
 who: {{CEO_TITLE}} with input from persons served and personnel
 when: Annually, before updating the Accessibility Plan
 file: Accessibility file

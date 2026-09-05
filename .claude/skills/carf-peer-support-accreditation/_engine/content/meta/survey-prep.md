@@ -98,6 +98,6 @@ Have these physically ready in the Evidence Binder before day one.
 ## G. The five questions that most often expose a gap
 1. **"Show me the data."** Policies are easy. Four quarters of real data is not.
 2. **"What did you do about it?"** Finding a problem is half. Closing it is the standard.
-3. **"How did the people you serve find out?"** Distribution of results is the most-missed requirement in Section 1.N.
+3. **"How did the people you serve find out?"** Distribution of results is the most-missed requirement in Section 1.M.
 4. **"Show me the drill on the evening shift."** Drills usually cover one shift only.
 5. **"Read me a goal in the person's own words."** Goals written by staff, in staff language, are the most common Section 2.C finding.

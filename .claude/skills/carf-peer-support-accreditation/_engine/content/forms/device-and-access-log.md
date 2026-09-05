@@ -1,6 +1,6 @@
 ---
 title: Device and System Access Log
-area: 1.J
+area: X.TECH
 who: {{PRIVACY_OFFICER}}
 when: At grant, change, and revocation of access; reviewed quarterly
 file: Technology file

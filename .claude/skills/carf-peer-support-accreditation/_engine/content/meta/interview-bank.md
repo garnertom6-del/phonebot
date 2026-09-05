@@ -88,7 +88,7 @@ written into the financial policy."
 *They may ask for:* budget with assumptions, twelve months budget-to-actual, signed reconciliations.
 
 **A6. What did last year's performance analysis tell you, and what changed because of it?**
-*Testing:* the loop closes (1.N). This is the single most important question in the survey.
+*Testing:* the loop closes (1.M). This is the single most important question in the survey.
 *Strong answer:* "Three things. [Measure] missed target at [number] against [target].
 We ran an improvement project — the charter is here, baseline [x], end result [y] —
 and we adopted the change permanently by [what changed]. [Measure] beat target so
@@ -98,7 +98,7 @@ we raised it. And [measure] surprised us: [what and why]."
 *They may ask for:* the annual analysis, PI project charters, minutes.
 
 **A7. How did the people you serve find out about those results?**
-*Testing:* distribution — the most-missed requirement in the manual (1.N).
+*Testing:* distribution — the most-missed requirement in the manual (1.M).
 *Strong answer:* "A one-page plain-language summary, [date]. It's posted at [location],
 we handed it out, and we went through it at the [month] group. Here's the distribution
 log and here's the summary."
@@ -122,7 +122,7 @@ it's met. Here are three completed assessments including the observation records
 *Sinks you:* "I can't think of one." Nobody believes it, and it makes every other answer suspect.
 
 **A10. Tell me about a complaint you received and what happened.**
-*Testing:* the grievance process is used and not feared (1.K).
+*Testing:* the grievance process is used and not feared (1.J).
 *Strong answer:* walk one through end to end with dates: received, acknowledged in
 writing within three business days, investigated by someone not involved, written
 decision within thirty days, and what changed systemically.
@@ -360,12 +360,12 @@ practice has to produce — not what to tell anyone to say.
 |---|---|---|---|
 | F1 | How did you get connected here? | Access (2.B) | A referral route people can describe |
 | F2 | How long did you wait? | Access timeframes | A wait people don't experience as long |
-| F3 | Did someone explain your rights? Do you have a copy? | 1.K | Orientation that actually happened, with a copy handed over |
-| F4 | If you had a complaint, what would you do? | 1.K — the one they always ask | Every person able to name a route |
+| F3 | Did someone explain your rights? Do you have a copy? | 1.J | Orientation that actually happened, with a copy handed over |
+| F4 | If you had a complaint, what would you do? | 1.J — the one they always ask | Every person able to name a route |
 | F5 | Would anything bad happen if you complained? | Non-retaliation | A confident "no" |
 | F6 | Whose goals are on your plan? Who picked them? | 2.C | Goals the person recognises as theirs |
 | F7 | Can you show me your plan? Are those your words? | 2.C | Plans in the person's voice, and they have a copy |
-| F8 | Can you say no to something here? | 3.CI self-determination | People who know they can |
+| F8 | Can you say no to something here? | 3.C self-determination | People who know they can |
 | F9 | Has anyone pressured you about medication or how you do your recovery? | Pathway neutrality | A clear no |
 | F10 | Where do you meet your peer specialist? | Community integration | Real community settings |
 | F11 | What's changed in your life since you started? | Effectiveness | Something concrete the person names |

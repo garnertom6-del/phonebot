@@ -1,6 +1,6 @@
 ---
 title: Vehicle Inspection Log
-area: 1.H / 3.CI
+area: 1.H / 3.C
 who: Driver or {{SAFETY_OFFICER}}
 when: Monthly per vehicle
 file: Safety file

@@ -1,7 +1,7 @@
 ---
 id: continuity
 title: Business Continuity and Emergency Operations Plan
-area: 1.G / 1.H / 1.J
+area: 1.G / 1.H / X.TECH
 cycle: Reviewed annually and tested at least annually
 approver: {{CEO_TITLE}}
 ---

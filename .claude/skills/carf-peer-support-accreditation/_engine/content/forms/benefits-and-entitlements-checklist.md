@@ -1,6 +1,6 @@
 ---
 title: Benefits and Entitlements Checklist
-area: 3.CI
+area: 3.C
 who: The person served with their Peer Support Specialist
 when: At admission; reviewed at each plan review
 file: Record of the person served

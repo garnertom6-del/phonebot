@@ -75,7 +75,9 @@ the workbook only. They say when something is **due**; they never assert it was 
    `_engine/content/` is copied from the manual. The provider must buy the current *Behavioral
    Health Standards Manual* from carf.org.
 2. **Nothing is verified until a human verifies it.** `manual_verified: false` stamps every page
-   DRAFT. Only a person with the purchased manual open sets it to `true`.
+   DRAFT. Only a person with the purchased manual open sets it to `true`. The **area map** is now
+   checked against the real 2026 table of contents; **coverage** is not - nobody has read the
+   standards inside each area yet.
 3. **CARF accredits programs, not job titles.** There is no peer support accreditation. Peer
    support is the workforce that delivers a program — usually **Community Integration**.
 

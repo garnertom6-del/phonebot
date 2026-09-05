@@ -1,6 +1,6 @@
 ---
 title: Authorization to Release Information
-area: 1.K
+area: 1.J
 who: Person served or legal representative
 when: Before any disclosure not otherwise permitted by law
 file: Record of the person served

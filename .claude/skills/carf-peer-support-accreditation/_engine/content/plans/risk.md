@@ -27,11 +27,11 @@ Rate likelihood and severity as High, Medium, or Low. Anything rated High/High n
 | # | Risk | Likelihood | Severity | Current controls | Additional action | Owner | Due |
 |---|---|---|---|---|---|---|---|
 | 1 | Staff injury or assault during a home or community visit | [H/M/L] | [H/M/L] | Policy 1H-05; check-in protocol; two-person visits | [ACTION] | {{PROGRAM_DIRECTOR}} | [DATE] |
-| 2 | Motor vehicle accident while transporting a person served | [H/M/L] | [H/M/L] | Policy 3CI-04; driver checks; monthly inspections | [ACTION] | {{PROGRAM_DIRECTOR}} | [DATE] |
+| 2 | Motor vehicle accident while transporting a person served | [H/M/L] | [H/M/L] | Policy 3C-04; driver checks; monthly inspections | [ACTION] | {{PROGRAM_DIRECTOR}} | [DATE] |
 | 3 | Boundary violation or dual relationship in a small recovery community | [H/M/L] | [H/M/L] | Policy 3P-03; disclosure form; supervision | [ACTION] | {{CLINICAL_SUPERVISOR}} | [DATE] |
 | 4 | Peer staff return to use or mental health crisis | [H/M/L] | [H/M/L] | Policy 3P-04; wellness plans; EAP | [ACTION] | {{CEO_TITLE}} | [DATE] |
 | 5 | Documentation not supporting a submitted claim; payer recoupment | [H/M/L] | [H/M/L] | Policy 1F-02, 2H-01; pre-billing review | [ACTION] | {{COMPLIANCE_OFFICER}} | [DATE] |
-| 6 | Breach of protected health information | [H/M/L] | [H/M/L] | Policy 1J-02; encryption; access reviews | [ACTION] | {{PRIVACY_OFFICER}} | [DATE] |
+| 6 | Breach of protected health information | [H/M/L] | [H/M/L] | Policy TECH-02; encryption; access reviews | [ACTION] | {{PRIVACY_OFFICER}} | [DATE] |
 | 7 | Loss of a major payer, contract, or authorization volume | [H/M/L] | [H/M/L] | Diversification; monthly financials | [ACTION] | {{CEO_TITLE}} | [DATE] |
 | 8 | Turnover of certified peer staff; inability to recruit | [H/M/L] | [H/M/L] | Career ladder; wellness; workforce plan | [ACTION] | {{CEO_TITLE}} | [DATE] |
 | 9 | Death, suicide, or overdose of a person served | [H/M/L] | [H/M/L] | Crisis plans; debriefing; naloxone | [ACTION] | {{PROGRAM_DIRECTOR}} | [DATE] |

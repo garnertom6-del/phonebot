@@ -1,7 +1,7 @@
 ---
 id: performance-measurement
 title: Performance Measurement and Management Plan
-area: 1.M
+area: 1.L
 cycle: Reviewed at least annually
 approver: {{CEO_TITLE}}
 ---

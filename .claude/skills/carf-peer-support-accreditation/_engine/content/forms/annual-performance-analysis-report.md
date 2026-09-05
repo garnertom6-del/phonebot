@@ -1,6 +1,6 @@
 ---
 title: Annual Performance Analysis Report — Cover and Sign-Off
-area: 1.N
+area: 1.M
 who: {{QI_COORDINATOR}}
 when: Annually
 file: QI file

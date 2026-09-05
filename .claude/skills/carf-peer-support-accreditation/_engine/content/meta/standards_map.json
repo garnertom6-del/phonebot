@@ -1,22 +1,69 @@
 {
   "manual": "CARF Behavioral Health Standards Manual",
   "manual_year_default": "2026",
-  "IMPORTANT": "The area letters and names below are the long-stable outline of the CARF Behavioral Health Standards Manual. The plain-English text in this file is written from scratch by this skill. It is NOT CARF standard text and must never be presented as a quotation from the manual. Before any document leaves the building, a human must open the provider's PURCHASED manual and confirm each area letter/name below, then set manual_verified:true in the provider record. See SKILL.md 'THE VERIFICATION GATE'.",
   "sections": [
     {
       "section": "1",
       "name": "ASPIRE to Excellence",
-      "applies": "Every CARF-accredited organization, every program."
+      "page": 29,
+      "applies": "Every CARF-accredited organization, every program.",
+      "aspire_groups": {
+        "Assess the Environment": [
+          "A",
+          "B"
+        ],
+        "Set Strategy": [
+          "C"
+        ],
+        "Persons Served and Other Stakeholders - Obtain Input": [
+          "D"
+        ],
+        "Implement the Plan": [
+          "E",
+          "F",
+          "G",
+          "H",
+          "I",
+          "J",
+          "K"
+        ],
+        "Review Results": [
+          "L"
+        ],
+        "Effect Change": [
+          "M"
+        ]
+      }
     },
     {
       "section": "2",
       "name": "General Program Standards",
+      "page": 111,
       "applies": "Every behavioral health program the organization seeks to accredit."
     },
     {
       "section": "3",
-      "name": "Core Program Standards",
-      "applies": "Only the specific program(s) listed on the survey application (e.g. Community Integration)."
+      "name": "Core Treatment Program Standards",
+      "page": 175,
+      "applies": "Only the treatment program(s) named on the survey application. Community Integration is 3.C, page 185."
+    },
+    {
+      "section": "4",
+      "name": "Core Support Program Standards",
+      "page": 271,
+      "applies": "Support programs - assessment and referral, community housing, prevention, supported living and others. Not applicable unless one is on the application."
+    },
+    {
+      "section": "5",
+      "name": "Specialty Designation Standards",
+      "page": 297,
+      "applies": "Optional designations layered on a program. CONSUMER-RUN IS 5.D, PAGE 318 - the closest thing CARF has to a peer-run designation. Worth checking if the agency is peer-directed."
+    },
+    {
+      "section": "6",
+      "name": "Certified Community Behavioral Health Clinic Program Standards",
+      "page": 359,
+      "applies": "CCBHCs only."
     }
   ],
   "areas": [
@@ -57,11 +104,12 @@
         "CEO",
         "Governing body",
         "Program Director"
-      ]
+      ],
+      "manual_page": 31
     },
     {
       "code": "1.B",
-      "name": "Governance",
+      "name": "Governance (Optional)",
       "aspire": "Assess the environment",
       "plain": "If the organization has a governing board, the board has written duties, meets, keeps minutes, evaluates the CEO, evaluates itself, and manages conflicts of interest. A sole-owner agency documents who performs these governance functions instead.",
       "policies": [
@@ -82,11 +130,12 @@
         "Governing body",
         "CEO"
       ],
-      "note": "Governance standards are consultative/optional in some CARF manuals. Confirm applicability in the purchased manual before building this tab."
+      "note": "The 2026 manual titles this area 'Governance (Optional)'. Confirm with the CARF resource specialist whether the agency is electing it before building this tab.",
+      "manual_page": 41
     },
     {
       "code": "1.C",
-      "name": "Strategic Integrated Planning",
+      "name": "Strategic Planning",
       "aspire": "Set strategy",
       "plain": "A written strategic plan exists that was built from real inputs: what is happening in the environment, what stakeholders expect, financial reality, technology, workforce, and risk. It is reviewed at least annually and the review is documented.",
       "policies": [
@@ -106,7 +155,8 @@
       "interviews": [
         "CEO",
         "Governing body"
-      ]
+      ],
+      "manual_page": 49
     },
     {
       "code": "1.D",
@@ -131,7 +181,8 @@
         "Persons served",
         "Program Director",
         "QI Coordinator"
-      ]
+      ],
+      "manual_page": 53
     },
     {
       "code": "1.E",
@@ -153,7 +204,8 @@
       "interviews": [
         "CEO",
         "Compliance Officer"
-      ]
+      ],
+      "manual_page": 55
     },
     {
       "code": "1.F",
@@ -178,7 +230,8 @@
       "interviews": [
         "CEO",
         "Finance"
-      ]
+      ],
+      "manual_page": 57
     },
     {
       "code": "1.G",
@@ -202,7 +255,8 @@
       "interviews": [
         "CEO",
         "Program Director"
-      ]
+      ],
+      "manual_page": 61
     },
     {
       "code": "1.H",
@@ -237,11 +291,12 @@
         "Safety Officer",
         "Direct staff",
         "Persons served"
-      ]
+      ],
+      "manual_page": 65
     },
     {
       "code": "1.I",
-      "name": "Human Resources",
+      "name": "Workforce Development and Management",
       "aspire": "Implement the plan",
       "plain": "Written job descriptions; verification of credentials before hire (including the state peer credential); background checks; documented orientation; competency-based training with documented competency, not just attendance; regular documented supervision; annual performance appraisal; and a documented look at workforce needs and succession.",
       "policies": [
@@ -275,47 +330,19 @@
         "HR",
         "Supervisor",
         "Peer Support Specialists"
-      ]
+      ],
+      "manual_page": 80
     },
     {
       "code": "1.J",
-      "name": "Technology",
+      "name": "Rights of Persons Served",
       "aspire": "Implement the plan",
-      "plain": "A written technology and systems plan covering the systems in use, who may access what, how data is backed up and tested, what happens when the system is down, and how confidentiality is protected. If information and communication technology (telehealth, texting, video) is used to deliver service, that has its own written procedures.",
+      "plain": "Rights are written, given to and explained to every person served in a way they can understand, and posted. There is a written grievance/complaint process with timeframes and an appeal, a grievance log, informed consent, and confidentiality protections. Rights are reviewed annually for whether they were actually honored.",
       "policies": [
         "1J-01",
         "1J-02",
         "1J-03",
         "1J-04"
-      ],
-      "plans": [
-        "technology"
-      ],
-      "forms": [
-        "system-downtime-procedure",
-        "device-and-access-log"
-      ],
-      "surveyor_asks": [
-        "What happens to service delivery if your EHR is down for two days?",
-        "When did you last test a restore from backup?",
-        "Show me your texting and social media rules for peer staff."
-      ],
-      "interviews": [
-        "CEO",
-        "Privacy Officer",
-        "Direct staff"
-      ]
-    },
-    {
-      "code": "1.K",
-      "name": "Rights of Persons Served",
-      "aspire": "Implement the plan",
-      "plain": "Rights are written, given to and explained to every person served in a way they can understand, and posted. There is a written grievance/complaint process with timeframes and an appeal, a grievance log, informed consent, and confidentiality protections. Rights are reviewed annually for whether they were actually honored.",
-      "policies": [
-        "1K-01",
-        "1K-02",
-        "1K-03",
-        "1K-04"
       ],
       "plans": [],
       "forms": [
@@ -336,15 +363,16 @@
         "Persons served",
         "Direct staff",
         "Privacy Officer"
-      ]
+      ],
+      "manual_page": 89
     },
     {
-      "code": "1.L",
+      "code": "1.K",
       "name": "Accessibility",
       "aspire": "Implement the plan",
       "plain": "A written accessibility plan that identifies real barriers in eight areas - architectural, environmental, attitudinal, financial, employment, communication, transportation, and digital/technology - names an action and a responsible person for each, and is reviewed annually with progress documented.",
       "policies": [
-        "1L-01"
+        "1K-01"
       ],
       "plans": [
         "accessibility"
@@ -361,15 +389,16 @@
         "CEO",
         "Persons served",
         "Direct staff"
-      ]
+      ],
+      "manual_page": 92
     },
     {
-      "code": "1.M",
+      "code": "1.L",
       "name": "Performance Measurement and Management",
       "aspire": "Measure and analyze results",
       "plain": "The organization decides in writing what it will measure, why, how, how often, and what the target is - covering both business function and service delivery, and covering effectiveness, efficiency, service access, and satisfaction. Data is actually collected and reported on schedule.",
       "policies": [
-        "1M-01"
+        "1L-01"
       ],
       "plans": [
         "performance-measurement"
@@ -387,15 +416,16 @@
         "QI Coordinator",
         "CEO",
         "Program Director"
-      ]
+      ],
+      "manual_page": 95
     },
     {
-      "code": "1.N",
+      "code": "1.M",
       "name": "Performance Improvement",
       "aspire": "Effect change",
       "plain": "The measured data is analyzed at least annually in a written performance analysis, conclusions are drawn, improvement actions are taken and tracked, and the results are shared with staff, persons served, and other stakeholders in a format they can understand.",
       "policies": [
-        "1N-01"
+        "1M-01"
       ],
       "plans": [
         "performance-improvement"
@@ -415,7 +445,8 @@
         "CEO",
         "Direct staff",
         "Persons served"
-      ]
+      ],
+      "manual_page": 107
     },
     {
       "code": "2.A",
@@ -440,7 +471,8 @@
       "interviews": [
         "Program Director",
         "Direct staff"
-      ]
+      ],
+      "manual_page": 116
     },
     {
       "code": "2.B",
@@ -467,11 +499,12 @@
         "Program Director",
         "Direct staff",
         "Persons served"
-      ]
+      ],
+      "manual_page": 132
     },
     {
       "code": "2.C",
-      "name": "Person-Centered Plan",
+      "name": "Person-Centered Planning",
       "aspire": "Section 2 - General Program Standards",
       "plain": "Each person has an individualized plan built with them, in their own words, reflecting their strengths, needs, abilities and preferences, with goals and measurable objectives, the specific services and who provides them, target dates, and the person's signature. The plan is reviewed on a stated schedule and updated when things change.",
       "policies": [
@@ -495,7 +528,8 @@
         "Persons served",
         "Direct staff",
         "Supervisor"
-      ]
+      ],
+      "manual_page": 141
     },
     {
       "code": "2.D",
@@ -519,7 +553,8 @@
       "interviews": [
         "Program Director",
         "Direct staff"
-      ]
+      ],
+      "manual_page": 145
     },
     {
       "code": "2.E",
@@ -541,11 +576,12 @@
         "Program Director",
         "Direct staff"
       ],
-      "conditional": "administers_medication"
+      "conditional": "administers_medication",
+      "manual_page": 149
     },
     {
       "code": "2.F",
-      "name": "Nonviolent Practices",
+      "name": "Promoting Nonviolent Practices",
       "aspire": "Section 2 - General Program Standards",
       "plain": "A written commitment to nonviolent practice: de-escalation training for staff, what is prohibited, what to do in a behavioral crisis, when to call for help, and a debriefing with the person served and staff after any crisis event.",
       "policies": [
@@ -567,7 +603,8 @@
         "Direct staff",
         "Supervisor",
         "Persons served"
-      ]
+      ],
+      "manual_page": 157
     },
     {
       "code": "2.G",
@@ -592,11 +629,12 @@
         "Program Director",
         "Direct staff",
         "Records custodian"
-      ]
+      ],
+      "manual_page": 164
     },
     {
       "code": "2.H",
-      "name": "Quality Record Review",
+      "name": "Quality Records Management",
       "aspire": "Section 2 - General Program Standards",
       "plain": "Records are reviewed on a written schedule using a written tool, by someone qualified, looking at whether documentation supports the service and the plan. Results are aggregated, trends identified, and corrective action tracked to closure.",
       "policies": [
@@ -616,19 +654,44 @@
       "interviews": [
         "QI Coordinator",
         "Supervisor"
-      ]
+      ],
+      "manual_page": 167
     },
     {
-      "code": "3.CI",
+      "code": "2.I",
+      "name": "Service Delivery Using Information and Communication Technologies",
+      "manual_page": 169,
+      "aspire": "Section 2 - General Program Standards",
+      "plain": "Where any part of the service is delivered by video, phone or other technology, it meets the same standards as in-person service: informed consent specific to the technology, identity and location verified at each contact, an emergency plan for the person's actual location, an approved platform under a business associate agreement, staff trained and assessed as competent in delivering peer support remotely, and documentation that records the modality and both parties' locations.",
+      "policies": [
+        "2I-01"
+      ],
+      "plans": [],
+      "forms": [],
+      "surveyor_asks": [
+        "Do you deliver any part of this service by video or phone?",
+        "Show me a technology-specific consent.",
+        "Where is the person when you meet by video, and how do you know?",
+        "If someone was in crisis on a video call, how would you get help to them?"
+      ],
+      "interviews": [
+        "Program Director",
+        "Direct staff",
+        "Persons served"
+      ],
+      "note": "This whole area was missing from earlier builds. It is Section 2, not Section 1."
+    },
+    {
+      "code": "3.C",
       "name": "Community Integration",
       "aspire": "Section 3 - Core Program Standards",
       "plain": "The program helps people participate in community life as they choose - housing, work, education, benefits, relationships, transportation, recreation, health care, and civic life. It is built on the person's own goals, uses natural supports and real community settings rather than segregated ones, and measures actual community participation, not just service contacts.",
       "policies": [
-        "3CI-01",
-        "3CI-02",
-        "3CI-03",
-        "3CI-04",
-        "3CI-05"
+        "3C-01",
+        "3C-02",
+        "3C-03",
+        "3C-04",
+        "3C-05"
       ],
       "plans": [],
       "forms": [
@@ -647,13 +710,13 @@
         "Direct staff",
         "Program Director"
       ],
-      "conditional_program": "community_integration"
+      "manual_page": 185
     },
     {
       "code": "3.PEER",
-      "name": "Peer Workforce Requirements (cross-cutting)",
+      "name": "Peer Workforce Requirements (this skill's own grouping - NOT a CARF area)",
       "aspire": "Not a standalone CARF section - see SKILL.md",
-      "plain": "Peer support is a WORKFORCE and a service model, not a separate CARF program section. Its requirements are enforced through 1.I (credential, competency, supervision), 2.A (program description and staffing), 2.C (person-centered planning done WITH the person), and the Section 3 program. This area exists so nothing peer-specific falls between the cracks: lived experience as a job qualification, the state peer credential, self-disclosure boundaries, mutuality, dual-relationship management in small recovery communities, peer staff wellness, and career ladder.",
+      "plain": "Peer support is a WORKFORCE and a service model, not a separate CARF program section. Its requirements are enforced through 1.I (credential, competency, supervision), 2.A (program description and staffing), 2.C (person-centered planning done WITH the person), and the Section 3 program. This area exists so nothing peer-specific falls between the cracks: lived experience as a job qualification, the state peer credential, self-disclosure boundaries, mutuality, dual-relationship management in small recovery communities, peer staff wellness, and career ladder. CONFIRMED against the 2026 table of contents: there is no Peer Support program in Sections 3 or 4, and CARF's own 2026 Behavioral Health Program Descriptions mention peer support once in 23 pages, as staffing for a crisis contact center. The nearest real CARF home for this material is the CONSUMER-RUN specialty designation at 5.D, page 318 - check whether the agency qualifies.",
       "policies": [
         "3P-01",
         "3P-02",
@@ -680,6 +743,64 @@
         "Supervisor",
         "Program Director"
       ]
+    },
+    {
+      "code": "X.TECH",
+      "name": "Technology and Information Security - CARF home NOT YET CONFIRMED",
+      "aspire": "NOT a CARF area code. See note.",
+      "plain": "The 2026 Section 1 has NO Technology area - it runs A Leadership to M Performance Improvement with no technology heading. These three policies (technology and system planning, information security, and social media / devices / electronic communication) are good practice and most payers require them, but their home in the manual is unconfirmed. Service delivery BY technology is a different thing and lives at 2.I. FIND THEIR HOME IN APPENDIX A (Required Written Documentation, page 385), which lists every document the manual requires, and move them to whichever area it names.",
+      "policies": [
+        "TECH-01",
+        "TECH-02",
+        "TECH-03",
+        "2I-01"
+      ],
+      "plans": [
+        "technology"
+      ],
+      "forms": [
+        "system-downtime-procedure",
+        "device-and-access-log"
+      ],
+      "surveyor_asks": [
+        "What happens to service delivery if your EHR is down for two days?",
+        "When did you last test a restore from backup?",
+        "Show me your texting and social media rules for peer staff."
+      ],
+      "interviews": [
+        "CEO",
+        "Privacy Officer",
+        "Direct staff"
+      ],
+      "note": "X.TECH IS NOT A CARF CODE. It is a holding pen so three real policies are not silently dropped while their placement is unknown. Resolve it before survey."
     }
-  ]
+  ],
+  "VERIFIED": "Section and area letters, names and page numbers below were checked against the 2026 Behavioral Health Standards Manual table of contents (accreditation period July 1, 2026 - June 30, 2027) supplied by the user. The plain-English text in this file is still written from scratch by this skill and is NOT CARF standard text. Verification of the AREA MAP is not verification of COVERAGE - see 08_Manual_Verification_Worksheet box 4 on every area page.",
+  "appendices": [
+    {
+      "id": "A",
+      "name": "Required Written Documentation",
+      "page": 385,
+      "why": "THE authoritative list of every document the manual requires. Work the Evidence Register against this, not against this skill's guesses."
+    },
+    {
+      "id": "B",
+      "name": "Operational Timelines",
+      "page": 407,
+      "why": "THE authoritative list of what must happen annually, semiannually and so on. Correct obligations.json against this - it is exactly what that file is trying to be."
+    },
+    {
+      "id": "C",
+      "name": "Required Training",
+      "page": 419,
+      "why": "THE authoritative training list. Correct the training matrix against this."
+    },
+    {
+      "id": "D",
+      "name": "Resources",
+      "page": 429,
+      "why": "Supporting resources."
+    }
+  ],
+  "read_first": "'Changes in the 2026 Manual' is at page 25. Read it before anything else - it names what moved for this edition and is the fastest way to spot anything this packet still has wrong."
 }

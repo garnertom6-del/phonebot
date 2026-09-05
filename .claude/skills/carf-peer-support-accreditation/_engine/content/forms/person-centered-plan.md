@@ -54,7 +54,7 @@ Life domain: ____________
 |---|---|---|---|---|---|---|
 | 3.1 | | | | | | |
 
-**11. Natural and community supports goal** (required unless the person declines — see Policy 3CI-03)
+**11. Natural and community supports goal** (required unless the person declines — see Policy 3C-03)
 Who is in my corner now: ______________________________________________
 Who or what I want more of: ___________________________________________
 Objective: _____________________________________________________________

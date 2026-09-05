@@ -1,6 +1,6 @@
 ---
 title: Your Rights — Handout for Persons Served
-area: 1.K
+area: 1.J
 who: Every person served
 when: At admission, annually, and on request; also posted
 file: Copy given to person; signed acknowledgment in record

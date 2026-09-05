@@ -1,6 +1,6 @@
 ---
 title: Natural Supports Map
-area: 3.CI
+area: 3.C
 who: The person served with their Peer Support Specialist
 when: At admission and at every plan review — this is a MEASURE, so the counts matter
 file: Record of the person served

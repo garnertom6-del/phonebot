@@ -1,6 +1,6 @@
 ---
 title: Community Integration Goal Worksheet
-area: 3.CI
+area: 3.C
 who: The person served with their Peer Support Specialist
 when: At planning and at each review
 file: Record of the person served

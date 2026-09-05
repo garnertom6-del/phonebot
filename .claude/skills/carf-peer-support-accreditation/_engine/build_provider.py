@@ -24,9 +24,12 @@ UNVERIFIED = ("DRAFT - the CARF section map behind this document has NOT been ch
 
 DATE_OFFENDERS = []
 
+# Verified against the 2026 Behavioral Health Standards Manual table of contents.
+# Section 1 runs A-M (13 areas, no Technology heading); Section 2 runs A-I; the
+# program is 3.C Community Integration. X.TECH is a holding pen, not a CARF code.
 AREA_ORDER = ["1.A", "1.B", "1.C", "1.D", "1.E", "1.F", "1.G", "1.H", "1.I", "1.J",
-              "1.K", "1.L", "1.M", "1.N", "2.A", "2.B", "2.C", "2.D", "2.E", "2.F",
-              "2.G", "2.H", "3.CI", "3.PEER"]
+              "1.K", "1.L", "1.M", "2.A", "2.B", "2.C", "2.D", "2.E", "2.F",
+              "2.G", "2.H", "2.I", "3.C", "3.PEER", "X.TECH"]
 
 PLAN_ORDER = ["strategic", "risk", "safety", "continuity", "technology", "accessibility",
               "cultural", "compliance", "financial", "workforce",

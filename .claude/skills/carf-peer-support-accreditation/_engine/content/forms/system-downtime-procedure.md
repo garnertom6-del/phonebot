@@ -1,6 +1,6 @@
 ---
 title: System Downtime Service Log and Procedure
-area: 1.J
+area: X.TECH
 who: All staff
 when: Whenever {{EHR}} or another essential system is unavailable
 file: Technology file; entries transcribed into {{EHR}} on restoration

@@ -56,29 +56,29 @@
       "key": "technology",
       "name": "Technology and Information Security",
       "areas": [
-        "1.J"
+        "X.TECH"
       ]
     },
     {
       "key": "rights",
       "name": "Rights of Persons Served",
       "areas": [
-        "1.K"
+        "1.J"
       ]
     },
     {
       "key": "accessibility",
       "name": "Accessibility",
       "areas": [
-        "1.L"
+        "1.K"
       ]
     },
     {
       "key": "performance",
       "name": "Performance Measurement and Improvement",
       "areas": [
-        "1.M",
-        "1.N"
+        "1.L",
+        "1.M"
       ]
     },
     {
@@ -91,7 +91,7 @@
         "2.D",
         "2.E",
         "2.F",
-        "3.CI"
+        "3.C"
       ]
     },
     {
@@ -590,7 +590,7 @@
       "frequency": "monthly",
       "owner": "SAFETY_OFFICER",
       "evidence": "Completed Vehicle Inspection form per vehicle",
-      "basis": "3CI-04",
+      "basis": "3C-04",
       "vehicle_specific": true,
       "conditional": "operates_vehicles"
     },
@@ -811,259 +811,259 @@
     {
       "id": "HR-15",
       "item": "Separation checklist completed the same day a person leaves",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "hr",
       "frequency": "per_separation",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Completed separation checklist with revocation dates",
-      "basis": "1J-01"
+      "basis": "TECH-01"
     },
     {
       "id": "TEC-01",
       "item": "Technology and System Plan reviewed and re-dated",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "annual",
       "owner": "CEO",
       "evidence": "Dated plan with system inventory",
-      "basis": "1J-01"
+      "basis": "TECH-01"
     },
     {
       "id": "TEC-02",
       "item": "Backup restore actually TESTED and the result documented",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "annual",
       "owner": "CEO",
       "evidence": "Restore test record: date, what was restored, pass/fail",
-      "basis": "1J-01",
+      "basis": "TECH-01",
       "note": "An untested backup is not a backup. Surveyors ask for the test, not the backup schedule."
     },
     {
       "id": "TEC-03",
       "item": "Access log reviewed for inappropriate access",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "quarterly",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Review record with accounts reviewed and findings",
-      "basis": "1J-02"
+      "basis": "TECH-02"
     },
     {
       "id": "TEC-04",
       "item": "Privacy and security training delivered",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "annual",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Roster",
-      "basis": "1J-02"
+      "basis": "TECH-02"
     },
     {
       "id": "TEC-05",
       "item": "Business Associate Agreements confirmed in place for every system holding PHI",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "annual",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Signed BAAs matched to the system inventory",
-      "basis": "1J-01"
+      "basis": "TECH-01"
     },
     {
       "id": "TEC-06",
       "item": "Breach risk assessment and notification completed within required timeframes",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "per_event",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Breach log + risk assessment",
-      "basis": "1J-02"
+      "basis": "TECH-02"
     },
     {
       "id": "TEC-07",
       "item": "Device inventory and encryption status confirmed",
-      "area": "1.J",
+      "area": "X.TECH",
       "domain": "technology",
       "frequency": "annual",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Device and Access Log",
-      "basis": "1J-02"
+      "basis": "TECH-02"
     },
     {
       "id": "RTS-01",
       "item": "Rights explained and acknowledgment signed by every person served",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "per_person",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Signed acknowledgment in every record, annually",
-      "basis": "1K-01"
+      "basis": "1J-01"
     },
     {
       "id": "RTS-02",
       "item": "Annual review of whether rights were actually HONORED (not just written)",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "annual",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Completed Rights Review with evidence per right and interviews",
-      "basis": "1K-01"
+      "basis": "1J-01"
     },
     {
       "id": "RTS-03",
       "item": "Grievance log analyzed for trends; conclusion written even if none",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "quarterly",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Quarterly analysis on the Grievance Log",
-      "basis": "1K-02"
+      "basis": "1J-02"
     },
     {
       "id": "RTS-04",
       "item": "Grievance acknowledged in writing within 3 business days and decided within 30 calendar days",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "per_event",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Grievance file showing both dates met",
-      "basis": "1K-02"
+      "basis": "1J-02"
     },
     {
       "id": "RTS-05",
       "item": "Rights, grievance procedure and non-retaliation notice posted and current",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "quarterly",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Safety inspection items 16-18",
-      "basis": "1K-01, 1A-05"
+      "basis": "1J-01, 1A-05"
     },
     {
       "id": "RTS-06",
       "item": "Consent for Services renewed",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "per_person",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Signed consent dated within 12 months in every record",
-      "basis": "1K-04"
+      "basis": "1J-04"
     },
     {
       "id": "RTS-07",
       "item": "Releases of information checked for validity and expiry",
-      "area": "1.K",
+      "area": "1.J",
       "domain": "rights",
       "frequency": "quarterly",
       "owner": "PRIVACY_OFFICER",
       "evidence": "Record review item 4",
-      "basis": "1K-03"
+      "basis": "1J-03"
     },
     {
       "id": "ACC-01",
       "item": "Accessibility barrier survey completed across all eight areas",
-      "area": "1.L",
+      "area": "1.K",
       "domain": "accessibility",
       "frequency": "annual",
       "owner": "CEO",
       "evidence": "Completed Accessibility Barrier Survey with participants named",
-      "basis": "1L-01"
+      "basis": "1K-01"
     },
     {
       "id": "ACC-02",
       "item": "Accessibility Plan updated with documented progress; at least one barrier removed or reduced",
-      "area": "1.L",
+      "area": "1.K",
       "domain": "accessibility",
       "frequency": "annual",
       "owner": "CEO",
       "evidence": "Dated plan showing this year's progress",
-      "basis": "1L-01"
+      "basis": "1K-01"
     },
     {
       "id": "ACC-03",
       "item": "Accommodation requests responded to within 5 business days and logged",
-      "area": "1.L",
+      "area": "1.K",
       "domain": "accessibility",
       "frequency": "per_event",
       "owner": "CEO",
       "evidence": "Accommodation log",
-      "basis": "1L-01"
+      "basis": "1K-01"
     },
     {
       "id": "PER-01",
       "item": "Performance Measurement Plan reviewed; measures and targets confirmed",
-      "area": "1.M",
+      "area": "1.L",
       "domain": "performance",
       "frequency": "annual",
       "owner": "QI_COORDINATOR",
       "evidence": "Dated plan + a definition sheet per measure",
-      "basis": "1M-01"
+      "basis": "1L-01"
     },
     {
       "id": "PER-02",
       "item": "Quarterly Performance Dashboard produced and presented to leadership",
-      "area": "1.M",
+      "area": "1.L",
       "domain": "performance",
       "frequency": "quarterly",
       "owner": "QI_COORDINATOR",
       "evidence": "Dashboard + leadership minutes",
-      "basis": "1M-01"
+      "basis": "1L-01"
     },
     {
       "id": "PER-03",
       "item": "Data integrity check: sample traced back to source records",
-      "area": "1.M",
+      "area": "1.L",
       "domain": "performance",
       "frequency": "annual",
       "owner": "QI_COORDINATOR",
       "evidence": "Check record with sample size and discrepancies",
-      "basis": "1M-01"
+      "basis": "1L-01"
     },
     {
       "id": "PER-04",
       "item": "Annual Performance Analysis Report written, covering every measure against target",
-      "area": "1.N",
+      "area": "1.M",
       "domain": "performance",
       "frequency": "annual",
       "owner": "QI_COORDINATOR",
       "evidence": "The written report",
-      "basis": "1N-01",
+      "basis": "1M-01",
       "note": "The single most-examined document in the survey."
     },
     {
       "id": "PER-05",
       "item": "Analysis presented to leadership and the governing body and recorded in minutes",
-      "area": "1.N",
+      "area": "1.M",
       "domain": "performance",
       "frequency": "annual",
       "owner": "CEO",
       "evidence": "Minutes of both",
-      "basis": "1N-01"
+      "basis": "1M-01"
     },
     {
       "id": "PER-06",
       "item": "Results distributed to personnel, persons served and stakeholders in plain language",
-      "area": "1.N",
+      "area": "1.M",
       "domain": "performance",
       "frequency": "annual",
       "owner": "QI_COORDINATOR",
       "evidence": "The one-pager + distribution log, within 90 days of the report",
-      "basis": "1N-01"
+      "basis": "1M-01"
     },
     {
       "id": "PER-07",
       "item": "At least one performance improvement project run with before and after data",
-      "area": "1.N",
+      "area": "1.M",
       "domain": "performance",
       "frequency": "annual",
       "owner": "QI_COORDINATOR",
       "evidence": "Completed PI Project Charter",
-      "basis": "1N-01"
+      "basis": "1M-01"
     },
     {
       "id": "PER-08",
       "item": "Corrective Action Tracker reviewed; overdue items chased",
-      "area": "1.N",
+      "area": "1.M",
       "domain": "performance",
       "frequency": "monthly",
       "owner": "QI_COORDINATOR",
@@ -1213,42 +1213,42 @@
     {
       "id": "SVC-15",
       "item": "Natural supports counts recorded at admission, review and discharge",
-      "area": "3.CI",
+      "area": "3.C",
       "domain": "service",
       "frequency": "per_person",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Natural Supports Map tracking table",
-      "basis": "3CI-03"
+      "basis": "3C-03"
     },
     {
       "id": "SVC-16",
       "item": "Benefits and Entitlements Checklist completed and gaps turned into plan objectives",
-      "area": "3.CI",
+      "area": "3.C",
       "domain": "service",
       "frequency": "per_person",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Completed checklist in record",
-      "basis": "3CI-05"
+      "basis": "3C-05"
     },
     {
       "id": "SVC-17",
       "item": "Systemic barriers log reported to leadership for community advocacy",
-      "area": "3.CI",
+      "area": "3.C",
       "domain": "service",
       "frequency": "annual",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Barrier log + leadership minutes",
-      "basis": "3CI-05"
+      "basis": "3C-05"
     },
     {
       "id": "SVC-18",
       "item": "Driver licence, driving record and insurance re-verified",
-      "area": "3.CI",
+      "area": "3.C",
       "domain": "service",
       "frequency": "annual",
       "owner": "PROGRAM_DIRECTOR",
       "evidence": "Verification per driver",
-      "basis": "3CI-04",
+      "basis": "3C-04",
       "conditional": "provides_transportation"
     },
     {

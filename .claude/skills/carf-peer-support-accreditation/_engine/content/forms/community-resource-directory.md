@@ -1,6 +1,6 @@
 ---
 title: Community Resource Directory
-area: 2.A / 3.CI
+area: 2.A / 3.C
 who: {{PROGRAM_DIRECTOR}}
 when: Reviewed for accuracy at least every 6 months
 file: Program file; copy available to every staff member and offered to persons served

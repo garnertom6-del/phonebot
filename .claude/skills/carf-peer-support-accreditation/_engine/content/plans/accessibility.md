@@ -1,7 +1,7 @@
 ---
 id: accessibility
 title: Accessibility Plan
-area: 1.L
+area: 1.K
 cycle: Reviewed and updated at least annually with documented progress
 approver: {{CEO_TITLE}}
 ---

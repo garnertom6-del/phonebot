@@ -32,16 +32,33 @@ this skill is not a substitute for it.
 
 ### 2. THE VERIFICATION GATE
 
-`_engine/content/meta/standards_map.json` carries the area letters and names (1.A Leadership
-through 3 program standards). That outline has been stable for years, but **no one here has read
-the user's edition**, and CARF revises annually (each manual runs July 1 – June 30).
+`_engine/content/meta/standards_map.json` carries the area letters, names and manual page numbers.
+**As of this build they are checked against the real 2026 Behavioral Health Standards Manual table
+of contents** (July 1, 2026 – June 30, 2027), supplied by the user.
+
+Six things the check corrected, which is why the gate exists:
+
+| Assumed | Actually |
+|---|---|
+| 1.I Human Resources | **1.I Workforce Development and Management** |
+| 1.J Technology | **No Technology area exists in Section 1.** Section 1 runs A–M, 13 areas |
+| 1.K Rights / 1.L Accessibility / 1.M Measurement / 1.N Improvement | **1.J / 1.K / 1.L / 1.M** — everything after Workforce shifted up a letter |
+| 1.C Strategic Integrated Planning | **1.C Strategic Planning** |
+| 2.H Quality Records Review | **2.H Quality Records Management** |
+| Section 2 ends at 2.H | **2.I Service Delivery Using Information and Communication Technologies** — a whole area that was missing |
+| 3.CI Community Integration | **3.C Community Integration**, page 185, in Section 3 *Core Treatment* Program Standards |
+
+Do the same for any other edition. A map that is right for 2026 is not automatically right for 2027.
 
 So the builder refuses to claim verification it does not have:
 
 - `manual_verified: false` (the default) → every document is stamped **DRAFT — section map
   unverified**, and section 0 of `BLANKS_TO_COMPLETE.md` explains exactly how to verify.
-- `08_Manual_Verification_Worksheet` is the instrument for doing it: 24 area pages, generated
+- `08_Manual_Verification_Worksheet` is the instrument for doing it: one page per area, generated
   from `standards_map.json` so it can never drift from what the packet assumes.
+- **Level 1 (area map correct) is done for 2026. Level 2 (coverage complete) is not.** Nobody has
+  read the standards inside each area. Box 4 on every worksheet page - "standards in YOUR manual
+  that nothing above covers" - is still entirely unanswered.
 - Only a human, with the purchased manual open, sets it to `true`.
 - The worksheet tells them **not to copy manual text into it** — a standard number and their
   own few words is all anyone needs, and it keeps them clear of the copyright line too.
@@ -52,6 +69,14 @@ manual" unless the user tells you they did it.
 ### 3. THE PEER SUPPORT NAMING TRAP
 
 **CARF does not accredit "peer support."** There is no peer support accreditation to apply for.
+Confirmed twice: the 2026 table of contents has no Peer Support program in Section 3 or 4, and
+CARF's own 2026 Behavioral Health Program Descriptions mention peer support once in 23 pages, as
+staffing for a crisis contact center.
+
+**But there is a designation worth knowing about.** Section 5 is Specialty Designation Standards,
+and **5.D is Consumer-Run** (page 318) — a designation layered on a program, about the persons
+served participating in the direction of the service itself. For a genuinely peer-directed agency
+that is the closest thing CARF has, and it may belong on the application alongside 3.C. Ask.
 CARF accredits **programs**. In the Behavioral Health manual those include Community Integration,
 Case Management/Services Coordination, Assertive Community Treatment, Crisis Intervention,
 Supported Living, Health Home, CCBHC, and others.

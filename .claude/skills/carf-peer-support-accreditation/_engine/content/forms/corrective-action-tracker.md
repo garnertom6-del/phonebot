@@ -1,6 +1,6 @@
 ---
 title: Corrective Action Tracker
-area: 2.H / 1.N
+area: 2.H / 1.M
 who: {{QI_COORDINATOR}}
 when: Continuous; reviewed monthly
 file: QI file
