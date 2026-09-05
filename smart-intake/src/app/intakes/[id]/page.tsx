@@ -1352,6 +1352,10 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           )}
           {!linkFinished && (
             <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" className="btn-secondary px-3 py-2 text-sm" disabled={linkExpired || insuranceSmsBlocked} onClick={() => {
+                setManualSendingOpen(true);
+                document.getElementById("manual-text-options")?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }}>Text from my phone (no Twilio)</button>
               <button
                 className="btn-primary px-3 py-2 text-sm"
                 disabled={clientLinkBusy || signatureReminderBusy || !hasClientContact || insuranceSmsBlocked}
@@ -1378,11 +1382,12 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
 
           {!linkFinished && (
             <details
+              id="manual-text-options"
               className="mt-3 border-t border-slate-200 pt-3 [&>summary::-webkit-details-marker]:hidden"
               open={manualSendingOpen}
               onToggle={(event) => setManualSendingOpen(event.currentTarget.open)}
             >
-              <summary className="cursor-pointer text-sm font-semibold text-brand">Manual sending &amp; message preview</summary>
+              <summary className="cursor-pointer text-sm font-semibold text-brand">Text from a work phone, paired computer, or share QR</summary>
               <div className="mt-3">
                 <ManualSendPanel
                   intakeId={i.id}

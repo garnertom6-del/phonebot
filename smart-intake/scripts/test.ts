@@ -1880,6 +1880,7 @@ async function main() {
   assert(!iosHref.includes("Angela"), "SMS href must not include a client name");
   assert.equal(smsHref("", "hello"), "");
   assert.equal(isUnreachableClientLink("http://localhost:3000/intake/token"), true);
+  assert.equal(isUnreachableClientLink("http://[::1]:3000/intake/token"), true);
   assert.equal(isUnreachableClientLink("https://mdc-smart-intake.onrender.com/intake/token"), false);
   assert(intakeMessage.includes("Save and return"), "intake SMS must explain save-and-return");
   assert(signatureMessage.includes("answers are saved"), "signature reminder must reassure the client");
@@ -1902,6 +1903,30 @@ async function main() {
   assert(smsQr && smsQr.size > linkQr!.size, "sms QR carries more data than the bare link QR");
   assert.equal(qrSvgData("   "), null, "empty text produces no QR");
   ok("send-it-by-hand links and QR codes are well formed");
+
+  {
+    const phoneHandoff = fs.readFileSync(path.join(process.cwd(), "src/components/PhoneSmsHandoff.tsx"), "utf8");
+    const computerSms = fs.readFileSync(path.join(process.cwd(), "src/components/ComputerSmsActions.tsx"), "utf8");
+    const manualPanel = fs.readFileSync(path.join(process.cwd(), "src/components/ManualSendPanel.tsx"), "utf8");
+    const casePage = fs.readFileSync(path.join(process.cwd(), "src/app/intakes/[id]/page.tsx"), "utf8");
+    for (const platform of ["ios", "android"] as const) {
+      const handoffHref = smsHref("3365550100", intakeMessage, platform);
+      assert(qrSvgData(handoffHref), `${platform} message must fit a locally rendered QR`);
+      assert.equal(decodeURIComponent(handoffHref.split("body=")[1]), intakeMessage);
+    }
+    assert(phoneHandoff.includes('platform !== "unknown"'), "QR waits for staff to choose the sending phone");
+    assert(phoneHandoff.includes('value="ios"') && phoneHandoff.includes('value="android"'));
+    assert(!/api\.qrserver|chart\.googleapis|qrcode\.tec-it|qrtag/i.test(phoneHandoff), "private links stay out of external QR services");
+    assert(computerSms.includes('href="https://messages.google.com/web/"'), "paired messaging opens a generic URL without client data");
+    assert(!computerSms.includes("This computer has no texting app"), "user agent cannot determine whether a PC has a paired app");
+    const openHandler = computerSms.slice(computerSms.indexOf("function openSms"), computerSms.indexOf("async function markSent"));
+    assert(!openHandler.includes("window.location.href") && !openHandler.includes("await copyMessage"), "native SMS navigation stays in the user's click gesture");
+    assert(!openHandler.includes("fetch("), "opening a composer never records a send");
+    assert(computerSms.includes("if (!canMarkSent) return"));
+    assert(manualPanel.includes("if (sharingBlocked || !confirmedSent) return"));
+    assert(casePage.includes('id="manual-text-options"') && casePage.includes("Text from my phone (no Twilio)"));
+    ok("manual SMS uses phone-specific QR, paired apps, and explicit staff confirmation without claiming delivery");
+  }
 
   // One insurance dropdown on Create New Intake: every plan is in exactly one
   // group, and each plan's Record# mode agrees with the generator/lookup rules.

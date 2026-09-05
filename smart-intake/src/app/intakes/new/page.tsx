@@ -599,6 +599,7 @@ export default function NewIntake() {
                 </p>
               )}
               <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                {phone && insuranceReady && <a href="#manual-text-options" className="btn-secondary text-center">Text from my phone (no Twilio)</a>}
                 <button
                   className="btn-primary"
                   disabled={sendBusy || !hasContact || !insuranceReady}
@@ -626,7 +627,7 @@ export default function NewIntake() {
                   </Link>
                 </p>
               )}
-              <div className="mt-4">
+              <div className="mt-4 scroll-mt-4" id="manual-text-options">
                 <ManualSendPanel
                   intakeId={result.id}
                   clientLink={result.clientLink}

@@ -61,7 +61,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   const displayPhone = formatUsPhoneDisplay(contacts.phone.value);
-  const detail = `sent SMS from this computer to ${contacts.phone.role} at ${displayPhone}`;
+  const ending = contacts.phone.value.replace(/\D/g, "").slice(-4);
+  const detail = `staff reports manually sent SMS to ${contacts.phone.role} ending ${ending}; carrier delivery not verified`;
   await audit(PURPOSE_EVENT[parsed.data.purpose], {
     providerId: provider!.id,
     intakeId: intake.id,
@@ -71,6 +72,6 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   return NextResponse.json({
     ok: true,
-    message: `Recorded SMS from this computer to ${contacts.phone.role} at ${displayPhone}.`,
+    message: `Recorded your manual SMS report for ${contacts.phone.role} at ${displayPhone}. Recipient delivery is not confirmed by the app.`,
   });
 }
