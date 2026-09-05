@@ -40,7 +40,7 @@ And one level up, in **`../data/`**:
 
 | File | What it is |
 |---|---|
-| `Evidence_and_Data_Workbook.xlsx` | **The spine of the whole thing.** 582 dated required items, a compliance calendar, 12 data logs, the measure set, and the evidence register |
+| `Evidence_and_Data_Workbook.xlsx` | **The spine of the whole thing.** 592 dated required items, a compliance calendar, 12 data logs, the measure set, and the evidence register |
 
 ---
 
@@ -71,7 +71,7 @@ your practice to match — or change the policy.
 the minutes. Date every policy.
 
 **Step 6 — Open the workbook and work sheet `01 MASTER CHECK-OFF LIST`.**
-It has **582 dated items** — every drill, every review, every survey, every plan, every
+It has **592 dated items** — every drill, every review, every survey, every plan, every
 report — with the date each is due and who owns it.
 Filter Status = OVERDUE and start there.
 

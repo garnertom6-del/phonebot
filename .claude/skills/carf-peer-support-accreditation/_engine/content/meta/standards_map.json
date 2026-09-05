@@ -3,229 +3,683 @@
   "manual_year_default": "2026",
   "IMPORTANT": "The area letters and names below are the long-stable outline of the CARF Behavioral Health Standards Manual. The plain-English text in this file is written from scratch by this skill. It is NOT CARF standard text and must never be presented as a quotation from the manual. Before any document leaves the building, a human must open the provider's PURCHASED manual and confirm each area letter/name below, then set manual_verified:true in the provider record. See SKILL.md 'THE VERIFICATION GATE'.",
   "sections": [
-    {"section": "1", "name": "ASPIRE to Excellence", "applies": "Every CARF-accredited organization, every program."},
-    {"section": "2", "name": "General Program Standards", "applies": "Every behavioral health program the organization seeks to accredit."},
-    {"section": "3", "name": "Core Program Standards", "applies": "Only the specific program(s) listed on the survey application (e.g. Community Integration)."}
+    {
+      "section": "1",
+      "name": "ASPIRE to Excellence",
+      "applies": "Every CARF-accredited organization, every program."
+    },
+    {
+      "section": "2",
+      "name": "General Program Standards",
+      "applies": "Every behavioral health program the organization seeks to accredit."
+    },
+    {
+      "section": "3",
+      "name": "Core Program Standards",
+      "applies": "Only the specific program(s) listed on the survey application (e.g. Community Integration)."
+    }
   ],
   "areas": [
     {
-      "code": "1.A", "name": "Leadership", "aspire": "Assess the environment",
+      "code": "1.A",
+      "name": "Leadership",
+      "aspire": "Assess the environment",
       "plain": "Leadership is identified, accountable, and ethical. There is a written code of ethics, a way to raise concerns without retaliation, a corporate compliance program, and evidence that leadership considers cultural competency and the needs of the people served when making decisions.",
-      "policies": ["1A-01", "1A-02", "1A-03", "1A-04", "1A-05", "1A-06"],
-      "plans": ["compliance", "cultural"],
-      "forms": ["code-of-ethics-attestation", "conflict-of-interest-disclosure"],
-      "surveyor_asks": ["Show me your org chart and who is accountable for what.", "Show me the signed code of ethics for every staff member.", "Tell me about a time someone raised an ethical concern and what happened.", "How does leadership know what the community you serve needs?"],
-      "interviews": ["CEO", "Governing body", "Program Director"]
+      "policies": [
+        "1A-01",
+        "1A-02",
+        "1A-03",
+        "1A-04",
+        "1A-05",
+        "1A-06",
+        "1A-07"
+      ],
+      "plans": [
+        "compliance",
+        "cultural"
+      ],
+      "forms": [
+        "code-of-ethics-attestation",
+        "conflict-of-interest-disclosure",
+        "document-register",
+        "document-rollout-record",
+        "implementation-tracer-record"
+      ],
+      "surveyor_asks": [
+        "Show me your org chart and who is accountable for what.",
+        "Show me the signed code of ethics for every staff member.",
+        "Tell me about a time someone raised an ethical concern and what happened.",
+        "How does leadership know what the community you serve needs?",
+        "Show me one policy traced end to end: approved, published, staff trained, competency observed, and then checked in real practice.",
+        "How do you know staff are working from the current version and not last year's?"
+      ],
+      "interviews": [
+        "CEO",
+        "Governing body",
+        "Program Director"
+      ]
     },
     {
-      "code": "1.B", "name": "Governance", "aspire": "Assess the environment",
+      "code": "1.B",
+      "name": "Governance",
+      "aspire": "Assess the environment",
       "plain": "If the organization has a governing board, the board has written duties, meets, keeps minutes, evaluates the CEO, evaluates itself, and manages conflicts of interest. A sole-owner agency documents who performs these governance functions instead.",
-      "policies": ["1B-01"],
+      "policies": [
+        "1B-01"
+      ],
       "plans": [],
-      "forms": ["board-minutes-template", "board-self-assessment", "ceo-evaluation"],
-      "surveyor_asks": ["May I see twelve months of board minutes?", "When did the board last evaluate the CEO?", "How does the board assess its own performance?"],
-      "interviews": ["Governing body", "CEO"],
+      "forms": [
+        "board-minutes-template",
+        "board-self-assessment",
+        "ceo-evaluation"
+      ],
+      "surveyor_asks": [
+        "May I see twelve months of board minutes?",
+        "When did the board last evaluate the CEO?",
+        "How does the board assess its own performance?"
+      ],
+      "interviews": [
+        "Governing body",
+        "CEO"
+      ],
       "note": "Governance standards are consultative/optional in some CARF manuals. Confirm applicability in the purchased manual before building this tab."
     },
     {
-      "code": "1.C", "name": "Strategic Integrated Planning", "aspire": "Set strategy",
+      "code": "1.C",
+      "name": "Strategic Integrated Planning",
+      "aspire": "Set strategy",
       "plain": "A written strategic plan exists that was built from real inputs: what is happening in the environment, what stakeholders expect, financial reality, technology, workforce, and risk. It is reviewed at least annually and the review is documented.",
-      "policies": ["1C-01"],
-      "plans": ["strategic"],
-      "forms": ["environmental-scan-worksheet"],
-      "surveyor_asks": ["Show me the strategic plan and the minutes where it was reviewed.", "What data went into it?", "What changed as a result?"],
-      "interviews": ["CEO", "Governing body"]
+      "policies": [
+        "1C-01"
+      ],
+      "plans": [
+        "strategic"
+      ],
+      "forms": [
+        "environmental-scan-worksheet"
+      ],
+      "surveyor_asks": [
+        "Show me the strategic plan and the minutes where it was reviewed.",
+        "What data went into it?",
+        "What changed as a result?"
+      ],
+      "interviews": [
+        "CEO",
+        "Governing body"
+      ]
     },
     {
-      "code": "1.D", "name": "Input from Persons Served and Other Stakeholders", "aspire": "Set strategy",
+      "code": "1.D",
+      "name": "Input from Persons Served and Other Stakeholders",
+      "aspire": "Set strategy",
       "plain": "The organization systematically collects input from the people it serves and from other stakeholders (families, referral sources, payers, staff, community partners), analyzes it at least annually, acts on it, and reports the results back to those stakeholders.",
-      "policies": ["1D-01"],
+      "policies": [
+        "1D-01"
+      ],
       "plans": [],
-      "forms": ["satisfaction-survey-persons-served", "satisfaction-survey-stakeholder", "input-analysis-report"],
-      "surveyor_asks": ["Show me last year's satisfaction results.", "What did you change because of them?", "How did you tell the people served what changed?"],
-      "interviews": ["Persons served", "Program Director", "QI Coordinator"]
+      "forms": [
+        "satisfaction-survey-persons-served",
+        "satisfaction-survey-stakeholder",
+        "input-analysis-report"
+      ],
+      "surveyor_asks": [
+        "Show me last year's satisfaction results.",
+        "What did you change because of them?",
+        "How did you tell the people served what changed?"
+      ],
+      "interviews": [
+        "Persons served",
+        "Program Director",
+        "QI Coordinator"
+      ]
     },
     {
-      "code": "1.E", "name": "Legal Requirements", "aspire": "Set strategy",
+      "code": "1.E",
+      "name": "Legal Requirements",
+      "aspire": "Set strategy",
       "plain": "The organization knows and follows the laws, regulations, licensure and contract obligations that apply to it, and there is a written process for staying current and for reviewing contracts before signing.",
-      "policies": ["1E-01"],
+      "policies": [
+        "1E-01"
+      ],
       "plans": [],
-      "forms": ["regulatory-obligations-register"],
-      "surveyor_asks": ["What licenses and contracts are you operating under?", "Who tracks renewal dates?", "Show me the current license certificate."],
-      "interviews": ["CEO", "Compliance Officer"]
+      "forms": [
+        "regulatory-obligations-register"
+      ],
+      "surveyor_asks": [
+        "What licenses and contracts are you operating under?",
+        "Who tracks renewal dates?",
+        "Show me the current license certificate."
+      ],
+      "interviews": [
+        "CEO",
+        "Compliance Officer"
+      ]
     },
     {
-      "code": "1.F", "name": "Financial Planning and Management", "aspire": "Set strategy / Implement the plan",
+      "code": "1.F",
+      "name": "Financial Planning and Management",
+      "aspire": "Set strategy / Implement the plan",
       "plain": "There is an annual budget built on reasonable assumptions, actual results are compared to budget regularly, there are written internal controls (separation of duties, approval limits), fees are documented, and an external financial review is obtained.",
-      "policies": ["1F-01", "1F-02"],
-      "plans": ["financial"],
-      "forms": ["budget-variance-review"],
-      "surveyor_asks": ["Show me the budget and the monthly comparison to actual.", "Who signs checks and who reconciles the bank statement?", "Show me the most recent external review or audit."],
-      "interviews": ["CEO", "Finance"]
+      "policies": [
+        "1F-01",
+        "1F-02"
+      ],
+      "plans": [
+        "financial"
+      ],
+      "forms": [
+        "budget-variance-review"
+      ],
+      "surveyor_asks": [
+        "Show me the budget and the monthly comparison to actual.",
+        "Who signs checks and who reconciles the bank statement?",
+        "Show me the most recent external review or audit."
+      ],
+      "interviews": [
+        "CEO",
+        "Finance"
+      ]
     },
     {
-      "code": "1.G", "name": "Risk Management", "aspire": "Implement the plan",
+      "code": "1.G",
+      "name": "Risk Management",
+      "aspire": "Implement the plan",
       "plain": "There is a written risk management plan that names the organization's actual risks (financial, clinical, reputational, staffing, technology, community-based service delivery), what is being done about each, what insurance is carried, and when it was last reviewed.",
-      "policies": ["1G-01"],
-      "plans": ["risk"],
-      "forms": ["risk-register"],
-      "surveyor_asks": ["What are your top risks and what are you doing about them?", "Show me your insurance declarations page.", "When was the plan last reviewed and by whom?"],
-      "interviews": ["CEO", "Program Director"]
+      "policies": [
+        "1G-01"
+      ],
+      "plans": [
+        "risk"
+      ],
+      "forms": [
+        "risk-register"
+      ],
+      "surveyor_asks": [
+        "What are your top risks and what are you doing about them?",
+        "Show me your insurance declarations page.",
+        "When was the plan last reviewed and by whom?"
+      ],
+      "interviews": [
+        "CEO",
+        "Program Director"
+      ]
     },
     {
-      "code": "1.H", "name": "Health and Safety", "aspire": "Implement the plan",
+      "code": "1.H",
+      "name": "Health and Safety",
+      "aspire": "Implement the plan",
       "plain": "Written emergency procedures for every foreseeable emergency; drills that are actually run, documented, and critiqued; documented safety inspections; critical incident reporting and analysis; infection control; first aid and emergency training; and safety procedures for staff working alone in the community or in someone's home.",
-      "policies": ["1H-01", "1H-02", "1H-03", "1H-04", "1H-05"],
-      "plans": ["safety", "continuity"],
-      "forms": ["safety-inspection-checklist", "drill-log", "critical-incident-report", "incident-analysis-summary", "community-visit-safety-plan", "vehicle-inspection"],
-      "surveyor_asks": ["Show me a year of drill records for every shift and every emergency type.", "Walk me through what happens if a peer specialist feels unsafe at a home visit.", "Show me your incident log and the analysis of trends."],
-      "interviews": ["Safety Officer", "Direct staff", "Persons served"]
+      "policies": [
+        "1H-01",
+        "1H-02",
+        "1H-03",
+        "1H-04",
+        "1H-05"
+      ],
+      "plans": [
+        "safety",
+        "continuity"
+      ],
+      "forms": [
+        "safety-inspection-checklist",
+        "drill-log",
+        "critical-incident-report",
+        "incident-analysis-summary",
+        "community-visit-safety-plan",
+        "vehicle-inspection"
+      ],
+      "surveyor_asks": [
+        "Show me a year of drill records for every shift and every emergency type.",
+        "Walk me through what happens if a peer specialist feels unsafe at a home visit.",
+        "Show me your incident log and the analysis of trends."
+      ],
+      "interviews": [
+        "Safety Officer",
+        "Direct staff",
+        "Persons served"
+      ]
     },
     {
-      "code": "1.I", "name": "Human Resources", "aspire": "Implement the plan",
+      "code": "1.I",
+      "name": "Human Resources",
+      "aspire": "Implement the plan",
       "plain": "Written job descriptions; verification of credentials before hire (including the state peer credential); background checks; documented orientation; competency-based training with documented competency, not just attendance; regular documented supervision; annual performance appraisal; and a documented look at workforce needs and succession.",
-      "policies": ["1I-01", "1I-02", "1I-03", "1I-04", "1I-05"],
-      "plans": ["workforce"],
-      "forms": ["job-description-peer-support-specialist", "job-description-peer-supervisor", "job-description-program-director", "orientation-checklist", "competency-checklist-peer", "supervision-note", "performance-appraisal", "credential-verification-log", "training-log", "personnel-file-checklist"],
-      "surveyor_asks": ["Pull three personnel files. Show me credential verification, orientation, competency, supervision, and the last appraisal in each.", "How do you know a new peer specialist is competent, not just trained?", "Show me the supervision notes for the last six months."],
-      "interviews": ["HR", "Supervisor", "Peer Support Specialists"]
+      "policies": [
+        "1I-01",
+        "1I-02",
+        "1I-03",
+        "1I-04",
+        "1I-05"
+      ],
+      "plans": [
+        "workforce"
+      ],
+      "forms": [
+        "job-description-peer-support-specialist",
+        "job-description-peer-supervisor",
+        "job-description-program-director",
+        "orientation-checklist",
+        "competency-checklist-peer",
+        "supervision-note",
+        "performance-appraisal",
+        "credential-verification-log",
+        "training-log",
+        "personnel-file-checklist"
+      ],
+      "surveyor_asks": [
+        "Pull three personnel files. Show me credential verification, orientation, competency, supervision, and the last appraisal in each.",
+        "How do you know a new peer specialist is competent, not just trained?",
+        "Show me the supervision notes for the last six months."
+      ],
+      "interviews": [
+        "HR",
+        "Supervisor",
+        "Peer Support Specialists"
+      ]
     },
     {
-      "code": "1.J", "name": "Technology", "aspire": "Implement the plan",
+      "code": "1.J",
+      "name": "Technology",
+      "aspire": "Implement the plan",
       "plain": "A written technology and systems plan covering the systems in use, who may access what, how data is backed up and tested, what happens when the system is down, and how confidentiality is protected. If information and communication technology (telehealth, texting, video) is used to deliver service, that has its own written procedures.",
-      "policies": ["1J-01", "1J-02", "1J-03", "1J-04"],
-      "plans": ["technology"],
-      "forms": ["system-downtime-procedure", "device-and-access-log"],
-      "surveyor_asks": ["What happens to service delivery if your EHR is down for two days?", "When did you last test a restore from backup?", "Show me your texting and social media rules for peer staff."],
-      "interviews": ["CEO", "Privacy Officer", "Direct staff"]
+      "policies": [
+        "1J-01",
+        "1J-02",
+        "1J-03",
+        "1J-04"
+      ],
+      "plans": [
+        "technology"
+      ],
+      "forms": [
+        "system-downtime-procedure",
+        "device-and-access-log"
+      ],
+      "surveyor_asks": [
+        "What happens to service delivery if your EHR is down for two days?",
+        "When did you last test a restore from backup?",
+        "Show me your texting and social media rules for peer staff."
+      ],
+      "interviews": [
+        "CEO",
+        "Privacy Officer",
+        "Direct staff"
+      ]
     },
     {
-      "code": "1.K", "name": "Rights of Persons Served", "aspire": "Implement the plan",
+      "code": "1.K",
+      "name": "Rights of Persons Served",
+      "aspire": "Implement the plan",
       "plain": "Rights are written, given to and explained to every person served in a way they can understand, and posted. There is a written grievance/complaint process with timeframes and an appeal, a grievance log, informed consent, and confidentiality protections. Rights are reviewed annually for whether they were actually honored.",
-      "policies": ["1K-01", "1K-02", "1K-03", "1K-04"],
+      "policies": [
+        "1K-01",
+        "1K-02",
+        "1K-03",
+        "1K-04"
+      ],
       "plans": [],
-      "forms": ["rights-statement-handout", "grievance-form", "grievance-log", "consent-for-services", "release-of-information", "privacy-notice-acknowledgment", "rights-review-annual"],
-      "surveyor_asks": ["Ask a person served: do you know how to file a complaint?", "Show me the grievance log and what happened with each one.", "Show me signed consents in three records."],
-      "interviews": ["Persons served", "Direct staff", "Privacy Officer"]
+      "forms": [
+        "rights-statement-handout",
+        "grievance-form",
+        "grievance-log",
+        "consent-for-services",
+        "release-of-information",
+        "privacy-notice-acknowledgment",
+        "rights-review-annual"
+      ],
+      "surveyor_asks": [
+        "Ask a person served: do you know how to file a complaint?",
+        "Show me the grievance log and what happened with each one.",
+        "Show me signed consents in three records."
+      ],
+      "interviews": [
+        "Persons served",
+        "Direct staff",
+        "Privacy Officer"
+      ]
     },
     {
-      "code": "1.L", "name": "Accessibility", "aspire": "Implement the plan",
+      "code": "1.L",
+      "name": "Accessibility",
+      "aspire": "Implement the plan",
       "plain": "A written accessibility plan that identifies real barriers in eight areas - architectural, environmental, attitudinal, financial, employment, communication, transportation, and digital/technology - names an action and a responsible person for each, and is reviewed annually with progress documented.",
-      "policies": ["1L-01"],
-      "plans": ["accessibility"],
-      "forms": ["accessibility-barrier-survey"],
-      "surveyor_asks": ["Show me your accessibility plan and this year's progress.", "What barrier did you remove in the last twelve months?", "How would a person who is deaf access your service?"],
-      "interviews": ["CEO", "Persons served", "Direct staff"]
+      "policies": [
+        "1L-01"
+      ],
+      "plans": [
+        "accessibility"
+      ],
+      "forms": [
+        "accessibility-barrier-survey"
+      ],
+      "surveyor_asks": [
+        "Show me your accessibility plan and this year's progress.",
+        "What barrier did you remove in the last twelve months?",
+        "How would a person who is deaf access your service?"
+      ],
+      "interviews": [
+        "CEO",
+        "Persons served",
+        "Direct staff"
+      ]
     },
     {
-      "code": "1.M", "name": "Performance Measurement and Management", "aspire": "Measure and analyze results",
+      "code": "1.M",
+      "name": "Performance Measurement and Management",
+      "aspire": "Measure and analyze results",
       "plain": "The organization decides in writing what it will measure, why, how, how often, and what the target is - covering both business function and service delivery, and covering effectiveness, efficiency, service access, and satisfaction. Data is actually collected and reported on schedule.",
-      "policies": ["1M-01"],
-      "plans": ["performance-measurement"],
-      "forms": ["measure-definition-sheet", "quarterly-performance-dashboard"],
-      "surveyor_asks": ["What exactly do you measure and what is your target?", "Show me the data for the last four quarters.", "How do you define a successful outcome for a person in peer support?"],
-      "interviews": ["QI Coordinator", "CEO", "Program Director"]
+      "policies": [
+        "1M-01"
+      ],
+      "plans": [
+        "performance-measurement"
+      ],
+      "forms": [
+        "measure-definition-sheet",
+        "quarterly-performance-dashboard"
+      ],
+      "surveyor_asks": [
+        "What exactly do you measure and what is your target?",
+        "Show me the data for the last four quarters.",
+        "How do you define a successful outcome for a person in peer support?"
+      ],
+      "interviews": [
+        "QI Coordinator",
+        "CEO",
+        "Program Director"
+      ]
     },
     {
-      "code": "1.N", "name": "Performance Improvement", "aspire": "Effect change",
+      "code": "1.N",
+      "name": "Performance Improvement",
+      "aspire": "Effect change",
       "plain": "The measured data is analyzed at least annually in a written performance analysis, conclusions are drawn, improvement actions are taken and tracked, and the results are shared with staff, persons served, and other stakeholders in a format they can understand.",
-      "policies": ["1N-01"],
-      "plans": ["performance-improvement"],
-      "forms": ["annual-performance-analysis-report", "pi-project-charter", "stakeholder-results-summary"],
-      "surveyor_asks": ["Show me last year's written performance analysis.", "Name one improvement project and show me the before and after numbers.", "How did the people you serve find out about these results?"],
-      "interviews": ["QI Coordinator", "CEO", "Direct staff", "Persons served"]
+      "policies": [
+        "1N-01"
+      ],
+      "plans": [
+        "performance-improvement"
+      ],
+      "forms": [
+        "annual-performance-analysis-report",
+        "pi-project-charter",
+        "stakeholder-results-summary"
+      ],
+      "surveyor_asks": [
+        "Show me last year's written performance analysis.",
+        "Name one improvement project and show me the before and after numbers.",
+        "How did the people you serve find out about these results?"
+      ],
+      "interviews": [
+        "QI Coordinator",
+        "CEO",
+        "Direct staff",
+        "Persons served"
+      ]
     },
     {
-      "code": "2.A", "name": "Program/Service Structure", "aspire": "Section 2 - General Program Standards",
+      "code": "2.A",
+      "name": "Program/Service Structure",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "A written program description that says who the program serves, what it does, where and when, who delivers it and with what qualifications, and how it connects people to community resources. Services are person-centered and recovery-oriented, and staffing is sufficient for the people served.",
-      "policies": ["2A-01", "2A-02"],
+      "policies": [
+        "2A-01",
+        "2A-02"
+      ],
       "plans": [],
-      "forms": ["program-description", "community-resource-directory", "staffing-plan"],
-      "surveyor_asks": ["Show me the written program description.", "Does what I am seeing on site match what this says?", "How many people can one peer specialist carry, and how did you decide that?"],
-      "interviews": ["Program Director", "Direct staff"]
+      "forms": [
+        "program-description",
+        "community-resource-directory",
+        "staffing-plan"
+      ],
+      "surveyor_asks": [
+        "Show me the written program description.",
+        "Does what I am seeing on site match what this says?",
+        "How many people can one peer specialist carry, and how did you decide that?"
+      ],
+      "interviews": [
+        "Program Director",
+        "Direct staff"
+      ]
     },
     {
-      "code": "2.B", "name": "Screening and Access to Services", "aspire": "Section 2 - General Program Standards",
+      "code": "2.B",
+      "name": "Screening and Access to Services",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "Written eligibility criteria, a documented screening process with timeframes, what happens when someone is not eligible or must wait, and a documented orientation for every person entering the program that covers rights, grievance, confidentiality, fees, and what to expect.",
-      "policies": ["2B-01", "2B-02"],
+      "policies": [
+        "2B-01",
+        "2B-02"
+      ],
       "plans": [],
-      "forms": ["screening-referral-form", "waitlist-log", "orientation-of-person-served-checklist", "referral-out-log"],
-      "surveyor_asks": ["How long between the referral and the first contact? Prove it.", "Show me a signed orientation checklist in a record.", "What do you do when someone does not meet criteria?"],
-      "interviews": ["Program Director", "Direct staff", "Persons served"]
+      "forms": [
+        "screening-referral-form",
+        "waitlist-log",
+        "orientation-of-person-served-checklist",
+        "referral-out-log"
+      ],
+      "surveyor_asks": [
+        "How long between the referral and the first contact? Prove it.",
+        "Show me a signed orientation checklist in a record.",
+        "What do you do when someone does not meet criteria?"
+      ],
+      "interviews": [
+        "Program Director",
+        "Direct staff",
+        "Persons served"
+      ]
     },
     {
-      "code": "2.C", "name": "Person-Centered Plan", "aspire": "Section 2 - General Program Standards",
+      "code": "2.C",
+      "name": "Person-Centered Plan",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "Each person has an individualized plan built with them, in their own words, reflecting their strengths, needs, abilities and preferences, with goals and measurable objectives, the specific services and who provides them, target dates, and the person's signature. The plan is reviewed on a stated schedule and updated when things change.",
-      "policies": ["2C-01", "2C-02"],
+      "policies": [
+        "2C-01",
+        "2C-02"
+      ],
       "plans": [],
-      "forms": ["person-centered-plan", "person-centered-plan-review", "wellness-recovery-plan", "progress-note-peer-support"],
-      "surveyor_asks": ["Read me a goal in the person's own words.", "Show me where the person signed and dated the plan.", "Show me the review that was due last month.", "Does this progress note connect to a goal on this plan?"],
-      "interviews": ["Persons served", "Direct staff", "Supervisor"]
+      "forms": [
+        "person-centered-plan",
+        "person-centered-plan-review",
+        "wellness-recovery-plan",
+        "progress-note-peer-support"
+      ],
+      "surveyor_asks": [
+        "Read me a goal in the person's own words.",
+        "Show me where the person signed and dated the plan.",
+        "Show me the review that was due last month.",
+        "Does this progress note connect to a goal on this plan?"
+      ],
+      "interviews": [
+        "Persons served",
+        "Direct staff",
+        "Supervisor"
+      ]
     },
     {
-      "code": "2.D", "name": "Transition/Discharge", "aspire": "Section 2 - General Program Standards",
+      "code": "2.D",
+      "name": "Transition/Discharge",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "Transition planning begins at admission, not at the end. There is a written transition/discharge summary for every person who leaves, including unplanned exits, and a documented attempt at follow-up after discharge with the results recorded and analyzed.",
-      "policies": ["2D-01", "2D-02"],
+      "policies": [
+        "2D-01",
+        "2D-02"
+      ],
       "plans": [],
-      "forms": ["transition-discharge-summary", "follow-up-contact-log", "unplanned-exit-review"],
-      "surveyor_asks": ["Show me discharge summaries for the last five people who left, including the ones who just stopped coming.", "What does your follow-up data tell you?"],
-      "interviews": ["Program Director", "Direct staff"]
+      "forms": [
+        "transition-discharge-summary",
+        "follow-up-contact-log",
+        "unplanned-exit-review"
+      ],
+      "surveyor_asks": [
+        "Show me discharge summaries for the last five people who left, including the ones who just stopped coming.",
+        "What does your follow-up data tell you?"
+      ],
+      "interviews": [
+        "Program Director",
+        "Direct staff"
+      ]
     },
     {
-      "code": "2.E", "name": "Medication Use", "aspire": "Section 2 - General Program Standards",
+      "code": "2.E",
+      "name": "Medication Use",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "If the program does not prescribe, dispense, administer, or store medication, that must be stated in writing, and staff must know their limits and what to do about medication questions and adverse reactions. If it does any of those things, a full medication management policy set is required.",
-      "policies": ["2E-01"],
+      "policies": [
+        "2E-01"
+      ],
       "plans": [],
-      "forms": ["medication-education-acknowledgment"],
-      "surveyor_asks": ["Do you touch medication in any way?", "Ask a peer specialist: what do you do if someone tells you they stopped their medication?"],
-      "interviews": ["Program Director", "Direct staff"],
+      "forms": [
+        "medication-education-acknowledgment"
+      ],
+      "surveyor_asks": [
+        "Do you touch medication in any way?",
+        "Ask a peer specialist: what do you do if someone tells you they stopped their medication?"
+      ],
+      "interviews": [
+        "Program Director",
+        "Direct staff"
+      ],
       "conditional": "administers_medication"
     },
     {
-      "code": "2.F", "name": "Nonviolent Practices", "aspire": "Section 2 - General Program Standards",
+      "code": "2.F",
+      "name": "Nonviolent Practices",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "A written commitment to nonviolent practice: de-escalation training for staff, what is prohibited, what to do in a behavioral crisis, when to call for help, and a debriefing with the person served and staff after any crisis event.",
-      "policies": ["2F-01", "2F-02"],
+      "policies": [
+        "2F-01",
+        "2F-02"
+      ],
       "plans": [],
-      "forms": ["crisis-debriefing-form", "de-escalation-training-log", "personal-safety-crisis-plan"],
-      "surveyor_asks": ["What restraint or seclusion do you use? (correct answer for most peer programs: none, and it is prohibited in writing)", "Ask staff: what do you do if someone escalates in the car?", "Show me a debriefing after your last crisis event."],
-      "interviews": ["Direct staff", "Supervisor", "Persons served"]
+      "forms": [
+        "crisis-debriefing-form",
+        "de-escalation-training-log",
+        "personal-safety-crisis-plan"
+      ],
+      "surveyor_asks": [
+        "What restraint or seclusion do you use? (correct answer for most peer programs: none, and it is prohibited in writing)",
+        "Ask staff: what do you do if someone escalates in the car?",
+        "Show me a debriefing after your last crisis event."
+      ],
+      "interviews": [
+        "Direct staff",
+        "Supervisor",
+        "Persons served"
+      ]
     },
     {
-      "code": "2.G", "name": "Records of the Persons Served", "aspire": "Section 2 - General Program Standards",
+      "code": "2.G",
+      "name": "Records of the Persons Served",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "A written list of what belongs in a record, who may write in it, how quickly entries must be made, how corrections are made, how records are secured, how long they are kept, and how they are destroyed. Entries are legible, dated, and signed with credential.",
-      "policies": ["2G-01", "2G-02"],
+      "policies": [
+        "2G-01",
+        "2G-02"
+      ],
       "plans": [],
-      "forms": ["record-content-checklist", "records-retention-schedule"],
-      "surveyor_asks": ["What is your documentation timeframe and can you prove notes meet it?", "Where are paper records kept and who has the key?", "Show me how a correction is made."],
-      "interviews": ["Program Director", "Direct staff", "Records custodian"]
+      "forms": [
+        "record-content-checklist",
+        "records-retention-schedule"
+      ],
+      "surveyor_asks": [
+        "What is your documentation timeframe and can you prove notes meet it?",
+        "Where are paper records kept and who has the key?",
+        "Show me how a correction is made."
+      ],
+      "interviews": [
+        "Program Director",
+        "Direct staff",
+        "Records custodian"
+      ]
     },
     {
-      "code": "2.H", "name": "Quality Record Review", "aspire": "Section 2 - General Program Standards",
+      "code": "2.H",
+      "name": "Quality Record Review",
+      "aspire": "Section 2 - General Program Standards",
       "plain": "Records are reviewed on a written schedule using a written tool, by someone qualified, looking at whether documentation supports the service and the plan. Results are aggregated, trends identified, and corrective action tracked to closure.",
-      "policies": ["2H-01"],
+      "policies": [
+        "2H-01"
+      ],
       "plans": [],
-      "forms": ["quality-record-review-tool", "record-review-summary-report", "corrective-action-tracker"],
-      "surveyor_asks": ["Show me your last four quarterly record reviews.", "What did you find and what did you do about it?", "Show me that the correction actually happened."],
-      "interviews": ["QI Coordinator", "Supervisor"]
+      "forms": [
+        "quality-record-review-tool",
+        "record-review-summary-report",
+        "corrective-action-tracker"
+      ],
+      "surveyor_asks": [
+        "Show me your last four quarterly record reviews.",
+        "What did you find and what did you do about it?",
+        "Show me that the correction actually happened."
+      ],
+      "interviews": [
+        "QI Coordinator",
+        "Supervisor"
+      ]
     },
     {
-      "code": "3.CI", "name": "Community Integration", "aspire": "Section 3 - Core Program Standards",
+      "code": "3.CI",
+      "name": "Community Integration",
+      "aspire": "Section 3 - Core Program Standards",
       "plain": "The program helps people participate in community life as they choose - housing, work, education, benefits, relationships, transportation, recreation, health care, and civic life. It is built on the person's own goals, uses natural supports and real community settings rather than segregated ones, and measures actual community participation, not just service contacts.",
-      "policies": ["3CI-01", "3CI-02", "3CI-03", "3CI-04", "3CI-05"],
+      "policies": [
+        "3CI-01",
+        "3CI-02",
+        "3CI-03",
+        "3CI-04",
+        "3CI-05"
+      ],
       "plans": [],
-      "forms": ["community-integration-goal-worksheet", "natural-supports-map", "community-resource-directory", "benefits-and-entitlements-checklist"],
-      "surveyor_asks": ["Show me a person who moved into their own housing, got a job, or joined something in the community because of you.", "How do you measure community participation?", "Ask a person served: what do you want that we are helping you get?"],
-      "interviews": ["Persons served", "Direct staff", "Program Director"],
+      "forms": [
+        "community-integration-goal-worksheet",
+        "natural-supports-map",
+        "community-resource-directory",
+        "benefits-and-entitlements-checklist"
+      ],
+      "surveyor_asks": [
+        "Show me a person who moved into their own housing, got a job, or joined something in the community because of you.",
+        "How do you measure community participation?",
+        "Ask a person served: what do you want that we are helping you get?"
+      ],
+      "interviews": [
+        "Persons served",
+        "Direct staff",
+        "Program Director"
+      ],
       "conditional_program": "community_integration"
     },
     {
-      "code": "3.PEER", "name": "Peer Workforce Requirements (cross-cutting)", "aspire": "Not a standalone CARF section - see SKILL.md",
+      "code": "3.PEER",
+      "name": "Peer Workforce Requirements (cross-cutting)",
+      "aspire": "Not a standalone CARF section - see SKILL.md",
       "plain": "Peer support is a WORKFORCE and a service model, not a separate CARF program section. Its requirements are enforced through 1.I (credential, competency, supervision), 2.A (program description and staffing), 2.C (person-centered planning done WITH the person), and the Section 3 program. This area exists so nothing peer-specific falls between the cracks: lived experience as a job qualification, the state peer credential, self-disclosure boundaries, mutuality, dual-relationship management in small recovery communities, peer staff wellness, and career ladder.",
-      "policies": ["3P-01", "3P-02", "3P-03", "3P-04", "3P-05"],
+      "policies": [
+        "3P-01",
+        "3P-02",
+        "3P-03",
+        "3P-04",
+        "3P-05"
+      ],
       "plans": [],
-      "forms": ["job-description-peer-support-specialist", "competency-checklist-peer", "self-disclosure-supervision-worksheet", "dual-relationship-disclosure", "peer-wellness-plan"],
-      "surveyor_asks": ["What makes someone qualified to be a peer specialist here?", "How do you supervise self-disclosure?", "What happens when a peer specialist knows a participant from their own recovery community?", "How do you protect the wellness of staff in recovery?"],
-      "interviews": ["Peer Support Specialists", "Supervisor", "Program Director"]
+      "forms": [
+        "job-description-peer-support-specialist",
+        "competency-checklist-peer",
+        "self-disclosure-supervision-worksheet",
+        "dual-relationship-disclosure",
+        "peer-wellness-plan"
+      ],
+      "surveyor_asks": [
+        "What makes someone qualified to be a peer specialist here?",
+        "How do you supervise self-disclosure?",
+        "What happens when a peer specialist knows a participant from their own recovery community?",
+        "How do you protect the wellness of staff in recovery?"
+      ],
+      "interviews": [
+        "Peer Support Specialists",
+        "Supervisor",
+        "Program Director"
+      ]
     }
   ]
 }
