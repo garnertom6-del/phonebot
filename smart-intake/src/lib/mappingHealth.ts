@@ -2,6 +2,7 @@ import { SECTIONS, STAFF_FIELDS } from "@/config/mooreDivineQuestions";
 import type { FieldMapping } from "@/config/mooreDivinePacketMap";
 import {
   HEADER_SOURCES,
+  mappedSourceKeys,
   packetRequiredEntries,
   sourceBase,
   type MappingProviderContext,
@@ -108,9 +109,7 @@ export function assessMapping(
   // whose source is the signature image and whose consentKey controls whether
   // that box may be drawn. Count that physical consent-controlled placement as
   // the question's mapping instead of reporting a false required gap.
-  const mappedSources = new Set(
-    fields.flatMap((field) => [sourceKey(field.source), field.consentKey || ""]).filter(Boolean),
-  );
+  const mappedSources = mappedSourceKeys(fields);
   const requiredEntries = packetRequiredEntries(context);
   for (const entry of requiredEntries) {
     if (mappedSources.has(entry.key)) continue;

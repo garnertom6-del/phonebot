@@ -118,8 +118,8 @@ async function fetchWithBackoff(
 }
 
 function twilioFailureDetail(message: TwilioMessage): string {
-  if (message.error_code === 30034) {
-    return "Twilio blocked this SMS: the phone number needs A2P 10DLC registration before US carriers will deliver it (30034).";
+  if ((message.error_code || message.code) === 30034) {
+    return "Twilio blocked this SMS: the phone number needs A2P 10DLC registration before US carriers will deliver it (30034). Use an approved registered sender or a verified toll-free sender in a Messaging Service. Until sender approval is complete, use email or the secure QR link; retrying the same sender will not fix registration.";
   }
   const status = message.status ? `Twilio status ${message.status}` : "Twilio failed";
   const code = message.error_code ? ` (${message.error_code})` : "";
@@ -183,7 +183,8 @@ async function sendTwilioSms(to: string, body: string, context: SmsDeliveryConte
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const token = process.env.TWILIO_AUTH_TOKEN;
   const from = process.env.TWILIO_FROM_NUMBER;
-  if (!accountSid || !token || !from) {
+  const messagingServiceSid = process.env.TWILIO_MESSAGING_SERVICE_SID?.trim();
+  if (!accountSid || !token || (!from && !messagingServiceSid)) {
     console.log(`[DEMO SMS to ${to}] (message not sent - SMS not configured)`);
     return {
       channel: "sms",
@@ -220,7 +221,9 @@ async function sendTwilioSms(to: string, body: string, context: SmsDeliveryConte
         headers: { Authorization: `Basic ${auth}`, "Content-Type": "application/x-www-form-urlencoded" },
         body: new URLSearchParams({
           To: normalizedTo,
-          From: normalizeUsPhone(from),
+          ...(messagingServiceSid
+            ? { MessagingServiceSid: messagingServiceSid }
+            : { From: normalizeUsPhone(from!) }),
           Body: body,
           StatusCallback: callbackUrl.toString(),
         }),
@@ -243,7 +246,9 @@ async function sendTwilioSms(to: string, body: string, context: SmsDeliveryConte
 
   const message = await response.json().catch(() => null) as TwilioMessage | null;
   if (!response.ok || !message) {
-    const detail = message?.message || message?.error_message || `Twilio returned ${response.status}`;
+    const detail = message && (message.error_code || message.code) === 30034
+      ? twilioFailureDetail(message)
+      : message?.message || message?.error_message || `Twilio returned ${response.status}`;
     await prisma.messageDelivery.update({
       where: { id: delivery.id },
       data: {

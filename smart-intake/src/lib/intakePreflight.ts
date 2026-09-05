@@ -389,6 +389,19 @@ export function mergePreflightFindings(
   ];
 }
 
+export function isPrivacyAcknowledgmentFalseConflict(
+  finding: Pick<PreflightFinding, "key" | "title" | "detail" | "fieldKeys">,
+  answers: Answers,
+): boolean {
+  const fields = finding.fieldKeys || [];
+  return clean(answers.consent_hipaa).toLowerCase() === "declined acknowledgment"
+    && ["yes", "true"].includes(clean(answers.hipaa_understood).toLowerCase())
+    && fields.includes("consent_hipaa")
+    && fields.includes("hipaa_understood")
+    && fields.every((key) => key === "consent_hipaa" || key === "hipaa_understood")
+    && /conflict|contradict/i.test(`${finding.key} ${finding.title} ${finding.detail}`);
+}
+
 export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding[]> {
   if (!aiPreflightConfigured()) return [];
   const client = new Anthropic();
@@ -401,6 +414,7 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
       "You are not a clinician and must not diagnose, determine eligibility, recommend a level of care, create an answer, or say that a packet is legally or clinically compliant. " +
       "Do not flag transition/discharge fields (dis_*), future treatment-plan signature rows (otp_*), or other information that is only completed when a client leaves the program. " +
       "Return only concerns supported by the supplied data. If a field is not present, say it is missing or leave it to the rule checks. " +
+      "Understanding or receiving a privacy notice is separate from signing its acknowledgment. consent_hipaa='Declined acknowledgment' with hipaa_understood=Yes/true is a supported client choice, not a contradiction. Never suggest reversing this choice. " +
       "Give each concern a short stable key using lowercase letters and underscores so staff can override that exact concern. " +
       "Every finding must be a short, actionable suggestion for a human reviewer. Keep each detail under 280 characters. " +
       "For correctionOptions, suggest only changes that copy or move an exact value already present in another answer, copy @client.fullName or @client.dob, or clear a field with @clear. " +
@@ -439,6 +453,8 @@ export async function runAiPreflight(input: RuleInput): Promise<PreflightFinding
     const fieldKeys = Array.isArray(item.fieldKeys)
       ? item.fieldKeys.map(String).filter((key) => knownKeys.has(key)).slice(0, 8)
       : [];
+    // Do not turn the UI's supported decline path into pressure to consent.
+    if (isPrivacyAcknowledgmentFalseConflict({ key: rawKey, title, detail, fieldKeys }, input.answers)) return [];
     const correctionOptions = groundedCorrectionOptionsFromAi(item.correctionOptions, input);
     return [{
       key: `ai_${rawKey}`,

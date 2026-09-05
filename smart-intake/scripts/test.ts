@@ -125,6 +125,7 @@ import {
   buildRulePreflight,
   groundedCorrectionOptionsFromAi,
   mergePreflightFindings,
+  isPrivacyAcknowledgmentFalseConflict,
 } from "../src/lib/intakePreflight";
 import { replaceRawFieldKeys, staffFacingFieldLabel, textContainsRawFieldKey } from "../src/lib/staffFieldLabels";
 import {
@@ -645,6 +646,22 @@ async function main() {
   assert(!mergedPreflight.some((finding) => finding.key === "ai_dob_conflict"));
   assert(mergedPreflight.some((finding) => finding.key === "ai_guardian_email"));
   ok("automatic identity checks suppress duplicate AI findings");
+
+  const privacyConflict = {
+    key: "hipaa_acknowledgment_conflict",
+    title: "HIPAA acknowledgment conflict",
+    detail: "Understanding the notice and declining the acknowledgment appear contradictory.",
+    fieldKeys: ["consent_hipaa", "hipaa_understood"],
+  };
+  const privacyDecline = { consent_hipaa: "Declined acknowledgment", hipaa_understood: "Yes" };
+  assert(isPrivacyAcknowledgmentFalseConflict(privacyConflict, privacyDecline));
+  assert(isPrivacyAcknowledgmentFalseConflict(privacyConflict, { ...privacyDecline, hipaa_understood: true }));
+  assert(!isPrivacyAcknowledgmentFalseConflict(privacyConflict, { ...privacyDecline, hipaa_understood: "No" }));
+  assert(!isPrivacyAcknowledgmentFalseConflict(privacyConflict, { ...privacyDecline, consent_hipaa: true }));
+  assert(!isPrivacyAcknowledgmentFalseConflict({ ...privacyConflict, fieldKeys: ["consent_hipaa"] }, privacyDecline));
+  assert(!isPrivacyAcknowledgmentFalseConflict({ ...privacyConflict, fieldKeys: [...privacyConflict.fieldKeys, "dob"] }, privacyDecline));
+  assert(!isPrivacyAcknowledgmentFalseConflict({ ...privacyConflict, key: "notice_file", title: "Notice file missing", detail: "Review the attached notice." }, privacyDecline));
+  ok("AI preflight respects a deliberate privacy acknowledgment decline without hiding other concerns");
 
   const correctedClient = clientDetailsSchema.parse({
     fullName: "Example Client",
@@ -2617,6 +2634,12 @@ async function main() {
   const consentBox = newCatalogField(catalogEntryByKey("consent_hipaa")!, 12, 40, 400);
   assert.equal(consentBox.type, "checkbox");
   assert.equal(consentBox.source, "consent_hipaa=true");
+  const consentSignature = { ...consentBox, source: "signature", consentKey: "consent_hipaa" };
+  assert(mappedSourceKeys([consentSignature]).has("consent_hipaa"),
+    "the editor must count consent-controlled signatures just like mapping health");
+  assert(mappedSourceKeys([consentSignature]).has("signature"));
+  assert(!mappedSourceKeys([{ ...consentSignature, consentKey: null }]).has("consent_hipaa"),
+    "a signature without consent linkage must not satisfy the consent mapping");
   const consentMappedHealth = assessMapping([
     { ...consentBox, source: "signature", type: "signature", role: "client", consentKey: "consent_hipaa" },
   ], 12, 612, 792, 1);
@@ -2710,6 +2733,15 @@ async function main() {
   assert(["other_provider", "client_name"].includes(wellianceWrongFile!.code));
   assert.equal(packetFilenameWarning("E.W.C.-INTAKE-FORM.pdf", "Essential Wellness Care Inc."), null);
   assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care, Inc."), null);
+  const qaProviderNames = ["ZZ TEST ONLY - Smart Intake QA 2026-09-05", "Community Health Services"];
+  assert.equal(packetFilenameWarning("E.W.C.-INTAKE-FORM.pdf", "Essential Wellness Care Inc.", qaProviderNames), null);
+  assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care, Inc.", qaProviderNames), null);
+  assert.equal(packetFilenameWarning("ECC-INTAKE-PACKET-2026.pdf", "Empower Community Care", qaProviderNames), null);
+  assert.equal(
+    packetFilenameWarning("WELLIANCE-CARE-INTAKE-FORM.pdf", "Moore Divine Care, Inc.", ["Welliance Care"])?.code,
+    "other_provider",
+    "ignoring generic words must preserve real provider mismatches",
+  );
   ok("wrong-packet filename guard catches another org or client name");
 
   const schema = fs.readFileSync(path.join(process.cwd(), "prisma/schema.prisma"), "utf8");

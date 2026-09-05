@@ -1,4 +1,5 @@
 import { notFound } from "next/navigation";
+import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { SECTIONS } from "@/config/mooreDivineQuestions";
 import { brandText, providerDisplayName, providerPhone } from "@/lib/providerBranding";
@@ -32,7 +33,8 @@ export default async function ClientRightsPage(props: { params: Promise<{ token:
           Read these sections at your own pace. Ask questions before agreeing. Request a paper copy at any time by
           calling {providerDisplayName(provider.name)} at {providerPhone(provider.phone, provider.name)}.
         </p>
-        <div className="mt-5 print:hidden">
+        <div className="mt-5 flex flex-wrap gap-3 print:hidden">
+          <Link href={`/intake/${encodeURIComponent(params.token)}`} className="btn-primary">Return to my intake</Link>
           <PrintPageButton label="Download or print my rights" />
         </div>
       </section>

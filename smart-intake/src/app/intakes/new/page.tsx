@@ -697,7 +697,9 @@ export default function NewIntake() {
             {packetContextError
               ? "Provider context unavailable"
               : packetContextLoaded
-              ? `${packetReady ? "Approved package" : "Uploaded packet (not active)"}: ${packetName}${packetPageCount ? ` (${packetPageCount} pages)` : ""}`
+              ? !packetReady && !packetPageCount
+                ? "No provider packet uploaded - answers can still be collected"
+                : `${packetReady ? "Approved package" : "Uploaded packet (not active)"}: ${packetName}${packetPageCount ? ` (${packetPageCount} pages)` : ""}`
               : "Checking provider packet status…"}
           </span>
           {packetContextLoaded && !packetContextError && (
