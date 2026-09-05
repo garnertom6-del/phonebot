@@ -2737,6 +2737,10 @@ async function main() {
   assert.equal(packetFilenameWarning("E.W.C.-INTAKE-FORM.pdf", "Essential Wellness Care Inc.", qaProviderNames), null);
   assert.equal(packetFilenameWarning("MooreDivineCare_Intake_Packet-1.pdf", "Moore Divine Care, Inc.", qaProviderNames), null);
   assert.equal(packetFilenameWarning("ECC-INTAKE-PACKET-2026.pdf", "Empower Community Care", qaProviderNames), null);
+  assert.equal(packetFilenameWarning("POC-Working-Intake-Packet-USE-THIS-ONE-ONLY.pdf", "Prayers of Care", qaProviderNames), null);
+  assert.equal(packetFilenameWarning("GSO-INTAKE-1-.pdf", "GSO FAMILY SERVICES", qaProviderNames), null);
+  assert.equal(packetFilenameWarning("GSO-Jane-Doe.pdf", "GSO FAMILY SERVICES", qaProviderNames)?.code, "client_name",
+    "a provider abbreviation must not hide a real client-name warning");
   assert.equal(
     packetFilenameWarning("WELLIANCE-CARE-INTAKE-FORM.pdf", "Moore Divine Care, Inc.", ["Welliance Care"])?.code,
     "other_provider",

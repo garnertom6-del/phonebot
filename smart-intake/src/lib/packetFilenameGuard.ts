@@ -12,6 +12,7 @@ const BLANK_PACKET_HINTS = /\b(blank|template|intake[-_ ]?(form|packet)|packet)\
 const GENERIC_NAME_WORDS = new Set([
   "intake", "packet", "form", "client", "blank", "template", "care", "inc", "llc",
   "health", "wellness", "services", "clinic", "package", "document", "page", "copy",
+  "test", "only", "working", "use", "this", "one",
 ]);
 
 export type PacketFilenameWarning = {
@@ -41,6 +42,8 @@ function providerTokens(providerName: string): Set<string> {
 
 function filenameLooksLikeClientPacket(fileName: string, own: Set<string>): boolean {
   const stem = fileName.replace(/\.pdf$/i, "").replace(/[_]+/g, " ");
+  const words = normalize(stem).split(" ").filter(Boolean);
+  if (words.every((word) => own.has(word) || GENERIC_NAME_WORDS.has(word) || /^\d+$/.test(word))) return false;
   const match = CLIENT_NAME_RE.exec(stem);
   if (!match) return false;
   if (GENERIC_NAME_WORDS.has(match[1].toLowerCase()) || GENERIC_NAME_WORDS.has(match[2].toLowerCase())) return false;
