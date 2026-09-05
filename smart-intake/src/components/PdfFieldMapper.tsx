@@ -5,6 +5,7 @@
  * required fields instead of a score-only badge.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import type { FieldMapping } from "@/config/mooreDivinePacketMap";
 import {
   bestPageForSource,
@@ -81,6 +82,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const [health, setHealth] = useState<MappingHealth | null>(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [statusError, setStatusError] = useState("");
+  const [mappingLoaded, setMappingLoaded] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [previewRotation, setPreviewRotation] = useState<0 | 180>(0);
   const [paletteQuery, setPaletteQuery] = useState("");
   const [placing, setPlacing] = useState<CatalogEntry | null>(null);
@@ -103,6 +107,11 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const catalog = useMemo(() => mappingCatalog(mappingContext), [mappingContext]);
 
   useEffect(() => {
+    const controller = new AbortController();
+    setMappingLoaded(false);
+    setLoadError("");
+    setFields([]);
+    setPageNum(1);
     setNote("");
     setSelected(null);
     setDirty(false);
@@ -115,8 +124,9 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
     const rotationKey = `pdf-mapper-rotation:${templateId || providerId || "default"}`;
     const savedRotation = window.localStorage.getItem(rotationKey);
     setPreviewRotation(savedRotation === "180" ? 180 : 0);
-    fetch(`/api/mapping${qs}`).then(async (r) => {
+    fetch(`/api/mapping${qs}`, { signal: controller.signal }).then(async (r) => {
       const d = await r.json();
+      if (controller.signal.aborted) return;
       if (!r.ok) throw new Error(d.error || "Mapping could not be loaded");
       const loaded: Field[] = d.fields || [];
       setFields(loaded);
@@ -131,30 +141,35 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
       setApprovedAt(d.approvedAt || null);
       setIsActivePacket(!!d.isActive);
       setFilenameWarning(d.filenameWarning || null);
+      setMappingLoaded(true);
       const savedCount = typeof d.savedMappingCount === "number" ? d.savedMappingCount : loaded.length;
       if (d.providerSpecific && loaded.length > savedCount) {
         setDirty(true);
         setNote(`${loaded.length} boxes are on the packet, but only ${savedCount} are saved. Save mapping to make the count honest.`);
       }
     }).catch((err) => {
+      if (controller.signal.aborted) return;
       setFields([]);
-      setStatusError(err instanceof Error ? err.message : "Mapping could not be loaded");
+      setLoadError(err instanceof Error ? err.message : "Mapping could not be loaded");
     });
-  }, [qs]);
+    return () => controller.abort();
+  }, [qs, loadAttempt]);
 
   useEffect(() => {
     pdfRef.current = null;
     renderSequenceRef.current += 1;
     renderTaskRef.current?.cancel();
     renderTaskRef.current = null;
-  }, [qs]);
+  }, [qs, loadAttempt]);
 
   const renderPage = useCallback(async () => {
     const sequence = ++renderSequenceRef.current;
     const pdfjs = await import("pdfjs-dist");
     pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
     if (!pdfRef.current) {
-      pdfRef.current = await pdfjs.getDocument(`/api/template${qs}`).promise;
+      const loadedPdf = await pdfjs.getDocument(`/api/template${qs}`).promise;
+      if (sequence !== renderSequenceRef.current) return;
+      pdfRef.current = loadedPdf;
     }
     if (sequence !== renderSequenceRef.current) return;
     const doc = pdfRef.current as { getPage: (n: number) => Promise<{ getViewport: (o: { scale: number }) => { width: number; height: number }; render: (o: object) => { promise: Promise<void>; cancel: () => void } }> };
@@ -177,15 +192,18 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   }, [pageNum, scale, qs]);
 
   useEffect(() => {
+    if (!mappingLoaded || loadError) return;
+    let active = true;
     void renderPage().catch((error) => {
-      if (error instanceof Error) setStatusError(error.message || "The PDF preview could not be rendered.");
+      if (active) setLoadError(error instanceof Error ? error.message : "The PDF preview could not be rendered.");
     });
     return () => {
+      active = false;
       renderSequenceRef.current += 1;
       renderTaskRef.current?.cancel();
       renderTaskRef.current = null;
     };
-  }, [renderPage]);
+  }, [renderPage, mappingLoaded, loadError]);
 
   const toScreen = (f: Field) => ({
     left: previewRotation === 180 ? (pageSize.w - f.x - f.width) * scale : f.x * scale,
@@ -598,6 +616,23 @@ export default function PdfFieldMapper({ providerId, templateId }: { providerId?
   const needsOverride = providerSpecific && mappingStatus !== "APPROVED" && !hasRequiredGaps && (showOverride || (health != null && !health.ready) || !!filenameWarning);
   const pageFields = fields.filter((f) => f.page === pageNum);
   const sel = fields.find((f) => f.fieldKey === selected);
+
+  if (loadError) {
+    return (
+      <section className="card" role="alert">
+        <h2 className="text-lg font-bold">Packet mapping unavailable</h2>
+        <p className="mt-2 text-sm text-slate-600">{loadError}</p>
+        <p className="mt-2 text-sm text-slate-600">No mapping changes can be saved until the selected packet loads. Upload or select the provider packet in Master Intake Setup.</p>
+        {mappingLoaded && <p className="mt-2 text-sm text-slate-600">Your current placements are kept while you retry the preview.</p>}
+        <button type="button" className="btn-secondary mt-3" onClick={() => {
+          if (mappingLoaded) setLoadError("");
+          else setLoadAttempt((attempt) => attempt + 1);
+        }}>Try again</button>
+        <Link className="btn-ghost ml-2" href={`/master/dashboard${providerId ? `?providerId=${encodeURIComponent(providerId)}` : ""}`}>Back to packet setup</Link>
+      </section>
+    );
+  }
+  if (!mappingLoaded) return <p role="status">Loading selected packet...</p>;
 
   return (
     <div className="flex gap-4">

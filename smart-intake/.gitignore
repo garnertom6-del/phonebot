@@ -1,5 +1,6 @@
 node_modules/
 .next/
+.next-qa*/
 *.tsbuildinfo
 next-env.d.ts
 prisma/dev.db*
@@ -11,3 +12,4 @@ storage/
 # Local verification outputs; never deploy test databases or rendered packets.
 tmp/
 prisma/codex-*.db
+prisma/qa-*.db*

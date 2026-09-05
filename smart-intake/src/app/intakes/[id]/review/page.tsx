@@ -267,7 +267,16 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
         <h2 className="font-bold text-brand">Jump to a section</h2>
         <div className="mt-2 flex flex-wrap gap-2">
           {sectionProgress.map((section) => (
-            <a key={section.key} href={`#review-${section.key}`} className="btn-ghost px-3 py-1.5 text-xs">
+            <a
+              key={section.key}
+              href={`#review-${section.key}`}
+              aria-controls={`review-${section.key}`}
+              className="btn-ghost px-3 py-1.5 text-xs"
+              onClick={() => {
+                const target = document.getElementById(`review-${section.key}`);
+                if (target instanceof HTMLDetailsElement) target.open = true;
+              }}
+            >
               {section.title}: {section.completed}/{section.total}
             </a>
           ))}

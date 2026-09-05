@@ -280,8 +280,9 @@ export function mappingFieldGuide(ctx?: MappingProviderContext): string {
   return rows.join("\n");
 }
 
-export function mappedSourceKeys(fields: Array<{ source: string }>): Set<string> {
-  return new Set(fields.map((field) => sourceBase(field.source)).filter(Boolean));
+export function mappedSourceKeys(fields: Array<{ source: string; consentKey?: string | null }>): Set<string> {
+  // A consent-controlled signature is a physical placement for that consent.
+  return new Set(fields.flatMap((field) => [sourceBase(field.source), field.consentKey || ""]).filter(Boolean));
 }
 
 export function lastPageForSource(fields: Array<{ source: string; page: number }>, source: string): number | null {

@@ -1,20 +1,33 @@
-"use client";
-import { use } from "react";
 import Link from "next/link";
-import dynamic from "next/dynamic";
-
-const PdfFieldMapper = dynamic(() => import("@/components/PdfFieldMapper"), { ssr: false });
+import { redirect } from "next/navigation";
+import { currentUser } from "@/lib/auth";
+import { isMasterUser } from "@/lib/staffGuard";
+import PdfMappingEditor from "@/components/PdfMappingEditor";
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
-export default function PdfMappingPage(
+export default async function PdfMappingPage(
   props: {
     searchParams: Promise<{ providerId?: string | string[]; templateId?: string | string[] }>;
   }
 ) {
-  const searchParams = use(props.searchParams);
+  const user = await currentUser();
+  if (!user) redirect("/login");
+  if (!isMasterUser(user)) {
+    return (
+      <main className="mx-auto max-w-3xl p-6">
+        <section className="card">
+          <h1 className="text-2xl font-bold">Packet mapping needs a master administrator</h1>
+          <p className="mt-3 text-sm text-slate-600">Your provider workspace remains available. Ask your master administrator to upload, map, and approve your provider packet.</p>
+          <Link href="/provider/settings" className="btn-primary mt-4 inline-flex">Back to provider settings</Link>
+          <Link href="/dashboard" className="btn-ghost ml-2">Intake dashboard</Link>
+        </section>
+      </main>
+    );
+  }
+  const searchParams = await props.searchParams;
   const providerId = firstParam(searchParams?.providerId);
   const templateId = firstParam(searchParams?.templateId);
   const providerMode = !!providerId || !!templateId;
@@ -33,7 +46,7 @@ export default function PdfMappingPage(
           ? "Map the selected provider's uploaded packet. These placements are saved only for that provider template."
           : "The base map was generated from the actual PDF. Adjustments here are saved as default packet overrides."}
       </p>
-      <PdfFieldMapper providerId={providerId} templateId={templateId} />
+      <PdfMappingEditor providerId={providerId} templateId={templateId} />
     </main>
   );
 }

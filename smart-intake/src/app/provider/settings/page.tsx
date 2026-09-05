@@ -57,27 +57,33 @@ export default function ProviderSettingsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     setError("");
+    setStatus(null);
     const requested = typeof window !== "undefined"
       ? new URLSearchParams(window.location.search).get("providerId")
       : null;
     const url = requested
       ? `/api/provider/settings?providerId=${encodeURIComponent(requested)}`
       : "/api/provider/settings";
-    const response = await fetch(url, { cache: "no-store" });
-    const body = await response.json().catch(() => ({}));
-    setStatus(response.status);
-    if (response.status === 401) {
-      window.location.assign("/login");
-      return;
-    }
-    if (!response.ok) {
-      setError(body.error || "Provider settings are not available.");
+    try {
+      const response = await fetch(url, { cache: "no-store" });
+      const body = await response.json().catch(() => ({}));
+      setStatus(response.status);
+      if (response.status === 401) {
+        window.location.assign("/login");
+        return;
+      }
+      if (!response.ok) {
+        setError(body.error || "Provider settings are not available.");
+        setData(null);
+        return;
+      }
+      setData(body);
+    } catch {
+      setError("Provider settings could not be loaded. Check your connection and try again.");
       setData(null);
+    } finally {
       setLoading(false);
-      return;
     }
-    setData(body);
-    setLoading(false);
   }, []);
 
   useEffect(() => { void load(); }, [load]);
@@ -95,10 +101,11 @@ export default function ProviderSettingsPage() {
       <main className="mx-auto max-w-3xl p-6">
         <section className="card" role="alert">
           <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">Provider settings</p>
-          <h1 className="mt-1 text-2xl font-bold text-slate-900">Access denied</h1>
+          <h1 className="mt-1 text-2xl font-bold text-slate-900">{status === 403 ? "Access denied" : "Settings unavailable"}</h1>
           <p className="mt-3 text-sm text-slate-600">{error || "You cannot open this provider's settings."}</p>
           {status ? <p className="mt-2 text-xs text-slate-500">HTTP {status}</p> : null}
           <Link href="/dashboard" className="btn-primary mt-4 inline-flex">Back to intake dashboard</Link>
+          <button type="button" className="btn-ghost ml-2" disabled={loading} onClick={() => void load()}>{loading ? "Retrying..." : "Try again"}</button>
         </section>
       </main>
     );
@@ -106,6 +113,7 @@ export default function ProviderSettingsPage() {
 
   const { provider, packetReadiness, packetDisplay, memberships } = data;
   const activeStaff = memberships.filter((membership) => membership.active);
+  const mappingTemplateId = packetReadiness.templateId || data.pdfTemplates[0]?.id;
 
   return (
     <main className="mx-auto max-w-4xl p-6">
@@ -147,12 +155,13 @@ export default function ProviderSettingsPage() {
           {packetReadiness.pageCount ? ` · ${packetReadiness.pageCount} pages` : ""}
         </p>
         <div className="mt-4 flex flex-wrap gap-2">
-          <Link
-            href={`/admin/pdf-mapping?providerId=${encodeURIComponent(provider.id)}${packetReadiness.templateId ? `&templateId=${encodeURIComponent(packetReadiness.templateId)}` : ""}`}
+          {data.isMaster && <Link
+            href={`/admin/pdf-mapping?providerId=${encodeURIComponent(provider.id)}${mappingTemplateId ? `&templateId=${encodeURIComponent(mappingTemplateId)}` : ""}`}
             className="btn-secondary"
           >
             Open packet mapping
-          </Link>
+          </Link>}
+          {!data.isMaster && <p className="text-sm text-slate-600">Packet changes and approval are handled by your master administrator. You can continue collecting client answers while setup is pending.</p>}
           <Link href="/admin/users" className="btn-ghost">Manage staff</Link>
         </div>
       </section>

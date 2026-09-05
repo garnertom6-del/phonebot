@@ -2,7 +2,7 @@ const KNOWN_PROVIDER_TOKENS: Array<{ token: string; names: string[] }> = [
   { token: "gso", names: ["gso", "greensboro", "aliyah"] },
   { token: "welliance", names: ["welliance"] },
   { token: "ewc", names: ["ewc", "essential wellness"] },
-  { token: "ecc", names: ["ecc", "essential community"] },
+  { token: "ecc", names: ["ecc", "essential community", "empower community"] },
   { token: "prayers", names: ["prayer", "poc"] },
   { token: "moore", names: ["moore divine", "mdc"] },
 ];
@@ -26,7 +26,10 @@ function normalize(value: string): string {
 
 function providerTokens(providerName: string): Set<string> {
   const normalized = normalize(providerName);
-  const tokens = new Set(normalized.split(" ").filter((part) => part.length > 1));
+  // Shared form/business words and dates do not identify a provider.
+  const tokens = new Set(normalized.split(" ").filter((part) => (
+    part.length > 1 && !GENERIC_NAME_WORDS.has(part) && !/^\d+$/.test(part)
+  )));
   for (const group of KNOWN_PROVIDER_TOKENS) {
     if (group.names.some((name) => normalized.includes(name))) {
       tokens.add(group.token);
