@@ -11,10 +11,12 @@ This packet never invents a name, a date, a credential, or a number. Everything 
   This skill organizes your documents by the CARF Behavioral Health Standards Manual's long-standing outline. It does **not** contain CARF's copyrighted standard text, and nobody here has read your edition. Do this:
 
   1. Buy the 2026 Behavioral Health Standards Manual from carf.org.
-  2. Open `_engine/content/meta/standards_map.json`.
-  3. Check each area letter and name against the manual's contents pages. Fix any that moved, merged, split, or were renamed.
-  4. Read each area's standards and add anything this skill does not cover to the self-study checklist.
-  5. Set `manual_verified: true` in provider.json and rebuild.
+  2. Open **`08_Manual_Verification_Worksheet`** — it exists for exactly this job. One page per area: what this packet assumed, a blank for what your manual really says, and a box for standards nothing here covers.
+  3. Work it with the manual open beside you. Expect an hour or two.
+  4. Make the corrections it produces to `_engine/content/meta/standards_map.json`, and put every gap it finds on the self-study checklist with an owner and a date.
+  5. Sign its last page, set `manual_verified: true` in provider.json, and rebuild.
+
+  Do not sign that page unless someone actually worked every page of it. The DRAFT stamp is a protection: it stops a document reaching a surveyor claiming an alignment nobody confirmed.
 
 ## 1. Missing from the provider record
 

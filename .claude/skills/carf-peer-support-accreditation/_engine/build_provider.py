@@ -308,6 +308,167 @@ def build_roadmap(s, tk, smap, verified):
 
 
 # --------------------------------------------------------------------------
+def build_verification(s, tk, smap, verified):
+    """The worksheet that clears the DRAFT stamp.
+
+    Built from standards_map.json so it can never drift from what the packet
+    actually assumes. One page per area: what this engine assumed, a blank for
+    what the purchased manual really says, and a place to record standards the
+    bundled policies do not cover.
+    """
+    s.title_page(
+        tk["AGENCY"], "Manual Verification Worksheet",
+        f"Check this packet's section map against your purchased {tk['MANUAL_YEAR']} manual",
+        [f"Program: {tk['PROGRAM_NAME']}",
+         "Completing this is what clears the DRAFT stamp",
+         f"Generated {tk['TODAY']}"],
+        warning=None if verified else UNVERIFIED)
+
+    s.heading("Why this worksheet exists", 1)
+    s.rule()
+    s.md("Nobody who built this packet has read your CARF manual. CARF's standards are "
+         "copyrighted and sold only by CARF, so **this packet contains no CARF standard "
+         "text** — it is organized to the manual's long-standing outline and written from "
+         "scratch.")
+    s.md("That outline has been stable for years and is very probably right. **Probably is "
+         "not good enough to build an accreditation on.** This worksheet is how a human with "
+         "the real manual open turns an assumption into a checked fact.")
+    s.notice("ONE RULE WHILE YOU WORK: DO NOT COPY TEXT OUT OF THE MANUAL INTO THIS SHEET.")
+    s.md("Write the **standard number** and **your own few words** about what it requires. "
+         "Copying CARF's wording into a document you then circulate is a copyright problem, "
+         "and it is not necessary — a number and a short note is all anyone needs to act on.")
+
+    s.heading("How to do it", 2)
+    for line in [
+        "1. Open the purchased manual at its contents pages, and open "
+        "`_engine/content/meta/standards_map.json` beside it.",
+        "2. Work the section check below, then one page per area. Expect it to take an hour or two.",
+        "3. Where a letter or a name differs, write what the manual actually says, then correct "
+        "`standards_map.json` to match. The whole packet re-labels itself on the next build.",
+        "4. Where you find a standard the bundled policies do not cover, write it in box 5 of "
+        "that page. Those go straight onto the self-study checklist as gaps.",
+        "5. Sign the last page, set `manual_verified: true` in `provider.json`, and rebuild. "
+        "The DRAFT stamp disappears.",
+    ]:
+        s.md(line)
+    s.md("**Do not sign the last page unless you actually did every page.** The DRAFT stamp "
+         "is a protection, not an inconvenience: it stops a document going to a surveyor "
+         "claiming an alignment nobody confirmed.")
+    s.pb()
+
+    s.heading("Part 1 — The three sections", 1)
+    s.rule()
+    s.md("Before the areas, confirm the top-level structure.")
+    rows = [["#", "What this packet assumes", "Correct in your manual?", "If different, what it says",
+             "Manual page"]]
+    for sec in smap["sections"]:
+        rows.append([f"Section {sec['section']}", f"{sec['name']} — applies to: {sec['applies']}",
+                     "[ ] Yes   [ ] No", "", ""])
+    s.table(rows)
+    s.md("")
+    s.heading("This edition's changes", 2)
+    s.md("CARF publishes a summary of what changed for the edition. Find it and record anything "
+         "that touches your program — new standards, deleted standards, renamed areas.")
+    s.table([["What changed", "Which area", "Does it affect us?", "Action", "Owner"],
+             ["", "", "[ ] Yes  [ ] No", "", ""],
+             ["", "", "[ ] Yes  [ ] No", "", ""],
+             ["", "", "[ ] Yes  [ ] No", "", ""],
+             ["", "", "[ ] Yes  [ ] No", "", ""]])
+    s.md("")
+    s.md("Checked by: ______________________  Signature: ______________________  Date: ____________")
+    s.pb()
+
+    s.heading("Part 2 — Area by area", 1)
+    s.rule()
+    s.md(f"{len(smap['areas'])} pages follow, one per area. Page 3.PEER is the exception and "
+         "says so on its own page.")
+    s.pb()
+
+    for a in smap["areas"]:
+        s.heading(f"Area {a['code']} — {a['name']}", 1)
+        s.rule()
+
+        if a["code"] == "3.PEER":
+            s.notice("THIS IS NOT A CARF AREA — IT IS THIS PACKET'S OWN GROUPING.")
+            s.md("Peer support is a workforce and a service model, not a CARF section. There is "
+                 "nothing in the manual numbered 3.PEER. This grouping exists so nothing "
+                 "peer-specific falls between 1.I, 2.A, 2.C and the Section 3 program.")
+            s.md("**What to check instead:** that each policy listed below has a home in a real "
+                 "area of your manual, and write that area beside it.")
+        elif a.get("note"):
+            s.notice(a["note"])
+
+        s.heading("1. Does this area appear in your manual?", 2)
+        for opt in ["[ ] Yes — same letter, same name",
+                    "[ ] Yes — but renamed to: ______________________________________",
+                    "[ ] Yes — but renumbered to: ___________________________________",
+                    "[ ] Merged into: _______________________________________________",
+                    "[ ] Split into: ________________________________________________",
+                    "[ ] Not in my manual at all"]:
+            s.md(opt)
+        s.md("Manual page numbers: ____________    Number of standards in this area: ________")
+
+        s.heading("2. What this packet assumes the area covers", 2)
+        s.md(sub(a["plain"], tk))
+        s.md("Does that match your manual?  [ ] Yes   [ ] Mostly   [ ] No")
+        s.md("If mostly or no, what is different (your words, not the manual's):")
+        s.md("_______________________________________________________________________________")
+        s.md("_______________________________________________________________________________")
+
+        s.heading("3. What this packet gives you for it", 2)
+        rows = [["Document", "Type", "Covers the standard(s) numbered", "Enough?"]]
+        for pid in a["policies"]:
+            m, _ = load("policies", pid, tk)
+            rows.append([f"{pid} {m.get('title','')}", "Policy", "", "[ ] Y  [ ] N"])
+        for pl in a["plans"]:
+            m, _ = load("plans", pl, tk)
+            rows.append([m.get("title", pl), "Written plan", "", "[ ] Y  [ ] N"])
+        for f in a["forms"]:
+            m, _ = load("forms", f, tk)
+            rows.append([m.get("title", f), "Form", "", "[ ] Y  [ ] N"])
+        s.table(rows)
+
+        s.heading("4. Standards in YOUR manual that nothing above covers", 2)
+        s.md("Standard number and your own short description. **Do not copy the manual's wording.** "
+             "Everything you write here becomes a gap on the self-study checklist.")
+        s.table([["Standard #", "What it requires (your words)", "Who owns it", "Action needed"],
+                 ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""]])
+
+        s.heading("5. Sign-off for this area", 2)
+        s.md("Checked by: ______________________  Signature: ______________________  Date: ____________")
+        s.pb()
+
+    s.heading("Part 3 — What you found, and the sign-off", 1)
+    s.rule()
+    s.heading("Corrections to make to standards_map.json", 2)
+    s.md("Edit the file, then rebuild. Every document re-labels itself.")
+    s.table([["Area code", "What the packet said", "What the manual actually says", "Fixed? Date"],
+             ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""]])
+    s.heading("Gaps to add to the self-study checklist", 2)
+    s.md("Everything from box 4 of every area page. Each becomes a tracked item with an owner "
+         "and a due date, exactly like any other finding.")
+    s.table([["Area", "Standard #", "What is missing", "Owner", "Due", "Added to checklist?"],
+             ["", "", "", "", "", "[ ] Yes"], ["", "", "", "", "", "[ ] Yes"],
+             ["", "", "", "", "", "[ ] Yes"], ["", "", "", "", "", "[ ] Yes"]])
+
+    s.heading("Final sign-off — this is what clears the DRAFT stamp", 2)
+    s.notice("Sign only if you personally worked every page against the purchased manual.")
+    s.md("I confirm that I have compared every area in this worksheet against our purchased "
+         f"CARF Behavioral Health Standards Manual, {tk['MANUAL_YEAR']} edition; that the "
+         "corrections above have been made to the section map; and that every gap found has "
+         "been added to the self-study checklist with an owner and a due date.")
+    s.md("")
+    s.md("Name: ______________________________  Title: ______________________________")
+    s.md("")
+    s.md("Signature: __________________________  Date: ____________")
+    s.md("")
+    s.md("Manual edition checked against: ____________    Date manual purchased: ____________")
+    s.md("")
+    s.md("Then set `manual_verified: true` in provider.json and rebuild:")
+    s.md(f"`python3 _engine/build_provider.py {tk.get('SLUG','<slug>')}`")
+
+
+# --------------------------------------------------------------------------
 def build_interviews(s, tk, verified):
     s.title_page(
         tk["AGENCY"], "Surveyor Interview Bank",
@@ -430,12 +591,17 @@ def write_blanks(path, res, tk, verified, provider):
             "text, and nobody here has read your edition. Do this:",
             "",
             f"  1. Buy the {provider.get('manual_year')} Behavioral Health Standards Manual from carf.org.",
-            "  2. Open `_engine/content/meta/standards_map.json`.",
-            "  3. Check each area letter and name against the manual's contents pages. Fix any "
-            "that moved, merged, split, or were renamed.",
-            "  4. Read each area's standards and add anything this skill does not cover to the "
-            "self-study checklist.",
-            "  5. Set `manual_verified: true` in provider.json and rebuild.", ""]
+            "  2. Open **`08_Manual_Verification_Worksheet`** — it exists for exactly this job. "
+            "One page per area: what this packet assumed, a blank for what your manual really "
+            "says, and a box for standards nothing here covers.",
+            "  3. Work it with the manual open beside you. Expect an hour or two.",
+            "  4. Make the corrections it produces to `_engine/content/meta/standards_map.json`, "
+            "and put every gap it finds on the self-study checklist with an owner and a date.",
+            "  5. Sign its last page, set `manual_verified: true` in provider.json, and rebuild.",
+            "",
+            "  Do not sign that page unless someone actually worked every page of it. The DRAFT "
+            "stamp is a protection: it stops a document reaching a surveyor claiming an "
+            "alignment nobody confirmed.", ""]
 
     if res.blanks:
         lines += ["## 1. Missing from the provider record", "",
@@ -515,6 +681,7 @@ cross-cutting peer section so nothing peer-specific falls between the cracks.
 | `05_Self_Study_Checklist.xlsx` | Every required document, with a status column | Your conformance tracker |
 | `06_Surveyor_Interview_Bank` | What surveyors ask staff and the people you serve, with the shape of a strong answer and what sinks you | Rehearse with it 60 days out |
 | `07_Performance_Analysis_Report` | Built from YOUR data, with charts | Re-run it monthly |
+| `08_Manual_Verification_Worksheet` | One page per CARF area to check against your purchased manual | **This is what clears the DRAFT stamp** |
 
 And one level up, in **`../data/`**:
 
@@ -533,8 +700,15 @@ And one level up, in **`../data/`**:
 `python3 _engine/build_provider.py {tk.get('SLUG','<slug>')}`. Do not hand-edit the Word files
 first — a rebuild overwrites them. (Your workbook is never overwritten.)
 
-**Step 3 — Verify the section map** against the manual. Set `manual_verified: true`. Rebuild.
-The DRAFT stamp disappears.
+**Step 3 — Verify the section map** using `08_Manual_Verification_Worksheet`. Print it, sit
+down with the manual, and work the 24 area pages — an hour or two. It asks, for each area:
+does it appear in your manual under this letter and name, does the description match, and is
+there anything in your manual that none of these policies covers. Make its corrections to
+`_engine/content/meta/standards_map.json`, put its gaps on the checklist, sign the last page,
+set `manual_verified: true`, and rebuild. The DRAFT stamp disappears.
+
+Do not sign that page unless someone actually did the work. The stamp is a protection, not
+an inconvenience — it stops a document reaching a surveyor claiming an alignment nobody checked.
 
 **Step 4 — Read the whole policy manual.** Every policy is a statement about your agency.
 Change anything that is not true of you. Where it describes what you *intend* to do, change
@@ -665,6 +839,8 @@ def main():
         ("03_Forms_Packet", lambda s: build_forms(s, tk, smap, verified)),
         ("04_Roadmap_and_Survey_Prep", lambda s: build_roadmap(s, tk, smap, verified)),
         ("06_Surveyor_Interview_Bank", lambda s: build_interviews(s, tk, verified)),
+        ("08_Manual_Verification_Worksheet",
+         lambda s: build_verification(s, tk, smap, verified)),
     ]
     written = []
     for name, fn in docs:

@@ -42,6 +42,7 @@ Re-running step 2 is always safe: it rebuilds every document from `provider.json
 | `05_Self_Study_Checklist.xlsx` | — | Every required document with owner, status, gap, due date; plus an interview-prep sheet |
 | `06_Surveyor_Interview_Bank` (.docx + .pdf) | ~16 | ~65 real surveyor questions by role, each with what is being tested, the shape of a strong answer, what sinks you, and the document they ask for next |
 | `07_Performance_Analysis_Report` (.docx + .pdf) | varies | Built by `analyze.py` from the provider's own data: charts, trends against target, drill coverage by shift, incident/grievance trends, record-review defects, access times, satisfaction, outcomes, workforce compliance — and an honest "no data yet" wherever a sheet is empty |
+| `08_Manual_Verification_Worksheet` (.docx + .pdf) | ~29 | One page per CARF area to check against the purchased manual, plus the sign-off that clears the DRAFT stamp |
 | `../data/Evidence_and_Data_Workbook.xlsx` | — | **The spine.** A dated MASTER CHECK-OFF LIST of every required item (typically 550–700 instances), a month-by-month compliance calendar, 12 data logs, the measure set, and the evidence register |
 
 `TRACKER.csv` at the skill root carries one row per provider, sorted by target survey month.

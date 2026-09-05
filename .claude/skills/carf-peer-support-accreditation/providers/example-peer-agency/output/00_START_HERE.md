@@ -34,6 +34,7 @@ cross-cutting peer section so nothing peer-specific falls between the cracks.
 | `05_Self_Study_Checklist.xlsx` | Every required document, with a status column | Your conformance tracker |
 | `06_Surveyor_Interview_Bank` | What surveyors ask staff and the people you serve, with the shape of a strong answer and what sinks you | Rehearse with it 60 days out |
 | `07_Performance_Analysis_Report` | Built from YOUR data, with charts | Re-run it monthly |
+| `08_Manual_Verification_Worksheet` | One page per CARF area to check against your purchased manual | **This is what clears the DRAFT stamp** |
 
 And one level up, in **`../data/`**:
 
@@ -52,8 +53,15 @@ And one level up, in **`../data/`**:
 `python3 _engine/build_provider.py example-peer-agency`. Do not hand-edit the Word files
 first — a rebuild overwrites them. (Your workbook is never overwritten.)
 
-**Step 3 — Verify the section map** against the manual. Set `manual_verified: true`. Rebuild.
-The DRAFT stamp disappears.
+**Step 3 — Verify the section map** using `08_Manual_Verification_Worksheet`. Print it, sit
+down with the manual, and work the 24 area pages — an hour or two. It asks, for each area:
+does it appear in your manual under this letter and name, does the description match, and is
+there anything in your manual that none of these policies covers. Make its corrections to
+`_engine/content/meta/standards_map.json`, put its gaps on the checklist, sign the last page,
+set `manual_verified: true`, and rebuild. The DRAFT stamp disappears.
+
+Do not sign that page unless someone actually did the work. The stamp is a protection, not
+an inconvenience — it stops a document reaching a surveyor claiming an alignment nobody checked.
 
 **Step 4 — Read the whole policy manual.** Every policy is a statement about your agency.
 Change anything that is not true of you. Where it describes what you *intend* to do, change

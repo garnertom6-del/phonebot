@@ -40,7 +40,11 @@ So the builder refuses to claim verification it does not have:
 
 - `manual_verified: false` (the default) → every document is stamped **DRAFT — section map
   unverified**, and section 0 of `BLANKS_TO_COMPLETE.md` explains exactly how to verify.
+- `08_Manual_Verification_Worksheet` is the instrument for doing it: 24 area pages, generated
+  from `standards_map.json` so it can never drift from what the packet assumes.
 - Only a human, with the purchased manual open, sets it to `true`.
+- The worksheet tells them **not to copy manual text into it** — a standard number and their
+  own few words is all anyone needs, and it keeps them clear of the copyright line too.
 
 **Never set `manual_verified: true` on the user's behalf.** Never say "verified against the 2026
 manual" unless the user tells you they did it.
@@ -182,6 +186,7 @@ it to `_engine/content/`, wire it into `standards_map.json`, then extend `SUPPOR
 | `05_Self_Study_Checklist.xlsx` | Every required document with owner, status, gap, and due date; second sheet is interview prep |
 | `06_Surveyor_Interview_Bank` | ~65 real surveyor questions by role — CEO, board, program director, supervisor, peer specialists, persons served, billing — each with what the surveyor is really testing, the shape of a strong answer, what sinks you, and the document they ask for next. Plus the mock-survey scoring sheet. |
 | `07_Performance_Analysis_Report` | Produced by `analyze.py` from the provider's own entered data: charts, quarterly trends against target, drill coverage by shift, incident and grievance trends, record review scores and defect ranking, access times, satisfaction by question, outcomes by life domain, natural-supports growth, workforce compliance, accessibility progress, PI projects — and an honest "no data yet" block wherever a sheet is empty |
+| `08_Manual_Verification_Worksheet` | One page per CARF area: the letter and name this packet assumed, a blank for what the purchased manual actually says, whether the description matches, which bundled documents claim to cover it, and a box for standards nothing here covers. Plus a section-level check, an edition-changes table, and the sign-off that clears the DRAFT stamp. |
 | `../data/Evidence_and_Data_Workbook.xlsx` | **The spine.** Sheet 01 is the MASTER CHECK-OFF LIST — every required item, drill, review, survey, plan and report, expanded into dated instances with owner, evidence, status and overdue flag. Sheet 02 is the same by month. Sheets 03–14 are the data logs. Sheet 15 is the measure set. Sheet 16 is the evidence register. |
 
 DOCX and PDF for 01–04, 06 and 07. PDFs are generated natively by ReportLab — the packet never
