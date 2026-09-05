@@ -95,6 +95,40 @@ enough. Certificates are unaffected: ReportLab needs no LibreOffice.
 
 On Windows with Word installed, the DOCX→PDF path is already covered.
 
+## Making the changes permanent
+
+The synced folder at `~/.claude/skills/synced/<id>/` is a **one-way download**.
+Editing it changes the skill for that session only; there is no API that pushes
+edits back to the Claude account. To make a change permanent you re-upload the
+skill.
+
+`../nc-saiop-psr-licensure-packet.skill` in this repo is the packaged, ready-to-
+upload build of the skill **with every change in this folder already applied**.
+It is a zip archive (38 files, ~2.6 MB), produced by `skill-creator`'s
+`scripts/package_skill.py` and passing its `quick_validate`. It was verified by
+extracting it to a clean directory and building a full packet from it: exit 0,
+`=== BUILT ===`, 28 booklets and 28 certificates.
+
+To install it:
+
+1. Download `nc-saiop-psr-licensure-packet.skill`.
+2. Go to **claude.ai → Settings → Capabilities → Skills**.
+3. Upload the file. It replaces the existing `nc-saiop-psr-licensure-packet`,
+   since the skill name in `SKILL.md` frontmatter is what identifies it.
+4. New sessions sync the updated skill. Sessions already running keep the old
+   copy until they restart.
+
+Keep the existing version until the upload is confirmed working, so there is
+something to fall back to.
+
+### Rebuilding the package after further edits
+
+```bash
+cd <skills-dir>/skill-creator
+python3 -m scripts.quick_validate  <path-to-skill>
+python3 -m scripts.package_skill   <path-to-skill> <output-dir>
+```
+
 ## Applying these to the live skill
 
 Copy the three files over the synced skill, keeping paths:
