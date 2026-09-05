@@ -1,0 +1,58 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "CARF provider record",
+  "description": "The ONE file that changes per provider. Every field here becomes a {{TOKEN}} in the generated documents. Leave a field out or set it to null and the builder prints a fill-in line and lists it in BLANKS_TO_COMPLETE.md. NEVER invent a name, date, or credential.",
+  "type": "object",
+  "required": ["slug", "legal_name", "programs", "population", "settings", "manual_year"],
+  "properties": {
+    "slug":            {"type": "string", "pattern": "^[a-z0-9-]+$", "description": "folder name, e.g. successful-solutions"},
+    "legal_name":      {"type": "string"},
+    "dba":             {"type": ["string", "null"]},
+    "tax_status":      {"enum": ["for_profit", "nonprofit", null]},
+    "address":         {"type": ["string", "null"]},
+    "city":            {"type": ["string", "null"]},
+    "state":           {"type": ["string", "null"]},
+    "zip":             {"type": ["string", "null"]},
+    "phone":           {"type": ["string", "null"]},
+    "website":         {"type": ["string", "null"]},
+    "counties_served": {"type": ["array", "null"], "items": {"type": "string"}},
+
+    "manual_year":     {"type": "string", "description": "e.g. '2026' = the July 1, 2026 - June 30, 2027 Behavioral Health Standards Manual"},
+    "manual_verified": {"type": "boolean", "default": false, "description": "TRUE only after a human has opened the purchased manual and confirmed the section map in meta/standards_map.json. The builder refuses to stamp standard numbers until this is true."},
+
+    "programs":        {"type": "array", "items": {"enum": ["community_integration", "case_management", "outpatient_treatment", "assertive_community_treatment", "crisis_intervention", "supported_living", "health_home", "ccbhc"]},
+                        "description": "CARF accredits PROGRAMS, not job titles. Peer support is the WORKFORCE that delivers the program. See SKILL.md 'THE PEER SUPPORT NAMING TRAP'."},
+    "peer_delivered":  {"type": "boolean", "default": true, "description": "Services are delivered primarily by certified peer support specialists."},
+    "population":      {"enum": ["adults", "adolescents", "both", "older_adults"]},
+    "settings":        {"type": "array", "items": {"enum": ["office", "community", "home", "telehealth", "residential"]}},
+
+    "accreditation_type": {"enum": ["initial", "resurvey", null], "description": "initial = never accredited before"},
+    "target_survey_month": {"type": ["string", "null"], "description": "YYYY-MM. Drives the countdown roadmap."},
+    "six_months_of_data_start": {"type": ["string", "null"], "description": "YYYY-MM-DD. CARF requires the program to have been operating and generating records BEFORE the survey. The roadmap counts back from the survey to this date."},
+
+    "ceo":             {"type": ["string", "null"]},
+    "ceo_title":       {"type": ["string", "null"], "default": "Chief Executive Officer"},
+    "program_director":{"type": ["string", "null"]},
+    "clinical_supervisor": {"type": ["string", "null"]},
+    "qi_coordinator":  {"type": ["string", "null"]},
+    "safety_officer":  {"type": ["string", "null"]},
+    "privacy_officer": {"type": ["string", "null"]},
+    "compliance_officer": {"type": ["string", "null"]},
+    "governing_body":  {"type": ["string", "null"], "description": "e.g. 'Board of Directors' or 'Sole Member/Owner'"},
+
+    "state_peer_credential": {"type": ["string", "null"], "description": "e.g. 'NC Certified Peer Support Specialist (NCCPSS)'"},
+    "state_licensure":       {"type": ["string", "null"]},
+    "payers":                {"type": ["array", "null"], "items": {"type": "string"}},
+    "ehr":                   {"type": ["string", "null"]},
+
+    "handles_sud_records":   {"type": "boolean", "default": false, "description": "true => 42 CFR Part 2 content is added"},
+    "administers_medication":{"type": "boolean", "default": false},
+    "uses_restrictive_interventions": {"type": "boolean", "default": false},
+    "provides_transportation":{"type": "boolean", "default": false},
+    "uses_telehealth":       {"type": "boolean", "default": false},
+    "operates_vehicles":     {"type": "boolean", "default": false},
+
+    "effective_date":  {"type": ["string", "null"], "description": "YYYY-MM-DD the P&P manual takes effect"},
+    "consultant":      {"type": ["string", "null"], "default": "Successful Solutions"}
+  }
+}

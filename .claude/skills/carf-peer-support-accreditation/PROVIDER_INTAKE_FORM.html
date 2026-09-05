@@ -1,0 +1,231 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>CARF Provider Intake — Successful Solutions</title>
+<style>
+:root{--navy:#1f3b63;--line:#d4dae4;--bg:#f6f8fb;--warn:#a81c1c}
+*{box-sizing:border-box}
+body{margin:0;font:15px/1.55 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;background:var(--bg);color:#1a1a1a}
+header{background:var(--navy);color:#fff;padding:24px 20px}
+header h1{margin:0 0 4px;font-size:22px}
+header p{margin:0;opacity:.85;font-size:14px}
+main{max-width:900px;margin:0 auto;padding:20px}
+fieldset{background:#fff;border:1px solid var(--line);border-radius:8px;margin:0 0 18px;padding:16px 18px}
+legend{font-weight:700;color:var(--navy);padding:0 6px;font-size:15px}
+label{display:block;margin:10px 0 3px;font-weight:600;font-size:13.5px}
+.hint{font-weight:400;color:#5a6472;font-size:12.5px;margin:2px 0 4px}
+input[type=text],select,textarea{width:100%;padding:8px 9px;border:1px solid var(--line);border-radius:5px;font:inherit;background:#fff}
+.row{display:flex;gap:12px;flex-wrap:wrap}.row>div{flex:1 1 210px}
+.checks{display:flex;flex-wrap:wrap;gap:14px;margin-top:5px}
+.checks label{display:flex;align-items:center;gap:6px;font-weight:400;margin:0}
+.warn{background:#fff4f4;border-left:4px solid var(--warn);padding:10px 12px;border-radius:0 5px 5px 0;font-size:13.5px;margin:10px 0}
+.info{background:#eef3fa;border-left:4px solid var(--navy);padding:10px 12px;border-radius:0 5px 5px 0;font-size:13.5px;margin:10px 0}
+button{background:var(--navy);color:#fff;border:0;border-radius:6px;padding:11px 18px;font:inherit;font-weight:700;cursor:pointer}
+button.alt{background:#5a6472}
+pre{background:#0f1c2e;color:#d6e2f0;padding:14px;border-radius:8px;overflow:auto;font-size:12.5px;white-space:pre-wrap}
+footer{max-width:900px;margin:0 auto;padding:0 20px 40px;color:#5a6472;font-size:12.5px}
+</style></head><body>
+<header>
+  <h1>CARF Provider Intake</h1>
+  <p>Successful Solutions — fill this in once, and the whole accreditation packet is built from it.</p>
+</header>
+<main>
+<div class="warn"><strong>Before anything else:</strong> the provider must buy the current
+<em>Behavioral Health Standards Manual</em> from carf.org. Nothing here replaces it, and the packet
+stays stamped DRAFT until a human checks the section map against the purchased manual.</div>
+
+<form id="f">
+<fieldset><legend>1. The agency</legend>
+  <label>Legal name *</label><input type="text" id="legal_name" required>
+  <label>Doing business as (if different)</label><input type="text" id="dba">
+  <div class="row">
+    <div><label>Tax status</label><select id="tax_status"><option value="">—</option><option value="for_profit">For profit</option><option value="nonprofit">Nonprofit</option></select></div>
+    <div><label>Main phone</label><input type="text" id="phone"></div>
+    <div><label>Website</label><input type="text" id="website"></div>
+  </div>
+  <label>Street address</label><input type="text" id="address">
+  <div class="row">
+    <div><label>City</label><input type="text" id="city"></div>
+    <div><label>State</label><input type="text" id="state"></div>
+    <div><label>ZIP</label><input type="text" id="zip"></div>
+  </div>
+  <label>Counties served <span class="hint">comma separated — drives the resource directory, accessibility plan, and crisis contacts</span></label>
+  <input type="text" id="counties_served" placeholder="Guilford, Forsyth, Alamance">
+  <label>Governing body</label><input type="text" id="governing_body" value="Board of Directors" placeholder="Board of Directors, or Sole Member/Owner">
+</fieldset>
+
+<fieldset><legend>2. What you are applying for</legend>
+  <div class="info"><strong>CARF accredits programs, not job titles.</strong> There is no
+  “peer support accreditation.” Peer support is the workforce that delivers a program. A
+  peer-delivered community agency almost always applies for <strong>Community Integration</strong>.</div>
+  <label>CARF program(s) *</label>
+  <div class="checks" id="programs">
+    <label><input type="checkbox" value="community_integration" checked> Community Integration</label>
+    <label><input type="checkbox" value="case_management"> Case Management/Services Coordination</label>
+    <label><input type="checkbox" value="outpatient_treatment"> Outpatient Treatment</label>
+    <label><input type="checkbox" value="assertive_community_treatment"> Assertive Community Treatment</label>
+    <label><input type="checkbox" value="crisis_intervention"> Crisis Intervention</label>
+    <label><input type="checkbox" value="supported_living"> Supported Living</label>
+    <label><input type="checkbox" value="health_home"> Health Home</label>
+    <label><input type="checkbox" value="ccbhc"> CCBHC</label>
+  </div>
+  <p class="hint">Only Community Integration content ships today. Anything else stops the builder at the capability gate until the Section 3 content is written.</p>
+  <div class="row">
+    <div><label>Manual year *</label><input type="text" id="manual_year" value="2026"></div>
+    <div><label>Initial or resurvey</label><select id="accreditation_type"><option value="initial">Initial</option><option value="resurvey">Resurvey</option></select></div>
+    <div><label>Target survey month</label><input type="text" id="target_survey_month" placeholder="2027-06"></div>
+  </div>
+  <label>Date the program started operating and generating records <span class="hint">CARF wants to see the cycle has actually turned — the roadmap counts back from your survey to this date</span></label>
+  <input type="text" id="six_months_of_data_start" placeholder="2026-10-01">
+  <label><input type="checkbox" id="manual_verified"> The purchased manual has been opened and the section map checked against it
+  <span class="hint">Leave unchecked until a human has actually done it. Until then every page says DRAFT — that is deliberate.</span></label>
+</fieldset>
+
+<fieldset><legend>3. Who you serve and where — these change what gets built</legend>
+  <div class="row">
+    <div><label>Population *</label><select id="population"><option value="adults">Adults</option><option value="older_adults">Older adults</option><option value="adolescents">Adolescents</option><option value="both">Both adults and adolescents</option></select>
+    <p class="hint">Adolescents and “both” hit the capability gate — that content is not written yet.</p></div>
+  </div>
+  <label>Settings where service is delivered *</label>
+  <div class="checks" id="settings">
+    <label><input type="checkbox" value="office" checked> Agency office</label>
+    <label><input type="checkbox" value="community" checked> Community locations</label>
+    <label><input type="checkbox" value="home" checked> Homes of persons served</label>
+    <label><input type="checkbox" value="telehealth"> Telehealth</label>
+    <label><input type="checkbox" value="residential"> Residential / 24-hour</label>
+  </div>
+  <label>Structural questions — answer honestly, the manual makes flat factual claims based on these</label>
+  <div class="checks">
+    <label><input type="checkbox" id="administers_medication"> We prescribe, dispense, administer, or store medication</label>
+    <label><input type="checkbox" id="uses_restrictive_interventions"> We use any restraint, seclusion, or isolation</label>
+    <label><input type="checkbox" id="handles_sud_records"> We hold SUD records under 42 CFR Part 2</label>
+    <label><input type="checkbox" id="provides_transportation" checked> We transport persons served</label>
+    <label><input type="checkbox" id="operates_vehicles" checked> We operate vehicles</label>
+    <label><input type="checkbox" id="uses_telehealth"> We deliver service by telehealth</label>
+    <label><input type="checkbox" id="peer_delivered" checked> Services are delivered by certified peer support specialists</label>
+  </div>
+</fieldset>
+
+<fieldset><legend>4. Credentials, payers, systems</legend>
+  <label>State peer support credential, by its exact name</label>
+  <input type="text" id="state_peer_credential" placeholder="NC Certified Peer Support Specialist (NCCPSS)">
+  <div class="row">
+    <div><label>State licence held (if any)</label><input type="text" id="state_licensure"></div>
+    <div><label>Electronic health record</label><input type="text" id="ehr" placeholder="Notenetic, ShareNote, …"></div>
+  </div>
+  <label>Payers <span class="hint">comma separated</span></label><input type="text" id="payers" placeholder="NC Medicaid, LME-MCO">
+</fieldset>
+
+<fieldset><legend>5. Named people</legend>
+  <div class="info"><strong>Leave blank anything you do not know.</strong> The builder never invents a
+  name — a blank prints as <code>[FILL IN: role]</code> and lands in the blanks report.</div>
+  <div class="row">
+    <div><label>CEO / Executive Director</label><input type="text" id="ceo"></div>
+    <div><label>Their title</label><input type="text" id="ceo_title" value="Chief Executive Officer"></div>
+  </div>
+  <div class="row">
+    <div><label>Program Director</label><input type="text" id="program_director"></div>
+    <div><label>Supervisor of the peer workforce</label><input type="text" id="clinical_supervisor"></div>
+  </div>
+  <div class="row">
+    <div><label>Quality Improvement Coordinator</label><input type="text" id="qi_coordinator"></div>
+    <div><label>Safety Officer</label><input type="text" id="safety_officer"></div>
+  </div>
+  <div class="row">
+    <div><label>Privacy Officer</label><input type="text" id="privacy_officer"></div>
+    <div><label>Compliance Officer</label><input type="text" id="compliance_officer"></div>
+  </div>
+  <p class="hint">One person may hold several of these. Put the same name in each — the manual records the assignment.</p>
+</fieldset>
+
+<fieldset><legend>6. Timeframes — your choices, not CARF's</legend>
+  <div class="warn">Your state licensure rule or a payer contract may be stricter than these.
+  <strong>The strictest one wins.</strong> Check before you adopt them.</div>
+  <div class="row">
+    <div><label>Referral → first contact (business days)</label><input type="text" id="tf_ACCESS_DAYS" value="3"></div>
+    <div><label>Admission → signed plan (days)</label><input type="text" id="tf_PLAN_DAYS" value="30"></div>
+    <div><label>Plan review interval (days)</label><input type="text" id="tf_REVIEW_DAYS" value="90"></div>
+  </div>
+  <div class="row">
+    <div><label>Service → completed note (hours)</label><input type="text" id="tf_NOTE_HOURS" value="24"></div>
+    <div><label>Last contact → discharge summary (days)</label><input type="text" id="tf_DISCHARGE_DAYS" value="10"></div>
+    <div><label>Discharge → follow-up contact (days)</label><input type="text" id="tf_FOLLOWUP_DAYS" value="30"></div>
+  </div>
+  <div class="row"><div><label>Record retention (years)</label><input type="text" id="tf_RETENTION_YEARS" value="7"></div></div>
+</fieldset>
+
+<fieldset><legend>7. Build</legend>
+  <label>Folder slug <span class="hint">lowercase, hyphens only — becomes providers/&lt;slug&gt;/</span></label>
+  <input type="text" id="slug" placeholder="successful-solutions-client">
+  <label>Consultant</label><input type="text" id="consultant" value="Successful Solutions">
+  <p style="margin-top:16px"><button type="button" onclick="gen()">Generate provider.json</button>
+  <button type="button" class="alt" onclick="copyIt()">Copy</button>
+  <button type="button" class="alt" onclick="dl()">Download</button></p>
+  <pre id="out">Fill the form, then press Generate.</pre>
+  <p class="hint">Save it as <code>providers/&lt;slug&gt;/provider.json</code>, then run:<br>
+  <code>python3 _engine/build_provider.py &lt;slug&gt;</code></p>
+</fieldset>
+</form>
+</main>
+<footer>Generated documents are drafts for the agency to read, edit, and adopt. This form and the
+packet it produces contain no CARF standard text — the manual must be purchased from carf.org.</footer>
+
+<script>
+const v = id => (document.getElementById(id).value || "").trim() || null;
+const b = id => document.getElementById(id).checked;
+const list = s => { const x = v(s); return x ? x.split(",").map(t=>t.trim()).filter(Boolean) : null; };
+const boxes = id => [...document.querySelectorAll("#"+id+" input:checked")].map(e=>e.value);
+
+function build(){
+  const tf = {};
+  ["ACCESS_DAYS","PLAN_DAYS","REVIEW_DAYS","NOTE_HOURS","DISCHARGE_DAYS","FOLLOWUP_DAYS","RETENTION_YEARS"]
+    .forEach(k => { const x = v("tf_"+k); if (x) tf[k] = x; });
+  const name = v("legal_name") || "";
+  return {
+    slug: v("slug") || name.toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"") || "provider",
+    legal_name: name, dba: v("dba"), tax_status: v("tax_status"),
+    address: v("address"), city: v("city"), state: v("state"), zip: v("zip"),
+    phone: v("phone"), website: v("website"), counties_served: list("counties_served"),
+    manual_year: v("manual_year") || "2026", manual_verified: b("manual_verified"),
+    programs: boxes("programs"), peer_delivered: b("peer_delivered"),
+    population: v("population"), settings: boxes("settings"),
+    accreditation_type: v("accreditation_type"),
+    target_survey_month: v("target_survey_month"),
+    six_months_of_data_start: v("six_months_of_data_start"),
+    ceo: v("ceo"), ceo_title: v("ceo_title"), program_director: v("program_director"),
+    clinical_supervisor: v("clinical_supervisor"), qi_coordinator: v("qi_coordinator"),
+    safety_officer: v("safety_officer"), privacy_officer: v("privacy_officer"),
+    compliance_officer: v("compliance_officer"), governing_body: v("governing_body"),
+    state_peer_credential: v("state_peer_credential"), state_licensure: v("state_licensure"),
+    payers: list("payers"), ehr: v("ehr"),
+    handles_sud_records: b("handles_sud_records"),
+    administers_medication: b("administers_medication"),
+    uses_restrictive_interventions: b("uses_restrictive_interventions"),
+    provides_transportation: b("provides_transportation"),
+    uses_telehealth: b("uses_telehealth"), operates_vehicles: b("operates_vehicles"),
+    timeframes: Object.keys(tf).length ? tf : undefined,
+    effective_date: null, consultant: v("consultant")
+  };
+}
+function gen(){
+  const o = build();
+  const warn = [];
+  if (!o.legal_name) warn.push("// legal_name is required");
+  if (!o.programs.length) warn.push("// pick at least one CARF program");
+  if (o.population !== "adults" && o.population !== "older_adults")
+    warn.push("// population '" + o.population + "' will stop at the capability gate");
+  if (o.settings.includes("residential"))
+    warn.push("// residential will stop at the capability gate");
+  if (o.administers_medication || o.uses_restrictive_interventions)
+    warn.push("// that structural answer will stop at the capability gate — content must be written first");
+  document.getElementById("out").textContent =
+    (warn.length ? warn.join("\n") + "\n\n" : "") + JSON.stringify(o, null, 2);
+}
+function copyIt(){ navigator.clipboard.writeText(document.getElementById("out").textContent); }
+function dl(){
+  const o = build();
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(o,null,2)],{type:"application/json"}));
+  a.download = "provider.json"; a.click();
+}
+</script>
+</body></html>
