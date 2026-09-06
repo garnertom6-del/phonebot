@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, use } from "react";
 import { PLAN_SOURCE_VALUES } from "@/lib/recordIntegrity";
 import AnswerConflictPanel from "@/components/AnswerConflictPanel";
 import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type PlanSummary = {
@@ -44,6 +45,7 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
   const [saving, setSaving] = useState(false);
   const savingRef = useRef(false);
   const [clientName, setClientName] = useState("");
+  const [providerId, setProviderId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [pcp, setPcp] = useState<PlanSummary | undefined>();
@@ -57,6 +59,7 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
       savedAnswersRef.current = d.answers;
       answerRevisionsRef.current = d.answerRevisions || {};
       setClientName(d.intake.client.fullName);
+      setProviderId(d.intake.providerId);
       setPcp(d.planCompleteness?.pcp);
       setCrisis(d.planCompleteness?.crisis);
       setLoaded(true);
@@ -112,7 +115,7 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
           setAnswerConflicts((current) => current.filter((item) => item.key !== key));
           setNote("Your choices are ready. Save again to continue.");
         }} />
-      <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
+      <Link href={providerWorkflowHref(`/intakes/${params.id}`, providerId)} className="text-sm text-brand hover:underline">Back to intake</Link>
       <h1 className="mt-1 text-2xl font-bold">PCP / Crisis Plan - {clientName}</h1>
       <p className="mt-1 text-sm text-slate-500">
         Capture PCP coordination and crisis-plan notes here. A plan is complete only after staff review,
@@ -192,7 +195,7 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
       <div className="fixed inset-x-0 bottom-0 border-t bg-white p-3">
         <div className="mx-auto flex max-w-4xl items-center gap-3">
           <button className="btn-primary flex-1" disabled={saving || answerConflicts.length > 0} onClick={save}>{saving ? "Saving..." : "Save PCP / crisis plan notes"}</button>
-          <Link href={`/intakes/${params.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
+          <Link href={providerWorkflowHref(`/intakes/${params.id}/pdf-preview`, providerId)} className="btn-secondary">Preview PDF</Link>
           <span className="text-sm text-slate-500">{note}</span>
         </div>
       </div>

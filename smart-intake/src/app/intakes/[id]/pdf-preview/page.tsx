@@ -3,9 +3,11 @@ import Link from "next/link";
 import { useEffect, useState, use } from "react";
 import PdfPreview from "@/components/PdfPreview";
 import { messageForPdfPreviewFailure, parsePdfPreviewErrorBody } from "@/lib/pdfPreviewError";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 
-export default function PdfPreviewPage(props: { params: Promise<{ id: string }> }) {
+export default function PdfPreviewPage(props: { params: Promise<{ id: string }>; searchParams: Promise<{ providerId?: string }> }) {
   const params = use(props.params);
+  const query = use(props.searchParams);
   const [bust, setBust] = useState(0);
   const [pdfUrl, setPdfUrl] = useState("");
   const [warning, setWarning] = useState("");
@@ -62,7 +64,7 @@ export default function PdfPreviewPage(props: { params: Promise<{ id: string }> 
   return (
     <main className="mx-auto max-w-5xl p-6">
       <div className="mb-3 flex items-center justify-between">
-        <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
+        <Link href={providerWorkflowHref(`/intakes/${params.id}`, query.providerId)} className="text-sm text-brand hover:underline">Back to intake</Link>
         <div className="flex gap-2">
           <button className="btn-ghost" onClick={() => setBust(Date.now())}>Refresh</button>
           {pdfUrl && <a className="btn-primary" href={pdfUrl} download>{documentState === "CURRENT_FINAL" ? "Download current final PDF" : "Download draft preview"}</a>}
@@ -73,7 +75,7 @@ export default function PdfPreviewPage(props: { params: Promise<{ id: string }> 
           <h1 className="text-xl font-bold">{failure.title}</h1>
           <p className="mt-2 text-sm leading-6">{failure.detail}</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Link href={failure.backHref} className="btn-primary">Back to intake</Link>
+            <Link href={providerWorkflowHref(failure.backHref, query.providerId)} className="btn-primary">Back to intake</Link>
             <button className="btn-ghost" onClick={() => setBust(Date.now())}>Try again</button>
           </div>
         </section>

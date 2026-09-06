@@ -123,12 +123,10 @@ export function missingRequiredSignatures(statuses: SignatureStatus[]): Signatur
   return requiredSignatureStatuses(statuses).filter((status) => status.state !== "captured");
 }
 
-function signatureNeedsAction(status: SignatureStatus): boolean {
-  return (status.required || !!status.onPacket) && status.state !== "captured";
-}
-
+export const DOCUSIGN_COMPLETION_LIMITATION =
+  "DocuSign stores a signed PDF; Smart Intake completion still requires a current client or guardian signature in the secure intake app.";
 export const DOCUSIGN_SEND_CONFIRM =
-  "Send the missing signature fields through DocuSign? Missing staff fields will be routed to your signed-in staff account.";
+  `Send a client signature request to the saved client email through DocuSign? ${DOCUSIGN_COMPLETION_LIMITATION} Guardian and staff signatures are collected in the intake app.`;
 
 export function signatureSendHint(input: {
   packetReady: boolean;
@@ -143,17 +141,23 @@ export function signatureSendHint(input: {
   if (input.docusignEnvelopeId) {
     return hint(false, "A DocuSign envelope is already in progress. Check DocuSign status instead of sending another.");
   }
-  const pending = input.statuses.filter(signatureNeedsAction);
-  if (!pending.length) {
-    return hint(false, "No missing signatures to send.");
+  const staff = input.statuses.find(status => status.key === "staff_qp");
+  if (staff?.state !== "captured") {
+    return hint(false, "Capture the current Staff / QP signature in the review screen first. DocuSign sends only to the client email.");
   }
-  const invalid = pending.filter((status) => status.state === "invalid");
+  const pending = missingRequiredSignatures(input.statuses);
+  if (!pending.length) {
+    return hint(false, "All required signatures are captured.");
+  }
+  if (!pending.some(status => status.key === "client_guardian")) {
+    return hint(false, "Collect the remaining staff or special-role signatures in the review screen. DocuSign sends only client signatures.");
+  }
+  const invalid = pending.filter((status) => status.key === "client_guardian" && status.state === "invalid");
   if (invalid.length) {
     const first = invalid[0];
-    return hint(true, `${first.label} needs to be re-signed: ${first.reason}`);
+    return hint(true, `${first.label} needs to be re-signed: ${first.reason}. ${DOCUSIGN_COMPLETION_LIMITATION}`);
   }
-  const labels = pending.map((status) => status.label).join(", ");
-  return hint(true, `Send missing signature fields through DocuSign (${labels}).`);
+  return hint(true, `Send a client signature request through DocuSign. ${DOCUSIGN_COMPLETION_LIMITATION}`);
 }
 
 /** Never swallow a Send missing signatures click — blocked sends still return a visible reason. */

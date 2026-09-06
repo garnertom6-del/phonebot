@@ -7,7 +7,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
-  const readiness = await generationReadinessForIntake(params.id, provider!.id, { allowMissingSignatures: true });
+  const readiness = await generationReadinessForIntake(params.id, provider!.id, { allowMissingClientSignature: true });
   if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });
   if (!readiness.ready) {
     return NextResponse.json({
@@ -32,6 +32,8 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
       return NextResponse.json({ error: "Client has no email on file" }, { status: 400 });
     case "packet_not_ready":
       return NextResponse.json({ code: "PROVIDER_PACKET_NOT_READY", error: result.message }, { status: 409 });
+    case "unsupported_recipient":
+      return NextResponse.json({ code: "DOCUSIGN_RECIPIENT_UNSUPPORTED", error: result.message }, { status: 409 });
     case "not_configured":
       return NextResponse.json(
         { error: "DocuSign is not set up. Clients can still sign in the app. Ask your administrator to connect DocuSign." },

@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { createHash, randomUUID } from "node:crypto";
 import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
-import { audit } from "@/lib/auditLog";
 import { checkDocuSignStatus, downloadDocuSignDocument, docusignConfigured } from "@/lib/docusign";
-import { saveFile } from "@/lib/storage";
+import { saveFile, deleteFile } from "@/lib/storage";
+import { recordDocuSignPacket } from "@/lib/docuSignPacket";
+import { observeIntakeWorkflow } from "@/lib/workflowTracking";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
 import { ensureCompletedCopyToken } from "@/lib/copyTokens";
 import { completionReadinessForIntake } from "@/lib/completionReadiness";
@@ -43,15 +45,20 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
       });
       if (!alreadySaved) {
         const signedPdf = await downloadDocuSignDocument(intake.docusignEnvelopeId);
-        const rel = `generated/${intake.id}/${Date.now()}-docusign-signed.pdf`;
+        const rel = `generated/${intake.id}/${Date.now()}-${randomUUID()}-docusign-signed.pdf`;
         saveFile(rel, signedPdf);
-        await prisma.generatedPdf.create({ data: { intakeId: intake.id, filePath: rel } });
-        await audit("docusign_completed", {
-          providerId: provider!.id,
-          intakeId: intake.id,
-          userId: user!.id,
-          detail: intake.docusignEnvelopeId,
-        });
+        try {
+          const imported = await recordDocuSignPacket({
+            providerId: provider!.id, intakeId: intake.id, userId: user!.id,
+            envelopeId: intake.docusignEnvelopeId, filePath: rel,
+            sha256: createHash("sha256").update(signedPdf).digest("hex"),
+          });
+          if (!imported.saved) deleteFile(rel);
+        } catch (error) {
+          deleteFile(rel);
+          throw error;
+        }
+        await observeIntakeWorkflow(intake.id).catch((error) => console.error("workflow observation failed", error));
       }
 
       const readiness = await completionReadinessForIntake(intake.id, provider!.id);
@@ -63,7 +70,13 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
         return NextResponse.json({
           ok: true,
           status,
-          message: "DocuSign is complete and the signed PDF was saved. Staff review is still required.",
+          message: [
+            "The signed PDF was saved from DocuSign. Smart Intake is not complete.",
+            readiness.blockers.some(blocker => ["client_signature_missing", "client_signature_invalid"].includes(blocker.code))
+              ? "Capture a current client or guardian signature in the secure intake app; the DocuSign PDF does not satisfy that app requirement."
+              : "",
+            `Remaining checks: ${readiness.blockers.map(blocker => blocker.message).join(" ")}`,
+          ].filter(Boolean).join(" "),
           blockers: readiness.blockers,
         });
       }

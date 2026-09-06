@@ -1,6 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
 import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, insurancePlanDisplayLabel, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
@@ -100,7 +102,7 @@ function readFieldValues(formEl: HTMLFormElement, fallback: Record<string, strin
   })) as Record<FieldKey, string>;
 }
 
-export default function NewIntake() {
+function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | null }) {
   // Leave the date blank during prerender. The mount effect below fills the
   // browser's current local date so a deployment never freezes this default.
   const [form, setForm] = useState<Record<string, string>>({ intakeDate: "", addressState: DEFAULT_INTAKE_STATE });
@@ -183,7 +185,7 @@ export default function NewIntake() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/intakes/context", { cache: "no-store" }).then(async (res) => {
+    fetch(providerWorkflowHref("/api/intakes/context", requestedProviderId), { cache: "no-store" }).then(async (res) => {
       const body = await readResponse(res) as {
         error?: string;
         provider?: { id?: string; name?: string; phone?: string };
@@ -214,7 +216,7 @@ export default function NewIntake() {
       }
     });
     return () => { active = false; };
-  }, []);
+  }, [requestedProviderId]);
 
   async function readResponse(res: Response) {
     const text = await res.text();
@@ -721,7 +723,7 @@ export default function NewIntake() {
 
   return (
     <main className="mx-auto max-w-xl p-4 pb-28 sm:p-6">
-      <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
+      <Link href={providerWorkflowHref("/dashboard", providerId || requestedProviderId)} className="text-sm text-brand hover:underline">Dashboard</Link>
       <form ref={formRef} method="post" onSubmit={submit} className="card mt-3" noValidate>
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
         <div className="mb-4 flex min-h-[1.75rem] flex-wrap items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
@@ -785,7 +787,7 @@ export default function NewIntake() {
         <section id="new-intake-paste" className="mb-4 rounded-xl border border-brand/20 bg-brand-light/20 p-4">
           <h2 className="font-bold text-slate-900">Paste CCA / quick notes</h2>
           <p className="mt-1 text-sm text-slate-600">
-            Paste first, then Use these. That one action fills empty identity, address, phone, and emergency-contact fields. Fields you already typed stay unless you choose replace on a chip.
+            Pasting fills empty identity, address, phone, and emergency-contact fields. For notes you type, choose Use these. Fields you already typed stay unless you choose replace on a chip.
           </p>
           <label className="mt-3 block">
             <span className="label">Quick notes</span>
@@ -1356,4 +1358,13 @@ export default function NewIntake() {
       </div>
     </main>
   );
+}
+
+function NewIntakeForProvider() {
+  const requestedProviderId = useSearchParams().get("providerId");
+  return <NewIntakeForm key={requestedProviderId ?? "selected-provider"} requestedProviderId={requestedProviderId} />;
+}
+
+export default function NewIntake() {
+  return <Suspense fallback={<main className="p-6" role="status">Loading provider…</main>}><NewIntakeForProvider /></Suspense>;
 }

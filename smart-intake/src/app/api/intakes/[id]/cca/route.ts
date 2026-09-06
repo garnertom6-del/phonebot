@@ -5,7 +5,7 @@ import { audit } from "@/lib/auditLog";
 import { ccaConfigured, extractFromCca } from "@/lib/ccaExtract";
 import { saveFile } from "@/lib/storage";
 import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApply";
-import { appSnapshotFromAnswers, finalizeCcaReview } from "@/lib/ccaMedicalNecessity";
+import { appSnapshotFromAnswers, checkCcaSourceIdentity, finalizeCcaReview } from "@/lib/ccaMedicalNecessity";
 import { loadAnswerSnapshot } from "@/lib/intakeData";
 import { AnswerConflictError } from "@/lib/answerRevisions";
 
@@ -45,6 +45,17 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     extraction = await extractFromCca(buffer, mime);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "CCA reading failed" }, { status: 502 });
+  }
+
+  const identity = checkCcaSourceIdentity(extraction.review, intake.client, extraction.extracted);
+  if (!identity.matches) {
+    return NextResponse.json({
+      code: identity.code,
+      error: identity.code === "CCA_IDENTITY_MISMATCH"
+        ? "The CCA name or date of birth does not match this client. Choose the correct client's CCA. No answers or documents were changed."
+        : "The CCA client's full name and date of birth could not both be verified. Upload a readable CCA with matching identity. No answers or documents were changed.",
+      fields: identity.fields,
+    }, { status: 409 });
   }
 
   extraction = {

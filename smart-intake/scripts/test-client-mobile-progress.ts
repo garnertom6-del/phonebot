@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { flattenVisible } from "../src/components/EasyQuestionnaire";
@@ -23,6 +24,42 @@ async function main() {
   assert.equal(keys[resumeVisibleIndex(keys, "gender", catalog, savedAnswers)], "race", "A newly hidden current question resumes at its visible successor");
   assert.equal(resumeVisibleIndex(["basic", "consents", "__signature"], "consents", ["welcome", "basic", "clinical", "consents", "__signature"]), 1,
     "Full-mode bookmarks survive earlier sections being removed");
+
+  // Live mobile regression: choosing Working inserted Work phone before the
+  // numeric cursor, so Next returned to Employment instead of advancing.
+  const employmentInitial = { client_full_name: "Synthetic Employment Test", dob: "1991-02-03", client_phone_cell: "2025550146" };
+  const employmentFields = ["occupation", "employer_name", "employer_address", "employer_phone", "client_phone_work"];
+  for (const quick of [true, false]) {
+    const unselected = flattenVisible(employmentInitial, employmentInitial, quick, false, false, new Set()).map((item) => item.q.key);
+    for (const employment_status of ["Employed", "Self-Employed"]) {
+      const workingAnswers = { ...employmentInitial, employment_status };
+      const working = flattenVisible(workingAnswers, employmentInitial, quick, false, false, new Set()).map((item) => item.q.key);
+      const selectedIndex = resumeVisibleIndex(working, "employment_status", catalog, workingAnswers);
+      assert.equal(working[selectedIndex], "employment_status", `Changing employment retains the current question in ${quick ? "quick" : "full"} mode`);
+      assert.deepEqual(working.slice(selectedIndex + 1, selectedIndex + 1 + employmentFields.length), employmentFields,
+        "Next visits every newly visible employment field, including work phone, without repeating the trigger");
+      assert.equal(working[selectedIndex - 1], unselected[unselected.indexOf("employment_status") - 1], "Back returns to the prior question rather than a newly inserted field");
+      const changedAnswers = { ...workingAnswers, employment_status: "Unemployed" };
+      const changed = flattenVisible(changedAnswers, employmentInitial, quick, false, false, new Set()).map((item) => item.q.key);
+      assert.equal(changed[resumeVisibleIndex(changed, "employment_status", catalog, changedAnswers)], "employment_status");
+      assert(!employmentFields.some((key) => changed.includes(key)), "Changing back removes all job-only questions");
+      assert.equal(changed[resumeVisibleIndex(changed, "occupation", catalog, changedAnswers)], "income_sources", "An externally hidden current question resumes at its visible successor");
+    }
+    const beforeHousing = flattenVisible({ ...employmentInitial, living_arrangement: "Homeless" }, employmentInitial, quick, false, false, new Set()).map((item) => item.q.key);
+    const afterHousing = flattenVisible({ ...employmentInitial, living_arrangement: "Adult Alone" }, employmentInitial, quick, false, false, new Set()).map((item) => item.q.key);
+    assert.notEqual(beforeHousing.indexOf("employment_status"), afterHousing.indexOf("employment_status"), "The fixture inserts an earlier question");
+    assert.equal(afterHousing[resumeVisibleIndex(afterHousing, "employment_status", catalog)], "employment_status", "Earlier visibility changes cannot move the active question");
+    assert.equal(afterHousing[resumeVisibleIndex(afterHousing, "living_arrangement", catalog) + 1], "address_street", "Changing housing exposes the unanswered street address on Next");
+  }
+  for (const question of SECTIONS.flatMap((section) => section.questions)) {
+    if (!question.askIf) continue;
+    const trigger = catalog.indexOf(question.askIf.key);
+    assert(trigger < 0 || trigger < catalog.indexOf(question.key), `${question.key} must follow its trigger ${question.askIf.key}; otherwise newly shown questions can be skipped`);
+  }
+  const easySource = readFileSync("src/components/EasyQuestionnaire.tsx", "utf8");
+  assert.match(easySource, /const \[questionKey, setQuestionKey\]/);
+  assert.match(easySource, /idxRef.current = resumeVisibleIndex\(nextFlat/,
+    "Immediate Next after a gate change must read the rebased list before React's next render");
 
   // Deliver canceled callbacks anyway, as if a timeout had already reached the
   // browser's task queue. Explicit navigation must still win.
@@ -95,6 +132,6 @@ async function main() {
   }
   assert.match(markup, /aria-label="What would you like help with\?"/);
   assert.match(markup, /aria-describedby="question-help"/);
-  console.log("Client mobile progress: actual prefill/resume regression, canceled navigation, delayed save/exit, failures/conflicts, and accessible voice fields passed.");
+  console.log("Client mobile progress: stable question identity, quick/full employment and housing dependencies, actual prefill/resume regression, canceled navigation, delayed save/exit, failures/conflicts, and accessible voice fields passed.");
 }
 main().catch((error) => { console.error(error); process.exitCode = 1; });

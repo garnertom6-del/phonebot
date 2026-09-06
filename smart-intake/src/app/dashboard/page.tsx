@@ -17,6 +17,10 @@ import type { WorkflowAction } from "@/lib/workflowOutcomes";
 import AnswerConflictPanel from "@/components/AnswerConflictPanel";
 import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
 import { clientDetailsAnswerPatch } from "@/lib/clientDetails";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
+import { createClientEditSaveLock } from "@/lib/clientEditSaveLock";
+import { copyTextToClipboard } from "@/lib/clipboardFeedback";
+import { DOCUSIGN_SEND_CONFIRM, DOCUSIGN_COMPLETION_LIMITATION } from "@/lib/signatureStatus";
 
 interface Row {
   nextAction: WorkflowAction;
@@ -202,6 +206,7 @@ function Dashboard() {
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
+  const noticeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
   const [activeProviderId, setActiveProviderId] = useState("");
@@ -217,8 +222,11 @@ function Dashboard() {
   const [outcomes, setOutcomes] = useState<WorkflowOutcomes|null>(null);
   const [referralFollowUps, setReferralFollowUps] = useState<ReferralFollowUp[]>([]);
   const [preparedCopyLink, setPreparedCopyLink] = useState<{ intakeId: string; link: string; expiresAt: string; renewed: boolean } | null>(null);
+  const [manualIntakeLink, setManualIntakeLink] = useState<{ intakeId: string; link: string; token: string } | null>(null);
   const [clientRevisions, setClientRevisions] = useState<AnswerRevisions>({});
   const [clientConflicts, setClientConflicts] = useState<AnswerConflict[]>([]);
+  const clientSaveLock = useRef(createClientEditSaveLock()).current;
+  const [clientSavePending, setClientSavePending] = useState(false);
   const busyRowIdsRef = useRef(new Set<string>());
   const announcedCreatedIntakeRef = useRef("");
   const [busyRowIds, setBusyRowIds] = useState<Set<string>>(() => new Set());
@@ -309,12 +317,16 @@ function Dashboard() {
   }, [createdIntakeId, rows]);
 
   function showNote(message: string, timeout = 4500, kind: "success" | "warning" | "error" = "success") {
+    if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current);
     setNoticeKind(kind);
     setNote(message);
-    window.setTimeout(() => setNote(""), timeout);
+    noticeTimerRef.current = setTimeout(() => setNote(""), timeout);
   }
 
+  useEffect(() => () => { if (noticeTimerRef.current) clearTimeout(noticeTimerRef.current); }, []);
+
   function beginClientEdit(row: Row) {
+    if (clientSaveLock.isPending()) return;
     setClientRevisions({...row.answerRevisions});
     setClientConflicts([]);
     setEditingClientId(row.id);
@@ -332,38 +344,49 @@ function Dashboard() {
     });
   }
 
-  function closeClientEdit() {
+  function clearClientEdit() {
     setClientConflicts([]);
     setEditingClientId(null);
     setClientDraft(null);
     setClientEditError("");
   }
 
+  function closeClientEdit() {
+    if (!clientSaveLock.isPending()) clearClientEdit();
+  }
+
   function updateClientDraft(field: keyof ClientDetailsDraft, value: string) {
+    if (clientSaveLock.isPending()) return;
     setClientDraft((current) => current ? { ...current, [field]: value } : current);
   }
 
   async function saveClientDetails(row: Row) {
     if (!clientDraft || clientConflicts.length) return;
-    setClientEditError("");
-    const response = await fetch(`/api/intakes/${row.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clientDetails: clientDraft, expectedAnswerRevisions: revisionsForKeys(clientRevisions, Object.keys(clientDetailsAnswerPatch(clientDraft))) }),
-    });
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      if (response.status === 409 && body.code === "ANSWER_CONFLICT") setClientConflicts(body.conflicts || []);
-      setClientEditError(body.error || "The client details could not be saved.");
-      return;
-    }
-    const updatedName = clientDraft.fullName;
-    closeClientEdit();
-    showNote(`${updatedName}'s details were updated. Regenerate the packet if one was already created.`, 6500);
-    await load(tab, true);
+    await clientSaveLock.run(async () => {
+      setClientEditError("");
+      try {
+        const response = await fetch(`/api/intakes/${row.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ clientDetails: clientDraft, expectedAnswerRevisions: revisionsForKeys(clientRevisions, Object.keys(clientDetailsAnswerPatch(clientDraft))) }),
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 409 && body.code === "ANSWER_CONFLICT") setClientConflicts(body.conflicts || []);
+          setClientEditError(body.error || "The client details could not be saved.");
+          return;
+        }
+        clearClientEdit();
+        showNote(`${clientDraft.fullName}'s details were updated. Regenerate the packet if one was already created.`, 6500);
+        await load(tab, true);
+      } catch {
+        setClientEditError("The client details could not be saved. Your changes are still here; check your connection and try again.");
+      }
+    }, setClientSavePending);
   }
 
   function resolveClientConflict(key: string, choice: "server" | "local") {
+    if (clientSaveLock.isPending()) return;
     const conflict = clientConflicts.find(c => c.key === key);
     if (!conflict) return;
     setClientRevisions(current => ({...current, [key]:conflict.serverRevision}));
@@ -381,6 +404,8 @@ function Dashboard() {
     setBusyRowIds(new Set(busyRowIdsRef.current));
     try {
       await action();
+    } catch {
+      showNote("The action could not be confirmed. Check your connection and refresh the intake before trying again, especially before sending another message.", 12000, "error");
     } finally {
       busyRowIdsRef.current.delete(rowId);
       setBusyRowIds(new Set(busyRowIdsRef.current));
@@ -397,8 +422,13 @@ function Dashboard() {
       return;
     }
     const link = `${window.location.origin}/intake/${row.token}`;
-    await navigator.clipboard.writeText(link);
-    showNote(`Intake link copied for ${row.client.fullName}`, 2500);
+    if (await copyTextToClipboard(link)) {
+      setManualIntakeLink(null);
+      showNote(`Intake link copied for ${row.client.fullName}`, 2500);
+    } else {
+      setManualIntakeLink({ intakeId: row.id, link, token: row.token });
+      showNote("Automatic copy is unavailable. Select the intake link below and copy it manually.", 8000, "warning");
+    }
   }
 
   async function copyCompletedLink(row: Row) {
@@ -551,7 +581,7 @@ function Dashboard() {
   }
 
   async function sendDocuSign(row: Row) {
-    const confirmed = window.confirm("Send the missing client or guardian signature fields through DocuSign? If staff fields are also missing, they will be routed to your signed-in staff account.");
+    const confirmed = window.confirm(DOCUSIGN_SEND_CONFIRM);
     if (!confirmed) return;
     const response = await fetch(`/api/intakes/${row.id}/docusign`, {
       method: "POST",
@@ -672,14 +702,14 @@ function Dashboard() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {!readOnly && <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>}
-            <Link href="/provider/directory" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Plan &amp; benefit directory</Link>
+            {!readOnly && activeProviderId && <Link href={providerWorkflowHref("/intakes/new", activeProviderId)} className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>}
+            {activeProviderId && <Link href={providerWorkflowHref("/provider/directory", activeProviderId)} className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Plan &amp; benefit directory</Link>}
             {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master: providers &amp; packets</Link>}
             {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider: packet settings</Link>}
             <details className="relative [&>summary::-webkit-details-marker]:hidden">
               <summary className="btn-secondary cursor-pointer list-none bg-white/15 text-white hover:bg-white/25">More tools</summary>
               <div className="absolute right-0 z-30 mt-2 grid min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-xl">
-                {!readOnly && <Link href="/intakes/new-many" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
+                {!readOnly && activeProviderId && <Link href={providerWorkflowHref("/intakes/new-many", activeProviderId)} className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
                 {(isMaster || canManageProvider) && <Link href="/admin/users" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Staff logins</Link>}
                 {isMaster && <Link href="/admin/pdf-mapping" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">PDF mapping</Link>}
                 {isMaster && <PhiBackupDownloadButton className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100" />}
@@ -724,7 +754,7 @@ function Dashboard() {
             <p className="mt-1 text-sm leading-6">{providerPacketReadiness.message}</p>
           </div>
           {(isMaster || canManageProvider) && (
-            <Link href={isMaster ? "/master/dashboard#provider-packet-setup" : "/provider/settings"} className="btn-ghost border-amber-400 bg-white px-3 py-2 text-sm text-amber-950">
+            <Link href={providerWorkflowHref(isMaster ? "/master/dashboard#provider-packet-setup" : "/provider/settings", activeProviderId)} className="btn-ghost border-amber-400 bg-white px-3 py-2 text-sm text-amber-950">
               Open packet setup
             </Link>
           )}
@@ -976,7 +1006,7 @@ function Dashboard() {
                   className="btn-ghost px-3 py-2 text-sm"
                   aria-expanded={editingClientId === row.id}
                   aria-controls={`client-details-${row.id}`}
-                  disabled={rowBusy}
+                  disabled={rowBusy || clientSavePending}
                   onClick={() => editingClientId === row.id ? closeClientEdit() : beginClientEdit(row)}
                 >
                   {editingClientId === row.id ? "Close client details" : "Edit client details"}
@@ -1004,7 +1034,7 @@ function Dashboard() {
                     {!readOnly && !row.archived && (
                       <>
                     {!linkFinished && !linkExpired && (
-                      <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyLink(row)}>
+                      <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy} onClick={() => void runRowAction(row.id, () => copyLink(row))}>
                         Copy intake link
                       </button>
                     )}
@@ -1065,7 +1095,7 @@ function Dashboard() {
                     )}
                     {providerPacketReadiness?.ready !== false && !row.docusignEnvelopeId && ["SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"].includes(row.status) && (
                       <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
-                        title="Send only the missing signature fields through DocuSign"
+                        title={DOCUSIGN_COMPLETION_LIMITATION}
                         onClick={() => void runRowAction(row.id, () => sendDocuSign(row))}>
                         Send missing signatures
                       </button>
@@ -1086,6 +1116,14 @@ function Dashboard() {
                   </div>
                 </details>
               </div>
+
+              {manualIntakeLink?.intakeId === row.id && manualIntakeLink.token === row.token && !clientLinkMessagingFinished(row.status) && !clientLinkExpired(row.tokenExpiresAt) && (
+                <div className="mt-4 rounded-xl border border-amber-200 bg-amber-50 p-4" role="status">
+                  <label className="block text-sm font-semibold" htmlFor={`manual-intake-link-${row.id}`}>Select and copy the intake link</label>
+                  <input id={`manual-intake-link-${row.id}`} className="input mt-2 min-w-0 font-mono text-xs" readOnly value={manualIntakeLink.link} onFocus={(event) => event.currentTarget.select()} />
+                  <p className="mt-2 text-sm text-amber-950">Automatic copy is unavailable in this browser. Copy the selected link using your device's copy command. No message was sent.</p>
+                </div>
+              )}
 
               {preparedCopyLink?.intakeId === row.id && (
                 <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4" role="status">
@@ -1112,6 +1150,7 @@ function Dashboard() {
                     void runRowAction(row.id, () => saveClientDetails(row));
                   }}
                 >
+                  <fieldset disabled={clientSavePending} aria-busy={clientSavePending}>
                   <div className="flex flex-wrap items-start justify-between gap-3">
                     <div>
                       <h3 className="text-lg font-bold text-slate-900">Edit client details</h3>
@@ -1228,6 +1267,8 @@ function Dashboard() {
                       Cancel
                     </button>
                   </div>
+                  </fieldset>
+                  {clientSavePending && <p className="mt-3 text-sm text-slate-600" role="status">Saving client details. Please wait before editing or closing this form.</p>}
                 </form>
               )}
             </article>

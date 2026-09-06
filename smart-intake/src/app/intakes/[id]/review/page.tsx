@@ -15,6 +15,7 @@ import ContentRevisionReview from "@/components/ContentRevisionReview";
 import { nextReviewedContentRevision } from "@/lib/contentRevision";
 import { insurancePlanDisplayLabel } from "@/lib/insurancePlans";
 import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
@@ -40,6 +41,7 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
   const router = useRouter();
   const [answers, setAnswers] = useState<Answers>({});
   const [clientName, setClientName] = useState("");
+  const [providerId, setProviderId] = useState<string | null>(null);
   const [note, setNote] = useState("");
   const [selectedSignerRoles, setSelectedSignerRoles] = useState<StaffSignatureRole[]>([]);
   const [signatures, setSignatures] = useState<SignatureRecord[]>([]);
@@ -80,6 +82,7 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
       reviewedContentRevisionRef.current = d.contentRevision;
       answerRevisionsRef.current = d.answerRevisions || {};
       setClientName(d.intake.client.fullName);
+      setProviderId(d.intake.providerId);
       setSignatures(Array.isArray(d.intake.signatures) ? d.intake.signatures : []);
       setSignatureStatuses(Array.isArray(d.signatureStatuses) ? d.signatureStatuses : []);
       setDirtyKeys([]);
@@ -124,10 +127,10 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
-  async function persistDirtyAnswers(): Promise<boolean> {
-    if (answerConflicts.length) return false;
+  async function persistDirtyAnswers(recordReview = false): Promise<boolean> {
+    if (answerConflicts.length || contentReviewRequired) return false;
     const keys = dirtyKeysRef.current;
-    if (!keys.length) return true;
+    if (!keys.length && !recordReview) return true;
     if (savingRef.current) return false;
     savingRef.current = true;
     setSaving(true);
@@ -136,11 +139,17 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
       const answerPatch = Object.fromEntries(keys.map((key) => [key, answersRef.current[key]]));
       const r = await fetch(`/api/intakes/${params.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answerPatch, expectedAnswerRevisions: revisionsForKeys(answerRevisionsRef.current, keys), status: "NEEDS_REVIEW" }),
+        body: JSON.stringify({ answers: answerPatch, expectedAnswerRevisions: revisionsForKeys(answerRevisionsRef.current, keys),
+          ...(recordReview ? { recordStaffReview: true, expectedContentRevision: reviewedContentRevisionRef.current } : {}),
+        }),
       });
       const body = await r.json().catch(() => ({} as { error?: string }));
       if (!r.ok) {
         if (body.code === "ANSWER_CONFLICT") setAnswerConflicts(body.conflicts || []);
+        if (body.code === "CONTENT_REVISION_CONFLICT") {
+          setContentReviewRequired(true);
+          setIsSigning(false);
+        }
         setNote(body.error || "Save failed. Please refresh and try again.");
         return false;
       }
@@ -163,13 +172,15 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
   }
 
   async function save() {
-    const saved = await persistDirtyAnswers();
+    // Reviewing unchanged answers is still a staff review. Send the empty
+    // patch so the server records it before showing the saved confirmation.
+    const saved = await persistDirtyAnswers(true);
     if (!saved) return;
     const query = new URLSearchParams({ saved: "staff" });
     if (returningToPreflight) query.set("return", "preflight");
     const focusKey = new URLSearchParams(window.location.search).get("focus");
     if (focusKey) query.set("focus", focusKey);
-    router.push(`/intakes/${params.id}?${query.toString()}`);
+    router.push(providerWorkflowHref(`/intakes/${params.id}?${query.toString()}`, providerId));
   }
 
   async function saveAndGo(href: string) {
@@ -324,12 +335,12 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
           setNote("Your choices are ready. Save again to continue.");
         }} />
       <Link
-        href={`/intakes/${params.id}`}
+        href={providerWorkflowHref(`/intakes/${params.id}`, providerId)}
         className="text-sm text-brand hover:underline"
         onClick={(event) => {
           if (!dirtyKeys.length) return;
           event.preventDefault();
-          void saveAndGo(`/intakes/${params.id}`);
+          void saveAndGo(providerWorkflowHref(`/intakes/${params.id}`, providerId));
         }}
       >
         Back to intake
@@ -456,12 +467,12 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
             {saving ? "Saving changes..." : returningToPreflight ? "Save & return to preflight" : "Save all changes & continue"}
           </button>
           <Link
-            href={`/intakes/${params.id}/pdf-preview`}
+            href={providerWorkflowHref(`/intakes/${params.id}/pdf-preview`, providerId)}
             className="btn-secondary"
             onClick={(event) => {
               if (!dirtyKeys.length) return;
               event.preventDefault();
-              void saveAndGo(`/intakes/${params.id}/pdf-preview`);
+              void saveAndGo(providerWorkflowHref(`/intakes/${params.id}/pdf-preview`, providerId));
             }}
           >
             Preview PDF

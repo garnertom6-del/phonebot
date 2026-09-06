@@ -5,6 +5,7 @@ import { useCallback, useEffect, useState } from "react";
 import { DIRECTORY_RELEASE } from "@/lib/directoryCatalog";
 import { INSURANCE_PLAN_DIRECTORY } from "@/lib/insurancePlans";
 import { BENEFIT_RESOURCES } from "@/lib/benefitsResources";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 
 type ReviewEvent = { id: number; action: string; ownerName: string; actorName: string; ownerUserId: string; createdAt: string; note: string };
 type Stewardship = {
@@ -52,7 +53,7 @@ export default function PlanBenefitDirectory({ providerId }: { providerId: strin
   }
 
   return <main className="mx-auto max-w-6xl p-4 sm:p-6">
-    <Link href="/dashboard" className="font-semibold text-brand underline">Back to dashboard</Link>
+    <Link href={providerWorkflowHref("/dashboard", providerId)} className="font-semibold text-brand underline">Back to dashboard</Link>
     <header className="mt-4 rounded-xl bg-slate-900 p-6 text-white">
       <p className="text-sm text-sky-200">Staff reference · {data?.provider.name || "Provider workspace"}</p>
       <h1 className="mt-2 text-3xl font-bold">Plan and benefit directory</h1>

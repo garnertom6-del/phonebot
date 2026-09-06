@@ -7,6 +7,7 @@ import {
 import {
   generationReadinessForIntake,
   type GenerationBlockerCode,
+  type GenerationReadiness,
 } from "@/lib/generationReadiness";
 
 export type CompletionBlockerCode =
@@ -99,6 +100,13 @@ export async function completionReadinessForIntake(
   const generation = await generationReadinessForIntake(intakeId, providerId);
   if (!generation) return null;
   const packet = await packetFreshnessForIntake(intakeId);
+  return completionReadinessFromSnapshot(generation, packet);
+}
+
+export function completionReadinessFromSnapshot(
+  generation: Pick<GenerationReadiness, "blockers">,
+  packet: PacketFreshness,
+): CompletionReadiness & { packet: PacketFreshness } {
   const blockers: CompletionBlocker[] = generation.blockers.map((blocker) => ({
     code: blocker.code,
     message: blocker.message,

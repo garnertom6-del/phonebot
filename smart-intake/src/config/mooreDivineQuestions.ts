@@ -237,7 +237,6 @@ export const SECTIONS: Section[] = [
       { key: "address_state", essential: true, label: "State", type: "text", placeholder: "NC" },
       { key: "client_phone_cell", essential: true, label: "Cell phone", type: "phone", required: true },
       { key: "client_phone_home", staffOnly: true, label: "Home phone (same as cell unless different)", type: "phone" },
-      { key: "client_phone_work", label: "Work phone", type: "phone", askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
       { key: "lives_with_whom", label: "Who do you live with?", type: "text", voice: true },
       { key: "lives_where", label: "Where (city/area)?", type: "text", voice: true },
       { key: "effects_on_home", staffOnly: true, label: "How do you get along with the people you live with?", type: "textarea", voice: true },
@@ -246,6 +245,7 @@ export const SECTIONS: Section[] = [
       { key: "employer_name", label: "Employer name", type: "text", voice: true, askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
       { key: "employer_address", label: "Employer address (optional)", type: "text", voice: true, askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
       { key: "employer_phone", label: "Employer phone", type: "phone", askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
+      { key: "client_phone_work", label: "Work phone", type: "phone", askIf: { key: "employment_status", oneOf: ["Employed", "Self-Employed"] } },
     ],
   },
   {

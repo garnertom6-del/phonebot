@@ -51,6 +51,8 @@ import { buildCasePageStatus, type CaseWorkflowStep } from "@/lib/staffCaseStatu
 import { buildPacketChecklistChips } from "@/lib/packetChecklist";
 import { replaceRawFieldKeys, staffFacingFieldLabel } from "@/lib/staffFieldLabels";
 import { beginSignatureSend, signatureSendHint } from "@/lib/signatureStatus";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
+import { acceptableOverrideReason } from "@/lib/overrideReason";
 
 type PreflightFinding = {
   key: string;
@@ -125,7 +127,7 @@ function maskedEmail(value: string): string {
 
 interface Detail {
   intake: {
-    id: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
+    id: string; providerId: string; status: string; tokenExpiresAt: string; intakeDate?: string; linkSentAt?: string | null;
     submittedAt?: string | null;
     expectCca?: boolean;
     docusignEnvelopeId?: string | null;
@@ -274,6 +276,11 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const [preflightBusy, setPreflightBusy] = useState(false);
   const [preflight, setPreflight] = useState<PreflightResult | null>(null);
   const [overrideBusyKey, setOverrideBusyKey] = useState("");
+  const overrideBusyRef = useRef(false);
+  const [overrideFindingKey, setOverrideFindingKey] = useState("");
+  const [overrideReason, setOverrideReason] = useState("");
+  const [overrideError, setOverrideError] = useState("");
+  const overrideTriggerRef = useRef<HTMLButtonElement | null>(null);
   const [quickFixChoice, setQuickFixChoice] = useState<Record<string, string>>({});
   const [quickFixBusyKey, setQuickFixBusyKey] = useState("");
   const [identityMismatch, setIdentityMismatch] = useState<IdentityMismatch | null>(null);
@@ -287,6 +294,10 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const [followUpResult, setFollowUpResult] = useState<FollowUpDeliveryResult | null>(null);
   const [copiesLink, setCopiesLink] = useState("");
   const [copiesBusy, setCopiesBusy] = useState(false);
+  const [completionBusy, setCompletionBusy] = useState(false);
+  const completionBusyRef = useRef(false);
+  const [completionMessage, setCompletionMessage] = useState("");
+  const [completionError, setCompletionError] = useState(false);
   const [ncTracksBusy, setNcTracksBusy] = useState(false);
   const [ncTracksUploadBusy, setNcTracksUploadBusy] = useState(false);
   const [ncTracksResult, setNcTracksResult] = useState("");
@@ -403,6 +414,8 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const generationReady = d.generationReadiness?.ready === true;
   const generationBlockers = d.generationReadiness?.blockers || [];
   const finalPacketCurrent = d.packetFreshness?.state === "current";
+  // These are the same server snapshots combined by completionReadinessFromSnapshot.
+  const completionReady = generationReady && finalPacketCurrent;
   const signatureSend = signatureSendHint({
     packetReady,
     packetMessage: d.providerPacketReadiness.message,
@@ -657,6 +670,60 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
       setNote(r.ok ? `${label} complete ${b.filled ? `(${b.filled} fields filled)` : ""}` : `${label} failed: ${b.error || r.status}`);
     }
     load();
+  }
+
+  async function markIntakeCompleted() {
+    if (completionBusyRef.current || !completionReady || i.status === "COMPLETED") return;
+    completionBusyRef.current = true;
+    setCompletionBusy(true);
+    setCompletionMessage("");
+    setCompletionError(false);
+    try {
+      const response = await fetch(`/api/intakes/${i.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: "COMPLETED" }),
+      });
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const blockers = Array.isArray(body.blockers)
+          ? body.blockers.map((blocker: { message?: string }) => blocker.message).filter(Boolean).join(" ")
+          : "";
+        setCompletionError(true);
+        setCompletionMessage(`Could not mark completed: ${body.error || response.status}. ${blockers}`.trim());
+        await load();
+        return;
+      }
+      const delivery = body.completionDelivery || {};
+      const warnings: string[] = [];
+      if (delivery.error) warnings.push(String(delivery.error));
+      const clientDelivery = delivery.clientCopies?.body;
+      if (clientDelivery) {
+        if (clientDelivery.error) warnings.push(String(clientDelivery.error));
+        if (Array.isArray(clientDelivery.failed)) warnings.push(...clientDelivery.failed.map(String));
+        if (Array.isArray(clientDelivery.unavailable)) warnings.push(...clientDelivery.unavailable.map(String));
+        if (clientDelivery.ok === false && !warnings.length) warnings.push("Client copies were not sent.");
+      }
+      const providerDelivery = delivery.providerPacket;
+      if (providerDelivery?.sent === false) warnings.push(providerDelivery.detail || "Provider packet email failed.");
+      if (providerDelivery?.skipped && providerDelivery.reason
+        && !/is off|already sent/i.test(String(providerDelivery.reason))) warnings.push(String(providerDelivery.reason));
+      setD((current) => current?.intake.id === i.id
+        ? { ...current, intake: { ...current.intake, status: "COMPLETED" } }
+        : current);
+      await load();
+      setCompletionError(warnings.length > 0);
+      setCompletionMessage(warnings.length
+        ? `Intake marked completed. Delivery needs attention: ${[...new Set(warnings)].join(" ")}`
+        : "Intake marked completed. Saved automatic delivery settings were processed.");
+    } catch {
+      await load();
+      setCompletionError(true);
+      setCompletionMessage("Could not confirm completion or delivery. Check the refreshed intake status before trying again.");
+    } finally {
+      completionBusyRef.current = false;
+      setCompletionBusy(false);
+    }
   }
 
   async function sendCopiesLink() {
@@ -945,8 +1012,12 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   }
 
   async function runPreflight() {
+    if (overrideBusyRef.current) return;
     setPreflightBusy(true);
     setPreflight(null);
+    setOverrideFindingKey("");
+    setOverrideReason("");
+    setOverrideError("");
     setQuickFixChoice({});
     setNote("Running intake preflight review...");
     try {
@@ -969,18 +1040,24 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   }
 
   async function overridePreflight(finding: PreflightFinding) {
-    const reason = window.prompt(`Why are you overriding "${finding.title}"? This reason will be recorded in the audit log.`);
-    if (!reason?.trim()) return;
+    if (overrideBusyRef.current) return;
+    const reason = overrideReason.trim();
+    if (reason.length < 12 || reason.length > 500 || !acceptableOverrideReason(reason)) {
+      setOverrideError("Enter a specific, meaningful reason between 12 and 500 characters. Placeholders and repeated letters are not accepted.");
+      return;
+    }
+    overrideBusyRef.current = true;
     setOverrideBusyKey(finding.key);
+    setOverrideError("");
     try {
       const r = await fetch(`/api/intakes/${params.id}/preflight/override`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ findingKey: finding.key, title: finding.title, reason: reason.trim() }),
+        body: JSON.stringify({ findingKey: finding.key, title: finding.title, reason }),
       });
       const body = await r.json().catch(() => ({}));
       if (!r.ok) {
-        setNote(body.error || "The override could not be recorded.");
+        setOverrideError(body.error || "The override could not be recorded.");
         return;
       }
       const next = preflight ? {
@@ -991,10 +1068,16 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
       } : null;
       setPreflight(next);
       if (next) sessionStorage.setItem(`smart-intake:preflight:${params.id}`, JSON.stringify(next));
-      setNote("Override recorded in the audit log. You may continue the workflow.");
+      setOverrideFindingKey("");
+      setOverrideReason("");
+      const refreshed = await load();
+      setNote(refreshed
+        ? "Override recorded in the audit log. Workflow readiness has been refreshed."
+        : "Override recorded in the audit log. Refresh this page to load current workflow readiness.");
     } catch {
-      setNote("The override could not be recorded. Check the connection and try again.");
+      setOverrideError("The override could not be recorded. Check the connection and try again.");
     } finally {
+      overrideBusyRef.current = false;
       setOverrideBusyKey("");
     }
   }
@@ -1109,7 +1192,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           setAnswerConflicts((current) => current.filter((item) => item.key !== key));
           setSaveAssistMessage("Your choices are ready. Save helper info again to continue.");
         }} />
-      <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
+      <Link href={providerWorkflowHref("/dashboard", i.providerId)} className="text-sm text-brand hover:underline">Dashboard</Link>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <h1 className="text-2xl font-bold">{i.client.fullName}</h1>
@@ -1120,11 +1203,11 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href={`/intakes/${i.id}/review`} className="btn-primary">Review / edit answers</Link>
-          <Link href={`/intakes/${i.id}/plans`} className="btn-secondary">PCP / Crisis Plan</Link>
+          <Link href={providerWorkflowHref(`/intakes/${i.id}/review`, i.providerId)} className="btn-primary">Review / edit answers</Link>
+          <Link href={providerWorkflowHref(`/intakes/${i.id}/plans`, i.providerId)} className="btn-secondary">PCP / Crisis Plan</Link>
           {packetReady ? (
             <>
-              <Link href={`/intakes/${i.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
+              <Link href={providerWorkflowHref(`/intakes/${i.id}/pdf-preview`, i.providerId)} className="btn-secondary">Preview PDF</Link>
               <button className="btn-secondary" disabled={!generationReady} title={generationReady ? "Generate a locked packet version" : firstGenerationBlocker}
                 onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
                 Generate Completed Packet
@@ -1156,6 +1239,19 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
             <p className="mt-1 text-sm">{caseStatus.detail}</p>
           </div>
           <div className="flex min-w-0 max-w-full flex-wrap gap-2">
+            {completionReady && i.status !== "COMPLETED" && (
+              <div className="flex min-w-0 flex-col gap-1">
+                <button type="button" className="btn-primary px-3 py-2 text-sm disabled:opacity-50"
+                  disabled={completionBusy} aria-busy={completionBusy}
+                  aria-describedby="mark-completed-help"
+                  onClick={() => { void markIntakeCompleted(); }}>
+                  {completionBusy ? "Marking completed…" : "Mark intake completed"}
+                </button>
+                <p id="mark-completed-help" className="max-w-xs text-xs leading-5 text-slate-600">
+                  Uses the saved automatic delivery settings for client copies and provider email.
+                </p>
+              </div>
+            )}
             <div className="flex min-w-0 flex-col gap-1">
               <button
                 type="button"
@@ -1223,6 +1319,10 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
             )}
           </div>
         </div>
+        {completionMessage && (
+          <p className={`mt-3 rounded-lg p-2 text-sm font-semibold ${completionError ? "bg-amber-100 text-amber-950" : "bg-emerald-100 text-emerald-950"}`}
+            role={completionError ? "alert" : "status"}>{completionMessage}</p>
+        )}
       </section>
       <WorkflowSteps steps={caseStatus.steps} />
       <PacketChecklistChips chips={packetChecklist} />
@@ -1285,7 +1385,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           <p className="mt-2 text-sm">The client record says <b>{identityMismatch.recordName}</b>, but the intake answer says <b>{identityMismatch.answerName}</b>.</p>
           <p className="mt-2 text-sm">Correct the client record or packet answer so the verified identity matches. Identity mismatches cannot be overridden.</p>
           <div className="mt-3 flex flex-wrap gap-2">
-            <Link href={`/intakes/${i.id}/review?focus=client_full_name`} className="btn-secondary px-3 py-2 text-sm">Review / correct name</Link>
+            <Link href={providerWorkflowHref(`/intakes/${i.id}/review?focus=client_full_name`, i.providerId)} className="btn-secondary px-3 py-2 text-sm">Review / correct name</Link>
           </div>
         </div>
       )}
@@ -1309,7 +1409,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
             <p className="mt-1 text-sm font-semibold">Client / guardian signatures are completed through the secure SMS intake, not the staff signature screen.</p>
           )}
           {lastSignatureAudit.missing > 0 && (
-            <Link href={`/intakes/${i.id}/review#staff-signatures`} className="btn-primary mt-3 inline-block px-3 py-2 text-sm">
+            <Link href={providerWorkflowHref(`/intakes/${i.id}/review#staff-signatures`, i.providerId)} className="btn-primary mt-3 inline-block px-3 py-2 text-sm">
               Add / rerun missing signatures
             </Link>
           )}
@@ -1554,7 +1654,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           )}
           {!!followUpQuestions.length && !!i.docusignEnvelopeId && (
             <p className="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
-              This chart already has a DocuSign envelope. Make corrections in staff review, then create a new envelope so the signed packet stays accurate.
+              This chart already has a DocuSign envelope. After correcting the intake, collect current signatures in the app and regenerate the packet. The app does not replace an existing envelope.
             </p>
           )}
 
@@ -1596,7 +1696,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
               <div className="mt-3 flex flex-wrap gap-2">
                 <Link
                   className="btn-ghost bg-white px-3 py-2 text-sm"
-                  href={`/intakes/${i.id}/review?focus=${encodeURIComponent(deferredFollowUpQuestions[0].key)}&return=preflight`}
+                  href={providerWorkflowHref(`/intakes/${i.id}/review?focus=${encodeURIComponent(deferredFollowUpQuestions[0].key)}&return=preflight`, i.providerId)}
                 >
                   Review / edit deferred items
                 </Link>
@@ -1723,7 +1823,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
               </p>
             </div>
             <button className="btn-primary px-3 py-1.5 text-sm disabled:cursor-wait disabled:opacity-60" type="button"
-              disabled={preflightBusy} onClick={() => { void runPreflight(); }}>
+              disabled={preflightBusy || !!overrideBusyKey} onClick={() => { void runPreflight(); }}>
               {preflightBusy ? "Reviewing..." : "Run preflight review"}
             </button>
           </div>
@@ -1775,17 +1875,51 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
                   <div className="mt-2 flex flex-wrap gap-3">
                     {finding.fieldKeys?.slice(0, 8).map((key, fieldIndex) => (
                       <Link key={key} className="font-semibold underline"
-                        href={`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}&return=preflight`}>
+                        href={providerWorkflowHref(`/intakes/${i.id}/review?focus=${encodeURIComponent(key)}&return=preflight`, i.providerId)}>
                         {finding.fieldLabels?.[fieldIndex] || staffFacingFieldLabel(key)}
                       </Link>
                     ))}
                     {!finding.overridden && !finding.resolved && finding.severity !== "info" && (
                       <button className="font-semibold underline disabled:opacity-50" type="button"
-                        disabled={overrideBusyKey === finding.key} onClick={() => { void overridePreflight(finding); }}>
-                        {overrideBusyKey === finding.key ? "Recording..." : "Override and continue"}
+                        disabled={!!overrideBusyKey || !!quickFixBusyKey}
+                        aria-expanded={overrideFindingKey === finding.key}
+                        aria-controls={`preflight-override-${index}`}
+                        onClick={(event) => {
+                          overrideTriggerRef.current = event.currentTarget;
+                          setOverrideFindingKey(finding.key);
+                          setOverrideReason("");
+                          setOverrideError("");
+                        }}>
+                        Override and continue
                       </button>
                     )}
                   </div>
+                  {overrideFindingKey === finding.key && !finding.overridden && !finding.resolved && (
+                    <form id={`preflight-override-${index}`} noValidate className="mt-3 rounded-lg border border-current/20 bg-white/70 p-3"
+                      aria-label={`Override: ${replaceRawFieldKeys(finding.title)}`}
+                      aria-busy={overrideBusyKey === finding.key}
+                      onSubmit={(event) => { event.preventDefault(); void overridePreflight(finding); }}>
+                      <label className="block font-semibold" htmlFor={`preflight-override-reason-${index}`}>Reason for override</label>
+                      <p id={`preflight-override-help-${index}`} className="mt-1 text-xs">
+                        Explain why this finding can be overridden. The reason is recorded in the audit log. Use 12–500 characters.
+                      </p>
+                      <textarea id={`preflight-override-reason-${index}`} className="input mt-2 min-h-24 text-sm"
+                        autoFocus required minLength={12} maxLength={500}
+                        value={overrideReason} disabled={!!overrideBusyKey}
+                        aria-describedby={`preflight-override-help-${index}${overrideError ? ` preflight-override-error-${index}` : ""}`}
+                        aria-invalid={!!overrideError}
+                        onChange={(event) => { setOverrideReason(event.target.value); setOverrideError(""); }} />
+                      {overrideError && <p id={`preflight-override-error-${index}`} role="alert" className="mt-2 text-sm font-semibold text-red-700">{overrideError}</p>}
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <button type="submit" className="btn-secondary disabled:opacity-50" disabled={!!overrideBusyKey}>
+                          {overrideBusyKey === finding.key ? "Saving override…" : "Save override"}
+                        </button>
+                        <button type="button" className="btn-ghost" disabled={!!overrideBusyKey} onClick={() => {
+                          setOverrideFindingKey(""); setOverrideReason(""); setOverrideError(""); overrideTriggerRef.current?.focus();
+                        }}>Cancel</button>
+                      </div>
+                    </form>
+                  )}
                   {!!finding.correctionOptions?.length && !finding.overridden && !finding.resolved && (
                     <div className="mt-3 border-t border-current/15 pt-3">
                       <label className="block text-xs font-bold uppercase tracking-wide" htmlFor={`preflight-correction-${index}`}>
@@ -1820,7 +1954,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
                             <button
                               className="btn-secondary mt-3 px-3 py-2 text-sm disabled:opacity-50"
                               type="button"
-                              disabled={quickFixBusyKey === finding.key}
+                              disabled={quickFixBusyKey === finding.key || !!overrideBusyKey}
                               onClick={() => { void applyQuickFix(finding); }}
                             >
                               {quickFixBusyKey === finding.key ? "Applying..." : "Apply selected correction"}
@@ -1876,7 +2010,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
               {originalClientIntakeFinished && (
                 <p className="mt-2 text-sm text-slate-600">
                   On a signed case, keep Quick notes and Common answers with{" "}
-                  <Link href={`/intakes/${i.id}/review`} className="font-semibold text-brand underline">Review / edit answers</Link>
+                  <Link href={providerWorkflowHref(`/intakes/${i.id}/review`, i.providerId)} className="font-semibold text-brand underline">Review / edit answers</Link>
                   {" "}instead of a second form here.
                 </p>
               )}
@@ -2408,7 +2542,7 @@ function PacketChecklistChips({
       <div className="mt-2 flex flex-wrap gap-2">
         {chips.map((chip) => (
           <span key={chip.key} className={`badge ${tone(chip.state)}`}>
-            {chip.label}: {mark(chip.state)}
+            {chip.label}: {chip.key === "consents" && chip.state === "keep" ? "Recorded" : mark(chip.state)}
           </span>
         ))}
       </div>

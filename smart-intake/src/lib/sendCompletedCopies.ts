@@ -2,7 +2,8 @@ import { prisma } from "./prisma";
 import { appBaseUrl } from "./baseUrl";
 import { audit } from "./auditLog";
 import { loadAnswers, saveAnswers } from "./intakeData";
-import { ensureCompletedCopyToken, copiesPath } from "./copyTokens";
+import { CompletedCopyLinkError, prepareCompletedCopyLink } from "./completedCopyLink";
+import { completionReadinessForIntake } from "./completionReadiness";
 import {
   AUTO_SEND_COMPLETED_COPIES_KEY,
   AUTO_EMAIL_PROVIDER_PACKET_KEY,
@@ -90,8 +91,15 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
     throw error;
   }
 
-  const copyAccess = await ensureCompletedCopyToken(intake.id);
-  const link = `${appBaseUrl(opts.req)}${copiesPath(copyAccess.copyToken)}`;
+  let link: string;
+  try {
+    ({ link } = await prepareCompletedCopyLink(intake.id, opts.providerId, opts.req || new Request(appBaseUrl())));
+  } catch (error) {
+    if (error instanceof CompletedCopyLinkError) {
+      return { status: error.status, body: { ok: false, error: error.message, blockers: error.blockers, sent: [], failed: [] } };
+    }
+    throw error;
+  }
   const attempts: NotifyResult[] = [];
   const answers = await loadAnswers(intake.id);
   const deliveryClient = {
@@ -243,6 +251,10 @@ export async function sendCompletedPacketToProvider(opts: SendCompletedCopiesOpt
     throw error;
   }
   if (!intake.provider?.email) return { skipped: true, reason: "Provider email is not configured" };
+  const readiness = await completionReadinessForIntake(intake.id, opts.providerId);
+  if (!readiness?.ready) {
+    return { skipped: true, reason: "The completed packet needs review before emailing it.", blockers: readiness?.blockers || [] };
+  }
   const packet = await packetFreshnessForIntake(intake.id);
   if (packet.state !== "current" || !packet.pdfId || !packet.filePath || !fileExists(packet.filePath)) {
     return { skipped: true, reason: "The packet is outdated. Generate it again before emailing it." };

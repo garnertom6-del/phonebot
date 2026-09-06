@@ -1,5 +1,5 @@
 import { SECTIONS, questionCatalogId, questionVisibleInCatalog } from "@/config/mooreDivineQuestions";
-import { askIfSatisfied } from "@/lib/validation";
+import { askIfSatisfied, missingRequired } from "@/lib/validation";
 import type { SignatureStatus } from "@/lib/signatureStatus";
 import { missingRequiredSignatures } from "@/lib/signatureStatus";
 
@@ -45,7 +45,11 @@ function consentsState(
     && askIfSatisfied(question.askIf, answers)
   ));
   if (!required.length) return "na";
-  const complete = required.every((question) => answers[question.key] === true || answers[question.key] === "Yes");
+  // The checklist tracks documented responses, not whether every consent was
+  // granted. In particular, an explicit privacy-notice acknowledgment decline
+  // is a completed response and must retain its original value.
+  const missingKeys = new Set(missingRequired(answers, true, provider).map((field) => field.key));
+  const complete = required.every((question) => !missingKeys.has(question.key));
   return complete ? "keep" : "missing";
 }
 
@@ -115,7 +119,7 @@ export function buildPacketChecklistChips(input: {
     },
     {
       key: "consents",
-      label: "Consents",
+      label: "Consent responses",
       state: consentsState(input.answers, input.provider),
     },
     {

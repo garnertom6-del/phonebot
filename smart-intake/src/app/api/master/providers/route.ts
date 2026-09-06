@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
+import { currentUser } from "@/lib/auth";
 import { isMasterUser, requireMaster, requireProviderAdmin } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import {
@@ -69,7 +70,12 @@ async function providerAdminConflict(email: string) {
 }
 
 export async function GET() {
-  const { user, provider, deny } = await requireProviderAdmin();
+  // The master provider index must remain reachable after a selected provider
+  // is removed. Provider administrators still require a valid scoped target.
+  const signedInUser = await currentUser();
+  const { user, provider, deny } = signedInUser && isMasterUser(signedInUser)
+    ? { user: signedInUser, provider: null, deny: null }
+    : await requireProviderAdmin();
   if (deny) return deny;
   const isMaster = isMasterUser(user!);
 
