@@ -43,6 +43,9 @@ model Provider {
   directoryStewardship DirectoryStewardship[]
   supportReferrals SupportReferral[]
   supportReferralEvents SupportReferralEvent[]
+  ncTracksConfiguration NcTracksConfiguration?
+  ncTracksHost NcTracksHost?
+  ncTracksJobs NcTracksJob[]
 }
 
 // Append-only directory ownership and review history; no intake/client data.
@@ -124,6 +127,7 @@ model Intake {
   workflowOwnerUserId String?
   abandonedAt        DateTime?
   workflowIntervals  WorkflowInterval[]
+  ncTracksJobs       NcTracksJob[]
 
   answers           IntakeAnswer[]
   sections          IntakeSection[]
@@ -461,4 +465,59 @@ model WorkflowInterval {
   startedAt   DateTime  @default(now())
   endedAt     DateTime?
   @@index([intakeId, startedAt])
+}
+
+// Outbound home-host bridge. Portal secrets and local artifact paths never enter this database.
+model NcTracksConfiguration {
+  providerId    String @id
+  authorizedNpi String?
+  updatedAt     DateTime @updatedAt
+  provider      Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+}
+
+model NcTracksHost {
+  id             String @id @default(uuid())
+  providerId     String @unique
+  name           String
+  credentialHash String @unique
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  lastSeenAt     DateTime?
+  adapterReady   Boolean @default(false)
+  createdAt      DateTime @default(now())
+  provider       Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  jobs           NcTracksJob[]
+}
+
+model NcTracksJob {
+  id                  String @id @default(uuid())
+  providerId          String
+  intakeId            String
+  requestedByUserId   String
+  idempotencyKey      String
+  dedupKey            String
+  identityFingerprint String
+  subjectJson         String
+  authorizedNpi       String
+  serviceDateFrom     String
+  serviceDateTo       String
+  status              String @default("NOT_CONFIGURED")
+  coverage            String @default("UNKNOWN")
+  attempt             Int @default(0)
+  hostId              String?
+  leaseHash           String?
+  leaseStartedAt      DateTime?
+  leaseExpiresAt      DateTime?
+  resultJson          String?
+  code                String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  provider            Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  intake              Intake @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  host                NcTracksHost? @relation(fields: [hostId], references: [id], onDelete: SetNull)
+
+  @@unique([providerId, idempotencyKey])
+  @@index([providerId, dedupKey, status])
+  @@index([hostId, status, leaseExpiresAt])
+  @@index([intakeId])
 }

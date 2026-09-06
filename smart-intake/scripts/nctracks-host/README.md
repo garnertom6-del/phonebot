@@ -1,0 +1,24 @@
+# NCTracks Windows bridge
+
+The Smart Intake home-screen feature saves provider-scoped requests. This outbound bridge claims one request at a time and uses the configured Codex CLI browser connector with an existing Microsoft Edge NCTracks session. It always requires **WELLIANCE CARE INC — NPI 1134943608**, as designated by the user. This is the NCTracks query provider; existing intake ownership and packet mappings are unchanged.
+
+## Setup on the authorized computer
+
+1. Install this application's dependencies (`npm ci`) and use a supported Node runtime. Install/sign in to Codex CLI and configure its supported `cua_repl` browser connector. The CLI uses the operator's configured model and account; an exhausted account or missing connector prevents execution. The selected client's minimum lookup identity and observed result are processed by that configured Codex account. Use the provider's authorized workstation/account.
+2. Keep `Downloads\NC Tracks Cards` in a private local directory. Copy `config.example.json` to a protected location outside Git. Set the actual app origin, absolute artifact directory, Node executable, runner file and working directory. If Codex is not on PATH, append `--codex` and the absolute `codex.exe` path to the runner's `args` array.
+3. On the app's **NCTracks lookup → Administrator setup**, authorize the fixed Welliance NPI and register the workstation in the correct Smart Intake provider workspace. The one-time host token is valid for 30 days; the app stores only its hash. Replacing or revoking it stops acceptance of old leases. Keep the token in the worker process's `NCTRACKS_HOST_TOKEN` environment variable via a protected launcher/credential mechanism. Do not put it in Git, the configuration JSON, command-line arguments or logs.
+4. Run `npm run nctracks:host -- --config "C:\absolute\config.json" --check`. This checks the local runner and configured connector inventory only. **ADAPTER_AVAILABLE does not prove portal login, provider access, PDF export or a successful lookup.** No token is needed for this local check.
+5. Sign in to NCTracks in Edge and select WELLIANCE CARE INC / 1134943608. Run `npm run nctracks:host -- --config "C:\absolute\config.json" --run` in the authorized workstation's foreground terminal. `--once` processes at most one queued job; `--status` only reads local configuration presence. Ctrl+C stops the owned runner process tree. No Windows startup task or service is installed automatically.
+6. Use the mobile workspace to select an existing intake, confirm separate first/last names and service dates, then request a lookup. The worker checks the displayed organization/NPI and reply identity before accepting a result. Sign-in, MFA, CAPTCHA, local unlock, missing supported PDF export or missing browser capabilities produce **Workstation needs attention**. Complete the required operator action, then retry the saved request.
+
+Only one bridge instance should use an Edge session. An exclusive lock file inside the artifact directory prevents duplicate instances using that directory. After an abnormal shutdown, verify that its recorded PID no longer belongs to the bridge before removing a stale `.nctracks-host.lock` file. Do not run different artifact roots against the same Edge session.
+
+## Evidence and state
+
+The actual source PDF remains local. The worker validates its path, readable PDF content, exact observed identity and SHA-256; it sends only the allowlisted structured result and hash. Missing or conflicting identity, an image-only PDF requiring review, invalid evidence, or a changed intake identity cannot be marked verified. A failed lookup is unknown coverage, never inactive coverage. Requested service dates and actual expanded portal inquiry dates are shown separately.
+
+**Saved on workstation** means local proof was verified. It does not mean a PDF was uploaded to the app, an intake answer changed, a payer approved a service, or a packet is ready. Review the source on the workstation. No automatic plan switch, claim, CCA upload, signature, email or text delivery is implemented.
+
+Queued requests survive closing the phone browser. Lost/replaced/cancelled leases cannot return late results. The bridge renews a lease while executing; a lost lease stops its child process tree. Credentials and job values are not passed on child command lines. Portal passwords, OTPs, raw tool diagnostics, local paths and PDF bytes are excluded from app requests and status logs.
+
+Run `npm run test:nctracks` for isolated synthetic database, HTTP, runner, PDF, CLI and cancellation checks. These tests do not contact NCTracks or prove live browser/PDF capability. A supervised authorized client lookup and verified local PDF are required to establish end-to-end operation on a specific host.

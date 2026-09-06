@@ -204,6 +204,7 @@ function Dashboard() {
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
   const [search, setSearch] = useState("");
   const [providerName, setProviderName] = useState("Provider");
+  const [activeProviderId, setActiveProviderId] = useState("");
   const [isMaster, setIsMaster] = useState(false);
   const [canManageProvider, setCanManageProvider] = useState(false);
   const [readOnly, setReadOnly] = useState(false);
@@ -242,6 +243,7 @@ function Dashboard() {
       setOutcomes(body.outcomes ?? null);
       setReferralFollowUps(body.referralFollowUps ?? []);
       setProviderName(body.provider?.name || "Provider");
+      setActiveProviderId(body.provider?.id || "");
       setIsMaster(!!body.isMaster);
       setCanManageProvider(!!body.canManageProvider);
       setReadOnly(!!body.readOnly);
@@ -702,6 +704,13 @@ function Dashboard() {
           <StatCard label="Completed" value={completedCount} active={tab === "done"} onClick={() => selectDashboardTab("done")} />
           <StatCard label="Ready to complete" value={readyToCompleteCount} active={tab === "packet"} onClick={() => selectDashboardTab("packet")} />
           <StatCard label="CCA uploaded" value={ccaCount} active={tab === "cca"} onClick={() => selectDashboardTab("cca")} />
+        </div>
+      </section>
+
+      <section className="mt-4 min-w-0 rounded-2xl border-2 border-sky-200 bg-white p-4 sm:p-5" aria-labelledby="nctracks-home-heading">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="min-w-0 max-w-2xl"><h2 id="nctracks-home-heading" className="text-xl font-bold text-slate-900">NCTracks lookup</h2><p className="mt-1 text-sm text-slate-600">Request an eligibility lookup for an existing intake and review the returned source evidence. Requires an authorized, connected lookup workstation.</p></div>
+          {activeProviderId && <Link href={`/nctracks?providerId=${encodeURIComponent(activeProviderId)}`} className="btn-primary inline-flex min-h-11 w-full items-center justify-center sm:w-auto">Open NCTracks lookup</Link>}
         </div>
       </section>
 

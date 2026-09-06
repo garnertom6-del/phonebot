@@ -1,0 +1,13 @@
+{
+  "appUrl": "https://YOUR-SMART-INTAKE-HOST.example",
+  "artifactRoot": "C:\\Users\\YOUR-WINDOWS-USER\\Downloads\\NC Tracks Cards",
+  "runner": {
+    "executable": "C:\\ABSOLUTE\\PATH\\TO\\node.exe",
+    "args": ["C:\\ABSOLUTE\\PATH\\TO\\smart-intake\\scripts\\nctracks-host\\codex-runner.mjs"],
+    "cwd": "C:\\ABSOLUTE\\PATH\\TO\\smart-intake"
+  },
+  "pollIntervalMs": 10000,
+  "heartbeatIntervalMs": 30000,
+  "requestTimeoutMs": 15000,
+  "runnerTimeoutMs": 240000
+}
