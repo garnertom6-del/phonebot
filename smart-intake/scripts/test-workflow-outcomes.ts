@@ -1,0 +1,75 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { spawnSync } from "node:child_process";
+import { unlinkSync, writeFileSync } from "node:fs";
+import path from "node:path";
+import { nextWorkflowAction, deliveryFacts, summarizeWorkflowIntervals, type WorkflowFacts } from "../src/lib/workflowOutcomes";
+
+const ready:WorkflowFacts={id:"synthetic",status:"COMPLETED",submittedAt:new Date(),archived:false,expectCca:true,hasCca:true,hasClientSignature:true,hasStaffSignature:true,missingRequiredCount:0,staffReviewed:true,providerPacketReady:true,packetState:"current",deliveryConfirmed:true,deliveryFailed:false,deliveryAttempted:true,openFollowUp:false};
+assert.equal(nextWorkflowAction(ready).stage,"COMPLETE");
+assert.equal(nextWorkflowAction({...ready,submittedAt:null}).stage,"CLIENT_RESPONSE");
+assert.equal(nextWorkflowAction({...ready,submittedAt:null,status:"NOT_STARTED",clientLinkReached:false}).label,"Prepare and send intake link");
+assert.equal(nextWorkflowAction({...ready,submittedAt:null,clientLinkExpired:true}).label,"Renew the client intake link");
+assert.equal(nextWorkflowAction({...ready,hasCca:false,missingRequiredCount:8,hasStaffSignature:false}).stage,"CCA","CCA must precede review/signatures it will invalidate");
+assert.equal(nextWorkflowAction({...ready,staffReviewed:false}).stage,"STAFF_REVIEW");
+assert.equal(nextWorkflowAction({...ready,hasStaffSignature:false}).stage,"QP_SIGNATURE");
+assert.equal(nextWorkflowAction({...ready,packetState:"stale"}).stage,"PACKET_REGENERATION");
+assert.equal(nextWorkflowAction({...ready,deliveryConfirmed:false,deliveryFailed:true}).label,"Resolve failed delivery");
+assert.equal(nextWorkflowAction({...ready,openFollowUp:true}).stage,"CLIENT_RESPONSE");
+assert.equal(deliveryFacts([{purpose:"completed_copies",status:"sent",createdAt:"2026-09-06"}],[]).deliveryConfirmed,false,"accepted send is not confirmed receipt");
+assert.equal(deliveryFacts([{purpose:"completed_copies",status:"delivered",createdAt:"2026-09-05"}],[],"2026-09-06").deliveryConfirmed,false,"old packet receipt does not confirm new packet delivery");
+assert.equal(deliveryFacts([{purpose:"completed_copies",status:"delivered",createdAt:"2026-09-05"}],[{event:"copies_delivery_confirmed",createdAt:"2026-09-07"}],"2026-09-06").deliveryConfirmed,false,"late old-packet callback cannot confirm regenerated packet");
+assert.equal(deliveryFacts([{purpose:"completed_copies",status:"failed",createdAt:"2026-09-05"}],[{event:"copies_link_sent",createdAt:"2026-09-06"}]).deliveryFailed,false,"new accepted retry resolves the old failure action, but awaits verification");
+assert.equal(deliveryFacts([],[{event:"workflow_delivery_confirmed",createdAt:"2026-09-07",detail:JSON.stringify({packetId:"old-pdf"})}],"2026-09-06","new-pdf").deliveryConfirmed,false);
+assert.equal(deliveryFacts([],[{event:"workflow_delivery_confirmed",createdAt:"2026-09-07",detail:JSON.stringify({packetId:"new-pdf"})}],"2026-09-06","new-pdf").deliveryConfirmed,true);
+assert.equal(deliveryFacts([{purpose:"completed_copies",status:"failed",createdAt:"2026-09-05"},{purpose:"completed_copies",status:"delivered",createdAt:"2026-09-06"}],[]).deliveryFailed,false);
+const summary=summarizeWorkflowIntervals([{stage:"CCA",startedAt:"2026-09-06T00:00:00Z",endedAt:"2026-09-06T02:00:00Z"},{stage:"CCA",startedAt:"2026-09-06T03:00:00Z",endedAt:null}],new Date("2026-09-06T04:00:00Z")).find(s=>s.stage==="CCA")!;
+assert.deepEqual({...summary},{stage:"CCA",label:"CCA",visits:2,active:1,totalHours:3,averageHours:1.5});
+
+async function main(){
+  const filename=`codex-workflow-${randomUUID()}.db`;
+  const dbFile=path.resolve("prisma",filename);
+  process.env.DATABASE_URL=`file:./${filename}`;
+  writeFileSync(dbFile,"");
+  const setup=spawnSync(process.execPath,["node_modules/prisma/build/index.js","db","push","--skip-generate"],{env:process.env,encoding:"utf8"});
+  assert.equal(setup.status,0,setup.stderr||setup.stdout);
+  const {prisma}=await import("../src/lib/prisma");
+  const {observeIntakeWorkflow}=await import("../src/lib/workflowTracking");
+  const {bindTestCookies}=await import("../src/lib/requestCookies");
+  const {createSessionValue}=await import("../src/lib/auth");
+  const {POST}=await import("../src/app/api/intakes/[id]/workflow/route");
+  const {NextRequest}=await import("next/server");
+  try {
+    const provider=await prisma.provider.create({data:{name:"Synthetic workflow provider",slug:randomUUID()}});
+    const other=await prisma.provider.create({data:{name:"Unrelated synthetic provider",slug:randomUUID()}});
+    const user=await prisma.user.create({data:{email:`${randomUUID()}@example.test`,name:"Synthetic staff",passwordHash:"not-a-login",role:"staff",memberships:{create:{providerId:provider.id}}}});
+    const foreignUser=await prisma.user.create({data:{email:`${randomUUID()}@example.test`,name:"Other staff",passwordHash:"not-a-login",role:"staff",memberships:{create:{providerId:other.id}}}});
+    const reviewer=await prisma.user.create({data:{email:`${randomUUID()}@example.test`,name:"Reviewer",passwordHash:"not-a-login",role:"staff",memberships:{create:{providerId:provider.id,role:"REVIEWER"}}}});
+    const client=await prisma.client.create({data:{providerId:provider.id,fullName:"Synthetic case",dob:"2000-01-01"}});
+    const intake=await prisma.intake.create({data:{providerId:provider.id,clientId:client.id,token:randomUUID(),tokenExpiresAt:new Date(Date.now()+86400000)}});
+    const first=await observeIntakeWorkflow(intake.id);
+    assert.equal(first?.stage,"STAFF_REVIEW");
+    await observeIntakeWorkflow(intake.id);
+    assert.equal(await prisma.workflowInterval.count({where:{intakeId:intake.id}}),1,"repeated observations do not reset waiting or create duplicate intervals");
+    const act=async(data:unknown)=>POST(new NextRequest(`http://localhost/api/intakes/${intake.id}/workflow`,{method:"POST",body:JSON.stringify(data),headers:{"Content-Type":"application/json"}}),{params:Promise.resolve({id:intake.id})});
+    const login=(id:string)=>bindTestCookies({get:name=>name==="mdc_session"?{value:createSessionValue(id)}:undefined});
+    login(foreignUser.id);
+    assert.notEqual((await act({action:"assign",ownerUserId:foreignUser.id,expectedOwnerUserId:null})).status,200,"foreign provider cannot update workflow");
+    login(reviewer.id);
+    assert.equal((await act({action:"abandon",reason:"Synthetic reason"})).status,403);
+    login(user.id);
+    assert.equal((await act({action:"assign",ownerUserId:foreignUser.id,expectedOwnerUserId:null})).status,400);
+    assert.equal((await act({action:"assign",ownerUserId:user.id,expectedOwnerUserId:null})).status,200);
+    assert.equal((await act({action:"assign",ownerUserId:null,expectedOwnerUserId:null})).status,409,"stale owner assignment is rejected");
+    assert.equal((await act({action:"abandon",reason:"Synthetic case explicitly declined further intake"})).status,200);
+    assert.equal((await observeIntakeWorkflow(intake.id))?.stage,"ABANDONED");
+    assert.equal((await act({action:"reopen"})).status,200);
+    await prisma.intake.update({where:{id:intake.id},data:{submittedAt:new Date(),status:"SUBMITTED"}});
+    assert.equal((await observeIntakeWorkflow(intake.id))?.stage,"CCA");
+    assert.equal(await prisma.workflowInterval.count({where:{intakeId:intake.id,endedAt:null}}),1);
+    assert.equal((await act({action:"abandon",reason:"Do not abandon submitted intake"})).status,409);
+    assert.equal(await prisma.workflowInterval.count({where:{intake:{providerId:other.id}}}),0,"unrelated provider has no interval leakage");
+    console.log("Workflow outcomes, timing transitions, ownership, provider isolation, and abandonment tests passed.");
+  } finally {bindTestCookies(null);await prisma.$disconnect();for(const file of [dbFile,`${dbFile}-journal`]){try{unlinkSync(file);}catch{}}}
+}
+main().catch(e=>{console.error(e);process.exitCode=1;});

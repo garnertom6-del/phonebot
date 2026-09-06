@@ -4,8 +4,14 @@ import { questionByKey } from "@/config/mooreDivineQuestions";
 import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { decodeAnswerRows, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
+import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
+import { AnswerConflictError } from "@/lib/answerRevisions";
+
+class CorrectionError extends Error {
+  constructor(message: string, readonly status: number) { super(message); }
+}
 
 const correctionSchema = z.object({
   findingKey: z.string().trim().min(1).max(120),
@@ -62,42 +68,48 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const rawAnswers = await loadAnswers(intake.id);
-  const currentAnswers = applyOperationalDefaults(rawAnswers);
-  const patch: Record<string, string> = {};
-  const targetKeys = new Set<string>();
-  for (const update of parsed.data.updates) {
-    if (!targetAllowed(update.key, currentAnswers) || targetKeys.has(update.key)) {
-      return NextResponse.json({ error: "This correction option contains a field that cannot be changed here. Rerun preflight." }, { status: 400 });
-    }
-    const current = clean(currentAnswers[update.key]);
-    const proposed = sourceValue(update.sourceKey, currentAnswers, intake.client);
-    if (current !== update.expectedCurrent || proposed === null || proposed !== update.proposedValue) {
-      return NextResponse.json({ error: "The intake changed after this suggestion was created. Rerun preflight before applying it." }, { status: 409 });
-    }
-    if (current === proposed) {
-      return NextResponse.json({ error: "This correction no longer changes the intake. Rerun preflight." }, { status: 409 });
-    }
-    targetKeys.add(update.key);
-    patch[update.key] = proposed;
+  let updatedFields: string[];
+  try {
+    updatedFields = await prisma.$transaction(async (tx) => {
+      // Keep both the suggestion's target and its source stable through save.
+      await tx.intake.update({ where: { id: intake.id }, data: { lastActivityAt: new Date() } });
+      const freshIntake = await tx.intake.findUniqueOrThrow({ where: { id: intake.id }, include: { client: true } });
+      const rows = await tx.intakeAnswer.findMany({ where: { intakeId: intake.id } });
+      const rawAnswers = decodeAnswerRows(rows);
+      const currentAnswers = applyOperationalDefaults(rawAnswers);
+      const patch: Record<string, string> = {};
+      const targetKeys = new Set<string>();
+      for (const update of parsed.data.updates) {
+        if (!targetAllowed(update.key, currentAnswers) || targetKeys.has(update.key)) {
+          throw new CorrectionError("This correction option contains a field that cannot be changed here. Rerun preflight.", 400);
+        }
+        const current = clean(currentAnswers[update.key]);
+        const proposed = sourceValue(update.sourceKey, currentAnswers, freshIntake.client);
+        if (current !== update.expectedCurrent || proposed === null || proposed !== update.proposedValue) {
+          throw new CorrectionError("The intake changed after this suggestion was created. Rerun preflight before applying it.", 409);
+        }
+        if (current === proposed) throw new CorrectionError("This correction no longer changes the intake. Rerun preflight.", 409);
+        targetKeys.add(update.key);
+        patch[update.key] = proposed;
+      }
+      const saved = await saveAnswersInTransaction(tx, intake.id, patch, {
+        expectedAnswerRevisions: Object.fromEntries(rows.map((row) => [row.key, row.revision])),
+        requireExpectedRevisions: true,
+      });
+      const merged = { ...rawAnswers, ...patch };
+      await syncStructuredRowsInTransaction(tx, intake.id, merged);
+      await tx.client.update({
+        where: { id: freshIntake.clientId },
+        data: clientUpdateFromAnswers(freshIntake.client, merged, saved.changedKeys),
+      });
+      await tx.intake.update({ where: { id: intake.id }, data: { status: "NEEDS_REVIEW" } });
+      return [...targetKeys];
+    });
+  } catch (error) {
+    if (error instanceof CorrectionError) return NextResponse.json({ error: error.message }, { status: error.status });
+    if (error instanceof AnswerConflictError) return NextResponse.json(error.toJSON(), { status: 409 });
+    throw error;
   }
-
-  const merged = { ...rawAnswers, ...patch };
-  await saveAnswers(intake.id, merged);
-  await syncStructuredRows(intake.id, merged);
-
-  const clientPatch: Record<string, string | null> = {};
-  if ("mid_number" in patch) clientPatch.midNumber = clean(patch.mid_number) || null;
-  if ("record_number" in patch) clientPatch.recordNumber = clean(patch.record_number) || null;
-  if ("client_email" in patch) clientPatch.email = clean(patch.client_email) || null;
-  if ("client_phone_cell" in patch) clientPatch.phone = clean(patch.client_phone_cell) || null;
-  if ("guardian_name" in patch) clientPatch.guardianName = clean(patch.guardian_name) || null;
-  if ("guardian_email" in patch) clientPatch.guardianEmail = clean(patch.guardian_email) || null;
-  if ("guardian_phone" in patch) clientPatch.guardianPhone = clean(patch.guardian_phone) || null;
-  if (Object.keys(clientPatch).length) {
-    await prisma.client.update({ where: { id: intake.clientId }, data: clientPatch });
-  }
-  await prisma.intake.update({ where: { id: intake.id }, data: { status: "NEEDS_REVIEW" } });
   await audit("preflight_corrected", {
     providerId: provider!.id,
     intakeId: intake.id,
@@ -106,8 +118,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
       findingKey: parsed.data.findingKey,
       optionId: parsed.data.optionId,
       optionLabel: parsed.data.optionLabel,
-      updatedFields: [...targetKeys],
+      updatedFields,
     }),
   });
-  return NextResponse.json({ ok: true, updatedFields: [...targetKeys] });
+  return NextResponse.json({ ok: true, updatedFields });
 }

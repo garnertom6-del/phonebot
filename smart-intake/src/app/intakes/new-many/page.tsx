@@ -1,7 +1,8 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useState } from "react";
-import { makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { useMemo, useRef, useState } from "react";
+import { insurancePlanDisplayLabel, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { batchRetryDrafts, type BatchFailure } from "@/lib/batchRetryDrafts";
 
 type Draft = {
   fullName: string;
@@ -25,8 +26,6 @@ type Created = {
   packet?: { filled: number; skipped: number } | null;
   packetError?: string;
 };
-
-type Failure = { row: number; clientName?: string; error: string };
 
 const COLUMNS: Array<[keyof Draft, string, string, string?]> = [
   ["fullName", "Client full name *", "text", "min-w-56"],
@@ -91,9 +90,10 @@ export default function CreateManyIntakes() {
   const [expectCca, setExpectCca] = useState(true);
   const [generateDraftPackets, setGenerateDraftPackets] = useState(false);
   const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<Created[]>([]);
-  const [failures, setFailures] = useState<Failure[]>([]);
+  const [failures, setFailures] = useState<BatchFailure[]>([]);
   const activeRows = useMemo(() => rows.filter(hasDraftData), [rows]);
 
   function updateRow(index: number, key: keyof Draft, value: string) {
@@ -113,7 +113,6 @@ export default function CreateManyIntakes() {
     if (!imported.length) return;
     setRows(imported);
     setPasteText("");
-    setCreated([]);
     setFailures([]);
   }
 
@@ -143,8 +142,8 @@ export default function CreateManyIntakes() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
+    if (busyRef.current) return;
     setError("");
-    setCreated([]);
     setFailures([]);
     const missing = rows.findIndex((row) => hasDraftData(row) && (!row.fullName || !row.dob || !row.providerChoicePlan || !row.recordNumber));
     if (!activeRows.length) {
@@ -166,6 +165,8 @@ export default function CreateManyIntakes() {
       }
       recordRows.set(key, index + 1);
     }
+    const submittedRowIndexes = rows.flatMap((row, index) => hasDraftData(row) ? [index] : []);
+    busyRef.current = true;
     setBusy(true);
     try {
       const res = await fetch("/api/intakes/batch", {
@@ -174,13 +175,16 @@ export default function CreateManyIntakes() {
         body: JSON.stringify({ intakes: activeRows, expectCca, generateDraftPackets }),
       });
       const body = await res.json();
-      if (!res.ok && !body.created?.length) throw new Error(body.error || "Failed to create intakes");
-      setCreated(body.created || []);
-      setFailures(body.failures || []);
-      if (body.created?.length) setRows([blankDraft(), blankDraft(), blankDraft()]);
+      if (!res.ok && !body.created?.length && !body.failures?.length) throw new Error(body.error || "Failed to create intakes");
+      const newCreated = (body.created || []) as Created[];
+      setCreated((current) => [...new Map([...current, ...newCreated].map((item) => [item.id, item])).values()]);
+      const retry = batchRetryDrafts(rows, submittedRowIndexes, body.failures || [], blankDraft);
+      setFailures(retry.failures);
+      if (newCreated.length) setRows(retry.drafts);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create intakes");
     } finally {
+      busyRef.current = false;
       setBusy(false);
     }
   }
@@ -199,17 +203,19 @@ export default function CreateManyIntakes() {
         <label className="label">Paste rows</label>
         <textarea
           className="input min-h-24 font-mono text-xs"
+          disabled={busy}
           value={pasteText}
           onChange={(e) => setPasteText(e.target.value)}
           placeholder={"Full name\tDOB\tInsurance/MCO\tRecord#\tMID#\tEmail\tPhone\tGuardian\tGuardian email\tGuardian phone"}
         />
         <div className="mt-3 flex flex-wrap gap-2">
-          <button type="button" className="btn-secondary" onClick={importPaste}>Import pasted rows</button>
-          <button type="button" className="btn-ghost" onClick={() => addRows(3)} disabled={rows.length >= 25}>Add 3 rows</button>
+          <button type="button" className="btn-secondary" onClick={importPaste} disabled={busy}>Import pasted rows</button>
+          <button type="button" className="btn-ghost" onClick={() => addRows(3)} disabled={busy || rows.length >= 25}>Add 3 rows</button>
         </div>
       </section>
 
       <form onSubmit={submit} className="card">
+        <fieldset disabled={busy} className="min-w-0">
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold">Batch details</h2>
@@ -255,7 +261,7 @@ export default function CreateManyIntakes() {
                     {type === "select" ? (
                       <select className="input min-h-11" value={row[key]} onChange={(e) => updateRow(index, key, e.target.value)}>
                         <option value="">Select insurance / MCO</option>
-                        {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => <option key={plan} value={plan}>{plan}</option>)}
+                        {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => <option key={plan} value={plan}>{insurancePlanDisplayLabel(plan)}</option>)}
                       </select>
                     ) : (
                       <input className="input min-h-11" type={type} value={row[key]} onChange={(e) => updateRow(index, key, e.target.value)} />
@@ -291,7 +297,7 @@ export default function CreateManyIntakes() {
                           onChange={(e) => updateRow(index, key, e.target.value)}
                         >
                           <option value="">Select insurance / MCO</option>
-                          {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => <option key={plan} value={plan}>{plan}</option>)}
+                          {PROVIDER_CHOICE_PLAN_OPTIONS.map((plan) => <option key={plan} value={plan}>{insurancePlanDisplayLabel(plan)}</option>)}
                         </select>
                       ) : (
                         <input
@@ -318,6 +324,7 @@ export default function CreateManyIntakes() {
           <button className="btn-primary" disabled={busy || activeRows.length === 0}>{busy ? "Creating..." : "Create Many"}</button>
           <button type="button" className="btn-ghost" onClick={() => setRows([blankDraft(), blankDraft(), blankDraft()])}>Clear</button>
         </div>
+        </fieldset>
       </form>
 
       {(created.length > 0 || failures.length > 0) && (
@@ -340,6 +347,7 @@ export default function CreateManyIntakes() {
           )}
           {failures.length > 0 && (
             <div className="mt-3 space-y-2">
+              <p className="text-sm font-semibold text-amber-900" role="status">Failed rows stay in the form above. Correct them and choose Create Many to retry; saved intakes will not be created again.</p>
               {failures.map((failure) => (
                 <div key={`${failure.row}-${failure.clientName}`} className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
                   Row {failure.row}: {failure.error}

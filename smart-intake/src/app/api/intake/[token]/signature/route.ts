@@ -8,6 +8,7 @@ import {
   lockOpenClientIntake,
 } from "@/lib/clientSubmissionState";
 import { normalizeIdentityName } from "@/lib/recordIntegrity";
+import { assertReviewedContentRevision, ContentRevisionConflictError } from "@/lib/contentRevision";
 
 class SignatureClosedError extends Error {}
 
@@ -45,7 +46,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
       error: "This signed intake has already been submitted. Contact your provider if a correction is needed.",
     }, { status: 409 });
   }
-  const parsed = signatureSchema.safeParse(await req.json());
+  const body = await req.json();
+  const parsed = signatureSchema.safeParse(body);
   if (!parsed.success) return NextResponse.json({ error: "Invalid signature data" }, { status: 400 });
   const { dobCheck, ...d } = parsed.data;
   if (!["client", "guardian"].includes(d.role)) {
@@ -61,6 +63,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
         include: { client: true },
       });
       if (!current) throw new SignatureClosedError();
+      assertReviewedContentRevision(body.expectedContentRevision, current.contentRevision);
       if (!dobCheck) throw new DobMismatchError();
       const dobVerified = dobMatches(dobCheck, current.client.dob);
       if (!dobVerified) throw new DobMismatchError();
@@ -108,6 +111,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
       }
     });
   } catch (error) {
+    if (error instanceof ContentRevisionConflictError) return NextResponse.json(error.toJSON(), { status: 409 });
     if (error instanceof SignatureClosedError) {
       return NextResponse.json({
         error: "This intake was submitted while the signature was being saved. The signed record was not changed.",

@@ -1,7 +1,7 @@
 import { prisma } from "./prisma";
 import { appBaseUrl } from "./baseUrl";
 import { audit } from "./auditLog";
-import { loadAnswers } from "./intakeData";
+import { loadAnswers, saveAnswers } from "./intakeData";
 import { ensureCompletedCopyToken, copiesPath } from "./copyTokens";
 import {
   AUTO_SEND_COMPLETED_COPIES_KEY,
@@ -17,9 +17,9 @@ import {
   sendCopiesLinkSms,
   type NotifyResult,
 } from "./notify";
-import { answeredClientFields } from "./clientAnswerSync";
+import { clientUpdateFromAnswers } from "./clientAnswerSync";
 import { clientFollowUpDeliveryContacts } from "./clientDeliveryContacts";
-import { completedCopyDeliveryChannels } from "./clientCopyDelivery";
+import { completedCopyDeliveryChannels, hasUsableCompletedCopyEmail } from "./clientCopyDelivery";
 import { fileExists, readFile } from "./storage";
 import { packetFreshnessForIntake } from "./packetFreshness";
 import {
@@ -94,20 +94,14 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
   const link = `${appBaseUrl(opts.req)}${copiesPath(copyAccess.copyToken)}`;
   const attempts: NotifyResult[] = [];
   const answers = await loadAnswers(intake.id);
-  const answeredClient = answeredClientFields(answers);
   const deliveryClient = {
     ...intake.client,
-    fullName: intake.client.fullName || answeredClient.fullName,
-    email: intake.client.email || answeredClient.email,
-    phone: intake.client.phone || answeredClient.phone,
-    guardianName: intake.client.guardianName || answeredClient.guardianName,
-    guardianEmail: intake.client.guardianEmail || answeredClient.guardianEmail,
-    guardianPhone: intake.client.guardianPhone || answeredClient.guardianPhone,
+    ...clientUpdateFromAnswers(intake.client, answers),
   };
   const contacts = clientFollowUpDeliveryContacts(deliveryClient, answers, intake.signatures);
-  const deliveryChoice = completedCopyDeliveryChannels(answers);
+  const deliveryChoice = completedCopyDeliveryChannels(answers, contacts.email);
   const unavailable: string[] = [];
-  if (deliveryChoice.email && contacts.email) {
+  if (deliveryChoice.email && contacts.email && hasUsableCompletedCopyEmail(answers, contacts.email)) {
     const recipientName = contacts.email.role === "guardian"
       ? deliveryClient.guardianName || "Parent or guardian"
       : deliveryClient.fullName;
@@ -121,7 +115,7 @@ export async function sendCompletedCopiesLink(opts: SendCompletedCopiesOptions) 
       )
     )));
   } else if (deliveryChoice.email) {
-    unavailable.push("Email was selected, but no client or guardian email is saved.");
+    unavailable.push("Email was selected, but no usable email is saved for the person receiving copies.");
   }
   if (deliveryChoice.sms && contacts.phone) {
     attempts.push(await captureNotifyResult("sms", contacts.phone.value, () => (
@@ -219,20 +213,12 @@ export async function autoEmailProviderPacketIfEnabled(opts: SendCompletedCopies
 }
 
 export async function setAutoSendCompletedCopies(intakeId: string, enabled: boolean): Promise<void> {
-  await prisma.intakeAnswer.upsert({
-    where: { intakeId_key: { intakeId, key: AUTO_SEND_COMPLETED_COPIES_KEY } },
-    create: { intakeId, key: AUTO_SEND_COMPLETED_COPIES_KEY, value: JSON.stringify(enabled) },
-    update: { value: JSON.stringify(enabled) },
-  });
+  await saveAnswers(intakeId, { [AUTO_SEND_COMPLETED_COPIES_KEY]: enabled });
   await prisma.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
 }
 
 export async function setAutoEmailProviderPacket(intakeId: string, enabled: boolean): Promise<void> {
-  await prisma.intakeAnswer.upsert({
-    where: { intakeId_key: { intakeId, key: AUTO_EMAIL_PROVIDER_PACKET_KEY } },
-    create: { intakeId, key: AUTO_EMAIL_PROVIDER_PACKET_KEY, value: JSON.stringify(enabled) },
-    update: { value: JSON.stringify(enabled) },
-  });
+  await saveAnswers(intakeId, { [AUTO_EMAIL_PROVIDER_PACKET_KEY]: enabled });
   await prisma.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
 }
 

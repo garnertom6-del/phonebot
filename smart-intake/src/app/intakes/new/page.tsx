@@ -3,7 +3,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, insurancePlanDisplayLabel, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
 import {
   EDUCATION_OPTIONS,
   EMPLOYMENT_STATUS_OPTIONS,
@@ -115,6 +115,7 @@ export default function NewIntake() {
   const [error, setError] = useState("");
   const [contactError, setContactError] = useState("");
   const [isCreating, setIsCreating] = useState(false);
+  const creatingRef = useRef(false);
   const [result, setResult] = useState<{ id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean } | null>(null);
   const [sendStatus, setSendStatus] = useState("");
   const [sendStatusKind, setSendStatusKind] = useState<"success" | "warning" | "error" | "info">("info");
@@ -331,15 +332,27 @@ export default function NewIntake() {
     let hadError = false;
 
     if (notes) {
-      const res = await fetch(`/api/intakes/${intakeId}/assist`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields: quickAnswers, helperNotes: notes, fillEmptyOnly: true }),
-      });
-      const body = await readResponse(res) as { applied?: number; error?: string };
-      if (res.ok) messages.push(body.applied ? `Saved helper notes (${body.applied} field updates).` : "Saved helper notes.");
-      else {
-        messages.push(body.error || "Helper notes could not be saved.");
+      try {
+        const snapshotResponse = await fetch(`/api/intakes/${intakeId}`, { cache: "no-store" });
+        const snapshot = await readResponse(snapshotResponse) as { answerRevisions?: Record<string, number>; error?: string };
+        if (!snapshotResponse.ok || !snapshot.answerRevisions || typeof snapshot.answerRevisions !== "object" || Array.isArray(snapshot.answerRevisions)) {
+          throw new Error(snapshot.error || "The saved intake could not be checked. Open it to review and save the starter notes.");
+        }
+        const res = await fetch(`/api/intakes/${intakeId}/assist`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ fields: quickAnswers, helperNotes: notes, fillEmptyOnly: true, expectedAnswerRevisions: snapshot.answerRevisions }),
+        });
+        const body = await readResponse(res) as { applied?: number; error?: string; code?: string };
+        if (res.ok) messages.push(body.applied ? `Saved helper notes (${body.applied} field updates).` : "Saved helper notes.");
+        else {
+          messages.push(body.code === "ANSWER_CONFLICT"
+            ? "The intake changed while starter notes were being saved. Open the saved intake to review its answers before retrying the notes."
+            : body.error || "Helper notes could not be saved.");
+          hadError = true;
+        }
+      } catch (error) {
+        messages.push(error instanceof Error ? error.message : "Helper notes could not be confirmed. Open the saved intake before retrying them.");
         hadError = true;
       }
     }
@@ -441,6 +454,7 @@ export default function NewIntake() {
 
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (creatingRef.current || result) return;
     const nextForm = readFieldValues(e.currentTarget, form);
     const assigned = assignIntakeContacts(nextForm.email, nextForm.phone);
     setError("");
@@ -482,6 +496,7 @@ export default function NewIntake() {
       homelessSelected,
     });
     setForm((current) => ({ ...current, ...nextForm, email: assigned.email, phone: assigned.phone }));
+    creatingRef.current = true;
     setIsCreating(true);
     try {
       const requestBody = {
@@ -505,9 +520,18 @@ export default function NewIntake() {
       const body = await readResponse(res);
       if (res.ok) {
         const created = body as { id: string; clientLink: string; linkDays?: number; recordNumber?: string; providerChoicePlan?: string; publicLinkReady?: boolean };
-        await applyStarterInfo(created.id);
+        // The intake is already saved. Optional setup must never return staff
+        // to the create form or encourage creating this client a second time.
         setShowQrAfterCreate(wantQr);
         setResult(created);
+        setSetupStatus("Intake saved. Finishing the starter information...");
+        setSetupStatusKind("info");
+        try {
+          await applyStarterInfo(created.id);
+        } catch {
+          setSetupStatus("The intake was created, but some starter information could not be confirmed. Open the saved intake to review helper notes and NC Tracks before retrying those steps.");
+          setSetupStatusKind("error");
+        }
         if (assigned.phone && sendSmsAfterCreate && created.publicLinkReady !== false) {
           await sendCreatedLink(created.id);
         }
@@ -516,6 +540,7 @@ export default function NewIntake() {
     } catch (err) {
       setError(err instanceof Error ? err.message : "Couldn't create the intake right now.");
     } finally {
+      creatingRef.current = false;
       setIsCreating(false);
     }
   }
@@ -602,7 +627,7 @@ export default function NewIntake() {
                 {phone && insuranceReady && <a href="#manual-text-options" className="btn-secondary text-center">Text from my phone (no Twilio)</a>}
                 <button
                   className="btn-primary"
-                  disabled={sendBusy || !hasContact || !insuranceReady}
+                  disabled={isCreating || sendBusy || !hasContact || !insuranceReady}
                   onClick={() => { void sendCreatedLink(result.id); }}
                 >
                   {sendBusy ? "Sending..." : !insuranceReady ? "Fill insurance first" : hasContact ? "Send to saved contacts" : "No saved contact"}
@@ -938,7 +963,7 @@ export default function NewIntake() {
                 <optgroup key={group.label} label={group.label}>
                   {group.plans.map((plan) => (
                     <option key={plan} value={plan}>
-                      {plan}{recordNumberMode(plan) === "generate" ? ` (${recordNumberPrefix(plan)}-12345)` : ""}
+                      {insurancePlanDisplayLabel(plan)}{recordNumberMode(plan) === "generate" ? ` (${recordNumberPrefix(plan)}-12345)` : ""}
                     </option>
                   ))}
                 </optgroup>

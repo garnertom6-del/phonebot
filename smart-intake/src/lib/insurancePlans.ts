@@ -1,4 +1,5 @@
 import type { Answers } from "./fillPdf";
+import { DIRECTORY_RELEASE, NC_PLAN_ROSTER_SOURCE, NC_PLAN_SOURCE, NC_WELLCARE_MERGER_SOURCE } from "./directoryCatalog";
 
 type InsurancePlanMap = {
   key: string;
@@ -84,6 +85,35 @@ export const RECORD_NUMBER_LOOKUP_LINKS = [
 ] as const;
 
 export const PROVIDER_CHOICE_PLAN_OPTIONS = INSURANCE_PLAN_MAP.map((item) => item.providerChoice);
+
+// Stored values remain compatible with existing answers and packet mappings.
+export const MCO_PLAN_OPTIONS = ["Alliance", "Partners BH", "Trillium", "Vaya", "AmeriHealth", "Carolina Complete", "Healthy Blue Medicaid", "United Healthcare", "Wellcare", "Not sure"];
+
+export function insurancePlanDisplayLabel(value: string): string {
+  if (normalizedKey(value) === "wellcare") return "WellCare (historical before Apr 1, 2026)";
+  if (normalizedKey(value) === "carolina complete") return "Carolina Complete Health (current)";
+  return value;
+}
+
+export const INSURANCE_PLAN_DIRECTORY = INSURANCE_PLAN_MAP
+  .filter((plan) => plan.key !== "not-sure")
+  .map((plan) => ({
+    id: plan.key,
+    storedValue: plan.providerChoice,
+    label: insurancePlanDisplayLabel(plan.providerChoice),
+    status: plan.key === "wellcare" ? "historical" : plan.key === "bcbs" || plan.key === "medicaid" ? "verify-product" : "current",
+    category: ["alliance", "partners", "trillium", "vaya"].includes(plan.key) ? "Tailored Plan" : plan.key === "bcbs" ? "Commercial / verify product" : plan.key === "medicaid" ? "Coverage type / verify delivery system" : "Standard Plan",
+    note: plan.key === "wellcare"
+      ? "NC Medicaid WellCare merged into Carolina Complete Health effective April 1, 2026. Retain historical answers and verify current enrollment; do not automatically replace a stored plan."
+      : plan.key === "carolina-complete"
+        ? "The merged NC Medicaid plan is named Carolina Complete Health. Verify enrollment and the member's current benefits."
+        : plan.key === "bcbs" || plan.key === "medicaid"
+          ? "This stored label alone does not establish current NC Medicaid enrollment or a specific product. Verify the actual policy."
+          : "Verify current enrollment, network participation and benefit rules with the plan; directory listing does not establish member eligibility.",
+    source: plan.key === "wellcare" || plan.key === "carolina-complete" ? NC_WELLCARE_MERGER_SOURCE : plan.key === "bcbs" || plan.key === "medicaid" ? NC_PLAN_SOURCE : NC_PLAN_ROSTER_SOURCE,
+    version: DIRECTORY_RELEASE.version,
+    reviewEveryDays: DIRECTORY_RELEASE.reviewEveryDays,
+  }));
 
 export const RECORD_NUMBER_GENERATOR_PLAN_OPTIONS = INSURANCE_PLAN_MAP
   .filter((item) => GENERATOR_RECORD_NUMBER_KEYS.has(item.key))
@@ -250,7 +280,7 @@ export function insuranceSummary(answers: Record<string, unknown>): string {
     ? text(answers.provider_choice_plan)
     : text(answers.mco);
   if (plan && plan !== "Not sure" && !parts.some((part) => part.toLowerCase() === plan.toLowerCase())) {
-    parts.push(plan);
+    parts.push(insurancePlanDisplayLabel(plan));
   }
   return parts.join(" | ") || "Coverage not recorded";
 }

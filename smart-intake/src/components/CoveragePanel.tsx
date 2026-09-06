@@ -52,6 +52,8 @@ export default function CoveragePanel({ intakeId }: { intakeId: string }) {
       const b = await r.json().catch(() => ({}));
       setNote(r.ok ? b.message || "Done." : b.error || "Could not check NC Tracks.");
       await refresh();
+    } catch {
+      setNote("The coverage check could not finish. The saved result may be out of date. Try again or verify coverage with NC Tracks.");
     } finally { setBusy(false); }
   }
 

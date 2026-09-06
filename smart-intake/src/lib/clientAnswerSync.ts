@@ -1,7 +1,9 @@
 import type { Answers } from "./fillPdf";
+import { normalizeDateInput } from "./normalizeDateInput";
 
 interface ClientContactLike {
   fullName: string;
+  dob?: string;
   midNumber?: string | null;
   recordNumber?: string | null;
   email?: string | null;
@@ -28,18 +30,13 @@ export function answeredClientFields(answers: Answers) {
   };
 }
 
-export function clientUpdateFromAnswers(current: ClientContactLike, answers: Answers) {
-  const answered = answeredClientFields(answers);
-  return {
-    fullName: answered.fullName || current.fullName,
-    midNumber: answered.midNumber || current.midNumber,
-    recordNumber: answered.recordNumber || current.recordNumber,
-    email: answered.email || current.email,
-    phone: answered.phone || current.phone,
-    guardianName: answered.guardianName || current.guardianName,
-    guardianEmail: answered.guardianEmail || current.guardianEmail,
-    guardianPhone: answered.guardianPhone || current.guardianPhone,
-  };
+/** Only write supplied fields; stale copies of the Client must not restore contacts. */
+export function clientUpdateFromAnswers(
+  _current: ClientContactLike,
+  answers: Answers,
+  changedKeys: Iterable<string> = Object.keys(answers),
+): Partial<ClientContactLike> {
+  return clientRecordPatchFromAnswerPatch(answers, changedKeys);
 }
 
 export function clientRecordPatchFromAnswerPatch(
@@ -49,7 +46,7 @@ export function clientRecordPatchFromAnswerPatch(
   const changed = new Set(changedKeys);
   const patch: Partial<ClientContactLike> = {};
   const copy = (answerKey: string, recordKey: keyof ClientContactLike) => {
-    if (!changed.has(answerKey)) return;
+    if (!changed.has(answerKey) || !Object.prototype.hasOwnProperty.call(answers, answerKey)) return;
     const value = clean(answers[answerKey]);
     if (value) patch[recordKey] = value;
   };
@@ -57,14 +54,32 @@ export function clientRecordPatchFromAnswerPatch(
   copy("client_full_name", "fullName");
   copy("mid_number", "midNumber");
   copy("record_number", "recordNumber");
-  copy("client_email", "email");
-  copy("guardian_name", "guardianName");
-  copy("guardian_email", "guardianEmail");
-  copy("guardian_phone", "guardianPhone");
+  // Empty optional contacts are explicit removals, not a fallback to old data.
+  for (const [answerKey, recordKey] of [
+    ["client_email", "email"],
+    ["guardian_name", "guardianName"],
+    ["guardian_email", "guardianEmail"],
+    ["guardian_phone", "guardianPhone"],
+  ] as const) {
+    if (changed.has(answerKey) && typeof answers[answerKey] === "string") {
+      patch[recordKey] = clean(answers[answerKey]) || null;
+    }
+  }
 
-  if (changed.has("client_phone_cell") || changed.has("client_phone_home")) {
+  if (changed.has("dob")) {
+    const dob = normalizeDateInput(answers.dob);
+    const today = new Date();
+    const todayUtc = Date.UTC(today.getFullYear(), today.getMonth(), today.getDate());
+    if (dob && new Date(`${dob}T00:00:00Z`).getTime() <= todayUtc) patch.dob = dob;
+  }
+
+  if (["client_phone_cell", "client_phone_home"].some((key) => (
+    changed.has(key) && typeof answers[key] === "string"
+  ))) {
+    // Callers supply the merged answer snapshot, so removing a cell number
+    // can still select an unchanged home number instead of reviving the cell.
     const phone = clean(answers.client_phone_cell) || clean(answers.client_phone_home);
-    if (phone) patch.phone = phone;
+    patch.phone = phone || null;
   }
   return patch;
 }

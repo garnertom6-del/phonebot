@@ -1,5 +1,5 @@
 // Moore Divine Care Smart Intake - Prisma schema.
-// Production uses the dedicated Supabase PostgreSQL database.
+// Production uses SQLite on the Render service's persistent disk.
 
 generator client {
   provider = "prisma-client-js"
@@ -19,6 +19,8 @@ model User {
   createdAt    DateTime         @default(now())
   auditLogs    AuditLog[]
   memberships  UserMembership[]
+  assignedSupportReferrals SupportReferral[] @relation("SupportReferralAssignee")
+  supportReferralEvents SupportReferralEvent[] @relation("SupportReferralActor")
 }
 
 model Provider {
@@ -38,6 +40,26 @@ model Provider {
   auditLogs    AuditLog[]
   pdfTemplates PdfTemplate[]
   messageDeliveries MessageDelivery[]
+  directoryStewardship DirectoryStewardship[]
+  supportReferrals SupportReferral[]
+  supportReferralEvents SupportReferralEvent[]
+}
+
+// Append-only directory ownership and review history; no intake/client data.
+model DirectoryStewardship {
+  id               Int      @id @default(autoincrement())
+  providerId       String
+  directoryVersion String
+  action           String   // ASSIGN | REVIEW
+  ownerUserId      String
+  ownerName        String
+  actorUserId      String
+  actorName        String
+  note             String   @default("")
+  createdAt        DateTime @default(now())
+  provider         Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+
+  @@index([providerId, directoryVersion, id])
 }
 
 model UserMembership {
@@ -99,6 +121,9 @@ model Intake {
   createdAt          DateTime  @default(now())
   updatedAt          DateTime  @updatedAt
   contentRevision    Int       @default(1) // material answer/client/CCA changes; signatures bind to this revision
+  workflowOwnerUserId String?
+  abandonedAt        DateTime?
+  workflowIntervals  WorkflowInterval[]
 
   answers           IntakeAnswer[]
   sections          IntakeSection[]
@@ -114,6 +139,8 @@ model Intake {
   treatmentPlanRows TreatmentPlanSignatureRow[]
   followUps         IntakeFollowUp[]
   messageDeliveries MessageDelivery[]
+  supportReferrals SupportReferral[]
+  supportReferralEvents SupportReferralEvent[]
 
   @@index([providerId])
 }
@@ -146,6 +173,7 @@ model IntakeAnswer {
   intake    Intake   @relation(fields: [intakeId], references: [id], onDelete: Cascade)
   key       String
   value     String // JSON-encoded value (string | string[] | boolean | number)
+  revision  Int      @default(1)
   updatedAt DateTime @updatedAt
 
   @@unique([intakeId, key])
@@ -368,4 +396,69 @@ model TreatmentPlanSignatureRow {
   clientDate String?
 
   @@index([intakeId])
+}
+
+// Separate from packet Referral rows, which answer synchronization replaces.
+model SupportReferral {
+  id String @id @default(uuid())
+  providerId String
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  intakeId String
+  intake Intake @relation(fields: [intakeId], references: [id], onDelete: Restrict)
+  resourceId String
+  resourceName String
+  resourceUrl String
+  category String
+  status String @default("SUGGESTED")
+  assignedUserId String?
+  assignedUser User? @relation("SupportReferralAssignee", fields: [assignedUserId], references: [id], onDelete: Restrict)
+  nextContactAt DateTime?
+  permissionGrantedAt DateTime?
+  permissionWithdrawnAt DateTime?
+  permissionSource String?
+  permissionRecordedByUserId String?
+  contactedAt DateTime?
+  confirmedAssistanceAt DateTime?
+  revision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  events SupportReferralEvent[]
+
+  @@unique([intakeId, resourceId])
+  @@index([providerId, status, nextContactAt])
+  @@index([providerId, assignedUserId])
+}
+
+// Append-only through application APIs: changes always create another event.
+model SupportReferralEvent {
+  id String @id @default(uuid())
+  providerId String
+  provider Provider @relation(fields: [providerId], references: [id], onDelete: Restrict)
+  intakeId String
+  intake Intake @relation(fields: [intakeId], references: [id], onDelete: Restrict)
+  referralId String
+  referral SupportReferral @relation(fields: [referralId], references: [id], onDelete: Restrict)
+  actorUserId String
+  actorUser User @relation("SupportReferralActor", fields: [actorUserId], references: [id], onDelete: Restrict)
+  kind String
+  fromStatus String?
+  toStatus String
+  revision Int
+  detailsJson String
+  occurredAt DateTime @default(now())
+
+  @@unique([referralId, revision])
+  @@index([providerId, occurredAt])
+  @@index([intakeId, occurredAt])
+}
+
+// Observed workflow transitions. Historical durations are never invented.
+model WorkflowInterval {
+  id          String    @id @default(uuid())
+  intakeId    String
+  intake      Intake    @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  stage       String
+  startedAt   DateTime  @default(now())
+  endedAt     DateTime?
+  @@index([intakeId, startedAt])
 }

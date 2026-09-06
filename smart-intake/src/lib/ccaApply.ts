@@ -2,7 +2,7 @@ import { prisma } from "./prisma";
 import { applyOperationalDefaults } from "./answerDefaults";
 import { mergeCcaAnswers } from "./ccaExtract";
 import type { Answers } from "./fillPdf";
-import { loadAnswers, nonMaterialAnswerKeys, saveAnswers, syncStructuredRows } from "./intakeData";
+import { nonMaterialAnswerKeys, saveAnswerSnapshotChanges, type AnswerSnapshot, type SourceClientIdentity } from "./intakeData";
 import { questionByKey } from "./validation";
 import { formatDateForPeople, normalizeDateInput } from "./normalizeDateInput";
 
@@ -37,6 +37,8 @@ export function materialCcaChanges(
 
 export async function applyCcaAnswers(opts: {
   intakeId: string;
+  baseline: AnswerSnapshot;
+  expectedClientIdentity?: SourceClientIdentity;
   clientId: string;
   currentMid?: string | null;
   currentRecord?: string | null;
@@ -52,7 +54,7 @@ export async function applyCcaAnswers(opts: {
   filledLabels: string[];
   skippedLabels: string[];
 }> {
-  const current = await loadAnswers(opts.intakeId);
+  const current = opts.baseline.answers;
   const { merged, filled, skipped } = mergeCcaAnswers(current, opts.extracted, opts.overwrite);
   const withDefaults = applyOperationalDefaults({ ...current, ...merged });
   const ccaDate = opts.extracted.cca_assessment_date;
@@ -80,27 +82,9 @@ export async function applyCcaAnswers(opts: {
   }
 
   let signaturesInvalidated = false;
-  if (filled.length) {
-    const saved = await saveAnswers(opts.intakeId, withDefaults);
+  if (filled.length || opts.expectedClientIdentity) {
+    const saved = await saveAnswerSnapshotChanges(opts.intakeId, opts.baseline, filled.length ? withDefaults : {}, { syncClient: true, expectedClientIdentity: opts.expectedClientIdentity });
     signaturesInvalidated = saved.signaturesInvalidated;
-    await syncStructuredRows(opts.intakeId, await loadAnswers(opts.intakeId));
-    await prisma.client.update({
-      where: { id: opts.clientId },
-      data: {
-        midNumber: typeof withDefaults.mid_number === "string" && withDefaults.mid_number.trim()
-          ? withDefaults.mid_number.trim()
-          : opts.currentMid,
-        recordNumber: typeof withDefaults.record_number === "string" && withDefaults.record_number.trim()
-          ? withDefaults.record_number.trim()
-          : opts.currentRecord,
-        phone: typeof withDefaults.client_phone_cell === "string" && withDefaults.client_phone_cell.trim()
-          ? withDefaults.client_phone_cell.trim()
-          : opts.currentPhone,
-        email: typeof withDefaults.client_email === "string" && withDefaults.client_email.trim()
-          ? withDefaults.client_email.trim()
-          : opts.currentEmail,
-      },
-    });
   }
   const label = (key: string) => questionByKey(key)?.label || key;
   return {
