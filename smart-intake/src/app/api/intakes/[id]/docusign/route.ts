@@ -34,6 +34,8 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
       return NextResponse.json({ code: "PROVIDER_PACKET_NOT_READY", error: result.message }, { status: 409 });
     case "unsupported_recipient":
       return NextResponse.json({ code: "DOCUSIGN_RECIPIENT_UNSUPPORTED", error: result.message }, { status: 409 });
+    case "pending":
+      return NextResponse.json({ code: "DOCUSIGN_SEND_PENDING", error: result.message }, { status: 409 });
     case "not_configured":
       return NextResponse.json(
         { error: "DocuSign is not set up. Clients can still sign in the app. Ask your administrator to connect DocuSign." },

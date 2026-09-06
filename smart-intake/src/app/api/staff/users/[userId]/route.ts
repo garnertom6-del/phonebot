@@ -38,6 +38,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ userId:
   });
   if (!membership) return NextResponse.json({ error: "That staff member is not on this provider." }, { status: 404 });
 
+  if (d.password) {
+    if (isMasterUser(membership.user)) {
+      return NextResponse.json({ error: "A master password cannot be reset through provider staff settings." }, { status: 409 });
+    }
+    const otherProviderMembership = await prisma.userMembership.findFirst({
+      where: { userId: membership.userId, providerId: { not: provider!.id } },
+      select: { id: true },
+    });
+    if (otherProviderMembership) {
+      return NextResponse.json({ error: "This login is shared with another provider. Use a separate provider-specific account before resetting its password here." }, { status: 409 });
+    }
+  }
+
   // never let the last active admin lock everyone out
   const demotingOrDisabling = (d.role && d.role !== "PROVIDER_ADMIN" && membership.role === "PROVIDER_ADMIN") ||
     (d.active === false && membership.role === "PROVIDER_ADMIN");
@@ -55,7 +68,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ userId:
       where: { id: membership.userId },
       data: {
         ...(d.name ? { name: d.name } : {}),
-        ...(d.password ? { passwordHash: await bcrypt.hash(d.password, 10) } : {}),
+        ...(d.password ? { passwordHash: await bcrypt.hash(d.password, 10), sessionVersion: { increment: 1 } } : {}),
       },
     });
   }

@@ -33,7 +33,7 @@ assert.equal(directoryReviewState("2026-09-06", true, "2026-10-06").status, "Rev
 // Real handlers and authentication guards; synthetic in-memory database only.
 async function apiRegressions() {
   const providers = [{ id: "provider-a", name: "Synthetic A", status: "ACTIVE", slug: "a" }, { id: "provider-b", name: "Synthetic B", status: "ACTIVE", slug: "b" }];
-  const users = ["admin", "owner", "other", "reviewer", "outsider"].map((id) => ({ id, name: `Synthetic ${id}`, role: "staff" }));
+  const users = ["admin", "owner", "other", "reviewer", "outsider"].map((id) => ({ id, name: `Synthetic ${id}`, role: "staff", sessionVersion: 0 }));
   const memberships = users.map((user) => ({ userId: user.id, providerId: user.id === "outsider" ? "provider-b" : "provider-a", active: true, role: user.id === "admin" ? "PROVIDER_ADMIN" : user.id === "reviewer" ? "REVIEWER" : "STAFF", user }));
   type Event = { id: number; providerId: string; directoryVersion: string; action: string; ownerUserId: string; ownerName: string; actorUserId: string; actorName: string; note: string; createdAt: Date };
   const events: Event[] = [];

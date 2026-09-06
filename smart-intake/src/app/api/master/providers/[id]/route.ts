@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import bcrypt from "bcryptjs";
+import path from "node:path";
+import fs from "node:fs";
 import { prisma } from "@/lib/prisma";
 import { isMasterUser, requireMaster } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
@@ -93,7 +95,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
           name: data.adminName || updated.name,
           role: "staff",
         },
-        update: { passwordHash, name: data.adminName || updated.name },
+        update: { passwordHash, sessionVersion: { increment: 1 }, name: data.adminName || updated.name },
       });
       await tx.userMembership.upsert({
         where: { userId_providerId: { userId: user.id, providerId: updated.id } },
@@ -160,7 +162,21 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
     };
   });
 
+  // Older imports may share the same stored PDF between providers. Deleting
+  // this provider's database row must not remove another provider's document.
+  const remainingFiles = await Promise.all([
+    prisma.pdfTemplate.findMany({ select: { filePath: true } }),
+    prisma.generatedPdf.findMany({ select: { filePath: true } }),
+    prisma.uploadedDocument.findMany({ select: { filePath: true } }),
+  ]);
+  const fileIdentity = (file: string) => {
+    const full = path.resolve(process.cwd(), "storage", file);
+    const canonical = fs.existsSync(full) ? fs.realpathSync(full) : full;
+    return process.platform === "win32" ? canonical.toLowerCase() : canonical;
+  };
+  const retainedPaths = new Set(remainingFiles.flat().map((file) => fileIdentity(file.filePath)));
   for (const file of files) {
+    if (retainedPaths.has(fileIdentity(file))) continue;
     try { deleteFile(file); } catch (error) { console.error("provider profile file cleanup failed", file, error); }
   }
   await audit("provider_profile_deleted", {
