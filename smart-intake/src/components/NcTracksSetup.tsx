@@ -96,10 +96,17 @@ export default function NcTracksSetup({ providerId, onChanged }: { providerId: s
       <p className="mt-2 text-sm">This credential is only shown in this session. Give it only to the authorized workstation setup. It is not a portal password.</p>
       <label className="mt-3 block"><span className="label">One-time host credential</span><textarea className="input min-w-0 break-all font-mono text-xs" value={credential.hostToken} readOnly rows={3} autoComplete="off" spellCheck={false} onFocus={(event) => event.currentTarget.select()} /></label>
       <p className="mt-2 break-all text-xs">Host ID: {credential.hostId} · Expires {time(credential.expiresAt)}</p>
+      <p className="mt-2 text-sm">For Windows setup, download the pairing file on the authorized workstation. It contains this credential; the installer protects it for your Windows account and removes the downloaded copy.</p>
       <div className="mt-3 flex flex-wrap gap-2"><button type="button" className="btn-secondary min-h-11" onClick={async () => {
         try { await navigator.clipboard.writeText(credential.hostToken); setNotice("Host credential copied. Keep it only in the authorized workstation's protected setup."); }
         catch { setNotice("Select the credential above and copy it manually."); }
-      }}>Copy credential</button><button type="button" className="btn-ghost min-h-11" onClick={() => setCredential(null)}>Hide credential</button></div>
+      }}>Copy credential</button><button type="button" className="btn-secondary min-h-11" onClick={() => {
+        const pairing = { protocolVersion: 1, appUrl: window.location.origin, providerId, authorizedNpi: NCTRACKS_PROVIDER.npi, ...credential };
+        const url = URL.createObjectURL(new Blob([JSON.stringify(pairing)], { type: "application/json" }));
+        const link = document.createElement("a"); link.href = url; link.download = `NCTracks-workstation-pairing-${credential.hostId}.json`;
+        document.body.appendChild(link); link.click(); link.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+        setNotice("Pairing file downloaded. Run the Windows installer on the authorized workstation; do not email or share this file.");
+      }}>Download Windows pairing file</button><button type="button" className="btn-ghost min-h-11" onClick={() => setCredential(null)}>Hide credential</button></div>
     </section>}
     {config?.host && <section className="mt-4 min-w-0 rounded-xl border border-slate-200 p-4" aria-labelledby="registered-host-heading">
       <h3 className="break-words font-bold" id="registered-host-heading">Registered workstation: {config.host.name}</h3>
