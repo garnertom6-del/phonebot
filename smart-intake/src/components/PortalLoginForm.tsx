@@ -33,7 +33,7 @@ const PORTAL_COPY: Record<Portal, {
   },
 };
 
-export default function PortalLoginForm({ portal }: { portal: Portal }) {
+export default function PortalLoginForm({ portal, returnTo }: { portal: Portal; returnTo?: "/nctracks" }) {
   const router = useRouter();
   const copy = PORTAL_COPY[portal];
   const [email, setEmail] = useState("");
@@ -58,7 +58,7 @@ export default function PortalLoginForm({ portal }: { portal: Portal }) {
       }
 
       const destination = body.destination || "/dashboard";
-      router.push(portal === "provider" && destination === "/master/dashboard" ? "/dashboard" : destination);
+      router.push(portal === "provider" && returnTo === "/nctracks" ? "/nctracks" : portal === "provider" && destination === "/master/dashboard" ? "/dashboard" : destination);
     } catch {
       setError("Sign in could not be completed. Check your connection and try again.");
     } finally {

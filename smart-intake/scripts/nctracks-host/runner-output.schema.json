@@ -1,0 +1,17 @@
+{
+  "type": "object", "additionalProperties": false,
+  "required": ["protocolVersion", "status", "coverage", "provenance", "observedSubject", "artifact", "code", "actualInquiryFrom", "actualInquiryTo", "selectedCoveragePeriod", "sourceCarrierText", "sourceProviderText", "sourceFacilityText", "sourcePhoneText", "sourceCountyText"],
+  "properties": {
+    "protocolVersion": {"type":"integer","const":1},
+    "status": {"type":"string","enum":["VERIFIED_LOCAL","NO_MATCH","ACTION_REQUIRED","REVIEW_REQUIRED","FAILED"]},
+    "coverage": {"type":"string","enum":["ACTIVE","INACTIVE","UNKNOWN","CONFLICT"]},
+    "provenance": {"type":"object","additionalProperties":false,"required":["source","observedAt","reference"],"properties":{"source":{"type":"string","enum":["NCTRACKS_PORTAL","NOT_OBSERVED"]},"observedAt":{"type":"string"},"reference":{"type":"string"}}},
+    "observedSubject": {"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["firstName","lastName","dob","midNumber"],"properties":{"firstName":{"type":"string"},"lastName":{"type":"string"},"dob":{"type":"string"},"midNumber":{"type":["string","null"]}}}]},
+    "artifact": {"anyOf":[{"type":"null"},{"type":"object","additionalProperties":false,"required":["localPath","sha256"],"properties":{"localPath":{"type":"string"},"sha256":{"type":"string"}}}]},
+    "code": {"type":["string","null"]},
+    "actualInquiryFrom": {"type":["string","null"]}, "actualInquiryTo": {"type":["string","null"]},
+    "selectedCoveragePeriod": {"type":["string","null"]},
+    "sourceCarrierText": {"type":["string","null"]}, "sourceProviderText": {"type":["string","null"]},
+    "sourceFacilityText": {"type":["string","null"]}, "sourcePhoneText": {"type":["string","null"]}, "sourceCountyText": {"type":["string","null"]}
+  }
+}

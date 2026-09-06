@@ -3,6 +3,8 @@ import fs from "node:fs";
 import { isolatedSqlite } from "./isolatedSqlite";
 
 const suites = {
+  "nctracks-jobs": { script: "scripts/test-nctracks-jobs.ts", database: "nctracks-jobs-tests.db" },
+  "nctracks-search": { script: "scripts/test-nctracks-search.ts", database: "nctracks-search-tests.db" },
   "support-referrals": { script: "scripts/test-support-referrals.ts", database: "support-referral-tests.db" },
   "completed-copy-link": { script: "scripts/test-completed-copy-link.ts", database: "completed-copy-link-tests.db" },
   "coverage-identity": { script: "scripts/test-coverage-identity.ts", database: "coverage-identity-tests.db" },
