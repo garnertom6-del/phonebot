@@ -751,7 +751,7 @@ async function main() {
   assert.equal(filterProvidersBySearch(searchProviders, "aliyah")[0]?.name, "Welliance Care");
   const pocHits = filterProvidersBySearch([
     ...searchProviders,
-    { name: "Prayers of Care Packet", slug: "poc-packet", packetFileNames: ["POC-Working-Intake-Packet-USE-THIS-ONE-ONLY.pdf"] },
+    { name: "Prayers of Care Packet", slug: "prayers-working-packet", packetFileNames: ["POC-Working-Intake-Packet-USE-THIS-ONE-ONLY.pdf"] },
   ], "poc");
   assert.equal(pocHits[0]?.searchMatch?.field, "packet");
   assert.match(pocHits[0]?.searchMatch?.haystack || "", /POC-Working/i);
