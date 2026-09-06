@@ -86,6 +86,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
         mappingStatus: "APPROVED",
         mappingScore: health.score,
         mappingIssues: JSON.stringify({
+          score: health.score,
           blockingIssues: health.blockingIssues,
           warnings: health.warnings,
           missingRequired: health.missingRequired,

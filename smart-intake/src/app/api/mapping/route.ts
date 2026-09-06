@@ -6,6 +6,9 @@ import { mappingOverrides } from "@/lib/intakeData";
 import { saveProviderPacketMappings } from "@/lib/providerPacketMappingWrites";
 import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 import { packetDisplayStatus } from "@/lib/mappingStatus";
+import { assessMapping } from "@/lib/mappingHealth";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
+import { effectiveMappingScore } from "@/lib/effectiveMappingScore";
 import {
   DEFAULT_PACKET_TEMPLATE_NAME,
   isWelliancePacket,
@@ -103,9 +106,23 @@ export async function GET(req: NextRequest) {
     ? (await prisma.provider.findMany({ where: { id: { not: target.template!.providerId! } }, select: { name: true } })).map((row) => row.name)
     : [];
   const filenameWarning = packetFilenameWarning(originalFileName, provider?.name || "", otherProviders);
+  const liveHealth = target.template
+    ? assessMapping(
+      fields,
+      pageCount,
+      target.template.pageWidth ?? PACKET_MAP.pageWidth,
+      target.template.pageHeight ?? PACKET_MAP.pageHeight,
+      target.template.fieldMappings.length,
+      mappingContextFrom({ originalFileName, provider }),
+    )
+    : null;
+  const mappingScore = effectiveMappingScore({
+    mappingScore: target.template?.mappingScore ?? liveHealth?.score ?? null,
+    mappingIssues: target.template?.mappingIssues ?? null,
+  }) ?? liveHealth?.score ?? null;
   const displayStatus = packetDisplayStatus({
     mappingStatus: target.template?.mappingStatus ?? "APPROVED",
-    mappingScore: target.template?.mappingScore ?? null,
+    mappingScore,
     mappingIssues: target.template?.mappingIssues ?? null,
     isActive: target.template?.isActive ?? true,
     approvedAt: target.template?.approvedAt ?? new Date(),
@@ -126,7 +143,7 @@ export async function GET(req: NextRequest) {
     pageWidth: target.template?.pageWidth ?? PACKET_MAP.pageWidth,
     pageHeight: target.template?.pageHeight ?? PACKET_MAP.pageHeight,
     mappingStatus: target.template?.mappingStatus ?? "APPROVED",
-    mappingScore: target.template?.mappingScore ?? null,
+    mappingScore,
     mappingIssues: target.template?.mappingIssues ?? null,
     savedMappingCount: target.template?.fieldMappings.length ?? 0,
     displayStatus,

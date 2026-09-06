@@ -1,4 +1,5 @@
 import { staffReviewCountFromSummary } from "@/lib/dashboardWorkflow";
+import { templateWithEffectiveScore } from "@/lib/effectiveMappingScore";
 import { packetDisplayStatus, type PacketDisplayStatus, type PacketDisplayTemplate } from "@/lib/packetDisplayStatus";
 import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 
@@ -34,8 +35,11 @@ export function buildMasterProviderListExtras(input: {
   packetTemplate?: PacketDisplayTemplate | null;
   otherProviderNames?: string[];
 }): MasterProviderListExtras {
+  const packetTemplate = input.packetTemplate
+    ? templateWithEffectiveScore(input.packetTemplate)
+    : input.packetTemplate;
   const packetDisplay = packetDisplayStatus(
-    input.packetTemplate,
+    packetTemplate,
     input.name,
     input.otherProviderNames,
   );

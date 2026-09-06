@@ -95,6 +95,25 @@ export function insurancePlanDisplayLabel(value: string): string {
   return value;
 }
 
+/** Short labels for native/mobile selects. Stored values stay unchanged. */
+export function insurancePlanSelectLabel(value: string): string {
+  const key = normalizedKey(value);
+  if (key === "wellcare") return "WellCare (hist.)";
+  if (key === "carolina complete") return "Carolina Complete";
+  if (key === "partners behavioral health") return "Partners BH";
+  if (key === "sandhills center/trillium") return "Trillium";
+  if (key === "united health care") return "United";
+  if (key === "blue cross blue shield") return "BCBS";
+  if (key === "healthy blue") return "Healthy Blue";
+  if (key === "amerihealth") return "AmeriHealth";
+  if (key === "carolina complete health") return "Carolina Complete";
+  return value;
+}
+
+export function insurancePlanSearchText(value: string): string {
+  return `${value} ${insurancePlanDisplayLabel(value)} ${insurancePlanSelectLabel(value)}`.toLowerCase();
+}
+
 export const INSURANCE_PLAN_DIRECTORY = INSURANCE_PLAN_MAP
   .filter((plan) => plan.key !== "not-sure")
   .map((plan) => ({

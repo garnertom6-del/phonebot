@@ -41,13 +41,17 @@ type Props = {
   disabled?: boolean;
   /** Extra staff-facing reason when send is blocked (insurance, etc.). */
   blockReason?: string;
+  /** Why the QR itself is paused. Independent of insurance SMS/copy blocks. */
+  qrUnavailableReason?: string;
+  /** When false, keep the live link QR hidden even if sharing is allowed. */
+  qrReady?: boolean;
   hideRecordButtons?: boolean;
   /** Called after the intake is marked as sent so the parent can refresh. */
   onMarked?: (linkSentAt: string, method: ManualSendMethod) => void;
 };
 
 export default function ManualSendPanel({
-  intakeId, clientLink, message, phone, phoneRole, purpose = "intake", email, smsHref, mailtoHref, reason, linkSentAt, disabled, blockReason, hideRecordButtons, onMarked,
+  intakeId, clientLink, message, phone, phoneRole, purpose = "intake", email, smsHref, mailtoHref, reason, linkSentAt, disabled, blockReason, qrUnavailableReason, qrReady, hideRecordButtons, onMarked,
 }: Props) {
   const [copied, setCopied] = useState<"" | "message" | "link">("");
   const [marking, setMarking] = useState<ManualSendMethod | "">("");
@@ -60,6 +64,13 @@ export default function ManualSendPanel({
   useEffect(() => { setConfirmedSent(false); }, [intakeId, clientLink, message, phone, email]);
 
   const sharingBlocked = !!disabled || isUnreachableClientLink(clientLink);
+  const showQr = qrReady !== false && !sharingBlocked;
+  const qrReason = qrUnavailableReason
+    || (isUnreachableClientLink(clientLink)
+      ? "This QR only works on this computer. Open the live app before a remote client scans it."
+      : disabled
+        ? (blockReason || "QR paused until this link can be shared.")
+        : "QR paused until the secure link is ready");
 
   async function copy(kind: "message" | "link") {
     if (sharingBlocked) return;
@@ -125,7 +136,9 @@ export default function ManualSendPanel({
 
       {sharingBlocked && !blockReason && (
         <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm font-semibold text-amber-900">
-          {isUnreachableClientLink(clientLink) ? "This link only works on this computer. Open the live app before sharing with a remote client." : "This link is not available for sharing. Check its status and renew it if it has expired."}
+          {isUnreachableClientLink(clientLink)
+            ? "This link only works on this computer. Open the live app before sharing with a remote client."
+            : qrUnavailableReason || "This link is not available for sharing. Check its status and renew it if it has expired."}
         </p>
       )}
 
@@ -134,7 +147,11 @@ export default function ManualSendPanel({
           <p className="font-semibold text-slate-900">Client is with you?</p>
           <p className="mt-1 text-xs text-slate-600">Turn the screen toward them. Their phone camera opens the secure form - no text message needed.</p>
           <div className="mx-auto mt-3 max-w-[220px]">
-            <QrCodeSvg value={sharingBlocked ? "" : clientLink} label="QR code that opens the client's secure intake form" />
+            <QrCodeSvg
+              value={showQr ? clientLink : ""}
+              label="QR code that opens the client's secure intake form"
+              unavailableReason={qrReason}
+            />
           </div>
         </div>
         <PhoneSmsHandoff phone={phone} message={message} disabled={sharingBlocked} />

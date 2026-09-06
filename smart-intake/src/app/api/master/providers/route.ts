@@ -9,6 +9,16 @@ import {
   providerPacketFileAvailable,
   providerPacketReadinessFromTemplates,
 } from "@/lib/providerPacketTemplates";
+import { isValidProviderPacketMappingScore } from "@/lib/packetMappingScore";
+import { effectiveMappingScore } from "@/lib/effectiveMappingScore";
+import { assessMapping } from "@/lib/mappingHealth";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
+import { PACKET_MAP } from "@/config/mooreDivinePacketMap";
+import {
+  loadTemplateFile,
+  packetFieldsForTemplate,
+  packetTemplateSha256,
+} from "@/lib/providerPacketTemplates";
 import { buildMasterProviderListExtras, visiblePacketTemplate } from "@/lib/masterProviderList";
 
 const optionalEmailSchema = z.union([
@@ -133,14 +143,59 @@ export async function GET() {
     intakeSummaryByProvider.set(row.providerId, summary);
   }
 
+  const visibleTemplates = providers
+    .map((item) => visiblePacketTemplate(item.pdfTemplates))
+    .filter((template): template is NonNullable<typeof template> => !!template);
+  const needsLiveScore = visibleTemplates.filter((template) => !isValidProviderPacketMappingScore(effectiveMappingScore(template)));
+  const liveScores = new Map<string, number>();
+  if (needsLiveScore.length) {
+    const mappings = await prisma.pdfFieldMapping.findMany({
+      where: { templateId: { in: needsLiveScore.map((template) => template.id) } },
+    });
+    const mappingsByTemplate = new Map<string, typeof mappings>();
+    for (const row of mappings) {
+      const list = mappingsByTemplate.get(row.templateId) || [];
+      list.push(row);
+      mappingsByTemplate.set(row.templateId, list);
+    }
+    for (const template of needsLiveScore) {
+      try {
+        const provider = providers.find((item) => item.id === template.providerId);
+        const rows = mappingsByTemplate.get(template.id) || [];
+        const overrides = rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
+        const fields = packetFieldsForTemplate({
+          name: template.name,
+          originalFileName: template.originalFileName,
+          pageCount: template.pageCount,
+          providerSpecific: !!template.providerId,
+          sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+        }, overrides);
+        const health = assessMapping(
+          fields,
+          template.pageCount,
+          template.pageWidth || PACKET_MAP.pageWidth,
+          template.pageHeight || PACKET_MAP.pageHeight,
+          rows.length,
+          mappingContextFrom({ originalFileName: template.originalFileName, provider }),
+        );
+        liveScores.set(template.id, health.score);
+      } catch {
+        // Keep the list available if one packet file cannot be scored live.
+      }
+    }
+  }
+
   return NextResponse.json({
     providers: providers.map((item) => {
       const intakeSummary = intakeSummaryByProvider.get(item.id) || {};
       const packetTemplate = visiblePacketTemplate(item.pdfTemplates);
+      const scoredTemplate = packetTemplate
+        ? { ...packetTemplate, mappingScore: liveScores.get(packetTemplate.id) ?? effectiveMappingScore(packetTemplate) ?? packetTemplate.mappingScore }
+        : packetTemplate;
       const listExtras = buildMasterProviderListExtras({
         name: item.name,
         intakeSummary,
-        packetTemplate,
+        packetTemplate: scoredTemplate,
         otherProviderNames: providers.filter((row) => row.id !== item.id).map((row) => row.name),
       });
       return {

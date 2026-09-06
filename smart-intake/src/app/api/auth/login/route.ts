@@ -5,6 +5,7 @@ import { createSessionValue, SESSION_COOKIE } from "@/lib/auth";
 import { loginSchema } from "@/lib/validation";
 import { audit } from "@/lib/auditLog";
 import { isMasterUser } from "@/lib/staffGuard";
+import { loginDestination } from "@/lib/safeReturnPath";
 
 // Simple in-memory lockout: 5 wrong tries per email+IP -> 15 minute wait.
 // Resets on server restart, which is fine - it only needs to stop guessing.
@@ -44,7 +45,13 @@ export async function POST(req: NextRequest) {
   }
 
   attempts.delete(key);
-  const destination = isMasterUser(user) ? "/master/dashboard" : "/dashboard";
+  const isMaster = isMasterUser(user);
+  const destination = loginDestination({
+    isMaster,
+    portal: body.data.portal || "provider",
+    requested: body.data.returnTo,
+    defaultDestination: isMaster ? "/master/dashboard" : "/dashboard",
+  });
   const res = NextResponse.json({ ok: true, name: user.name, destination });
   res.cookies.set(SESSION_COOKIE, createSessionValue(user.id, user.sessionVersion), {
     httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production",

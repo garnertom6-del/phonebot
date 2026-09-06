@@ -6,6 +6,8 @@ import { assignIntakeContacts, isPlausiblePhone } from "./intakeContacts";
 export const loginSchema = z.object({
   email: z.string().email(),
   password: z.string().min(1),
+  returnTo: z.string().optional(),
+  portal: z.enum(["provider", "master"]).optional(),
 });
 
 function validCalendarDate(value: string): Date | null {

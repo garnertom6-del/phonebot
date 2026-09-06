@@ -37,8 +37,11 @@ import {
   intakeMailtoHref,
   intakeShareMessage,
   intakeSmsHref,
+  isUnreachableClientLink,
 } from "@/lib/shareLinks";
-import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
+import { clientLinkExpired, clientLinkExpiryView, clientLinkMessagingFinished } from "@/lib/clientLinkState";
+import { missingRequiredAnswers } from "@/lib/missingRequiredAnswers";
+import { buildCaseStatusTimeline, type CaseTimelineEvent } from "@/lib/caseStatusTimeline";
 import {
   clientDeliveryContacts,
   clientDeliveryContactsForRole,
@@ -446,7 +449,8 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const preflightReady = !generationBlockers.some((blocker) => (
     blocker.code === "preflight_required" || blocker.code === "preflight_finding"
   ));
-  const missingAnswerCount = d.missingRequired.filter((field) => field.key !== "signature").length;
+  const missingAnswerItems = missingRequiredAnswers(d.missingRequired);
+  const missingAnswerCount = missingAnswerItems.length;
   const caseStatus = buildCasePageStatus({
     status: i.status,
     missingRequiredCount: missingAnswerCount,
@@ -470,6 +474,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
     planCompleteness: d.planCompleteness || undefined,
   });
   const linkExpired = clientLinkExpired(i.tokenExpiresAt);
+  const linkExpiry = clientLinkExpiryView(i.tokenExpiresAt);
   const linkFinished = clientLinkMessagingFinished(i.status);
   const insuranceReady = staffInsurancePlanReady(d.answers);
   const insuranceSmsBlocked = !linkFinished && !insuranceReady;
@@ -486,6 +491,14 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
     || !!i.submittedAt
   );
   const lastLinkOpened = i.auditLogs.find((entry) => entry.event === "link_opened");
+  const caseTimeline = buildCaseStatusTimeline({
+    linkSentAt: i.linkSentAt,
+    lastOpenedAt: lastLinkOpened?.createdAt,
+    missingRequiredCount: missingAnswerCount,
+    signatureStatuses: d.signatureStatuses,
+    tokenExpiresAt: i.tokenExpiresAt,
+    status: i.status,
+  });
   const openedCurrentDelivery = !!lastLinkOpened && (
     !i.linkSentAt || Date.parse(lastLinkOpened.createdAt) >= Date.parse(i.linkSentAt)
   );
@@ -1181,7 +1194,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   }
 
   return (
-    <main className="mx-auto max-w-5xl p-6">
+    <main className="mx-auto max-w-5xl overflow-x-hidden p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-6">
       <AnswerConflictPanel conflicts={answerConflicts} localAnswers={helperDraft} labelForKey={staffFacingFieldLabel}
         onResolve={(key, choice) => {
           const conflict = answerConflicts.find((item) => item.key === key)!;
@@ -1325,6 +1338,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
         )}
       </section>
       <WorkflowSteps steps={caseStatus.steps} />
+      <CaseStatusTimeline events={caseTimeline} />
       <PacketChecklistChips chips={packetChecklist} />
       <SignatureSlotsRow statuses={d.signatureStatuses} reviewHref={`/intakes/${i.id}/review#staff-signatures`} />
       {(d.accuracyConflicts?.length || 0) > 0 && (
@@ -1429,13 +1443,13 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
                     ? "bg-emerald-100 text-emerald-800"
                     : "bg-blue-100 text-blue-800"
             }`}>
-              {linkFinished ? "Intake signed" : linkExpired ? "Expired" : openedCurrentDelivery ? "Client opened" : "Active"}
+              {linkFinished ? "Intake signed" : linkExpiry.badgeLabel === "Expired" || linkExpired ? "Expired" : openedCurrentDelivery ? "Client opened" : linkExpiry.badgeLabel}
             </span>
           </div>
 
           <div className="mt-3 break-all rounded bg-slate-100 p-2 font-mono text-xs">{d.clientLink}</div>
           <div className="mt-3 grid gap-2 text-xs text-slate-600 sm:grid-cols-2">
-            <p><span className="font-semibold text-slate-800">Expires:</span> {new Date(i.tokenExpiresAt).toLocaleString()}</p>
+            <p><span className="font-semibold text-slate-800">{linkExpired ? "Expired:" : "Expires:"}</span> {linkExpiry.when}</p>
             <p className="min-w-0 break-words"><span className="font-semibold text-slate-800">Recipients:</span> {contactSummary || "No phone or email saved"}</p>
             <p><span className="font-semibold text-slate-800">Last delivery accepted:</span> {i.linkSentAt ? new Date(i.linkSentAt).toLocaleString() : "Not sent yet"}</p>
             <p><span className="font-semibold text-slate-800">Client activity:</span> {lastLinkOpened ? `Opened ${new Date(lastLinkOpened.createdAt).toLocaleString()}` : "Not opened yet"}</p>
@@ -1534,6 +1548,14 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
                   linkSentAt={i.linkSentAt || null}
                   disabled={linkExpired || insuranceSmsBlocked}
                   blockReason={insuranceSmsBlocked ? `${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}` : undefined}
+                  qrReady={!linkExpired && !isUnreachableClientLink(d.clientLink) && !insuranceSmsBlocked}
+                  qrUnavailableReason={
+                    linkExpired
+                      ? `QR paused — this link expired ${linkExpiry.when}.`
+                      : insuranceSmsBlocked
+                        ? `${INSURANCE_BEFORE_SMS_MESSAGE} ${FILL_INSURANCE_NEXT_STEP}`
+                        : undefined
+                  }
                   onMarked={() => { setNote("Recorded: the client got the link by hand."); void load(); }}
                 />
               </div>
@@ -2223,9 +2245,8 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
         </div>
         <div className="order-4">
         <MissingFieldsPanel
-          required={d.missingRequired}
+          required={missingAnswerItems}
           optional={d.missingOptional}
-          headlineCount={missingAnswerCount}
         />
         </div>
         <div className="card order-4">
@@ -2500,6 +2521,28 @@ function HelperSelect({
         ))}
       </select>
     </label>
+  );
+}
+
+function CaseStatusTimeline({ events }: { events: CaseTimelineEvent[] }) {
+  const toneClass = (tone: CaseTimelineEvent["tone"]) => (
+    tone === "done" ? "bg-emerald-50 text-emerald-800"
+    : tone === "warn" ? "bg-amber-50 text-amber-900"
+    : tone === "current" ? "bg-brand-light text-brand"
+    : "bg-slate-50 text-slate-600"
+  );
+  return (
+    <section className="mt-3 rounded-lg border border-slate-200 bg-white p-3" data-testid="case-status-timeline" aria-label="Case status timeline">
+      <p className="text-xs font-bold uppercase tracking-wide text-slate-500">Status timeline</p>
+      <ol className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-5">
+        {events.map((event) => (
+          <li key={event.key} className={`rounded-lg px-3 py-2 text-xs ${toneClass(event.tone)}`}>
+            <p className="font-semibold">{event.label}</p>
+            {event.detail && <p className="mt-1 text-[11px] leading-4">{event.detail}</p>}
+          </li>
+        ))}
+      </ol>
+    </section>
   );
 }
 

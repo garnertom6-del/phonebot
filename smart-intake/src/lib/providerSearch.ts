@@ -55,6 +55,12 @@ function levenshtein(a: string, b: string): number {
   return grid[a.length][b.length];
 }
 
+function isCompleteTokenSpan(haystack: string, start: number, length: number): boolean {
+  const before = haystack[start - 1] || "";
+  const after = haystack[start + length] || "";
+  return !/[a-z0-9]/i.test(before) && !/[a-z0-9]/i.test(after);
+}
+
 function exactOrPrefixHit(haystack: string, query: string): { start: number; length: number; quality: number } | null {
   const q = normalize(query);
   if (!q) return null;
@@ -144,8 +150,11 @@ export function scoreProviderSearch(
 
   let best: ProviderSearchMatch | null = null;
   for (const item of searchableFields) {
-    if (item.field === "packet" && q.length < PROVIDER_SEARCH_PACKET_MIN_LENGTH) continue;
     const exact = exactOrPrefixHit(item.value, q);
+    const tokenBoundaryPacketHit = item.field === "packet"
+      && !!exact
+      && isCompleteTokenSpan(item.value, exact.start, exact.length);
+    if (item.field === "packet" && q.length < PROVIDER_SEARCH_PACKET_MIN_LENGTH && !tokenBoundaryPacketHit) continue;
     const fuzzy = exact ? null : fuzzyTokenHit(item.value, q);
     const hit = exact || fuzzy;
     if (!hit) continue;

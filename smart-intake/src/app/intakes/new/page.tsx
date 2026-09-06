@@ -5,7 +5,10 @@ import { useSearchParams } from "next/navigation";
 import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 import { intakeMailtoHref, intakeShareMessage, intakeSmsHref } from "@/lib/shareLinks";
 import { clientDeliveryContacts, deliveryContactsSummary } from "@/lib/clientDeliveryContacts";
-import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, insurancePlanDisplayLabel, makeRecordNumber, normalizeInsuranceValue, RECORD_NUMBER_PLAN_GROUPS, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_CREATE_SHARE_MESSAGE, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, normalizeInsuranceValue, recordNumberLookupLink, recordNumberMode, recordNumberPrefix } from "@/lib/insurancePlans";
+import InsurancePlanSelect from "@/components/InsurancePlanSelect";
+import { providerSignInHref } from "@/lib/safeReturnPath";
+import { buildCreateIntakeStages, buildNewIntakeReadiness, createProviderContextReady, newIntakeCreateLabel, newIntakeQrCreateLabel } from "@/lib/newIntakeReadiness";
 import {
   EDUCATION_OPTIONS,
   EMPLOYMENT_STATUS_OPTIONS,
@@ -26,7 +29,6 @@ import {
   extractedNoteFieldState,
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness, createProviderContextReady, newIntakeCreateLabel, newIntakeQrCreateLabel } from "@/lib/newIntakeReadiness";
 import {
   DEFAULT_INTAKE_STATE,
   canOfferCompletedPacketEmail,
@@ -142,6 +144,7 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
   const [packetContextLoaded, setPacketContextLoaded] = useState(false);
   const [packetSetupHref, setPacketSetupHref] = useState("");
   const [packetContextError, setPacketContextError] = useState("");
+  const [signedOut, setSignedOut] = useState(false);
   const [sendSmsAfterCreate, setSendSmsAfterCreate] = useState(false);
   const [showQrAfterCreate, setShowQrAfterCreate] = useState(false);
   const [createIntent, setCreateIntent] = useState<"create" | "qr">("create");
@@ -182,6 +185,12 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
     packetContextError: !!packetContextError,
     packetReady,
   });
+  const createStages = buildCreateIntakeStages({
+    identityReady: intakeReadiness.items.find((item) => item.key === "identity")?.ready || false,
+    contactReady: intakeReadiness.items.find((item) => item.key === "contact")?.ready || false,
+    insuranceReady: !!recordPanel.trim(),
+    recordReady: !!(form.recordNumber || "").trim() || !!ncTracksFile,
+  });
 
   useEffect(() => {
     let active = true;
@@ -193,6 +202,13 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
         access?: { canManageProvider?: boolean; packetSetupHref?: string | null };
       };
       if (!active) return;
+      if (res.status === 401) {
+        setSignedOut(true);
+        setPacketReady(false);
+        setPacketContextError("");
+        setPacketContextLoaded(true);
+        return;
+      }
       if (!res.ok || !body.provider?.id?.trim()) {
         setPacketReady(false);
         setPacketContextError(body.error || "Provider context could not be loaded. Sign in again before creating an intake.");
@@ -720,9 +736,36 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
     packetContextError: !!packetContextError,
   });
   const emptyExtracted = emptyExtractedNoteFields(extractedFields, noteFieldCurrentValue);
+  const createReturnPath = requestedProviderId
+    ? `/intakes/new?providerId=${encodeURIComponent(requestedProviderId)}`
+    : "/intakes/new";
+
+  if (signedOut) {
+    return (
+      <main className="mx-auto max-w-md p-6" data-testid="create-intake-locked">
+        <section className="card">
+          <h1 className="text-xl font-bold text-slate-900">Sign in to create intakes</h1>
+          <p className="mt-3 text-sm leading-6 text-slate-600">
+            Staff sign-in is required before you can start a new client intake.
+          </p>
+          <Link href={providerSignInHref(createReturnPath)} className="btn-primary mt-5 min-h-11 w-full">
+            Sign in
+          </Link>
+        </section>
+      </main>
+    );
+  }
+
+  if (!packetContextLoaded) {
+    return (
+      <main className="mx-auto max-w-md p-6" data-testid="create-intake-auth-check" role="status">
+        <p className="text-sm text-slate-500">Checking sign-in…</p>
+      </main>
+    );
+  }
 
   return (
-    <main className="mx-auto max-w-xl p-4 pb-28 sm:p-6">
+    <main className="mx-auto max-w-xl overflow-x-hidden p-4 pb-[calc(7.5rem+env(safe-area-inset-bottom))] sm:p-6 sm:pb-6" data-testid="create-intake-scroll-clearance">
       <Link href={providerWorkflowHref("/dashboard", providerId || requestedProviderId)} className="text-sm text-brand hover:underline">Dashboard</Link>
       <form ref={formRef} method="post" onSubmit={submit} className="card mt-3" noValidate>
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
@@ -743,6 +786,20 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
             </span>
           )}
         </div>
+        <ol className="mb-4 flex flex-wrap gap-2" data-testid="create-intake-stepper" aria-label="Create intake stages">
+          {createStages.map((stage, index) => (
+            <li
+              key={stage.key}
+              className={`flex min-h-11 items-center rounded-full px-3 text-xs font-semibold ${
+                stage.ready ? "bg-emerald-100 text-emerald-800" : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              <span className="mr-1.5" aria-hidden="true">{stage.ready ? "✓" : index + 1}</span>
+              {stage.label}
+              {stage.optional ? <span className="ml-1 font-normal text-slate-500">optional</span> : null}
+            </li>
+          ))}
+        </ol>
         <section aria-labelledby="new-intake-readiness-title" className="mb-4 rounded-xl border border-brand/20 bg-brand-light/30 p-4">
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 id="new-intake-readiness-title" className="font-bold text-slate-900">{intakeReadiness.title}</h2>
@@ -972,20 +1029,9 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
           <p className="mt-1 text-sm text-slate-600">
             Required before any SMS, QR, copy, or &quot;I sent this SMS&quot; action. Staff fills this — it is not asked on the phone.
           </p>
-          <label className="mt-3 block">
+          <label className="mt-3 block min-w-0">
             <span className="label">Insurance plan</span>
-            <select id="new-intake-record-panel" className="input" value={recordPanel} onChange={(e) => onRecordPanelChange(e.target.value)}>
-              <option value="">Select the client&apos;s plan</option>
-              {RECORD_NUMBER_PLAN_GROUPS.map((group) => (
-                <optgroup key={group.label} label={group.label}>
-                  {group.plans.map((plan) => (
-                    <option key={plan} value={plan}>
-                      {insurancePlanDisplayLabel(plan)}{recordNumberMode(plan) === "generate" ? ` (${recordNumberPrefix(plan)}-12345)` : ""}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+            <InsurancePlanSelect id="new-intake-record-panel" value={recordPanel} onChange={onRecordPanelChange} />
           </label>
           {!recordPanel.trim() && (
             <p className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" role="status">
@@ -1062,6 +1108,9 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
           <h2 className="font-bold text-slate-900">NC Tracks</h2>
           <p className="mt-1 text-sm text-slate-600">
             Upload a card or open NC Tracks if you already have it. Paste stays at the top of this page.
+          </p>
+          <p className="mt-2 rounded-lg bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+            After upload, review MID, PCP, and plan values before trusting the fill. Verify them against the source.
           </p>
           <div className="mt-3 flex flex-wrap gap-2" role="tablist" aria-label="NC Tracks starter options">
             {([
@@ -1296,7 +1345,7 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
           <div className="mt-3 rounded-lg border border-red-200 bg-red-50 p-3">
             <p className="text-sm font-semibold text-red-700">{error}</p>
             {error.toLowerCase().includes("not signed in") && (
-              <Link href="/login" className="btn-secondary mt-3 inline-flex px-3 py-1.5 text-sm">
+              <Link href={providerSignInHref(createReturnPath)} className="btn-secondary mt-3 inline-flex px-3 py-1.5 text-sm">
                 Sign in again
               </Link>
             )}
@@ -1330,29 +1379,19 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
       <div
         className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white/95 p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.12)] backdrop-blur sm:hidden"
         style={{ paddingBottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
+        data-testid="create-intake-sticky-footer"
       >
-        <div className="mx-auto flex max-w-xl flex-col gap-2">
-          <div className="flex items-center gap-3">
-            <span className="min-w-[64px] text-center text-xs font-bold text-slate-600" aria-live="polite">
-              {intakeReadiness.completedRequired}/{intakeReadiness.totalRequired}<br />ready
-            </span>
-            <button
-              type="button"
-              className="btn-primary min-h-12 flex-1 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isCreating || !providerContextReady}
-              onClick={() => startCreate("create")}
-            >
-              {intakeReadiness.ready ? submitLabel : intakeReadiness.title}
-            </button>
-          </div>
+        <div className="mx-auto flex max-w-xl items-center gap-3">
+          <span className="min-w-[52px] text-center text-xs font-bold text-slate-600" aria-live="polite">
+            {intakeReadiness.completedRequired}/{intakeReadiness.totalRequired}
+          </span>
           <button
             type="button"
-            data-testid="create-and-show-qr-mobile"
-            className="btn-secondary min-h-11 w-full disabled:cursor-not-allowed disabled:opacity-70"
+            className="btn-primary min-h-12 flex-1 disabled:cursor-not-allowed disabled:opacity-70"
             disabled={isCreating || !providerContextReady}
-            onClick={() => startCreate("qr")}
+            onClick={() => startCreate("create")}
           >
-            {qrSubmitLabel}
+            {submitLabel}
           </button>
         </div>
       </div>
