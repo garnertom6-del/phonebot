@@ -1,8 +1,10 @@
 "use client";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
-import { insurancePlanDisplayLabel, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { insurancePlanDisplayLabel, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { batchRetryDrafts, type BatchFailure } from "@/lib/batchRetryDrafts";
+import { generateBatchRecordNumbers } from "@/lib/batchRecordNumbers";
+import { createProviderContextReady } from "@/lib/newIntakeReadiness";
 
 type Draft = {
   fullName: string;
@@ -94,7 +96,30 @@ export default function CreateManyIntakes() {
   const [error, setError] = useState("");
   const [created, setCreated] = useState<Created[]>([]);
   const [failures, setFailures] = useState<BatchFailure[]>([]);
+  const [providerId, setProviderId] = useState("");
+  const [providerName, setProviderName] = useState("");
+  const [contextLoaded, setContextLoaded] = useState(false);
+  const [contextError, setContextError] = useState("");
+  const [generationNote, setGenerationNote] = useState("");
+  const providerContextReady = createProviderContextReady(providerId, contextLoaded, contextError);
   const activeRows = useMemo(() => rows.filter(hasDraftData), [rows]);
+
+  useEffect(() => {
+    let active = true;
+    fetch("/api/intakes/context", { cache: "no-store" }).then(async (response) => {
+      const body = await response.json();
+      if (!response.ok || !body.provider?.id?.trim()) throw new Error(body.error || "Provider context could not be loaded.");
+      if (!active) return;
+      setProviderId(body.provider.id);
+      setProviderName(body.provider.name);
+      setContextLoaded(true);
+    }).catch((failure) => {
+      if (!active) return;
+      setContextError(failure instanceof Error ? failure.message : "Provider context could not be loaded.");
+      setContextLoaded(true);
+    });
+    return () => { active = false; };
+  }, []);
 
   function updateRow(index: number, key: keyof Draft, value: string) {
     setRows((current) => current.map((row, i) => i === index ? { ...row, [key]: value } : row));
@@ -117,23 +142,15 @@ export default function CreateManyIntakes() {
   }
 
   function generateMissingRecordNumbers() {
-    if (!recordPanel) {
-      setError("Choose an insurance panel before generating Record# values.");
-      return;
-    }
     setError("");
-    setRows((current) => {
-      const used = new Set(current.map((row) => row.recordNumber.trim().toLowerCase()).filter(Boolean));
-      return current.map((row) => {
-        if (!hasDraftData(row) || row.recordNumber.trim()) return row;
-        let generated = "";
-        do {
-          generated = makeRecordNumber(recordPanel);
-        } while (used.has(generated.toLowerCase()));
-        used.add(generated.toLowerCase());
-        return { ...row, providerChoicePlan: row.providerChoicePlan || recordPanel, recordNumber: generated };
-      });
-    });
+    const result = generateBatchRecordNumbers(rows, recordPanel, hasDraftData);
+    setRows(result.rows);
+    setGenerationNote([
+      `Generated ${result.generatedCount} Record# value${result.generatedCount === 1 ? "" : "s"} using each row's insurance plan.`,
+      result.manualRows.length ? `Rows ${result.manualRows.join(", ")} need their official Record# entered manually.` : "",
+      result.missingPlanRows.length ? `Choose a plan for rows ${result.missingPlanRows.join(", ")}, or choose a default panel.` : "",
+      result.failedRows.length ? `Could not find an unused Record# for rows ${result.failedRows.join(", ")}. Try again.` : "",
+    ].filter(Boolean).join(" "));
   }
 
   async function copyAllLinks() {
@@ -143,6 +160,7 @@ export default function CreateManyIntakes() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (busyRef.current) return;
+    if (!providerContextReady) { setError(contextError || "Wait for the provider to load before creating these intakes."); return; }
     setError("");
     setFailures([]);
     const missing = rows.findIndex((row) => hasDraftData(row) && (!row.fullName || !row.dob || !row.providerChoicePlan || !row.recordNumber));
@@ -172,7 +190,7 @@ export default function CreateManyIntakes() {
       const res = await fetch("/api/intakes/batch", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ intakes: activeRows, expectCca, generateDraftPackets }),
+        body: JSON.stringify({ providerId, intakes: activeRows, expectCca, generateDraftPackets }),
       });
       const body = await res.json();
       if (!res.ok && !body.created?.length && !body.failures?.length) throw new Error(body.error || "Failed to create intakes");
@@ -195,6 +213,7 @@ export default function CreateManyIntakes() {
         <div>
           <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
           <h1 className="mt-1 text-2xl font-bold">Create Many Intakes</h1>
+          <p className="mt-1 text-sm text-slate-600" role="status">{providerContextReady ? `Saving to ${providerName}` : contextError || "Loading provider…"}</p>
         </div>
         <Link href="/intakes/new" className="btn-secondary">Create one</Link>
       </div>
@@ -219,7 +238,7 @@ export default function CreateManyIntakes() {
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <h2 className="text-lg font-bold">Batch details</h2>
-            <p className="text-sm text-slate-500">{activeRows.length} intake{activeRows.length === 1 ? "" : "s"} ready</p>
+            <p className="text-sm text-slate-500">{activeRows.length} intake row{activeRows.length === 1 ? "" : "s"} started. Complete the required fields before creating.</p>
           </div>
           <div className="flex flex-wrap gap-3 text-sm">
             <label className="flex items-center gap-2">
@@ -235,10 +254,10 @@ export default function CreateManyIntakes() {
 
         <div className="mb-4 rounded-xl border border-brand/20 bg-brand-light/40 p-4">
           <h3 className="font-bold text-brand">Record number generator</h3>
-          <p className="mt-1 text-sm text-slate-600">Choose one panel and fill missing Record# cells with unique five-digit numbers.</p>
+          <p className="mt-1 text-sm text-slate-600">Fill missing Record# values using each row's plan. A default panel applies only to rows without a plan; plans requiring an official number stay manual.</p>
           <div className="mt-3 flex flex-wrap items-end gap-3">
             <label className="min-w-64">
-              <span className="label">Insurance panel</span>
+              <span className="label">Default panel for rows without a plan</span>
               <select className="input" value={recordPanel} onChange={(e) => setRecordPanel(e.target.value)}>
                 <option value="">Select panel</option>
                 {RECORD_NUMBER_GENERATOR_PLAN_OPTIONS.map((plan) => (
@@ -249,6 +268,8 @@ export default function CreateManyIntakes() {
             <button type="button" className="btn-secondary" onClick={generateMissingRecordNumbers}>Generate missing Record# values</button>
           </div>
         </div>
+
+        {generationNote && <p className="mb-4 text-sm text-slate-700" role="status">{generationNote}</p>}
 
         <div className="space-y-3 md:hidden">
           {rows.map((row, index) => (
@@ -321,7 +342,7 @@ export default function CreateManyIntakes() {
 
         {error && <p className="mt-3 text-sm font-semibold text-red-600">{error}</p>}
         <div className="mt-5 flex flex-wrap gap-2">
-          <button className="btn-primary" disabled={busy || activeRows.length === 0}>{busy ? "Creating..." : "Create Many"}</button>
+          <button className="btn-primary" disabled={busy || !providerContextReady || activeRows.length === 0}>{busy ? "Creating..." : "Create Many"}</button>
           <button type="button" className="btn-ghost" onClick={() => setRows([blankDraft(), blankDraft(), blankDraft()])}>Clear</button>
         </div>
         </fieldset>

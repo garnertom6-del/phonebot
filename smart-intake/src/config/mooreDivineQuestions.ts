@@ -409,7 +409,7 @@ export const SECTIONS: Section[] = [
   },
   {
     key: "substance", title: "Substance Use",
-    intro: "Honest answers help us take better care of you. This is confidential.",
+    intro: "These questions help your care team understand legal matters and who can sign your intake.",
     questions: [
       { key: "sa_status", essential: true, label: "Have you ever had a substance abuse diagnosis, or do you use alcohol or other substances?", type: "yesno", options: YN },
       ...[1, 2, 3, 4, 5].flatMap((i): Question[] => [

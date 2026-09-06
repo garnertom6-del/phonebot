@@ -2114,8 +2114,9 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
         </div>
       </div>
       <MoodPanel answers={d.answers} />
-      <CoveragePanel intakeId={i.id} />
-      <div id="support-referrals"><ReferralTracker intakeId={i.id} /></div>
+      <CoveragePanel key={JSON.stringify([i.id, i.client.fullName, i.client.dob, i.client.midNumber,
+        d.answerRevisions?.eligibility_checked_at])} intakeId={i.id} />
+      <ReferralTracker intakeId={i.id} />
     </main>
   );
 }

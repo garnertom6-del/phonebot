@@ -32,6 +32,11 @@ import AnswerConflictPanel from "./AnswerConflictPanel";
 import ContentRevisionReview from "./ContentRevisionReview";
 import { nextReviewedContentRevision } from "@/lib/contentRevision";
 import { insurancePlanDisplayLabel } from "@/lib/insurancePlans";
+import { createQuestionAdvanceTimer, leaveAfterSave, resumeVisibleIndex } from "@/lib/clientProgress";
+import { useClientDraftNavigation } from "./useClientDraftNavigation";
+import IntakePaused from "./IntakePaused";
+import { useVoiceDraftGuard } from "./useVoiceDraftGuard";
+import type { VoiceDraftState } from "@/lib/voiceDraft";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
@@ -109,6 +114,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const [justPicked, setJustPicked] = useState<string | null>(null);
   const [nudge, setNudge] = useState("");
   const [saving, setSaving] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const voiceDraft = useVoiceDraftGuard();
   const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState("");
   const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
@@ -139,7 +147,8 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const answersRef = useRef(answers); answersRef.current = answers;
   const flatRef = useRef(flat); flatRef.current = flat;
   const idxRef = useRef(idx); idxRef.current = idx;
-  const advanceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const advanceTimer = useRef<ReturnType<typeof createQuestionAdvanceTimer> | null>(null);
+  if (!advanceTimer.current) advanceTimer.current = createQuestionAdvanceTimer();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clickGuardUntilRef = useRef(0);
   const [clickGuardUntil, setClickGuardUntil] = useState(0);
@@ -149,7 +158,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const finalActionInFlightRef = useRef(false);
 
   useEffect(() => {
-    setDirty(saveQueueRef.current!.hasUnsavedChanges(answers));
+    const unsaved = saveQueueRef.current!.hasUnsavedChanges(answers);
+    setDirty(unsaved);
+    if (unsaved) setHasSignature(false);
   }, [answers]);
 
   const progressKey = `smart-intake-progress:v2:${token}:${progressVersion}:${resignMode || "initial"}:${reviewQuestionKeys.join(",")}`;
@@ -158,16 +169,19 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   // the current screen and question number so the client can resume safely.
   useEffect(() => {
     if (["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus)) {
-      localStorage.removeItem(progressKey);
+      try { localStorage.removeItem(progressKey); } catch { /* Storage is optional. */ }
       setProgressRestored(true);
       return;
     }
     try {
-      const saved = JSON.parse(localStorage.getItem(progressKey) || "null") as { phase?: Phase; idx?: number } | null;
-      const validPhases: Phase[] = ["welcome", "question", "break", "photos", "signature", "done"];
+      const saved = JSON.parse(localStorage.getItem(progressKey) || "null") as { phase?: Phase; questionKey?: string; idx?: number } | null;
+      const validPhases: Phase[] = ["welcome", "question", "break", "photos", "signature"];
       if (saved && saved.phase && validPhases.includes(saved.phase)) {
         setPhase(saved.phase);
-        setIdx(Math.max(0, Number(saved.idx) || 0));
+        const restoredIndex = resumeVisibleIndex(flatRef.current.map((item) => item.q.key), saved.questionKey,
+          SECTIONS.flatMap((section) => section.questions.map((question) => question.key)), answersRef.current);
+        setIdx(restoredIndex);
+        if (saved.phase === "break") setBreakText(brandText(easyClientSectionIntro(flatRef.current[restoredIndex]?.sectionKey || "") || "Let’s continue your intake.", branding));
       }
     } catch {
       // A private browsing mode may block local storage; the intake still works.
@@ -184,14 +198,14 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     if (!progressRestored) return;
     try {
       if (phase === "done") localStorage.removeItem(progressKey);
-      else localStorage.setItem(progressKey, JSON.stringify({ phase, idx }));
+      else localStorage.setItem(progressKey, JSON.stringify({ phase, questionKey: flatRef.current[idx]?.q.key }));
     } catch {
       // Progress is also autosaved to the server; local storage is only resume help.
     }
   }, [idx, phase, progressKey, progressRestored]);
 
   useEffect(() => () => {
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
+    advanceTimer.current?.cancel();
     if (saveTimer.current) clearTimeout(saveTimer.current);
   }, []);
 
@@ -261,6 +275,21 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     }
   }, [token, supportPhone, providerName]);
 
+  const saveBeforeLeaving = useCallback(async () => {
+    if (!voiceDraft.canLeave()) return false;
+    if (finalActionInFlightRef.current) return false;
+    finalActionInFlightRef.current = true;
+    advanceTimer.current?.cancel();
+    setLeaving(true);
+    try { return await saveNow(); }
+    finally { finalActionInFlightRef.current = false; setLeaving(false); }
+  }, [saveNow, voiceDraft.canLeave]);
+  useClientDraftNavigation(dirty || saving || voiceDraft.pending, `/rights/${token}`, saveBeforeLeaving, voiceDraft.canLeave);
+  const saveExitButton = <button type="button" disabled={leaving || signing || submitting}
+    className="btn-ghost min-h-[44px] w-full text-sm" onClick={() => {
+      void leaveAfterSave(saveBeforeLeaving, () => setPaused(true));
+    }}>{leaving ? "Saving your progress..." : "Save & exit"}</button>;
+
   const queueSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
@@ -272,6 +301,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const set = useCallback((key: string, value: Answers[string]) => {
     if (finalActionInFlightRef.current || isInterstitialClickGuarded(clickGuardUntilRef.current)) return;
     const next: Answers = { ...answersRef.current, [key]: value };
+    if (JSON.stringify(answersRef.current[key]) !== JSON.stringify(value)) setHasSignature(false);
     if (key === "race") {
       const ethnicity = ethnicityForRace(value);
       if (ethnicity) next.ethnicity = ethnicity;
@@ -287,7 +317,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   /* ---------------------------- navigation ---------------------------- */
 
   const goNext = useCallback(() => {
+    if (!voiceDraft.canLeave()) return;
     if (finalActionInFlightRef.current) return;
+    advanceTimer.current?.cancel();
     const list = flatRef.current;
     const i = idxRef.current;
     const currentQ = list[i]?.q;
@@ -320,10 +352,12 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       setPhase("question");
     }
     window.scrollTo(0, 0);
-  }, [branding, isResign, saveNow]);
+  }, [branding, isResign, saveNow, voiceDraft.canLeave]);
 
   const goBack = useCallback(() => {
+    if (!voiceDraft.canLeave()) return;
     if (finalActionInFlightRef.current) return;
+    advanceTimer.current?.cancel();
     setJustPicked(null);
     setNudge("");
     if (phase === "signature") {
@@ -339,44 +373,33 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       setPhase("question");
     }
     window.scrollTo(0, 0);
-  }, [phase]);
+  }, [phase, voiceDraft.canLeave]);
 
   /** Tap an answer -> brief highlight, then move to the next question. */
   const pickAndAdvance = useCallback((key: string, value: Answers[string], display: string) => {
     if (isInterstitialClickGuarded(clickGuardUntilRef.current)) return;
     set(key, value);
     setJustPicked(display);
-    if (advanceTimer.current) clearTimeout(advanceTimer.current);
-    advanceTimer.current = setTimeout(goNext, 350);
+    const originKey = flatRef.current[idxRef.current]?.q.key;
+    advanceTimer.current!.schedule(() => {
+      if (flatRef.current[idxRef.current]?.q.key === originKey) goNext();
+    });
   }, [set, goNext]);
 
   const leaveBreak = useCallback(() => {
+    advanceTimer.current?.cancel();
     const until = interstitialGuardUntil();
     clickGuardUntilRef.current = until;
     setClickGuardUntil(until);
     setPhase("question");
   }, []);
 
-  const nextFromInput = useCallback(async (pendingVoiceValue?: string) => {
-    if (advanceTimer.current) {
-      clearTimeout(advanceTimer.current);
-      advanceTimer.current = null;
-    }
+  const nextFromInput = useCallback(async () => {
+    if (!voiceDraft.canLeave()) return;
+    advanceTimer.current?.cancel();
     const q = flatRef.current[idxRef.current]?.q;
     const current = answersRef.current;
-    const value = pendingVoiceValue ?? (q ? current[q.key] : undefined);
-    if (q && pendingVoiceValue !== undefined && pendingVoiceValue !== current[q.key]) {
-      const nextAnswers = { ...current, [q.key]: pendingVoiceValue };
-      answersRef.current = nextAnswers;
-      setAnswers(nextAnswers);
-      setNudge("");
-      setSaveError("");
-      const saved = await saveNow("completed");
-      if (!saved) {
-        setNudge("We could not save that answer. Please try Next again.");
-        return;
-      }
-    }
+    const value = q ? current[q.key] : undefined;
     if (q && isQuestionRequired(q, current) && !isAnswered(value)) {
       setNudge("Please answer this one - we really need it.");
       return;
@@ -387,7 +410,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       setAnswers(filled);
     }
     goNext();
-  }, [goNext, saveNow]);
+  }, [goNext, voiceDraft.canLeave]);
 
   // Interstitials wait for a real tap. Auto-advancing here is what let the
   // same pointer land on the next question's chips (live: Transgender).
@@ -431,10 +454,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     setSigning(true);
     setSubmitError("");
     try {
-      if (advanceTimer.current) {
-        clearTimeout(advanceTimer.current);
-        advanceTimer.current = null;
-      }
+      advanceTimer.current?.cancel();
       // Signing always waits for pending writes, including an initial intake.
       // Otherwise an autosave can arrive after signing and invalidate it.
       const saved = await saveNow();
@@ -504,6 +524,8 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }
 
   /* ------------------------------ screens ----------------------------- */
+
+  if (paused) return <IntakePaused onResume={() => setPaused(false)} />;
 
   if (contentReviewRequired) return (
     <ContentRevisionReview endpoint={`/api/intake/${token}`} baselineAnswers={saveQueueRef.current!.savedAnswers()}
@@ -631,7 +653,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   if (phase === "photos") {
     return (
-      <div className="mx-auto max-w-md pb-28">
+      <div className="mx-auto max-w-md pb-40">
         <ProgressBar percent={100} label="Almost done!" />
         <h2 className="mt-6 text-3xl font-bold leading-snug text-brand">Two quick photos</h2>
         <p className="mt-3 text-xl leading-relaxed text-slate-600">
@@ -657,6 +679,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             </button>
             <SaveIndicator saving={saving} dirty={dirty} saveError={saveError} onRetry={() => { void saveNow(); }} />
           </div>
+          <div className="mx-auto max-w-md">{saveExitButton}</div>
         </div>
       </div>
     );
@@ -664,7 +687,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   if (phase === "signature") {
     return (
-      <div className="mx-auto max-w-md pb-28">
+      <div className="mx-auto max-w-md pb-40">
         <ProgressBar percent={100} label="Last step!" />
         <h2 className="mt-6 text-3xl font-bold leading-snug text-brand">One last thing</h2>
         <p className="mt-3 text-xl leading-relaxed text-slate-600">
@@ -689,7 +712,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         </div>
 
         {submitError && (
-          <div className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
+          <div role="alert" className="mt-4 rounded-xl bg-red-50 p-4 text-red-700">
             <p className="text-lg font-bold">{missing.length > 0 ? "We still need a few things:" : "We could not send your answers."}</p>
             {missing.length > 0 ? (
               <ul className="mt-2 list-inside list-disc space-y-1 text-base">
@@ -726,6 +749,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             </button>
             <SaveIndicator saving={saving} dirty={dirty} saveError={saveError} onRetry={() => { void saveNow(); }} />
           </div>
+          <div className="mx-auto max-w-md">{saveExitButton}</div>
         </div>
       </div>
     );
@@ -739,7 +763,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   return (
     <div
-      className={q.type === "consent" ? "mx-auto max-w-md pb-56" : "mx-auto max-w-md pb-40"}
+      className="mx-auto max-w-md pb-56"
       style={answersLocked ? { pointerEvents: "none" } : undefined}
     >
       <ProgressBar
@@ -752,19 +776,21 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       />
 
       <div className="mt-8">
-        <h2 className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q, providerName, supportPhone)}</h2>
-        {easyHelp(q, providerName, supportPhone) && <p className="mt-3 text-lg leading-relaxed text-slate-500">{easyHelp(q, providerName, supportPhone)}</p>}
+        <h2 id={`easy-question-${q.key}`} className="text-2xl font-bold leading-snug text-slate-800 sm:text-3xl">{easyQ(q, providerName, supportPhone)}</h2>
+        {easyHelp(q, providerName, supportPhone) && <p id={`easy-help-${q.key}`} className="mt-3 text-lg leading-relaxed text-slate-500">{easyHelp(q, providerName, supportPhone)}</p>}
       </div>
 
       <div className="mt-6">
         <AnswerWidget key={q.key} q={q} value={answers[q.key]} justPicked={justPicked}
           set={set} pickAndAdvance={pickAndAdvance} onNext={nextFromInput}
+          onVoiceDraft={voiceDraft.update}
           providerName={providerName} providerPhone={supportPhone} />
       </div>
 
       {nudge && (
-        <p className="mt-4 rounded-xl bg-amber-50 p-4 text-lg font-semibold text-amber-700">{nudge}</p>
+        <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-lg font-semibold text-amber-700">{nudge}</p>
       )}
+      {voiceDraft.message && <p role="alert" className="mt-4 rounded-xl bg-amber-50 p-4 text-base font-semibold text-amber-800">{voiceDraft.message}</p>}
 
       <div
         className="fixed inset-x-0 bottom-0 z-30 border-t border-slate-200 bg-white p-3"
@@ -785,6 +811,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
               Skip
             </button>
           )}
+          {saveExitButton}
         </div>
       </div>
     </div>
@@ -813,17 +840,19 @@ function SaveIndicator({ saving, dirty, saveError, onRetry }: {
 /*  One big answer widget per question type                            */
 /* ------------------------------------------------------------------ */
 
-function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, providerName, providerPhone: supportPhone }: {
+function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, onVoiceDraft, providerName, providerPhone: supportPhone }: {
   q: Question;
   value: Answers[string] | undefined;
   justPicked: string | null;
   set: (key: string, v: Answers[string]) => void;
   pickAndAdvance: (key: string, v: Answers[string], display: string) => void;
-  onNext: (pendingVoiceValue?: string) => void;
+  onNext: () => void;
+  onVoiceDraft: (key: string, state: VoiceDraftState) => void;
   providerName?: string;
   providerPhone?: string;
 }) {
-  const [pendingVoiceValue, setPendingVoiceValue] = useState<string | null>(null);
+  const accessibleLabel = easyQ(q, providerName, supportPhone);
+  const descriptionId = easyHelp(q, providerName, supportPhone) ? `easy-help-${q.key}` : undefined;
   /* ---- consent: friendly summary + full text + audio + required accept ---- */
   if (q.type === "consent") {
     const simple = brandText(
@@ -967,7 +996,7 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
   if (q.type === "date") {
     return (
       <div className="space-y-4">
-        <input type="date" className="input min-h-[64px] text-xl" value={String(value ?? "")}
+        <input type="date" aria-label={accessibleLabel} aria-describedby={descriptionId} className="input min-h-[64px] text-xl" value={String(value ?? "")}
           enterKeyHint="next"
           onChange={(e) => set(q.key, e.target.value)} />
       </div>
@@ -993,14 +1022,16 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
         />
       )}
       {q.voice || multiline ? (
-        <VoiceInput value={String(value ?? "")} onChange={(x) => set(q.key, x)}
-          onPendingValueChange={setPendingVoiceValue}
+        <VoiceInput ariaLabel={accessibleLabel} ariaDescribedBy={descriptionId} value={String(value ?? "")} onChange={(x) => set(q.key, x)}
+          onDraftStateChange={(state) => onVoiceDraft(q.key, state)}
           multiline={multiline} placeholder={q.placeholder} inputMode={inputMode}
           enterKeyHint="next"
           autoComplete={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "off"}
-          onEnter={multiline ? undefined : () => onNext(pendingVoiceValue ?? undefined)} />
+          onEnter={multiline ? undefined : onNext} />
       ) : (
         <input
+          aria-label={accessibleLabel}
+          aria-describedby={descriptionId}
           className="input min-h-[64px] text-xl"
           type={q.type === "email" ? "email" : q.type === "phone" ? "tel" : "text"}
           inputMode={q.type === "phone" ? "tel" : q.type === "email" ? "email" : q.type === "number" ? "numeric" : undefined}
@@ -1014,12 +1045,6 @@ function AnswerWidget({ q, value, justPicked, set, pickAndAdvance, onNext, provi
               onNext();
             }
           }} />
-      )}
-      {pendingVoiceValue && (
-        <button type="button" className="btn-secondary min-h-[56px] w-full text-lg"
-          onClick={() => onNext(pendingVoiceValue)}>
-          Use speech & Next
-        </button>
       )}
     </div>
   );

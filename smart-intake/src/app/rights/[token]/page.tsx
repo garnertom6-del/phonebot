@@ -7,8 +7,9 @@ import PrintPageButton from "@/components/PrintPageButton";
 
 const RIGHTS_SECTION_KEYS = new Set(["orientation", "rights", "hipaa", "confidentiality"]);
 
-export default async function ClientRightsPage(props: { params: Promise<{ token: string }> }) {
+export default async function ClientRightsPage(props: { params: Promise<{ token: string }>; searchParams?: Promise<{ mode?: string | string[] }> }) {
   const params = await props.params;
+  const query = await props.searchParams;
   const intake = await prisma.intake.findUnique({
     where: { token: params.token },
     select: {
@@ -34,7 +35,7 @@ export default async function ClientRightsPage(props: { params: Promise<{ token:
           calling {providerDisplayName(provider.name)} at {providerPhone(provider.phone, provider.name)}.
         </p>
         <div className="mt-5 flex flex-wrap gap-3 print:hidden">
-          <Link href={`/intake/${encodeURIComponent(params.token)}`} className="btn-primary">Return to my intake</Link>
+          <Link href={`/intake/${encodeURIComponent(params.token)}${query?.mode === "full" ? "?mode=full" : ""}`} className="btn-primary">Return to my intake</Link>
           <PrintPageButton label="Download or print my rights" />
         </div>
       </section>

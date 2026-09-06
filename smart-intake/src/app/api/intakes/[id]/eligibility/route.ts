@@ -6,6 +6,7 @@ import { loadAnswers, loadAnswerSnapshot, saveAnswerSnapshotChanges } from "@/li
 import { AnswerConflictError } from "@/lib/answerRevisions";
 import { applyNcTracksResult } from "@/lib/ncTracksLookup";
 import { checkNcTracksEligibility, nctracksEdiConfigured } from "@/lib/nctracksEdi";
+import { eligibilityIdentityFingerprint } from "@/lib/eligibilityIdentity";
 import {
   coverageMessage, snapshotFrom271, snapshotFromAnswers, snapshotToAnswers,
 } from "@/lib/eligibilityState";
@@ -29,7 +30,11 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   const answers = await loadAnswers(intake.id);
-  const snapshot = snapshotFromAnswers(answers);
+  const snapshot = snapshotFromAnswers(answers, eligibilityIdentityFingerprint({
+    fullName: intake.client.fullName || String(answers.client_full_name || ""),
+    dob: intake.client.dob || String(answers.dob || ""),
+    midNumber: intake.client.midNumber || String(answers.mid_number || ""),
+  }));
   const hasName = !!(intake.client.fullName || answers.client_full_name);
   const hasDob = !!(intake.client.dob || answers.dob);
   return NextResponse.json({
@@ -83,7 +88,15 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
 
     // auto-fill packet answers, then persist the coverage snapshot alongside them
     const { next, filled } = applyNcTracksResult(answers, mapped);
-    const snapshot = snapshotFrom271(result, now);
+    const snapshot = {
+      ...snapshotFrom271(result, now),
+      identityFingerprint: eligibilityIdentityFingerprint({
+        fullName, dob,
+        // A confirmed inquiry may supply a previously missing MID. Bind to
+        // the identity that this same atomic save will persist.
+        midNumber: mapped.mid_number || intake.client.midNumber || String(answers.mid_number || ""),
+      }),
+    };
     const merged = { ...next, ...snapshotToAnswers(snapshot) };
     await saveAnswerSnapshotChanges(intake.id, baseline, merged, { syncClient: true, expectedClientIdentity: intake.client });
 

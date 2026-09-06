@@ -121,7 +121,16 @@ export async function GET(req: NextRequest) {
         _count: { _all: true },
       }),
       prisma.userMembership.findMany({ where: { providerId: provider!.id, active: true, role: { not: "REVIEWER" } }, select: { user: { select: { id: true, name: true } } } }),
-      prisma.supportReferral.findMany({ where: { providerId: provider!.id }, select: { contactedAt: true, confirmedAssistanceAt: true, status: true } }),
+      prisma.supportReferral.findMany({
+        where: { providerId: provider!.id, intake: { providerId: provider!.id } },
+        select: {
+          id: true, intakeId: true, resourceName: true, status: true,
+          contactedAt: true, confirmedAssistanceAt: true, nextContactAt: true,
+          permissionGrantedAt: true, permissionWithdrawnAt: true,
+          assignedUserId: true, assignedUser: { select: { id: true, name: true } },
+          intake: { select: { archived: true, client: { select: { fullName: true } } } },
+        },
+      }),
       prisma.auditLog.groupBy({ by: ["intakeId"], where: { intakeId: { in: ids }, userId: null, event: { in: ["link_opened", "section_started", "section_completed", "signature_captured", "packet_submitted", "follow_up_opened", "follow_up_completed"] } }, _max: { createdAt: true } }),
     ]);
     const answersByIntake = new Map<string, Record<string, unknown>>();
@@ -259,6 +268,15 @@ export async function GET(req: NextRequest) {
     const response = NextResponse.json({
       intakes: rows,
       staff: staffMembers.map(m => m.user),
+      // Calendar filtering happens on the staff member's device, not in the
+      // server timezone. Keep totals above/below independent of that view.
+      referralFollowUps: referralOutcomes.filter(r => !!r.nextContactAt).map(r => ({
+        id: r.id, intakeId: r.intakeId, clientName: r.intake.client.fullName,
+        archived: r.intake.archived, resourceName: r.resourceName, status: r.status,
+        nextContactAt: r.nextContactAt, permissionGrantedAt: r.permissionGrantedAt,
+        permissionWithdrawnAt: r.permissionWithdrawnAt, assignedUserId: r.assignedUserId,
+        assignedUser: r.assignedUser, ownerActive: staffMembers.some(m => m.user.id === r.assignedUserId),
+      })),
       outcomes: {
         totalIntakes: intakes.length, submittedIntakes: intakes.filter(i => !!i.submittedAt).length,
         abandonedIntakes: intakes.filter(i => !!i.abandonedAt).length,
@@ -291,7 +309,8 @@ export async function POST(req: NextRequest) {
     // switched providers in another tab from saving this client under the wrong
     // agency. requireStaff still checks the user may write to that provider.
     const pageProviderId = typeof raw?.providerId === "string" ? raw.providerId.trim() : "";
-    const { user, provider, deny } = await requireStaff({ write: true, providerId: pageProviderId || null });
+    if (!pageProviderId) return NextResponse.json({ error: "Provider context is required. Reload the create page before saving this intake." }, { status: 400 });
+    const { user, provider, deny } = await requireStaff({ write: true, providerId: pageProviderId });
     if (deny) return deny;
     let recordNumber = typeof raw?.recordNumber === "string" ? raw.recordNumber.trim() : "";
     const resolvedRecord = resolveCreateRecordNumber(recordNumber, raw?.providerChoicePlan || "");

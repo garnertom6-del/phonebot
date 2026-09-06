@@ -8,6 +8,7 @@ import { SELECTED_PROVIDER_COOKIE } from "../src/lib/staffGuard";
 import { GET, POST } from "../src/app/api/intakes/[id]/support-referrals/route";
 import { PATCH } from "../src/app/api/intakes/[id]/support-referrals/[referralId]/route";
 import { DELETE as deleteProvider } from "../src/app/api/master/providers/[id]/route";
+import { GET as dashboard } from "../src/app/api/intakes/route";
 
 async function main() {
   assert.match(process.env.DATABASE_URL || "", /support-referral-tests\.db$/, "Use the dedicated synthetic referral test database.");
@@ -98,8 +99,22 @@ async function main() {
     assert.equal((await patch(referral.id, { expectedRevision: referral.revision, confirmedAssistanceAt: assistanceAt })).status, 400, "receipt requires supporting confirmation note");
     await accept({ confirmedAssistanceAt: assistanceAt, note: "Synthetic client confirmed actual receipt." });
     await accept({ nextContactAt: new Date(Date.now() + 86_400_000).toISOString() });
+    await prisma.supportReferral.update({ where: { id: otherReferral.id }, data: { nextContactAt: new Date(), permissionGrantedAt: new Date(), assignedUserId: outsider.id } });
+    const dashboardRequest = (providerId: string) => new NextRequest(`http://localhost/api/intakes?providerId=${providerId}`);
+    const scheduled = await (await dashboard(dashboardRequest(a.id))).json();
+    assert.deepEqual(scheduled.referralFollowUps.map((r: { id: string }) => r.id), [referral.id], "dashboard referral data stays scoped to the requested provider");
+    assert.equal(scheduled.referralFollowUps[0].assignedUser.id, owner.id);
+    assert.equal(scheduled.referralFollowUps[0].ownerActive, true);
+    assert.equal(scheduled.referralFollowUps[0].nextContactAt, referral.nextContactAt, "server preserves exact dates for local-calendar filtering");
+    signIn(outsider.id, b.id);
+    const otherDashboard = await (await dashboard(dashboardRequest(b.id))).json();
+    assert.deepEqual(otherDashboard.referralFollowUps.map((r: { id: string }) => r.id), [otherReferral.id]);
+    signIn(actor.id);
     const beforeWithdrawal = referral.events;
     await prisma.userMembership.update({ where: { userId_providerId: { userId: owner.id, providerId: a.id } }, data: { active: false } });
+    const inactiveOwnerDashboard = await (await dashboard(dashboardRequest(a.id))).json();
+    assert.equal(inactiveOwnerDashboard.referralFollowUps[0].ownerActive, false, "deactivated staff stay visible as needing reassignment");
+    assert.equal(await prisma.messageDelivery.count({ where: { intakeId: intakeA.id } }), 0, "opening the follow-up dashboard does not send messages");
     await accept({ permissionAction: "WITHDRAW", permissionAt: new Date(Date.now() - 86_400_000).toISOString(), note: "Synthetic client withdrew permission." });
     assert.equal(referral.status, "DECLINED");
     assert.equal(referral.nextContactAt, null);

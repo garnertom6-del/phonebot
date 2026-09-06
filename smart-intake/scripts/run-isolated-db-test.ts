@@ -4,9 +4,11 @@ import { isolatedSqlite } from "./isolatedSqlite";
 
 const suites = {
   "support-referrals": { script: "scripts/test-support-referrals.ts", database: "support-referral-tests.db" },
+  "completed-copy-link": { script: "scripts/test-completed-copy-link.ts", database: "completed-copy-link-tests.db" },
+  "coverage-identity": { script: "scripts/test-coverage-identity.ts", database: "coverage-identity-tests.db" },
 } as const;
 const name = process.argv[2] as keyof typeof suites;
-assert(Object.hasOwn(suites, name), "Usage: tsx scripts/run-isolated-db-test.ts support-referrals");
+assert(Object.hasOwn(suites, name), "Usage: tsx scripts/run-isolated-db-test.ts support-referrals|completed-copy-link");
 const suite = suites[name];
 const context = isolatedSqlite(suite.database);
 try {

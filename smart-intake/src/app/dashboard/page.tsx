@@ -11,6 +11,8 @@ import { FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE } from "@/lib/in
 import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
 import WorkflowActionCard from "@/components/WorkflowActionCard";
 import WorkflowOutcomesPanel, { type WorkflowOutcomes } from "@/components/WorkflowOutcomesPanel";
+import ReferralFollowUpPanel from "@/components/ReferralFollowUpPanel";
+import type { ReferralFollowUp } from "@/lib/referralFollowUp";
 import type { WorkflowAction } from "@/lib/workflowOutcomes";
 import AnswerConflictPanel from "@/components/AnswerConflictPanel";
 import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
@@ -212,6 +214,8 @@ function Dashboard() {
   const [clientEditError, setClientEditError] = useState("");
   const [staff, setStaff] = useState<Array<{id:string;name:string}>>([]);
   const [outcomes, setOutcomes] = useState<WorkflowOutcomes|null>(null);
+  const [referralFollowUps, setReferralFollowUps] = useState<ReferralFollowUp[]>([]);
+  const [preparedCopyLink, setPreparedCopyLink] = useState<{ intakeId: string; link: string; expiresAt: string; renewed: boolean } | null>(null);
   const [clientRevisions, setClientRevisions] = useState<AnswerRevisions>({});
   const [clientConflicts, setClientConflicts] = useState<AnswerConflict[]>([]);
   const busyRowIdsRef = useRef(new Set<string>());
@@ -236,6 +240,7 @@ function Dashboard() {
       setRows(body.intakes ?? []);
       setStaff(body.staff ?? []);
       setOutcomes(body.outcomes ?? null);
+      setReferralFollowUps(body.referralFollowUps ?? []);
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
       setCanManageProvider(!!body.canManageProvider);
@@ -395,13 +400,25 @@ function Dashboard() {
   }
 
   async function copyCompletedLink(row: Row) {
-    if (new Date(row.tokenExpiresAt).getTime() < Date.now()) {
-      showNote("This secure link expired. Open the intake and extend it before sending client copies.", 6500, "error");
-      return;
+    setPreparedCopyLink(null);
+    try {
+      const response = await fetch(`/api/intakes/${row.id}/copies/link`, { method: "POST" });
+      const body = await response.json();
+      if (!response.ok) {
+        const blockers = Array.isArray(body.blockers) ? body.blockers.map((item: { message?: string }) => item.message).filter(Boolean).join(" ") : "";
+        showNote([body.error || "The copies link could not be prepared.", blockers].filter(Boolean).join(" "), 8000, "error");
+        return;
+      }
+      setPreparedCopyLink({ intakeId: row.id, link: body.link, expiresAt: body.expiresAt, renewed: !!body.renewed });
+      try {
+        await navigator.clipboard.writeText(body.link);
+        showNote(`Client-copies link copied for ${row.client.fullName}. No message was sent.`, 4000);
+      } catch {
+        showNote("The copies link is ready below. Tap Copy prepared link or select and copy it manually.", 6500, "warning");
+      }
+    } catch {
+      showNote("The copies link could not be prepared. Check your connection and try again.", 6500, "error");
     }
-    const link = `${window.location.origin}/copies/${row.token}`;
-    await navigator.clipboard.writeText(link);
-    showNote(`Client-copies link copied for ${row.client.fullName}`, 2500);
   }
 
   async function remind(row: Row) {
@@ -689,6 +706,7 @@ function Dashboard() {
       </section>
 
       <WorkflowOutcomesPanel data={outcomes} />
+      <ReferralFollowUpPanel referrals={referralFollowUps} staff={staff} />
 
       {providerPacketReadiness && !providerPacketReadiness.ready && (
         <section role="alert" className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
@@ -1010,7 +1028,7 @@ function Dashboard() {
                         onClick={() => void runRowAction(row.id, () => sendCopies(row))}>Send client copies</button>
                     )}
                     {row.status === "COMPLETED" && (
-                      <button className="btn-ghost px-3 py-2 text-sm" onClick={() => copyCompletedLink(row)}>Copy client-copies link</button>
+                      <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy} onClick={() => void runRowAction(row.id, () => copyCompletedLink(row))}>Copy client-copies link</button>
                     )}
                     <button
                       className={row.autoSendCopies ? "btn-primary px-3 py-2 text-sm" : "btn-ghost px-3 py-2 text-sm"}
@@ -1059,6 +1077,22 @@ function Dashboard() {
                   </div>
                 </details>
               </div>
+
+              {preparedCopyLink?.intakeId === row.id && (
+                <div className="mt-4 rounded-xl border border-sky-200 bg-sky-50 p-4" role="status">
+                  <label className="block text-sm font-semibold" htmlFor={`copies-link-${row.id}`}>Prepared client-copies link</label>
+                  <input id={`copies-link-${row.id}`} className="input mt-2 min-w-0 font-mono text-xs" readOnly value={preparedCopyLink.link} onFocus={(event) => event.currentTarget.select()} />
+                  {preparedCopyLink.renewed && <p className="mt-2 text-sm text-sky-900">A new copies link was created because the previous link was missing or expired.</p>}
+                  <p className="mt-2 text-xs text-slate-600">Expires {displayDateTime(preparedCopyLink.expiresAt)}. Preparing or copying this link does not send it or confirm delivery.</p>
+                  <button type="button" className="btn-secondary mt-3 min-h-11" onClick={() => {
+                    if (!navigator.clipboard) { showNote("Select the link above and copy it manually.", 5000, "warning"); return; }
+                    void navigator.clipboard.writeText(preparedCopyLink.link).then(
+                      () => showNote("Client-copies link copied. No message was sent.", 3500),
+                      () => showNote("Select the link above and copy it manually.", 5000, "warning"),
+                    );
+                  }}>Copy prepared link</button>
+                </div>
+              )}
 
               {editingClientId === row.id && clientDraft && (
                 <form

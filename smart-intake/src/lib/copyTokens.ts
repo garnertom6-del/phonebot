@@ -31,29 +31,23 @@ export async function ensureCompletedCopyToken(intakeId: string, now = Date.now(
   copyTokenExpiresAt: Date;
   minted: boolean;
 }> {
-  const intake = await prisma.intake.findUnique({
-    where: { id: intakeId },
-    select: { id: true, copyToken: true, copyTokenExpiresAt: true },
+  return prisma.$transaction(async (tx) => {
+    // Use the same row lock as staff copy-link preparation. A delivery that
+    // started earlier must re-read any token that another request just issued.
+    await tx.$executeRaw`UPDATE "Intake" SET "id" = "id" WHERE "id" = ${intakeId}`;
+    const intake = await tx.intake.findUnique({
+      where: { id: intakeId },
+      select: { id: true, copyToken: true, copyTokenExpiresAt: true },
+    });
+    if (!intake) throw new Error("Intake not found");
+    if (copyTokenIsLive(intake.copyToken, intake.copyTokenExpiresAt, now) && intake.copyToken && intake.copyTokenExpiresAt) {
+      return { copyToken: intake.copyToken, copyTokenExpiresAt: intake.copyTokenExpiresAt, minted: false };
+    }
+    const copyToken = newIntakeToken();
+    const copyTokenExpiresAt = copyTokenExpiry(now);
+    await tx.intake.update({ where: { id: intakeId }, data: { copyToken, copyTokenExpiresAt } });
+    return { copyToken, copyTokenExpiresAt, minted: true };
   });
-  if (!intake) {
-    throw new Error("Intake not found");
-  }
-  if (copyTokenIsLive(intake.copyToken, intake.copyTokenExpiresAt, now) && intake.copyToken && intake.copyTokenExpiresAt) {
-    return {
-      copyToken: intake.copyToken,
-      copyTokenExpiresAt: intake.copyTokenExpiresAt instanceof Date
-        ? intake.copyTokenExpiresAt
-        : new Date(intake.copyTokenExpiresAt),
-      minted: false,
-    };
-  }
-  const copyToken = newIntakeToken();
-  const copyTokenExpiresAt = copyTokenExpiry(now);
-  await prisma.intake.update({
-    where: { id: intakeId },
-    data: { copyToken, copyTokenExpiresAt },
-  });
-  return { copyToken, copyTokenExpiresAt, minted: true };
 }
 
 export function copiesPath(copyToken: string): string {
