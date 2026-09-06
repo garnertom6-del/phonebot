@@ -381,6 +381,32 @@ def build_verification(s, tk, smap, verified):
     s.md("Checked by: ______________________  Signature: ______________________  Date: ____________")
     s.pb()
 
+    s.heading("Part 1b — Which areas to read first", 1)
+    s.rule()
+    s.md("You have limited hours. Spend them where the risk is. This table divides each area's "
+         "**page count in the manual** by **how many policies this packet gives you for it**. A "
+         "high number means a lot of manual and not much packet — that is where something is most "
+         "likely uncovered.")
+    s.notice("PAGE COUNT IS A PROXY, NOT A MEASUREMENT. It says where to look, not what is wrong.")
+    s.md("Page spans are taken from the supplied table of contents: each area runs to the page "
+         "before the next heading. Work top to bottom.")
+    rows = [["Order", "Area", "Name", "Pages in manual", "Policies here", "Pages per policy",
+             "Read first?", "Done (date)"]]
+    ranked = sorted(
+        [a for a in smap["areas"] if a.get("manual_page_span")],
+        key=lambda a: -(a["manual_page_span"] / max(len(a["policies"]), 1)))
+    for i, a in enumerate(ranked, 1):
+        pol = max(len(a["policies"]), 1)
+        ratio = a["manual_page_span"] / pol
+        flag = "YES — highest risk" if ratio >= 6 else ("Medium" if ratio >= 4 else "Lower")
+        rows.append([str(i), a["code"], a["name"], str(a["manual_page_span"]),
+                     str(len(a["policies"])), f"{ratio:.1f}", flag, ""])
+    s.table(rows)
+    s.md("**Also unread by anyone:** the Section 1 front matter (pages 29–30) and the Section 2 "
+         "front matter (pages 111–115), which carry applicability rules — who each section applies "
+         "to and how it is used. Five pages that can change which standards count for you at all.")
+    s.pb()
+
     s.heading("Part 2 — Area by area", 1)
     s.rule()
     s.md(f"{len(smap['areas'])} pages follow, one per area. Page 3.PEER is the exception and "

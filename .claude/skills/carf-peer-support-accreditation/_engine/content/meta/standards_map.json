@@ -105,7 +105,8 @@
         "Governing body",
         "Program Director"
       ],
-      "manual_page": 31
+      "manual_page": 31,
+      "manual_page_span": 10
     },
     {
       "code": "1.B",
@@ -131,7 +132,8 @@
         "CEO"
       ],
       "note": "The 2026 manual titles this area 'Governance (Optional)'. Confirm with the CARF resource specialist whether the agency is electing it before building this tab.",
-      "manual_page": 41
+      "manual_page": 41,
+      "manual_page_span": 8
     },
     {
       "code": "1.C",
@@ -156,7 +158,8 @@
         "CEO",
         "Governing body"
       ],
-      "manual_page": 49
+      "manual_page": 49,
+      "manual_page_span": 4
     },
     {
       "code": "1.D",
@@ -182,7 +185,8 @@
         "Program Director",
         "QI Coordinator"
       ],
-      "manual_page": 53
+      "manual_page": 53,
+      "manual_page_span": 2
     },
     {
       "code": "1.E",
@@ -205,7 +209,8 @@
         "CEO",
         "Compliance Officer"
       ],
-      "manual_page": 55
+      "manual_page": 55,
+      "manual_page_span": 2
     },
     {
       "code": "1.F",
@@ -231,7 +236,8 @@
         "CEO",
         "Finance"
       ],
-      "manual_page": 57
+      "manual_page": 57,
+      "manual_page_span": 4
     },
     {
       "code": "1.G",
@@ -256,7 +262,8 @@
         "CEO",
         "Program Director"
       ],
-      "manual_page": 61
+      "manual_page": 61,
+      "manual_page_span": 4
     },
     {
       "code": "1.H",
@@ -292,7 +299,8 @@
         "Direct staff",
         "Persons served"
       ],
-      "manual_page": 65
+      "manual_page": 65,
+      "manual_page_span": 15
     },
     {
       "code": "1.I",
@@ -331,7 +339,8 @@
         "Supervisor",
         "Peer Support Specialists"
       ],
-      "manual_page": 80
+      "manual_page": 80,
+      "manual_page_span": 9
     },
     {
       "code": "1.J",
@@ -364,7 +373,8 @@
         "Direct staff",
         "Privacy Officer"
       ],
-      "manual_page": 89
+      "manual_page": 89,
+      "manual_page_span": 3
     },
     {
       "code": "1.K",
@@ -390,7 +400,8 @@
         "Persons served",
         "Direct staff"
       ],
-      "manual_page": 92
+      "manual_page": 92,
+      "manual_page_span": 3
     },
     {
       "code": "1.L",
@@ -417,7 +428,8 @@
         "CEO",
         "Program Director"
       ],
-      "manual_page": 95
+      "manual_page": 95,
+      "manual_page_span": 12
     },
     {
       "code": "1.M",
@@ -446,7 +458,8 @@
         "Direct staff",
         "Persons served"
       ],
-      "manual_page": 107
+      "manual_page": 107,
+      "manual_page_span": 4
     },
     {
       "code": "2.A",
@@ -472,7 +485,8 @@
         "Program Director",
         "Direct staff"
       ],
-      "manual_page": 116
+      "manual_page": 116,
+      "manual_page_span": 16
     },
     {
       "code": "2.B",
@@ -500,7 +514,8 @@
         "Direct staff",
         "Persons served"
       ],
-      "manual_page": 132
+      "manual_page": 132,
+      "manual_page_span": 9
     },
     {
       "code": "2.C",
@@ -529,7 +544,8 @@
         "Direct staff",
         "Supervisor"
       ],
-      "manual_page": 141
+      "manual_page": 141,
+      "manual_page_span": 4
     },
     {
       "code": "2.D",
@@ -554,7 +570,8 @@
         "Program Director",
         "Direct staff"
       ],
-      "manual_page": 145
+      "manual_page": 145,
+      "manual_page_span": 4
     },
     {
       "code": "2.E",
@@ -577,7 +594,8 @@
         "Direct staff"
       ],
       "conditional": "administers_medication",
-      "manual_page": 149
+      "manual_page": 149,
+      "manual_page_span": 8
     },
     {
       "code": "2.F",
@@ -604,7 +622,8 @@
         "Supervisor",
         "Persons served"
       ],
-      "manual_page": 157
+      "manual_page": 157,
+      "manual_page_span": 7
     },
     {
       "code": "2.G",
@@ -630,7 +649,8 @@
         "Direct staff",
         "Records custodian"
       ],
-      "manual_page": 164
+      "manual_page": 164,
+      "manual_page_span": 3
     },
     {
       "code": "2.H",
@@ -655,7 +675,8 @@
         "QI Coordinator",
         "Supervisor"
       ],
-      "manual_page": 167
+      "manual_page": 167,
+      "manual_page_span": 2
     },
     {
       "code": "2.I",
@@ -679,7 +700,8 @@
         "Direct staff",
         "Persons served"
       ],
-      "note": "This whole area was missing from earlier builds. It is Section 2, not Section 1."
+      "note": "This whole area was missing from earlier builds. It is Section 2, not Section 1.",
+      "manual_page_span": 6
     },
     {
       "code": "3.C",
@@ -710,7 +732,8 @@
         "Direct staff",
         "Program Director"
       ],
-      "manual_page": 185
+      "manual_page": 185,
+      "manual_page_span": 2
     },
     {
       "code": "3.PEER",
