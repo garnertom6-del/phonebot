@@ -10,7 +10,7 @@ async function main() {
     console.log("Usage: tsx scripts/nctracks-host/cli.ts --config <absolute config.json> --status|--check|--once|--run");
     process.exitCode = 2; return;
   }
-  const config = validateConfig(JSON.parse(await fs.readFile(args[configIndex + 1], "utf8")));
+  const config = validateConfig(JSON.parse((await fs.readFile(args[configIndex + 1], "utf8")).replace(/^\uFEFF/, "")));
   await Promise.all([fs.access(config.runner.executable), fs.access(config.runner.cwd), fs.access(config.artifactRoot)]);
   const token = process.env.NCTRACKS_HOST_TOKEN;
   if (mode[0] === "--check") {

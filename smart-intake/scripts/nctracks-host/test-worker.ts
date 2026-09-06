@@ -80,7 +80,7 @@ process.stdout.write(JSON.stringify(response)); }`;
       assert.equal(uploaded.authorization, "Bearer synthetic-secret-never-forward");
       assert(!JSON.stringify(uploaded.body).includes(root)); assert(!JSON.stringify(uploaded.body).includes("localPath"));
       // Actual executable entrypoint smoke tests: no token required for read-only runner check.
-      const configPath = path.join(root, "config.json"); await fs.writeFile(configPath, JSON.stringify(config));
+      const configPath = path.join(root, "config.json"); await fs.writeFile(configPath, "\uFEFF" + JSON.stringify(config));
       async function cli(mode: string) {
         return new Promise<{ code: number | null; output: string }>((resolve) => {
           const child = spawn(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), path.resolve("scripts/nctracks-host/cli.ts"), "--config", configPath, mode], { env: { ...process.env, NCTRACKS_HOST_TOKEN: "" }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
