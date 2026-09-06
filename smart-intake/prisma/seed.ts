@@ -241,7 +241,7 @@ async function main() {
     // only overwritten when explicitly requested, so deploys do not undo an
     // in-app or one-time admin reset.
     update: process.env.ADMIN_PASSWORD && syncAdminPasswordOnSeed
-      ? { passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10), name: "MDC Admin", role: "master" }
+      ? { passwordHash: await bcrypt.hash(process.env.ADMIN_PASSWORD, 10), sessionVersion: { increment: 1 }, name: "MDC Admin", role: "master" }
       : { name: "MDC Admin", role: "master" },
   });
   await prisma.userMembership.upsert({

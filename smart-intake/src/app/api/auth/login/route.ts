@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   attempts.delete(key);
   const destination = isMasterUser(user) ? "/master/dashboard" : "/dashboard";
   const res = NextResponse.json({ ok: true, name: user.name, destination });
-  res.cookies.set(SESSION_COOKIE, createSessionValue(user.id), {
+  res.cookies.set(SESSION_COOKIE, createSessionValue(user.id, user.sessionVersion), {
     httpOnly: true, sameSite: "lax", path: "/", secure: process.env.NODE_ENV === "production",
   });
   return res;

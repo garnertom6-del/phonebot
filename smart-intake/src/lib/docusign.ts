@@ -14,6 +14,11 @@ export function docusignConfigured(): boolean {
     process.env.DOCUSIGN_ACCOUNT_ID && process.env.DOCUSIGN_PRIVATE_KEY);
 }
 
+/** An uncertain create response must not invite another envelope/email. */
+export class DocuSignEnvelopeError extends Error {
+  constructor(message: string, readonly mayHaveSent: boolean) { super(message); }
+}
+
 function b64url(input: Buffer | string): string {
   return Buffer.from(input).toString("base64url");
 }
@@ -46,8 +51,10 @@ async function requestAccessToken(authServer: string): Promise<string> {
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt,
     }),
   });
-  if (!res.ok) throw new Error(`DocuSign auth failed: ${await res.text()}`);
-  return (await res.json()).access_token as string;
+  if (!res.ok) throw new Error(`DocuSign auth failed (HTTP ${res.status})`);
+  const token: unknown = (await res.json()).access_token;
+  if (typeof token !== "string" || !token.trim()) throw new Error("DocuSign auth returned no access token");
+  return token;
 }
 
 async function resolveRestBase(token: string, authServer: string): Promise<string> {
@@ -165,13 +172,15 @@ export async function createDocuSignEnvelope(
   fields: FieldMapping[] = PACKET_MAP.fields,
   providerName = "Moore Divine Care, Inc.",
   pageHeight = PACKET_MAP.pageHeight,
+  transactionId?: string,
 ): Promise<{ envelopeId: string }> {
   if (!docusignConfigured()) throw new Error("DocuSign not configured");
   const pageCount = (await PDFDocument.load(completedPdf)).getPageCount();
   const tabs = clampTabsToDocument(clientDocuSignTabs(answers, consents, fields, pageHeight), pageCount);
   if (tabs.signHereTabs.length === 0) throw new Error("No client DocuSign signature tabs found");
   const { token, base } = await getApiContext();
-  const res = await fetch(
+  let res: Response;
+  try { res = await fetch(
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes`,
     {
       method: "POST",
@@ -180,6 +189,7 @@ export async function createDocuSignEnvelope(
         emailSubject: `${providerName} - Client Intake Package for signature`,
         envelopeIdStamping: "false",
         status: "sent",
+        ...(transactionId ? { transactionId } : {}),
         documents: [{
           documentId: "1", name: `Client Intake Package - ${clientName}`,
           fileExtension: "pdf", documentBase64: completedPdf.toString("base64"),
@@ -192,9 +202,13 @@ export async function createDocuSignEnvelope(
         },
       }),
     },
-  );
-  if (!res.ok) throw new Error(`DocuSign envelope failed: ${await res.text()}`);
-  return { envelopeId: (await res.json()).envelopeId as string };
+  ); } catch { throw new DocuSignEnvelopeError("DocuSign did not confirm whether the envelope was sent", true); }
+  if (!res.ok) throw new DocuSignEnvelopeError(`DocuSign envelope failed (HTTP ${res.status})`, res.status >= 500 || res.status === 408);
+  try {
+    const envelopeId: unknown = (await res.json()).envelopeId;
+    if (typeof envelopeId !== "string" || !envelopeId.trim()) throw new Error("Missing envelope ID");
+    return { envelopeId };
+  } catch { throw new DocuSignEnvelopeError("DocuSign returned an unconfirmed envelope ID", true); }
 }
 
 export async function sendCompletedPacketForSignature(intakeId: string): Promise<{ envelopeId: string }> {
@@ -209,8 +223,10 @@ export async function checkDocuSignStatus(envelopeId: string): Promise<string> {
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes/${envelopeId}`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  if (!res.ok) throw new Error(await res.text());
-  return (await res.json()).status as string;
+  if (!res.ok) throw new Error(`DocuSign status failed (HTTP ${res.status})`);
+  const status: unknown = (await res.json()).status;
+  if (typeof status !== "string" || !status.trim()) throw new Error("DocuSign returned no envelope status");
+  return status;
 }
 
 /** Download the signed packet (all documents combined) for a completed envelope. */
@@ -220,6 +236,12 @@ export async function downloadDocuSignDocument(envelopeId: string): Promise<Buff
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes/${envelopeId}/documents/combined`,
     { headers: { Authorization: `Bearer ${token}` } },
   );
-  if (!res.ok) throw new Error(await res.text());
-  return Buffer.from(await res.arrayBuffer());
+  if (!res.ok) throw new Error(`DocuSign document download failed (HTTP ${res.status})`);
+  const bytes = Buffer.from(await res.arrayBuffer());
+  // A successful HTTP response may still be an error page or truncated file.
+  // Do not persist that response as a signed, deliverable packet.
+  if (!bytes.subarray(0, 1024).includes(Buffer.from("%PDF-"))) throw new Error("DocuSign did not return a PDF");
+  const pdf = await PDFDocument.load(bytes);
+  if (!pdf.getPageCount()) throw new Error("DocuSign returned an empty PDF");
+  return bytes;
 }

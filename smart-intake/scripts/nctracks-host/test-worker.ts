@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { PDFDocument, StandardFonts } from "pdf-lib";
 import { HostError, NcTracksHostWorker, runRunner, validateConfig, validateJob, validateRunnerResult } from "./worker";
+import { testWorkerLock } from "./test-worker-lock";
 
 async function main() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "nctracks-host-test-"));
@@ -42,6 +43,21 @@ process.stdout.write(JSON.stringify(response)); }`;
     return { localPath, sha256: createHash("sha256").update(bytes).digest("hex") };
   }
   try {
+    await testWorkerLock(root);
+    // The runner is a supervised instruction contract. Preserve its group-account
+    // exception together with the acceptance/conflict/evidence safeguards.
+    const runnerInstructions = await fs.readFile(path.resolve("scripts/nctracks-host/codex-runner.mjs"), "utf8");
+    for (const requirement of [
+      "Require the exact NPI 1134943608 to be visibly accepted on the settled inquiry form BEFORE submitting",
+      "An absent organization label is allowed only with the exact accepted NPI and no conflicting query-provider organization shown",
+      "do not treat that account label as the query-provider organization",
+      "a conflicting organization requires ACTION_REQUIRED / PROVIDER_VERIFICATION_REQUIRED",
+      "Never report the configured organization as observed when it was not displayed, or insert it into returned source fields",
+      "pressSequentially", "then press Tab", "provider validation indicator to finish",
+      "Only submit when all identity/date/NPI values match and provider validation has settled without error",
+      "actual expanded inquiry dates and selected coverage period",
+    ]) assert(runnerInstructions.includes(requirement), `Missing NCTracks provider/evidence instruction: ${requirement}`);
+    assert(!runnerInstructions.includes("Match the currently displayed organization and provider NPI exactly BEFORE submitting"));
     const artifact = await proof("verified.pdf");
     const response = { protocolVersion: 1, status: "VERIFIED_LOCAL", coverage: "ACTIVE", provenance: { source: "NCTRACKS_PORTAL", observedAt: new Date().toISOString(), reference: "SYNTHETIC_REF" },
       observedSubject: { ...job.subject, midNumber: "001234567A" }, artifact, code: null,
@@ -81,15 +97,21 @@ process.stdout.write(JSON.stringify(response)); }`;
       assert(!JSON.stringify(uploaded.body).includes(root)); assert(!JSON.stringify(uploaded.body).includes("localPath"));
       // Actual executable entrypoint smoke tests: no token required for read-only runner check.
       const configPath = path.join(root, "config.json"); await fs.writeFile(configPath, "\uFEFF" + JSON.stringify(config));
-      async function cli(mode: string) {
-        return new Promise<{ code: number | null; output: string }>((resolve) => {
-          const child = spawn(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), path.resolve("scripts/nctracks-host/cli.ts"), "--config", configPath, mode], { env: { ...process.env, NCTRACKS_HOST_TOKEN: "" }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
+      async function cli(mode: string, token = "") {
+        return new Promise<{ code: number | null; output: string; pid: number | undefined }>((resolve) => {
+          const child = spawn(process.execPath, [path.resolve("node_modules/tsx/dist/cli.mjs"), path.resolve("scripts/nctracks-host/cli.ts"), "--config", configPath, mode], { env: { ...process.env, NCTRACKS_HOST_TOKEN: token }, windowsHide: true, stdio: ["ignore", "pipe", "pipe"] });
           let output = ""; child.stdout.on("data", (v) => output += v); child.stderr.on("data", (v) => output += v);
-          child.on("close", (code) => resolve({ code, output }));
+          child.on("close", (code) => resolve({ code, output, pid: child.pid }));
         });
       }
       const status = await cli("--status"); assert.equal(status.code, 0); assert.equal(JSON.parse(status.output).code, "HOST_TOKEN_MISSING");
       const check = await cli("--check"); assert.equal(check.code, 0); assert.equal(JSON.parse(check.output).status, "ADAPTER_AVAILABLE");
+      assert(status.pid);
+      const staleLock = path.join(root, ".nctracks-host.lock");
+      await fs.writeFile(staleLock, JSON.stringify({ pid: status.pid, startedAt: new Date().toISOString() }));
+      const resumed = await cli("--once", "synthetic-secret-never-forward");
+      assert.equal(resumed.code, 0); assert.match(resumed.output, /VERIFIED_LOCAL/);
+      await assert.rejects(() => fs.access(staleLock), (error: any) => error.code === "ENOENT");
       const before = requests.length;
       rejectLease = true;
       await fs.writeFile(responseFile, JSON.stringify({ hang: true }));

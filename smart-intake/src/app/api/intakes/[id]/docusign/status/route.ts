@@ -33,6 +33,16 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   }
   try {
     const status = await checkDocuSignStatus(intake.docusignEnvelopeId);
+    const recorded = await prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`UPDATE "Intake" SET "id" = "id" WHERE "id" = ${intake.id} AND "providerId" = ${provider!.id}`;
+      const current = await tx.intake.findFirst({ where: { id: intake.id, providerId: provider!.id } });
+      if (!current || current.docusignEnvelopeId !== intake.docusignEnvelopeId) return false;
+      const detail = JSON.stringify({ envelopeId: intake.docusignEnvelopeId, status });
+      const last = await tx.auditLog.findFirst({ where: { intakeId: intake.id, providerId: provider!.id, event: "docusign_status" }, orderBy: [{ createdAt: "desc" }, { id: "desc" }] });
+      if (last?.detail !== detail) await tx.auditLog.create({ data: { intakeId: intake.id, providerId: provider!.id, userId: user!.id, event: "docusign_status", detail } });
+      return true;
+    });
+    if (!recorded) return NextResponse.json({ error: "The DocuSign envelope changed. Refresh the intake before checking it." }, { status: 409 });
     if (status === "completed") {
       const alreadySaved = await prisma.auditLog.findFirst({
         where: {
@@ -64,9 +74,11 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
       const readiness = await completionReadinessForIntake(intake.id, provider!.id);
       if (!readiness) return NextResponse.json({ error: "Not found" }, { status: 404 });
       if (!readiness.ready) {
-        if (intake.status !== "COMPLETED") {
-          await prisma.intake.update({ where: { id: intake.id }, data: { status: "SIGNED" } });
-        }
+        await prisma.intake.updateMany({ where: {
+          id: intake.id, providerId: provider!.id, docusignEnvelopeId: intake.docusignEnvelopeId,
+          contentRevision: intake.contentRevision, archived: false,
+          status: { notIn: ["COMPLETED", "NEEDS_REVIEW"] },
+        }, data: { status: "SIGNED" } });
         return NextResponse.json({
           ok: true,
           status,
@@ -81,7 +93,11 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
         });
       }
 
-      await prisma.intake.update({ where: { id: intake.id }, data: { status: "COMPLETED" } });
+      const completed = await prisma.intake.updateMany({ where: {
+        id: intake.id, providerId: provider!.id, docusignEnvelopeId: intake.docusignEnvelopeId,
+        contentRevision: intake.contentRevision, archived: false,
+      }, data: { status: "COMPLETED" } });
+      if (!completed.count) return NextResponse.json({ error: "The intake changed while DocuSign was checked. Review the current packet before completing it." }, { status: 409 });
       await ensureCompletedCopyToken(intake.id);
       const delivery = await autoSendCompletedCopiesIfEnabled({
         intakeId: intake.id,

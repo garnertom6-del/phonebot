@@ -27,7 +27,15 @@ export function deleteFile(relPath: string): void {
   const full = path.resolve(ROOT, relPath);
   const root = `${path.resolve(ROOT)}${path.sep}`;
   if (!full.startsWith(root)) throw new Error("Refusing to delete a file outside storage.");
-  if (fs.existsSync(full)) fs.rmSync(full, { force: true });
+  if (fs.existsSync(full)) {
+    // A symlink/junction inside storage must not redirect a cleanup to a file
+    // elsewhere on the host, even when its lexical path is under ROOT.
+    const relative = path.relative(fs.realpathSync(ROOT), fs.realpathSync(full));
+    if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      throw new Error("Refusing to delete a file outside storage.");
+    }
+    fs.rmSync(full, { force: true });
+  }
 }
 
 export function moveFile(fromRelPath: string, toRelPath: string): void {

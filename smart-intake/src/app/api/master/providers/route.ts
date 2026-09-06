@@ -206,6 +206,7 @@ export async function POST(req: NextRequest) {
       },
       update: {
         passwordHash,
+        sessionVersion: { increment: 1 },
         name: data.adminName || data.contactName || data.name,
       },
     });

@@ -1,6 +1,7 @@
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { HostError, NcTracksHostWorker, runRunner, validateConfig } from "./worker";
+import { acquireHostLock } from "./worker-lock";
 
 async function main() {
   const args = process.argv.slice(2);
@@ -24,16 +25,12 @@ async function main() {
   const controller = new AbortController();
   process.once("SIGINT", () => controller.abort()); process.once("SIGTERM", () => controller.abort());
   const root = await fs.realpath(config.artifactRoot);
-  const lockPath = path.join(root, ".nctracks-host.lock");
-  let lock;
-  try { lock = await fs.open(lockPath, "wx", 0o600); }
-  catch { throw new HostError("HOST_ALREADY_RUNNING_OR_LOCKED"); }
+  const lock = await acquireHostLock(root);
   try {
-    await lock.writeFile(JSON.stringify({ pid: process.pid, startedAt: new Date().toISOString() }));
     const worker = new NcTracksHostWorker(config, token, (status) => console.log(JSON.stringify({ status })));
     if (mode[0] === "--once") console.log(JSON.stringify({ status: await worker.runOnce(controller.signal) }));
     else await worker.run(controller.signal);
-  } finally { await lock.close(); await fs.unlink(lockPath); }
+  } finally { await lock.release(); }
 }
 main().catch((error) => {
   // Never echo config, child stderr, HTTP body, paths, token or patient input.
