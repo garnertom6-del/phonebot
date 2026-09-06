@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireStaffForIntake, requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers } from "@/lib/intakeData";
+import { loadAnswers, loadAnswerSnapshot, saveAnswerSnapshotChanges } from "@/lib/intakeData";
+import { AnswerConflictError } from "@/lib/answerRevisions";
 import { applyNcTracksResult } from "@/lib/ncTracksLookup";
 import { checkNcTracksEligibility, nctracksEdiConfigured } from "@/lib/nctracksEdi";
 import {
@@ -58,7 +59,8 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
 
-  const answers = await loadAnswers(intake.id);
+  const baseline = await loadAnswerSnapshot(intake.id);
+  const answers = baseline.answers;
   const fullName = intake.client.fullName || String(answers.client_full_name || "");
   const dob = intake.client.dob || String(answers.dob || "");
   if (!fullName || !dob) {
@@ -83,7 +85,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
     const { next, filled } = applyNcTracksResult(answers, mapped);
     const snapshot = snapshotFrom271(result, now);
     const merged = { ...next, ...snapshotToAnswers(snapshot) };
-    await saveAnswers(intake.id, merged);
+    await saveAnswerSnapshotChanges(intake.id, baseline, merged, { syncClient: true, expectedClientIdentity: intake.client });
 
     await audit(result.rejectReason ? "nctracks_lookup_failed" : "nctracks_lookup_completed", {
       providerId: provider!.id, intakeId: intake.id, userId: user!.id,
@@ -92,6 +94,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
 
     return NextResponse.json({ ok: true, configured: true, snapshot, message: coverageMessage(snapshot), filled });
   } catch (e) {
+    if (e instanceof AnswerConflictError) return NextResponse.json({ ...e.toJSON(), error: "The intake changed during the eligibility check. Review the saved answers and check eligibility again." }, { status: 409 });
     console.error("NC Tracks eligibility check failed", e);
     return NextResponse.json(
       { error: "Could not reach NC Tracks right now. Try again in a minute, or enter the details by hand." },

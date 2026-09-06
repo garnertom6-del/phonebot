@@ -11,6 +11,9 @@ import {
   use,
 } from "react";
 import MissingFieldsPanel from "@/components/MissingFieldsPanel";
+import AnswerConflictPanel from "@/components/AnswerConflictPanel";
+import ReferralTracker from "@/components/ReferralTracker";
+import { type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
 import CoveragePanel from "@/components/CoveragePanel";
 import ManualSendPanel from "@/components/ManualSendPanel";
 import ComputerSmsActions from "@/components/ComputerSmsActions";
@@ -23,7 +26,7 @@ import {
   fourComponentsPass,
   recommendedServicesClear,
 } from "@/lib/ccaMedicalNecessity";
-import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix, staffInsurancePlanReady } from "@/lib/insurancePlans";
+import { canGenerateRecordNumber, FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE, insurancePlanDisplayLabel, makeRecordNumber, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_LOOKUP_LINKS, recordNumberPrefix, staffInsurancePlanReady } from "@/lib/insurancePlans";
 import { moodScores } from "@/lib/moodScores";
 import { EDUCATION_OPTIONS, EMPLOYMENT_STATUS_OPTIONS, ETHNICITY_PACKET_OPTIONS, MARITAL_STATUS_OPTIONS, RACE_OPTIONS, REFERRAL_SOURCE_OPTIONS } from "@/config/mooreDivineQuestions";
 import {
@@ -156,6 +159,7 @@ interface Detail {
     }[];
   };
   answers: Record<string, unknown>;
+  answerRevisions: AnswerRevisions;
   clientLink: string; percentComplete: number;
   missingRequired: { key: string; label: string }[];
   missingOptional: { key: string; label: string; section?: string }[];
@@ -288,6 +292,9 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const [ncTracksResult, setNcTracksResult] = useState("");
   const [helperDraft, setHelperDraft] = useState<Record<string, string>>({});
   const helperDirtyRef = useRef<Set<string>>(new Set());
+  const helperRevisionsRef = useRef<AnswerRevisions>({});
+  const helperSaveBusyRef = useRef(false);
+  const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
 
   const load = useCallback(async () => {
     try {
@@ -305,6 +312,11 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
         const body = await r.json() as Detail;
         setLoadError(null);
         setD(body);
+        if (!helperDirtyRef.current.has("staff_helper_notes")) {
+          for (const [key, revision] of Object.entries(body.answerRevisions || {})) {
+            if (!helperDirtyRef.current.has(key)) helperRevisionsRef.current[key] = revision;
+          }
+        }
         setHelperDraft((current) => mergeHelperDraft(current, body, helperDirtyRef.current));
         if (body.intake.followUps?.[0]?.status === "COMPLETED") setFollowUpResult(null);
         return body;
@@ -829,6 +841,8 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   }
 
   async function saveAssist(form: HTMLFormElement) {
+    if (helperSaveBusyRef.current || answerConflicts.length) return;
+    helperSaveBusyRef.current = true;
     setSaveAssistBusy(true);
     setSaveAssistKind("info");
     setSaveAssistMessage("Saving answers and notes to the intake form...");
@@ -836,16 +850,21 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
     const fd = new FormData(form);
     const fields = Object.fromEntries(
       Array.from(fd.entries())
-        .filter(([key]) => key !== "helperNotes")
+        .filter(([key]) => key !== "helperNotes" && helperDirtyRef.current.has(key))
         .map(([key, value]) => [key, String(value)]),
     );
     try {
       const r = await fetch(`/api/intakes/${i.id}/assist`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ fields, helperNotes: String(fd.get("helperNotes") || "") }),
+        body: JSON.stringify({
+          fields,
+          helperNotes: helperDirtyRef.current.has("staff_helper_notes") ? String(fd.get("helperNotes") || "") : "",
+          expectedAnswerRevisions: helperRevisionsRef.current,
+        }),
       });
       const b = await r.json().catch(() => ({}));
       if (!r.ok) {
+        if (b.code === "ANSWER_CONFLICT") setAnswerConflicts(b.conflicts || []);
         const message = `Helper info failed to save: ${b.error || r.status}`;
         setSaveAssistKind("error");
         setSaveAssistMessage(message);
@@ -877,6 +896,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
       setNote(message);
     } finally {
       setSaveAssistBusy(false);
+      helperSaveBusyRef.current = false;
     }
   }
 
@@ -1027,6 +1047,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   }
 
   function setHelperField(name: string, value: string) {
+    if (helperSaveBusyRef.current) return;
     helperDirtyRef.current.add(name);
     setHelperDraft((current) => ({ ...current, [name]: value }));
   }
@@ -1078,6 +1099,16 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
 
   return (
     <main className="mx-auto max-w-5xl p-6">
+      <AnswerConflictPanel conflicts={answerConflicts} localAnswers={helperDraft} labelForKey={staffFacingFieldLabel}
+        onResolve={(key, choice) => {
+          const conflict = answerConflicts.find((item) => item.key === key)!;
+          helperRevisionsRef.current[key] = conflict.serverRevision;
+          const value = choice === "server" ? conflict.serverValue : conflict.localValue;
+          helperDirtyRef.current.add(key);
+          setHelperDraft((current) => ({ ...current, [key]: Array.isArray(value) ? value.join(", ") : String(value ?? "") }));
+          setAnswerConflicts((current) => current.filter((item) => item.key !== key));
+          setSaveAssistMessage("Your choices are ready. Save helper info again to continue.");
+        }} />
       <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
       <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
@@ -1409,7 +1440,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
             </details>
           )}
         </div>
-        <div className={`card border-brand/40 bg-brand-light/40 ${ccaNeeded ? "order-1" : "order-2"}`}>
+        <div id="cca" className={`card border-brand/40 bg-brand-light/40 ${ccaNeeded ? "order-1" : "order-2"}`}>
           <h3 className="mb-1 font-bold">Add CCA - auto-fill from the clinician&apos;s assessment</h3>
           <p className="mb-3 text-sm text-slate-600">
             Upload the completed Comprehensive Clinical Assessment (PDF or photo, e.g. from your
@@ -2084,6 +2115,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
       </div>
       <MoodPanel answers={d.answers} />
       <CoveragePanel intakeId={i.id} />
+      <div id="support-referrals"><ReferralTracker intakeId={i.id} /></div>
     </main>
   );
 }
@@ -2329,7 +2361,7 @@ function HelperSelect({
       <select id={`helper-${name}`} className="input" name={name} value={helper.draft[name] ?? ""} onChange={(e) => helper.setField(name, e.target.value)}>
         <option value="">{placeholder || "Choose an option"}</option>
         {options.map((option) => (
-          <option key={option} value={option}>{option}</option>
+          <option key={option} value={option}>{name === "mco" || name === "provider_choice_plan" ? insurancePlanDisplayLabel(option) : option}</option>
         ))}
       </select>
     </label>

@@ -18,6 +18,8 @@ import { fileExists } from "@/lib/storage";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { buildSignatureStatuses } from "@/lib/signatureStatus";
 import { clientCcaAttestationReady } from "@/lib/ccaReview";
+import { deliveryFacts, nextWorkflowAction, summarizeWorkflowIntervals, FAILURE_STATUSES } from "@/lib/workflowOutcomes";
+import { observeIntakeWorkflow } from "@/lib/workflowTracking";
 
 function generatedRecordNumber(panel?: string): string {
   const prefix = recordNumberPrefix(panel || "") || "TEMP";
@@ -46,6 +48,9 @@ export async function GET(req: NextRequest) {
       where: { providerId: provider!.id },
       include: {
         client: true,
+        workflowIntervals: { where: { endedAt: null }, orderBy: { startedAt: "desc" }, take: 1 },
+        followUps: { where: { status: { in: ["OPEN", "PROCESSING"] } }, select: { id: true } },
+        messageDeliveries: { select: { status: true, purpose: true, createdAt: true } },
         signatures: {
           select: {
             role: true,
@@ -80,21 +85,21 @@ export async function GET(req: NextRequest) {
                 "copies_link_sent",
                 "provider_packet_email_sent",
                 "docusign_completed",
+                "staff_reviewed", "workflow_delivery_confirmed", "copies_link_failed",
               ],
             },
           },
           orderBy: { createdAt: "desc" },
           select: { event: true, detail: true, createdAt: true },
-          take: 25,
         },
       },
       orderBy: { updatedAt: "desc" },
     });
     const ids = intakes.map((i) => i.id);
-    const [answerRows, signatureAuditRows, linkOpenedGroups, reminderGroups] = await Promise.all([
+    const [answerRows, signatureAuditRows, linkOpenedGroups, reminderGroups, staffMembers, referralOutcomes, clientActivityGroups] = await Promise.all([
       prisma.intakeAnswer.findMany({
         where: { intakeId: { in: ids } },
-        select: { intakeId: true, key: true, value: true, updatedAt: true },
+        select: { intakeId: true, key: true, value: true, updatedAt: true, revision: true },
       }),
       prisma.auditLog.findMany({
         where: { intakeId: { in: ids }, event: "signature_captured" },
@@ -115,11 +120,18 @@ export async function GET(req: NextRequest) {
         },
         _count: { _all: true },
       }),
+      prisma.userMembership.findMany({ where: { providerId: provider!.id, active: true, role: { not: "REVIEWER" } }, select: { user: { select: { id: true, name: true } } } }),
+      prisma.supportReferral.findMany({ where: { providerId: provider!.id }, select: { contactedAt: true, confirmedAssistanceAt: true, status: true } }),
+      prisma.auditLog.groupBy({ by: ["intakeId"], where: { intakeId: { in: ids }, userId: null, event: { in: ["link_opened", "section_started", "section_completed", "signature_captured", "packet_submitted", "follow_up_opened", "follow_up_completed"] } }, _max: { createdAt: true } }),
     ]);
     const answersByIntake = new Map<string, Record<string, unknown>>();
+    const revisionsByIntake = new Map<string, Record<string, number>>();
     const latestPacketAnswerAt = new Map<string, Date>();
     const ignoredFreshnessKeys = new Set(packetFreshnessIgnoredAnswerKeys());
     for (const r of answerRows) {
+      const revisions = revisionsByIntake.get(r.intakeId) || {};
+      revisions[r.key] = r.revision;
+      revisionsByIntake.set(r.intakeId, revisions);
       let bucket = answersByIntake.get(r.intakeId);
       if (!bucket) { bucket = {}; answersByIntake.set(r.intakeId, bucket); }
       try { bucket[r.key] = JSON.parse(r.value); } catch { bucket[r.key] = r.value; }
@@ -144,6 +156,7 @@ export async function GET(req: NextRequest) {
         .filter((row): row is typeof row & { intakeId: string } => !!row.intakeId)
         .map((row) => [row.intakeId, row._count._all] as const),
     );
+    const clientActivityAt = new Map(clientActivityGroups.filter(r => !!r.intakeId).map(r => [r.intakeId!, r._max.createdAt]));
     const rows = intakes.map((i) => {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
       const signatureStatuses = buildSignatureStatuses(i.signatures, {
@@ -183,7 +196,20 @@ export async function GET(req: NextRequest) {
         providerPacketMessage: providerPacket.message,
         packetState: packet.state,
       });
+      const reviewedAt = i.auditLogs.find(l => l.event === "staff_reviewed")?.createdAt;
+      const nextAction = nextWorkflowAction({ id: i.id, status: i.status, submittedAt: i.submittedAt, archived: i.archived, abandonedAt: i.abandonedAt,
+        expectCca: i.expectCca, hasCca, hasClientSignature: signed, hasStaffSignature,
+        missingRequiredCount: required.filter(r => r.key !== "signature").length,
+        staffReviewed: !!(reviewedAt && (!latestPacketAnswerAt.get(i.id) || reviewedAt >= latestPacketAnswerAt.get(i.id)!)),
+        providerPacketReady: providerPacket.ready, packetState: packet.state, openFollowUp: !!i.followUps.length,
+        clientLinkExpired: i.tokenExpiresAt < new Date(), clientLinkReached: !!i.linkSentAt || !!lastLinkOpenedAt.get(i.id) || !!reminderCountByIntake.get(i.id),
+        ...deliveryFacts(i.messageDeliveries, i.auditLogs, packet.generatedAt, packet.pdfId) });
+      nextAction.packetId = packet.pdfId;
+      nextAction.since = i.workflowIntervals[0]?.stage === nextAction.stage ? i.workflowIntervals[0].startedAt.toISOString() : null;
+      nextAction.responsiblePerson = nextAction.stage === "CLIENT_RESPONSE" ? "Client / guardian" : staffMembers.find(m => m.user.id === i.workflowOwnerUserId)?.user.name || "Unassigned";
       return {
+        nextAction, workflowOwnerUserId: i.workflowOwnerUserId, abandonedAt: i.abandonedAt,
+        answerRevisions: revisionsByIntake.get(i.id) || {},
         id: i.id, status: i.status, archived: i.archived, token: i.token, tokenExpiresAt: i.tokenExpiresAt,
         client: i.client, linkSentAt: i.linkSentAt, lastActivityAt: i.lastActivityAt,
         lastLinkOpenedAt: lastLinkOpenedAt.get(i.id) || null,
@@ -218,8 +244,32 @@ export async function GET(req: NextRequest) {
         presentingProblem: stringValue(answers.presenting_problem) || stringValue(answers.mh_history) || "No main concern recorded yet.",
       };
     });
+    // Domain events record transitions as they happen. Initialize legacy cases and
+    // reconcile actions whose state changed without an audit event (e.g. archive).
+    for (const row of rows) {
+      if (!row.nextAction.since) {
+        const observed = await observeIntakeWorkflow(row.id);
+        if (observed) row.nextAction = { ...observed, responsiblePerson: row.nextAction.responsiblePerson };
+      }
+    }
+    const intervals = await prisma.workflowInterval.findMany({ where: { intake: { providerId: provider!.id } }, select: { stage: true, startedAt: true, endedAt: true } });
+    const active = intakes.filter(i => !i.archived);
+    const eligible = active.filter(i => !i.submittedAt && !i.abandonedAt);
+    const inactive = eligible.filter(i => Date.now() - +(clientActivityAt.get(i.id) || i.createdAt) >= 7 * 86400000);
     const response = NextResponse.json({
       intakes: rows,
+      staff: staffMembers.map(m => m.user),
+      outcomes: {
+        totalIntakes: intakes.length, submittedIntakes: intakes.filter(i => !!i.submittedAt).length,
+        abandonedIntakes: intakes.filter(i => !!i.abandonedAt).length,
+        inactiveUnsubmitted: inactive.length, unsubmittedEligible: eligible.length, inactivityDays: 7,
+        failedDeliveryAttempts: intakes.reduce((sum,i) => sum + i.messageDeliveries.filter(d => FAILURE_STATUSES.has(d.status)).length, 0),
+        failedDeliveryCases: intakes.filter(i => i.messageDeliveries.some(d => FAILURE_STATUSES.has(d.status)) || i.auditLogs.some(l => l.event === "copies_link_failed")).length,
+        referrals: referralOutcomes.length, referralsContacted: referralOutcomes.filter(r => !!r.contactedAt).length,
+        assistanceConfirmed: referralOutcomes.filter(r => !!r.confirmedAssistanceAt).length,
+        stages: summarizeWorkflowIntervals(intervals),
+        measurementStartedAt: intervals.length ? new Date(Math.min(...intervals.map(i => +i.startedAt))).toISOString() : null,
+      },
       provider: { id: provider!.id, name: provider!.name, slug: provider!.slug },
       providerPacketReadiness: providerPacket,
       isMaster: isMasterUser(user!),

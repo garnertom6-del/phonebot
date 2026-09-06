@@ -141,6 +141,10 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
   const files = [...new Set([...templates, ...generatedPdfs, ...uploadedDocuments].map((file) => file.filePath).filter(Boolean))];
 
   const deleted = await prisma.$transaction(async (tx) => {
+    // These records deliberately restrict cascading deletion during ordinary
+    // intake work. Remove them only inside this confirmed provider purge.
+    const supportEventResult = await tx.supportReferralEvent.deleteMany({ where: { providerId: provider.id } });
+    const supportReferralResult = await tx.supportReferral.deleteMany({ where: { providerId: provider.id } });
     const intakeResult = await tx.intake.deleteMany({ where: { providerId: provider.id } });
     const clientResult = await tx.client.deleteMany({ where: { providerId: provider.id } });
     const templateResult = await tx.pdfTemplate.deleteMany({ where: { providerId: provider.id } });
@@ -151,6 +155,8 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
       clients: clientResult.count,
       templates: templateResult.count,
       memberships: membershipResult.count,
+      supportReferrals: supportReferralResult.count,
+      supportReferralEvents: supportEventResult.count,
     };
   });
 
@@ -159,7 +165,7 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
   }
   await audit("provider_profile_deleted", {
     userId: user!.id,
-    detail: `${provider.name}: ${deleted.clients} client(s), ${deleted.intakes} intake(s), ${deleted.templates} packet template(s) deleted`,
+    detail: `${provider.name}: ${deleted.clients} client(s), ${deleted.intakes} intake(s), ${deleted.templates} packet template(s), ${deleted.supportReferrals} support referral(s), ${deleted.supportReferralEvents} support referral event(s) deleted`,
   });
   return NextResponse.json({ ok: true, providerName: provider.name, deleted });
 }

@@ -4,6 +4,7 @@ import { appBaseUrl } from "@/lib/baseUrl";
 import { prisma } from "@/lib/prisma";
 import { audit } from "@/lib/auditLog";
 import { COPY_RECEIPT_ANSWER_DEFAULTS } from "@/lib/completedCopies";
+import { saveAnswersInTransaction } from "@/lib/intakeData";
 
 export const runtime = "nodejs";
 
@@ -96,13 +97,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (newlyDelivered && delivery.purpose === "completed_copies" && delivery.intakeId) {
-      for (const [key, value] of Object.entries(COPY_RECEIPT_ANSWER_DEFAULTS)) {
-        await tx.intakeAnswer.upsert({
-          where: { intakeId_key: { intakeId: delivery.intakeId, key } },
-          create: { intakeId: delivery.intakeId, key, value: JSON.stringify(value) },
-          update: { value: JSON.stringify(value) },
-        });
-      }
+      await saveAnswersInTransaction(tx, delivery.intakeId, COPY_RECEIPT_ANSWER_DEFAULTS);
     }
 
     return {

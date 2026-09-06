@@ -1,7 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useCallback, useEffect, useState, use } from "react";
+import { useCallback, useEffect, useRef, useState, use } from "react";
 import { PLAN_SOURCE_VALUES } from "@/lib/recordIntegrity";
+import AnswerConflictPanel from "@/components/AnswerConflictPanel";
+import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type PlanSummary = {
@@ -36,29 +38,41 @@ function planBadge(summary?: PlanSummary) {
 export default function PlansPage(props: { params: Promise<{ id: string }> }) {
   const params = use(props.params);
   const [answers, setAnswers] = useState<Answers>({});
+  const savedAnswersRef = useRef<Answers>({});
+  const answerRevisionsRef = useRef<AnswerRevisions>({});
+  const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
+  const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
   const [clientName, setClientName] = useState("");
   const [note, setNote] = useState("");
   const [loaded, setLoaded] = useState(false);
   const [pcp, setPcp] = useState<PlanSummary | undefined>();
   const [crisis, setCrisis] = useState<PlanSummary | undefined>();
 
-  const load = useCallback(() => {
-    fetch(`/api/intakes/${params.id}`).then(async (r) => {
+  const load = useCallback(async () => {
+    const r = await fetch(`/api/intakes/${params.id}`);
       if (!r.ok) return;
       const d = await r.json();
       setAnswers(d.answers);
+      savedAnswersRef.current = d.answers;
+      answerRevisionsRef.current = d.answerRevisions || {};
       setClientName(d.intake.client.fullName);
       setPcp(d.planCompleteness?.pcp);
       setCrisis(d.planCompleteness?.crisis);
       setLoaded(true);
-    });
   }, [params.id]);
-  useEffect(load, [load]);
+  useEffect(() => { void load(); }, [load]);
 
-  const set = (key: string, value: string) => setAnswers((a) => ({ ...a, [key]: value }));
+  const set = (key: string, value: string) => {
+    if (!savingRef.current) setAnswers((a) => ({ ...a, [key]: value }));
+  };
 
   async function save() {
+    if (savingRef.current || answerConflicts.length) return;
+    savingRef.current = true;
+    setSaving(true);
     setNote("Saving...");
+    try {
     const planAnswers = Object.fromEntries([
       ...FIELDS.map(([key]) => [key, answers[key] ?? ""]),
       ["pcp_plan_date", answers.pcp_plan_date ?? ""],
@@ -66,13 +80,21 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
       ["crisis_plan_date", answers.crisis_plan_date ?? ""],
       ["crisis_plan_source", answers.crisis_plan_source ?? ""],
       ["plan_ready_for_client_review", answers.plan_ready_for_client_review ?? "No"],
-    ]);
+    ].filter(([key, value]) => JSON.stringify(value) !== JSON.stringify(savedAnswersRef.current[String(key)] ?? "")));
     const r = await fetch(`/api/intakes/${params.id}`, {
       method: "PATCH", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ answers: planAnswers, status: "NEEDS_REVIEW" }),
+      body: JSON.stringify({ answers: planAnswers, expectedAnswerRevisions: revisionsForKeys(answerRevisionsRef.current, Object.keys(planAnswers)), status: "NEEDS_REVIEW" }),
     });
-    setNote(r.ok ? "Saved" : "Save failed");
-    if (r.ok) load();
+    const body = await r.json().catch(() => ({}));
+    if (body.code === "ANSWER_CONFLICT") setAnswerConflicts(body.conflicts || []);
+    setNote(r.ok ? "Saved" : body.error || "Save failed");
+    if (r.ok) await load();
+    } catch {
+      setNote("Save failed. Check your connection and try again.");
+    } finally {
+      savingRef.current = false;
+      setSaving(false);
+    }
   }
 
   if (!loaded) return <main className="p-10 text-center text-slate-400">Loading...</main>;
@@ -81,6 +103,15 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
 
   return (
     <main className="mx-auto max-w-4xl p-6 pb-24">
+      <AnswerConflictPanel conflicts={answerConflicts} localAnswers={answers}
+        onResolve={(key, choice) => {
+          const conflict = answerConflicts.find((item) => item.key === key)!;
+          answerRevisionsRef.current[key] = conflict.serverRevision;
+          savedAnswersRef.current[key] = conflict.serverValue as Answers[string];
+          if (choice === "server") setAnswers((current) => ({ ...current, [key]: conflict.serverValue as Answers[string] }));
+          setAnswerConflicts((current) => current.filter((item) => item.key !== key));
+          setNote("Your choices are ready. Save again to continue.");
+        }} />
       <Link href={`/intakes/${params.id}`} className="text-sm text-brand hover:underline">Back to intake</Link>
       <h1 className="mt-1 text-2xl font-bold">PCP / Crisis Plan - {clientName}</h1>
       <p className="mt-1 text-sm text-slate-500">
@@ -160,7 +191,7 @@ export default function PlansPage(props: { params: Promise<{ id: string }> }) {
 
       <div className="fixed inset-x-0 bottom-0 border-t bg-white p-3">
         <div className="mx-auto flex max-w-4xl items-center gap-3">
-          <button className="btn-primary flex-1" onClick={save}>Save PCP / crisis plan notes</button>
+          <button className="btn-primary flex-1" disabled={saving || answerConflicts.length > 0} onClick={save}>{saving ? "Saving..." : "Save PCP / crisis plan notes"}</button>
           <Link href={`/intakes/${params.id}/pdf-preview`} className="btn-secondary">Preview PDF</Link>
           <span className="text-sm text-slate-500">{note}</span>
         </div>

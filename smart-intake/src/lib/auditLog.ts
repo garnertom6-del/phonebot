@@ -35,6 +35,20 @@ export async function audit(
 ) {
   try {
     await prisma.auditLog.create({ data: { event, ...opts } });
+    if (opts.intakeId && [
+      "intake_created", "section_completed", "answers_updated", "packet_submitted",
+      "staff_reviewed", "signature_captured", "cca_imported", "cca_rescrubbed",
+      "pdf_generated", "copies_link_sent", "copies_link_failed", "copies_delivery_confirmed",
+      "sms_status_updated", "docusign_completed", "follow_up_created", "follow_up_completed",
+    ].includes(event)) {
+      try {
+        const { observeIntakeWorkflow } = await import("./workflowTracking");
+        await observeIntakeWorkflow(opts.intakeId);
+      } catch (error) {
+        // Telemetry failure must not undo an already accepted clinical operation.
+        console.error("workflow observation failed", error);
+      }
+    }
   } catch (e) {
     console.error("audit log failed", e);
   }

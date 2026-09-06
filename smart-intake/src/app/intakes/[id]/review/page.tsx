@@ -10,6 +10,11 @@ import { useCallback, useEffect, useRef, useState, use } from "react";
 import { SECTIONS, STAFF_FIELDS, type Question } from "@/config/mooreDivineQuestions";
 import { askIfSatisfied, isQuestionRequired } from "@/lib/validation";
 import SignaturePad from "@/components/SignaturePad";
+import AnswerConflictPanel from "@/components/AnswerConflictPanel";
+import ContentRevisionReview from "@/components/ContentRevisionReview";
+import { nextReviewedContentRevision } from "@/lib/contentRevision";
+import { insurancePlanDisplayLabel } from "@/lib/insurancePlans";
+import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type StaffSignatureRole = "staff" | "clinician" | "witness" | "medicalDirector";
@@ -43,6 +48,13 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
   const [activeSignerIndex, setActiveSignerIndex] = useState(0);
   const [isSigning, setIsSigning] = useState(false);
   const [saving, setSaving] = useState(false);
+  const savingRef = useRef(false);
+  const answerRevisionsRef = useRef<AnswerRevisions>({});
+  const reviewedContentRevisionRef = useRef(0);
+  const savedAnswersRef = useRef<Answers>({});
+  const signatureRequestRef = useRef(false);
+  const [contentReviewRequired, setContentReviewRequired] = useState(false);
+  const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [returningToPreflight, setReturningToPreflight] = useState(false);
   const [dirtyKeys, setDirtyKeys] = useState<string[]>([]);
@@ -64,6 +76,9 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
       }
       const d = await r.json();
       setAnswers(d.answers);
+      savedAnswersRef.current = { ...d.answers };
+      reviewedContentRevisionRef.current = d.contentRevision;
+      answerRevisionsRef.current = d.answerRevisions || {};
       setClientName(d.intake.client.fullName);
       setSignatures(Array.isArray(d.intake.signatures) ? d.intake.signatures : []);
       setSignatureStatuses(Array.isArray(d.signatureStatuses) ? d.signatureStatuses : []);
@@ -110,30 +125,40 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
   }, []);
 
   async function persistDirtyAnswers(): Promise<boolean> {
+    if (answerConflicts.length) return false;
     const keys = dirtyKeysRef.current;
     if (!keys.length) return true;
-    if (saving) return false;
+    if (savingRef.current) return false;
+    savingRef.current = true;
     setSaving(true);
     setNote("Saving...");
     try {
       const answerPatch = Object.fromEntries(keys.map((key) => [key, answersRef.current[key]]));
       const r = await fetch(`/api/intakes/${params.id}`, {
         method: "PATCH", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers: answerPatch, status: "NEEDS_REVIEW" }),
+        body: JSON.stringify({ answers: answerPatch, expectedAnswerRevisions: revisionsForKeys(answerRevisionsRef.current, keys), status: "NEEDS_REVIEW" }),
       });
       const body = await r.json().catch(() => ({} as { error?: string }));
       if (!r.ok) {
+        if (body.code === "ANSWER_CONFLICT") setAnswerConflicts(body.conflicts || []);
         setNote(body.error || "Save failed. Please refresh and try again.");
         return false;
       }
-      setDirtyKeys([]);
-      dirtyKeysRef.current = [];
-      return true;
+      answerRevisionsRef.current = { ...answerRevisionsRef.current, ...body.answerRevisions };
+      savedAnswersRef.current = { ...savedAnswersRef.current, ...answerPatch };
+      reviewedContentRevisionRef.current = nextReviewedContentRevision(reviewedContentRevisionRef.current, body.previousContentRevision, body.contentRevision);
+      const remaining = dirtyKeysRef.current.filter((key) => !keys.includes(key)
+        || JSON.stringify(answersRef.current[key]) !== JSON.stringify(answerPatch[key]));
+      setDirtyKeys(remaining);
+      dirtyKeysRef.current = remaining;
+      if (remaining.length) setNote("Your newer edits are still here. Save again before continuing.");
+      return remaining.length === 0;
     } catch {
       setNote("Save failed because the connection was interrupted. Please try again.");
       return false;
     } finally {
       setSaving(false);
+      savingRef.current = false;
     }
   }
 
@@ -178,6 +203,7 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
   }
 
   function startSigning() {
+    if (contentReviewRequired || answerConflicts.length || savingRef.current) return;
     if (dirtyKeys.length) {
       setNote("Save your answer changes before capturing signatures so each signature is tied to the current version.");
       return;
@@ -192,46 +218,65 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
   }
 
   async function captureStaffSig(role: StaffSignatureRole, d: { imageData: string; printedName: string; relationship?: string; signedDate: string }) {
-    const config = SIGNER_OPTIONS.find((option) => option.role === role);
-    const rolesToSave = sameSignatureForSelected ? selectedSignerRoles.slice(activeSignerIndex) : [role];
-    for (const roleToSave of rolesToSave) {
-      const response = await fetch(`/api/intakes/${params.id}/signature`, {
-        method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ role: roleToSave, ...d }),
-      });
-      const body = await response.json().catch(() => ({} as { error?: string }));
-      if (!response.ok) {
-        setNote(body.error || `${config?.label || "Staff"} signature failed. Please try again.`);
-        load();
-        return;
+    if (signatureRequestRef.current || contentReviewRequired) return;
+    signatureRequestRef.current = true;
+    try {
+      if (!(await persistDirtyAnswers())) return;
+      const config = SIGNER_OPTIONS.find((option) => option.role === role);
+      const rolesToSave = sameSignatureForSelected ? selectedSignerRoles.slice(activeSignerIndex) : [role];
+      for (const roleToSave of rolesToSave) {
+        const response = await fetch(`/api/intakes/${params.id}/signature`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: roleToSave, ...d, expectedContentRevision: reviewedContentRevisionRef.current }),
+        });
+        const body = await response.json().catch(() => ({} as { error?: string }));
+        if (!response.ok) {
+          if (body.code === "CONTENT_REVISION_CONFLICT") {
+            setContentReviewRequired(true);
+            setIsSigning(false);
+          }
+          setNote(body.error || `${config?.label || "Staff"} signature failed. Please try again.`);
+          return;
+        }
       }
-    }
 
-    setSignatures((current) => [
-      ...current.filter((signature) => !rolesToSave.includes(signature.role as StaffSignatureRole)),
-      ...rolesToSave.map((savedRole) => ({ role: savedRole, printedName: d.printedName, signedDate: d.signedDate })),
-    ]);
-    if (!sameSignatureForSelected && activeSignerIndex + 1 < selectedSignerRoles.length) {
-      const nextIndex = activeSignerIndex + 1;
-      setActiveSignerIndex(nextIndex);
-      const nextRole = selectedSignerRoles[nextIndex];
-      setNote(`${config?.label || "Staff"} signature saved. Next: ${SIGNER_OPTIONS.find((option) => option.role === nextRole)?.label || "staff signer"}.`);
-    } else {
-      setIsSigning(false);
-      setSelectedSignerRoles([]);
-      setActiveSignerIndex(0);
-      setNote(`Saved ${rolesToSave.length} staff signature${rolesToSave.length === 1 ? "" : "s"}. Review the intake before generating the packet.`);
+      setSignatures((current) => [
+        ...current.filter((signature) => !rolesToSave.includes(signature.role as StaffSignatureRole)),
+        ...rolesToSave.map((savedRole) => ({ role: savedRole, printedName: d.printedName, signedDate: d.signedDate })),
+      ]);
+      if (!sameSignatureForSelected && activeSignerIndex + 1 < selectedSignerRoles.length) {
+        const nextIndex = activeSignerIndex + 1;
+        setActiveSignerIndex(nextIndex);
+        const nextRole = selectedSignerRoles[nextIndex];
+        setNote(`${config?.label || "Staff"} signature saved. Next: ${SIGNER_OPTIONS.find((option) => option.role === nextRole)?.label || "staff signer"}.`);
+      } else {
+        setIsSigning(false);
+        setSelectedSignerRoles([]);
+        setActiveSignerIndex(0);
+        setNote(`Saved ${rolesToSave.length} staff signature${rolesToSave.length === 1 ? "" : "s"}. Review the intake before generating the packet.`);
+      }
+      if (role === "clinician" || rolesToSave.includes("clinician")) {
+        setAnswers((current) => ({
+          ...current,
+          clinician_name: d.printedName,
+          c_clinician: d.printedName,
+          cca_provider_credentials: current.cca_provider_credentials || d.printedName,
+          dis_prepared_by: current.dis_prepared_by || d.printedName,
+        }));
+      }
+      // Refresh the status badges only. A response may include another editor's
+      // answers, which must never become our reviewed signing baseline here.
+      const statusBody = await fetch(`/api/intakes/${params.id}`, { cache: "no-store" })
+        .then((response) => response.ok ? response.json() : null).catch(() => null);
+      if (statusBody) {
+        setSignatures(Array.isArray(statusBody.intake?.signatures) ? statusBody.intake.signatures : []);
+        setSignatureStatuses(Array.isArray(statusBody.signatureStatuses) ? statusBody.signatureStatuses : []);
+      }
+      } catch {
+      setNote("Signature could not be saved. Please check the connection and try again.");
+    } finally {
+      signatureRequestRef.current = false;
     }
-    if (role === "clinician" || rolesToSave.includes("clinician")) {
-      setAnswers((current) => ({
-        ...current,
-        clinician_name: d.printedName,
-        c_clinician: d.printedName,
-        cca_provider_credentials: current.cca_provider_credentials || d.printedName,
-        dis_prepared_by: current.dis_prepared_by || d.printedName,
-      }));
-    }
-    load();
   }
 
   if (!loaded) return <main className="p-10 text-center text-slate-400">Loading...</main>;
@@ -249,6 +294,35 @@ export default function ReviewPage(props: { params: Promise<{ id: string }> }) {
 
   return (
     <main className="mx-auto max-w-4xl p-6 pb-24">
+      {contentReviewRequired && <ContentRevisionReview endpoint={`/api/intakes/${params.id}`} baselineAnswers={savedAnswersRef.current}
+        onReviewed={(snapshot) => {
+          const localEdits = Object.fromEntries(dirtyKeysRef.current.map((key) => [key, answersRef.current[key]]));
+          const next = { ...snapshot.answers, ...localEdits };
+          answersRef.current = next;
+          setAnswers(next);
+          savedAnswersRef.current = { ...snapshot.answers };
+          answerRevisionsRef.current = snapshot.answerRevisions;
+          reviewedContentRevisionRef.current = snapshot.contentRevision;
+          setAnswerConflicts([]);
+          setContentReviewRequired(false);
+          setIsSigning(false);
+          setNote("Updates reviewed. Save any remaining edits, then start a fresh signature.");
+        }} />}
+      <AnswerConflictPanel conflicts={answerConflicts} localAnswers={answers}
+        onResolve={(key, choice) => {
+          const conflict = answerConflicts.find((item) => item.key === key)!;
+          answerRevisionsRef.current[key] = conflict.serverRevision;
+          if (choice === "server") {
+            const next = { ...answersRef.current, [key]: conflict.serverValue as Answers[string] };
+            answersRef.current = next;
+            setAnswers(next);
+            const remaining = dirtyKeysRef.current.filter((item) => item !== key);
+            dirtyKeysRef.current = remaining;
+            setDirtyKeys(remaining);
+          }
+          setAnswerConflicts((current) => current.filter((item) => item.key !== key));
+          setNote("Your choices are ready. Save again to continue.");
+        }} />
       <Link
         href={`/intakes/${params.id}`}
         className="text-sm text-brand hover:underline"
@@ -421,7 +495,7 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
         <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby={`${inputId}-legend`}>
           {opts.map((o) => (
             <button key={o} type="button" aria-pressed={v === o} className={`chip px-3 py-1 text-xs ${v === o ? "chip-on" : ""}`}
-              onClick={() => set(q.key, v === o ? "" : o)}>{o}</button>
+              onClick={() => set(q.key, v === o ? "" : o)}>{q.key === "mco" || q.key === "provider_choice_plan" ? insurancePlanDisplayLabel(o) : o}</button>
           ))}
         </div>
       </fieldset>
@@ -435,7 +509,7 @@ function EditField({ q, answers, set }: { q: Question; answers: Answers; set: (k
         <div className="flex flex-wrap gap-1.5" role="group" aria-labelledby={`${inputId}-legend`}>
           {(q.options || []).map((o) => (
             <button key={o} type="button" aria-pressed={arr.includes(o)} className={`chip px-3 py-1 text-xs ${arr.includes(o) ? "chip-on" : ""}`}
-              onClick={() => set(q.key, arr.includes(o) ? arr.filter((x) => x !== o) : [...arr, o])}>{o}</button>
+              onClick={() => set(q.key, arr.includes(o) ? arr.filter((x) => x !== o) : [...arr, o])}>{q.key === "mco" || q.key === "provider_choice_plan" ? insurancePlanDisplayLabel(o) : o}</button>
           ))}
         </div>
       </fieldset>

@@ -25,6 +25,8 @@ function IntakeInner({ token }: { token: string }) {
     reviewQuestionKeys?: string[];
     provider?: { name?: string | null; phone?: string | null };
     answers: Record<string, string | boolean | number | string[]>;
+    answerRevisions: Record<string, number>;
+    contentRevision: number;
     signatures: Record<string, { printedName: string }> } | null>(null);
 
   const load = useCallback(() => {
@@ -100,20 +102,24 @@ function IntakeInner({ token }: { token: string }) {
         </div>
       )}
       {state === "ready" && data && (fullMode ? (
-        <ClientQuestionnaire token={token} clientName={data.clientName}
+        <ClientQuestionnaire key={token} token={token} clientName={data.clientName}
           providerName={data.provider?.name || undefined}
           providerPhone={data.provider?.phone || undefined}
           initialAnswers={data.answers} initialStatus={data.status}
+          initialAnswerRevisions={data.answerRevisions}
+          initialContentRevision={data.contentRevision}
           ccaAttestationReady={!!data.ccaAttestationReady}
           progressVersion={data.resumeVersion || "initial"}
           resignMode={data.resignMode || null}
           reviewQuestionKeys={data.reviewQuestionKeys || []}
           signed={{ client: !!data.signatures.client, guardian: !!data.signatures.guardian }} />
       ) : (
-        <EasyQuestionnaire token={token} clientName={data.clientName}
+        <EasyQuestionnaire key={token} token={token} clientName={data.clientName}
           providerName={data.provider?.name || undefined}
           providerPhone={data.provider?.phone || undefined}
           initialAnswers={data.answers} initialStatus={data.status} quick={!!data.quick}
+          initialAnswerRevisions={data.answerRevisions}
+          initialContentRevision={data.contentRevision}
           ccaAttestationReady={!!data.ccaAttestationReady}
           progressVersion={data.resumeVersion || "initial"}
           resignMode={data.resignMode || null}

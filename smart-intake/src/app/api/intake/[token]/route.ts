@@ -4,6 +4,7 @@ import { audit } from "@/lib/auditLog";
 import {
   decodeAnswerRows,
   loadAnswers,
+  loadAnswerSnapshot,
   loadSignatures,
   saveAnswersInTransaction,
   syncStructuredRowsInTransaction,
@@ -19,6 +20,7 @@ import {
   lockOpenClientIntake,
 } from "@/lib/clientSubmissionState";
 import { clientCcaAttestationReady } from "@/lib/ccaReview";
+import { AnswerConflictError, type AnswerRevisions } from "@/lib/answerRevisions";
 
 const PRIVATE_NO_STORE = { "Cache-Control": "private, no-store, max-age=0" };
 
@@ -101,7 +103,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
       { status: lookupStatus(code), headers: PRIVATE_NO_STORE },
     );
   }
-  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
+  const snapshot = await loadAnswerSnapshot(intake.id);
+  const answers = applyOperationalDefaults(snapshot.answers);
   const sigs = await loadSignatures(intake.id);
   if (intake.status === "NOT_STARTED") {
     await prisma.intake.updateMany({
@@ -152,6 +155,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
       resignMode,
       reviewQuestionKeys,
       answers,
+      answerRevisions: snapshot.answerRevisions,
+      contentRevision: snapshot.contentRevision,
       sectionStatus: Object.fromEntries(sections.map((s) => [s.sectionKey, s.status])),
       signatures: Object.fromEntries(Object.entries(sigs).map(([r, s]) => [r, { printedName: s.printedName, signedDate: s.signedDate }])),
       percentComplete: percentComplete(answers),
@@ -182,6 +187,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ token: 
   const sectionEvent = body.section && ["started", "completed"].includes(body.event)
     ? { section: String(body.section), event: body.event as "started" | "completed" }
     : null;
+  let answerRevisions: AnswerRevisions = {};
+  let previousContentRevision: number | undefined;
+  let contentRevision: number | undefined;
   try {
     await prisma.$transaction(async (tx) => {
       if (!(await lockOpenClientIntake(tx, intake.id))) throw new IntakeClosedError();
@@ -191,10 +199,21 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ token: 
       });
       if (!current) throw new IntakeClosedError();
       if (answerPatch) {
-        await saveAnswersInTransaction(tx, intake.id, answerPatch);
+        const saved = await saveAnswersInTransaction(tx, intake.id, answerPatch, {
+          expectedAnswerRevisions: body.expectedAnswerRevisions,
+          requireExpectedRevisions: true,
+        });
+        answerRevisions = saved.answerRevisions;
+        previousContentRevision = saved.previousContentRevision;
+        contentRevision = saved.contentRevision;
+        const answerRows = await tx.intakeAnswer.findMany({
+          where: { intakeId: intake.id },
+          select: { key: true, value: true },
+        });
+        const mergedAnswers = { ...decodeAnswerRows(answerRows), ...answerPatch };
         await tx.client.update({
           where: { id: current.clientId },
-          data: clientUpdateFromAnswers(current.client, answerPatch),
+          data: clientUpdateFromAnswers(current.client, mergedAnswers, Object.keys(answerPatch)),
         });
       }
       if (sectionEvent) {
@@ -215,6 +234,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ token: 
       }
     });
   } catch (error) {
+    if (error instanceof AnswerConflictError) {
+      return NextResponse.json(error.toJSON(), { status: 409, headers: PRIVATE_NO_STORE });
+    }
     if (error instanceof IntakeClosedError) {
       return NextResponse.json({
         error: "This intake was submitted while your changes were saving. The signed record was not changed.",
@@ -226,7 +248,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ token: 
     await audit(body.event === "completed" ? "section_completed" : "section_started",
       { providerId: intake.providerId || undefined, intakeId: intake.id, detail: body.section });
   }
-  return NextResponse.json({ ok: true });
+  return NextResponse.json({ ok: true, answerRevisions, previousContentRevision, contentRevision });
 }
 
 export async function POST(req: NextRequest, props: { params: Promise<{ token: string }> }) {

@@ -3,14 +3,24 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useRef, useState, Suspense } from "react";
-import { needsStaffAction, type DashboardReadiness } from "@/lib/dashboardWorkflow";
+import { type DashboardReadiness } from "@/lib/dashboardWorkflow";
 import { clientLinkExpired, clientLinkMessagingFinished } from "@/lib/clientLinkState";
 import { clientDeliveryContacts } from "@/lib/clientDeliveryContacts";
 import { consumeDashboardFlash, dashboardHrefWithTab, dashboardTabFromQuery } from "@/lib/dashboardFlash";
 import { FILL_INSURANCE_NEXT_STEP, INSURANCE_BEFORE_SMS_MESSAGE } from "@/lib/insurancePlans";
 import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
+import WorkflowActionCard from "@/components/WorkflowActionCard";
+import WorkflowOutcomesPanel, { type WorkflowOutcomes } from "@/components/WorkflowOutcomesPanel";
+import type { WorkflowAction } from "@/lib/workflowOutcomes";
+import AnswerConflictPanel from "@/components/AnswerConflictPanel";
+import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
+import { clientDetailsAnswerPatch } from "@/lib/clientDetails";
 
 interface Row {
+  nextAction: WorkflowAction;
+  workflowOwnerUserId: string | null;
+  abandonedAt: string | null;
+  answerRevisions: AnswerRevisions;
   id: string;
   status: string;
   archived?: boolean;
@@ -99,7 +109,8 @@ type DashboardTab = {
 
 const TABS: DashboardTab[] = [
   { key: "action", label: "Needs staff action", statuses: [], matches: (row) => rowNeedsStaffAction(row) },
-  { key: "waiting", label: "Waiting on client", statuses: ["NOT_STARTED", "IN_PROGRESS"] },
+  { key: "waiting", label: "Waiting on client", statuses: [], matches: row => row.nextAction.stage === "CLIENT_RESPONSE" },
+  { key: "abandoned", label: "Abandoned", statuses: [], matches: row => !!row.abandonedAt },
   { key: "signed", label: "Signed", statuses: ["SIGNED"] },
   { key: "done", label: "Completed", statuses: ["COMPLETED"] },
   {
@@ -162,7 +173,7 @@ function rowSearchText(row: Row) {
 }
 
 function rowNeedsStaffAction(row: Row): boolean {
-  return needsStaffAction(row.status);
+  return !["CLIENT_RESPONSE", "COMPLETE", "ARCHIVED", "ABANDONED"].includes(row.nextAction.stage);
 }
 
 function csvCell(value: unknown): string {
@@ -199,6 +210,10 @@ function Dashboard() {
   const [editingClientId, setEditingClientId] = useState<string | null>(null);
   const [clientDraft, setClientDraft] = useState<ClientDetailsDraft | null>(null);
   const [clientEditError, setClientEditError] = useState("");
+  const [staff, setStaff] = useState<Array<{id:string;name:string}>>([]);
+  const [outcomes, setOutcomes] = useState<WorkflowOutcomes|null>(null);
+  const [clientRevisions, setClientRevisions] = useState<AnswerRevisions>({});
+  const [clientConflicts, setClientConflicts] = useState<AnswerConflict[]>([]);
   const busyRowIdsRef = useRef(new Set<string>());
   const announcedCreatedIntakeRef = useRef("");
   const [busyRowIds, setBusyRowIds] = useState<Set<string>>(() => new Set());
@@ -219,6 +234,8 @@ function Dashboard() {
       const body = text ? JSON.parse(text) : {};
       if (!response.ok) throw new Error(body.error || `Dashboard load failed (${response.status})`);
       setRows(body.intakes ?? []);
+      setStaff(body.staff ?? []);
+      setOutcomes(body.outcomes ?? null);
       setProviderName(body.provider?.name || "Provider");
       setIsMaster(!!body.isMaster);
       setCanManageProvider(!!body.canManageProvider);
@@ -291,6 +308,8 @@ function Dashboard() {
   }
 
   function beginClientEdit(row: Row) {
+    setClientRevisions({...row.answerRevisions});
+    setClientConflicts([]);
     setEditingClientId(row.id);
     setClientEditError("");
     setClientDraft({
@@ -307,6 +326,7 @@ function Dashboard() {
   }
 
   function closeClientEdit() {
+    setClientConflicts([]);
     setEditingClientId(null);
     setClientDraft(null);
     setClientEditError("");
@@ -317,15 +337,16 @@ function Dashboard() {
   }
 
   async function saveClientDetails(row: Row) {
-    if (!clientDraft) return;
+    if (!clientDraft || clientConflicts.length) return;
     setClientEditError("");
     const response = await fetch(`/api/intakes/${row.id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ clientDetails: clientDraft }),
+      body: JSON.stringify({ clientDetails: clientDraft, expectedAnswerRevisions: revisionsForKeys(clientRevisions, Object.keys(clientDetailsAnswerPatch(clientDraft))) }),
     });
     const body = await response.json().catch(() => ({}));
     if (!response.ok) {
+      if (response.status === 409 && body.code === "ANSWER_CONFLICT") setClientConflicts(body.conflicts || []);
       setClientEditError(body.error || "The client details could not be saved.");
       return;
     }
@@ -333,6 +354,18 @@ function Dashboard() {
     closeClientEdit();
     showNote(`${updatedName}'s details were updated. Regenerate the packet if one was already created.`, 6500);
     await load(tab, true);
+  }
+
+  function resolveClientConflict(key: string, choice: "server" | "local") {
+    const conflict = clientConflicts.find(c => c.key === key);
+    if (!conflict) return;
+    setClientRevisions(current => ({...current, [key]:conflict.serverRevision}));
+    if (choice === "server") {
+      const fields:Record<string,keyof ClientDetailsDraft> = {client_full_name:"fullName",dob:"dob",mid_number:"midNumber",record_number:"recordNumber",client_email:"email",client_phone_cell:"phone",client_phone_home:"phone",guardian_name:"guardianName",guardian_email:"guardianEmail",guardian_phone:"guardianPhone"};
+      const field = fields[key];
+      if (field) updateClientDraft(field, key === "dob" ? dateInputValue(String(conflict.serverValue || "")) : String(conflict.serverValue ?? ""));
+    }
+    setClientConflicts(current => current.filter(c => c.key !== key));
   }
 
   async function runRowAction(rowId: string, action: () => Promise<void>) {
@@ -522,7 +555,7 @@ function Dashboard() {
   const totalCount = activeRows.length;
   const archivedCount = rows?.filter((row) => row.archived).length ?? 0;
   const needsActionCount = activeRows.filter(rowNeedsStaffAction).length;
-  const waitingCount = activeRows.filter((row) => ["NOT_STARTED", "IN_PROGRESS"].includes(row.status)).length;
+  const waitingCount = activeRows.filter((row) => row.nextAction.stage === "CLIENT_RESPONSE").length;
   const completedCount = activeRows.filter((row) => row.status === "COMPLETED").length;
   const readyToCompleteCount = activeRows.filter((row) => row.status !== "COMPLETED" && row.completionReady).length;
   const ccaCount = activeRows.filter((row) => row.hasCca).length;
@@ -539,8 +572,10 @@ function Dashboard() {
       return [
         row.client.fullName,
         STATUS_LABELS[row.status] || row.status.replaceAll("_", " "),
-        row.readiness.state,
-        row.readiness.issues.join(" "),
+        row.nextAction.label,
+        row.nextAction.reason,
+        row.nextAction.responsiblePerson || row.nextAction.responsibleRole,
+        row.nextAction.since || "",
         displayDateTime(latestTouch),
         Number.isNaN(new Date(latestTouch).getTime())
           ? ""
@@ -566,6 +601,8 @@ function Dashboard() {
       "Status",
       "Next step",
       "Next step details",
+      "Responsible person",
+      "Current step observed since",
       "Last activity",
       "Days since activity",
       "Client answer coverage",
@@ -617,6 +654,7 @@ function Dashboard() {
           </div>
           <div className="flex flex-wrap gap-2">
             {!readOnly && <Link href="/intakes/new" className="btn-primary bg-white text-brand hover:bg-slate-100">+ Create New Intake</Link>}
+            <Link href="/provider/directory" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Plan &amp; benefit directory</Link>
             {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master: providers &amp; packets</Link>}
             {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider: packet settings</Link>}
             <details className="relative [&>summary::-webkit-details-marker]:hidden">
@@ -649,6 +687,8 @@ function Dashboard() {
           <StatCard label="CCA uploaded" value={ccaCount} active={tab === "cca"} onClick={() => selectDashboardTab("cca")} />
         </div>
       </section>
+
+      <WorkflowOutcomesPanel data={outcomes} />
 
       {providerPacketReadiness && !providerPacketReadiness.ready && (
         <section role="alert" className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
@@ -829,6 +869,8 @@ function Dashboard() {
                 </div>
               </div>
 
+              <WorkflowActionCard id={row.id} action={row.nextAction} ownerUserId={row.workflowOwnerUserId} staff={staff} readOnly={readOnly} submittedAt={row.submittedAt} abandonedAt={row.abandonedAt} onUpdated={() => load(tab,true)} />
+
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                 <MetaCard label="DOB / Record" value={`${displayDate(row.client.dob)} • ${row.client.recordNumber || "No record #"}`} />
                 <MetaCard label="MID / Insurance type" value={`${row.client.midNumber || "No MID"} • ${row.insuranceSummary || "Coverage not recorded"}`} />
@@ -895,21 +937,10 @@ function Dashboard() {
                   {missingPreview}
                   {row.missingRequired.length > 3 ? ` + ${row.missingRequired.length - 3} more` : ""}
                 </p>
-                <div className={`mt-3 rounded-lg border px-3 py-2 ${
-                  row.readiness.tone === "warn"
-                    ? "border-amber-200 bg-amber-50 text-amber-900"
-                    : row.readiness.tone === "brand"
-                      ? "border-brand/20 bg-brand-light/40 text-brand"
-                      : "border-emerald-200 bg-emerald-50 text-emerald-800"
-                }`}>
-                  <p className="text-xs font-semibold uppercase tracking-[0.14em]">Next step</p>
-                  <p className="mt-1 text-sm font-bold">{row.readiness.state}</p>
-                  {row.readiness.issues.length > 0 && <p className="mt-1 text-xs leading-5">{row.readiness.issues.join(" ")}</p>}
-                </div>
               </div>
 
               <div className="mt-4 flex flex-wrap gap-2 [&>a]:min-h-11 [&>button]:min-h-11">
-                <Link href={`/intakes/${row.id}`} className="btn-primary px-3 py-2 text-sm">Open intake</Link>
+                <Link href={`/intakes/${row.id}`} className="btn-secondary px-3 py-2 text-sm">Open intake</Link>
                 {readOnly ? (
                   <p className="w-full text-sm text-slate-500">Reviewer accounts are read-only.</p>
                 ) : (
@@ -1138,6 +1169,8 @@ function Dashboard() {
                     </label>
                   </div>
 
+                  <AnswerConflictPanel conflicts={clientConflicts} localAnswers={clientDetailsAnswerPatch(clientDraft)} onResolve={resolveClientConflict} />
+
                   {clientEditError && (
                     <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm font-semibold text-red-700" role="alert">
                       {clientEditError}
@@ -1145,7 +1178,7 @@ function Dashboard() {
                   )}
 
                   <div className="mt-4 flex flex-wrap gap-2">
-                    <button className="btn-primary min-h-11 px-4 py-2 text-sm" type="submit" disabled={rowBusy}>
+                    <button className="btn-primary min-h-11 px-4 py-2 text-sm" type="submit" disabled={rowBusy || clientConflicts.length > 0}>
                       {rowBusy ? "Saving..." : "Save client details"}
                     </button>
                     <button className="btn-ghost min-h-11 px-4 py-2 text-sm" type="button" onClick={closeClientEdit}>

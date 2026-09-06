@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswers, decodeAnswerRows, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
+import { AnswerConflictError } from "@/lib/answerRevisions";
+import { clientUpdateFromAnswers } from "@/lib/clientAnswerSync";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { normalizeInsuranceValue } from "@/lib/insurancePlans";
 import {
@@ -139,13 +141,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   for (const [key, value] of Object.entries(incoming)) {
     if (!FIELD_KEYS.has(key)) continue;
     const text = clean(value);
-    if (text) {
+    if (typeof value === "string") {
       next[key] = normalizeAssistValue(key, text);
       applied.add(key);
     }
   }
   for (const [key, value] of Object.entries(parsedNotes)) {
     if (!FIELD_KEYS.has(key)) continue;
+    if (Object.prototype.hasOwnProperty.call(incoming, key)) continue;
     const text = clean(value);
     if (!text) continue;
     if (fillEmptyOnly && hasValue(next[key])) continue;
@@ -169,16 +172,37 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   next[STAFF_PREFILLED_CLIENT_FIELDS_KEY] = [...clientPrefilled].sort();
 
   const defaults = applyOperationalDefaults(next);
-  await saveAnswers(intake.id, defaults);
-  await syncStructuredRows(intake.id, defaults);
-  await prisma.client.update({
-    where: { id: intake.clientId },
-    data: {
-      midNumber: clean(defaults.mid_number) || intake.client.midNumber,
-      recordNumber: clean(defaults.record_number) || intake.client.recordNumber,
-      phone: clean(defaults.client_phone_cell) || intake.client.phone,
-    },
-  });
+  // Only submitted/derived changes may be written; copying the server snapshot
+  // back wholesale would overwrite unrelated answers saved in another window.
+  const patch = Object.fromEntries(Object.entries(defaults).filter(([key, value]) => (
+    key !== STAFF_PREFILLED_CLIENT_FIELDS_KEY && JSON.stringify(value) !== JSON.stringify(current[key])
+  )));
+  let answerRevisions;
+  try {
+    answerRevisions = await prisma.$transaction(async (tx) => {
+      const saved = await saveAnswersInTransaction(tx, intake.id, patch, {
+        expectedAnswerRevisions: body.expectedAnswerRevisions,
+        requireExpectedRevisions: true,
+      });
+      const rows = await tx.intakeAnswer.findMany({ where: { intakeId: intake.id } });
+      const merged = decodeAnswerRows(rows);
+      const freshPrefilled = new Set(Array.isArray(merged[STAFF_PREFILLED_CLIENT_FIELDS_KEY])
+        ? merged[STAFF_PREFILLED_CLIENT_FIELDS_KEY] as string[] : []);
+      for (const key of applied) {
+        if (CLIENT_ANSWER_KEYS.has(key) && questionByKey(key)?.type !== "consent" && hasValue(merged[key])) freshPrefilled.add(key);
+      }
+      const metadata = await saveAnswersInTransaction(tx, intake.id, { [STAFF_PREFILLED_CLIENT_FIELDS_KEY]: [...freshPrefilled].sort() });
+      await syncStructuredRowsInTransaction(tx, intake.id, merged);
+      await tx.client.update({
+        where: { id: intake.clientId },
+        data: clientUpdateFromAnswers(intake.client, merged, Object.keys(patch)),
+      });
+      return { ...saved.answerRevisions, ...metadata.answerRevisions };
+    });
+  } catch (error) {
+    if (error instanceof AnswerConflictError) return NextResponse.json(error.toJSON(), { status: 409 });
+    throw error;
+  }
   await audit("answers_updated", {
     providerId: provider!.id,
     intakeId: intake.id,
@@ -190,6 +214,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const clientPrefilledFields = [...clientPrefilled].sort();
   return NextResponse.json({
     ok: true,
+    answerRevisions,
     applied: applied.size,
     fields: [...applied].sort(),
     clientPrefilled: clientPrefilledFields,

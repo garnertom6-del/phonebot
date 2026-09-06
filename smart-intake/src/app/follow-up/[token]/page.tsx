@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, use } from "react";
 import type { ClientFollowUpQuestion } from "@/lib/clientFollowUp";
+import AnswerConflictPanel from "@/components/AnswerConflictPanel";
+import type { AnswerConflict, AnswerRevisions } from "@/lib/answerRevisions";
 
 type AnswerValue = string | string[];
 
@@ -13,6 +15,7 @@ type FollowUpData = {
   expiresAt?: string;
   savedCount?: number;
   skippedCount?: number;
+  answerRevisions?: AnswerRevisions;
 };
 
 function answered(value: AnswerValue | undefined): boolean {
@@ -104,6 +107,8 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
   const [data, setData] = useState<FollowUpData | null>(null);
   const [problem, setProblem] = useState("");
   const [answers, setAnswers] = useState<Record<string, AnswerValue>>({});
+  const answerRevisionsRef = useRef<AnswerRevisions>({});
+  const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
   const [skippedKeys, setSkippedKeys] = useState<string[]>([]);
   const [attested, setAttested] = useState(false);
   const [completionSummary, setCompletionSummary] = useState<{ saved: number; skipped: number } | null>(null);
@@ -126,6 +131,7 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
         return;
       }
       setData(body);
+      answerRevisionsRef.current = body.answerRevisions || {};
       if (body.completed) {
         setCompletionSummary({
           saved: Number(body.savedCount || 0),
@@ -139,9 +145,13 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
         const saved = JSON.parse(sessionStorage.getItem(progressKey) || "{}") as {
           answers?: Record<string, AnswerValue>;
           skippedKeys?: string[];
+          answerRevisions?: AnswerRevisions;
         };
         const allowed = new Set((body.questions || []).map((question: ClientFollowUpQuestion) => question.key));
         setAnswers(Object.fromEntries(Object.entries(saved.answers || {}).filter(([key]) => allowed.has(key))));
+        for (const key of Object.keys(saved.answers || {}).filter((key) => allowed.has(key))) {
+          answerRevisionsRef.current[key] = saved.answerRevisions?.[key] ?? -1;
+        }
         setSkippedKeys((saved.skippedKeys || []).filter((key) => allowed.has(key)));
       } catch {
         setAnswers({});
@@ -158,7 +168,7 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
   useEffect(() => { void load(); }, [load]);
   useEffect(() => {
     if (state !== "ready") return;
-    try { sessionStorage.setItem(progressKey, JSON.stringify({ answers, skippedKeys })); } catch { /* optional resume support */ }
+    try { sessionStorage.setItem(progressKey, JSON.stringify({ answers, skippedKeys, answerRevisions: answerRevisionsRef.current })); } catch { /* optional resume support */ }
   }, [answers, progressKey, skippedKeys, state]);
 
   const questions = useMemo(() => data?.questions || [], [data]);
@@ -182,6 +192,7 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
   }
 
   async function submit() {
+    if (submitting || answerConflicts.length) return;
     const missing = questions.find((item) => !answered(answers[item.key]) && !skippedKeys.includes(item.key));
     if (missing) {
       setIndex(questions.indexOf(missing));
@@ -198,10 +209,11 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
       const response = await fetch(`/api/follow-up/${params.token}`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ answers, skippedKeys, attested: true }),
+        body: JSON.stringify({ answers, skippedKeys, attested: true, expectedAnswerRevisions: answerRevisionsRef.current }),
       });
       const body = await response.json().catch(() => ({}));
       if (!response.ok) {
+        if (body.code === "ANSWER_CONFLICT") setAnswerConflicts(body.conflicts || []);
         setNotice(body.error || "Your answers were not saved. Please try again.");
         return;
       }
@@ -223,6 +235,16 @@ export default function ClientFollowUpPage(props: { params: Promise<{ token: str
 
   return (
     <main className="min-h-screen bg-slate-100 text-slate-900">
+      <AnswerConflictPanel conflicts={answerConflicts} localAnswers={answers}
+        labelForKey={(key) => questions.find((item) => item.key === key)?.label || key}
+        onResolve={(key, choice) => {
+          const conflict = answerConflicts.find((item) => item.key === key)!;
+          answerRevisionsRef.current[key] = conflict.serverRevision;
+          if (choice === "server") setAnswers((current) => ({ ...current, [key]: conflict.serverValue as AnswerValue }));
+          setAnswerConflicts((current) => current.filter((item) => item.key !== key));
+          setAttested(false);
+          setNotice("Review your choices, confirm accuracy, and send again.");
+        }} />
       <header className="bg-brand px-4 py-4 text-white">
         <div className="mx-auto max-w-xl">
           <h1 className="text-lg font-bold">{providerName}</h1>

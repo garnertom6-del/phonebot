@@ -3,7 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { attachSelectedProviderCookie, requireStaffForIntake, requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers, saveAnswersInTransaction, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswers, loadAnswerSnapshot, decodeAnswerRows, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
 import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { autoSendCompletedCopiesIfEnabled } from "@/lib/sendCompletedCopies";
@@ -18,6 +18,7 @@ import { parseFollowUpFieldKeys } from "@/lib/clientFollowUp";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
+import { AnswerConflictError, type AnswerRevisions } from "@/lib/answerRevisions";
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -73,7 +74,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
-  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
+  const snapshot = await loadAnswerSnapshot(intake.id);
+  const answers = applyOperationalDefaults(snapshot.answers);
   const [generationReadiness, packetFreshness] = await Promise.all([
     generationReadinessForIntake(intake.id, provider!.id),
     packetFreshnessForIntake(intake.id),
@@ -110,6 +112,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   const payload = NextResponse.json({
     intake: { ...intake, uploadedDocuments, followUps },
     answers,
+    answerRevisions: snapshot.answerRevisions,
+    contentRevision: snapshot.contentRevision,
     clientLink: `${base}/intake/${intake.token}`,
     percentComplete: percentComplete(answers),
     missingRequired: missingRequired(answers, signed, provider, missingOptions),
@@ -129,12 +133,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const body = await req.json();
+  if (body.clientDetails && body.answers) {
+    return NextResponse.json({ error: "Save client details and intake answers separately." }, { status: 400 });
+  }
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
     include: { client: true },
   });
   if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
   let completionDelivery: Record<string, unknown> | null = null;
+  let answerRevisions: AnswerRevisions = {};
+  let previousContentRevision: number | undefined;
+  let contentRevision: number | undefined;
+  try {
   if (body.clientDetails) {
     const parsed = clientDetailsSchema.safeParse(body.clientDetails);
     if (!parsed.success) {
@@ -143,12 +154,17 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     }
     const answerPatch = clientDetailsAnswerPatch(parsed.data);
     await prisma.$transaction(async (tx) => {
+      const saved = await saveAnswersInTransaction(tx, intake.id, answerPatch, {
+        invalidationReason: "Client identity or contact details changed after signature capture.",
+        expectedAnswerRevisions: body.expectedAnswerRevisions,
+        requireExpectedRevisions: true,
+      });
+      answerRevisions = { ...answerRevisions, ...saved.answerRevisions };
+      previousContentRevision = saved.previousContentRevision;
+      contentRevision = saved.contentRevision;
       await tx.client.update({
         where: { id: intake.clientId },
         data: clientDetailsRecordPatch(parsed.data),
-      });
-      await saveAnswersInTransaction(tx, intake.id, answerPatch, {
-        invalidationReason: "Client identity or contact details changed after signature capture.",
       });
       await tx.intake.update({
         where: { id: intake.id },
@@ -179,11 +195,21 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // Staff screens send sparse patches. Saving only those keys prevents an
     // older open tab from overwriting newer answers from another section.
     const answers = parsed.data;
-    await saveAnswers(intake.id, answers);
-    await syncStructuredRows(intake.id, await loadAnswers(intake.id));
-    await prisma.client.update({
-      where: { id: intake.clientId },
-      data: clientUpdateFromAnswers(intake.client, answers),
+    await prisma.$transaction(async (tx) => {
+      const saved = await saveAnswersInTransaction(tx, intake.id, answers, {
+        expectedAnswerRevisions: body.expectedAnswerRevisions,
+        requireExpectedRevisions: true,
+      });
+      answerRevisions = { ...answerRevisions, ...saved.answerRevisions };
+      previousContentRevision = saved.previousContentRevision;
+      contentRevision = saved.contentRevision;
+      const rows = await tx.intakeAnswer.findMany({ where: { intakeId: intake.id } });
+      const mergedAnswers = decodeAnswerRows(rows);
+      await syncStructuredRowsInTransaction(tx, intake.id, mergedAnswers);
+      await tx.client.update({
+        where: { id: intake.clientId },
+        data: clientUpdateFromAnswers(intake.client, mergedAnswers, Object.keys(answers)),
+      });
     });
     await audit("answers_updated", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: "staff edit" });
     await audit("staff_reviewed", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
@@ -227,5 +253,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // real archiving: hide from the dashboard list without changing status
     await prisma.intake.update({ where: { id: intake.id }, data: { archived: !!body.archive } });
   }
-  return NextResponse.json({ ok: true, completionDelivery });
+  return NextResponse.json({ ok: true, completionDelivery, answerRevisions, previousContentRevision, contentRevision });
+  } catch (error) {
+    if (error instanceof AnswerConflictError) return NextResponse.json(error.toJSON(), { status: 409 });
+    throw error;
+  }
 }

@@ -8,7 +8,8 @@ import {
   parseFollowUpFieldKeys,
   validateFollowUpSubmission,
 } from "@/lib/clientFollowUp";
-import { loadAnswers, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
+import { loadAnswers, loadAnswerSnapshot, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
+import { AnswerConflictError, revisionsForKeys } from "@/lib/answerRevisions";
 import { prisma } from "@/lib/prisma";
 import type { Answers } from "@/lib/fillPdf";
 
@@ -113,7 +114,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
     return unavailableResponse("This packet is already in DocuSign. Contact your provider to make a correction.", "DOCUSIGN_ACTIVE", 409, provider);
   }
 
-  const answers = applyOperationalDefaults(await loadAnswers(followUp.intakeId));
+  const snapshot = await loadAnswerSnapshot(followUp.intakeId);
+  const answers = applyOperationalDefaults(snapshot.answers);
   const questions = clientFollowUpQuestions(parseFollowUpFieldKeys(followUp.fieldKeys), answers);
   await audit("follow_up_opened", {
     providerId: followUp.intake.providerId || undefined,
@@ -134,6 +136,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
     provider,
     clientFirstName: followUp.intake.client.fullName.split(/\s+/)[0] || "there",
     questions,
+    answerRevisions: revisionsForKeys(snapshot.answerRevisions, questions.map((question) => question.key)),
     expiresAt: followUp.tokenExpiresAt,
   }, { headers: PRIVATE_NO_STORE });
 }
@@ -167,14 +170,6 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
   const rawAnswers = await loadAnswers(followUp.intakeId);
   const currentAnswers = applyOperationalDefaults(rawAnswers);
   const questions = clientFollowUpQuestions(parseFollowUpFieldKeys(followUp.fieldKeys), currentAnswers);
-  if (!questions.length) {
-    await prisma.intakeFollowUp.update({
-      where: { id: followUp.id },
-      data: { status: "COMPLETED", completedAt: new Date() },
-    });
-    return NextResponse.json({ ok: true, alreadyAnswered: true }, { headers: PRIVATE_NO_STORE });
-  }
-
   const body = await req.json().catch(() => ({}));
   if (body.attested !== true) {
     return NextResponse.json({
@@ -259,7 +254,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
       const latestQuestions = clientFollowUpQuestions(
         parseFollowUpFieldKeys(followUp.fieldKeys),
         latestAnswers,
-      );
+        { missingOnly: false },
+      ).filter((question) => validationQuestions.some((item) => item.key === question.key));
       const latestKeys = new Set(latestQuestions.map((question) => question.key));
       const latestInput = Object.fromEntries(
         Object.entries(validated.answers).filter(([key]) => latestKeys.has(key)),
@@ -274,6 +270,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
 
       await saveAnswersInTransaction(tx, followUp.intakeId, latestValidated.answers, {
         invalidationReason: "Client follow-up answers changed after signature capture.",
+        expectedAnswerRevisions: body.expectedAnswerRevisions,
+        requireExpectedRevisions: true,
       });
       const merged = { ...latestRaw, ...latestValidated.answers };
       await syncStructuredRowsInTransaction(tx, followUp.intakeId, merged);
@@ -343,6 +341,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ token: s
       where: { id: followUp.id, status: "PROCESSING" },
       data: { status: "OPEN" },
     });
+    if (error instanceof AnswerConflictError) return NextResponse.json(error.toJSON(), { status: 409, headers: PRIVATE_NO_STORE });
     return NextResponse.json({
       error: "Your answers could not be saved. Please try again.",
     }, { status: 500, headers: PRIVATE_NO_STORE });

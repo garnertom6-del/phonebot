@@ -13,8 +13,8 @@
     "generate:samples": "tsx scripts/generate-samples.ts",
     "check:mapping": "tsx scripts/check-mapping.ts",
     "typecheck": "tsc --noEmit",
-    "verify": "tsc --noEmit && tsx scripts/check-mapping.ts && tsx scripts/test.ts",
-    "test": "tsx scripts/test.ts",
+    "verify": "tsc --noEmit && tsx scripts/check-mapping.ts && npm run test",
+    "test": "tsx scripts/test.ts && tsx scripts/test-batch-retry.ts && tsx scripts/test-directory.ts && tsx scripts/test-coverage-delivery-regressions.ts && tsx scripts/test-answer-save-queue.ts && tsx scripts/test-client-answer-sync.ts && tsx scripts/test-answer-conflicts.ts && tsx scripts/test-source-import-conflicts.ts && tsx scripts/test-workflow-outcomes.ts && tsx scripts/run-isolated-db-test.ts support-referrals && tsx scripts/test-schema-upgrade.ts",
     "postinstall": "prisma generate && node scripts/copy-pdf-worker.mjs"
   },
   "prisma": {

@@ -2,17 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswerSnapshot, saveAnswerSnapshotChanges } from "@/lib/intakeData";
+import { AnswerConflictError } from "@/lib/answerRevisions";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { saveFile } from "@/lib/storage";
 import { applyNcTracksResult, describeNcTracksFields } from "@/lib/ncTracksLookup";
 import { extractFromNcTracksDocument, ncTracksDocumentConfigured } from "@/lib/ncTracksExtract";
 
 export const maxDuration = 180;
-
-function s(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
-}
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -40,6 +37,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  const baseline = await loadAnswerSnapshot(intake.id);
   let extraction;
   try {
     extraction = await extractFromNcTracksDocument(buffer, mime, {
@@ -49,6 +47,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     });
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "NC Tracks document reading failed" }, { status: 502 });
+  }
+
+  const { next, filled } = applyNcTracksResult(baseline.answers, extraction.extracted);
+  const withDefaults = applyOperationalDefaults(next);
+  const details = describeNcTracksFields(withDefaults, filled);
+  try {
+    await saveAnswerSnapshotChanges(intake.id, baseline, filled.length ? withDefaults : {}, { syncClient: true, expectedClientIdentity: intake.client });
+  } catch (error) {
+    if (error instanceof AnswerConflictError) return NextResponse.json({ ...error.toJSON(), error: "The intake changed while the NC Tracks file was being read. Review the saved answers and retry the file." }, { status: 409 });
+    throw error;
   }
 
   const safeName = file.name.replace(/[^\w.\-]+/g, "_").slice(-80);
@@ -64,22 +72,6 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     detail: `NC Tracks: ${file.name}`,
   });
 
-  const current = await loadAnswers(intake.id);
-  const { next, filled } = applyNcTracksResult(current, extraction.extracted);
-  const withDefaults = applyOperationalDefaults(next);
-  const details = describeNcTracksFields(withDefaults, filled);
-  if (filled.length) {
-    await saveAnswers(intake.id, withDefaults);
-    await syncStructuredRows(intake.id, await loadAnswers(intake.id));
-    await prisma.client.update({
-      where: { id: intake.clientId },
-      data: {
-        midNumber: s(withDefaults.mid_number) || intake.client.midNumber,
-        recordNumber: s(withDefaults.record_number) || intake.client.recordNumber,
-        phone: s(withDefaults.client_phone_cell) || intake.client.phone,
-      },
-    });
-  }
   await audit("nctracks_lookup_completed", {
     providerId: provider!.id,
     intakeId: intake.id,

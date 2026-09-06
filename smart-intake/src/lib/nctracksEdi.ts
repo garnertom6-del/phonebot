@@ -43,6 +43,9 @@ function splitName(full: string): { lastName: string; firstName?: string } {
 
 function toMapped(r: Edi271Result): NcTracksLookupResult {
   const mapped: NcTracksLookupResult = {};
+  // An unsuccessful inquiry is not evidence that the client has no Medicaid.
+  // Keep existing packet answers intact while the snapshot requests review.
+  if (r.rejectReason) return mapped;
   mapped.has_medicaid = r.active ? "Yes" : "No";
   if (r.memberId) mapped.mid_number = r.memberId;
   if (r.planName) mapped.mco = r.planName;

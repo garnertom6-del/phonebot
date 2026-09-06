@@ -44,8 +44,17 @@ export function parseEdi271(payload: string): Edi271Result {
     .map((s) => s.split("*"));
 
   const result: Edi271Result = { active: false, raw };
+  const transaction = segments.find((el) => el[0] === "ST" && el[1] === "271");
+  const hasMatchingTrailer = transaction?.[2] && segments.some((el) => (
+    el[0] === "SE" && el[2] === transaction[2]
+  ));
+  if (!transaction || !hasMatchingTrailer) {
+    result.rejectReason = "NC Tracks did not return a complete eligibility response. Verify coverage by hand.";
+    return result;
+  }
 
   let inSubscriberLoop = false;
+  let hasCoverageDetermination = false;
   for (const el of segments) {
     const tag = el[0];
 
@@ -71,10 +80,12 @@ export function parseEdi271(payload: string): Edi271Result {
     if (tag === "EB") {
       const code = el[1];
       if (ACTIVE.has(code)) {
+        hasCoverageDetermination = true;
         result.active = true;
         // EB05 = plan coverage description (product/MCO name)
         if (el[5] && !result.planName) result.planName = el[5];
       } else if (INACTIVE.has(code) && !result.active) {
+        hasCoverageDetermination = true;
         // leave active=false; note the plan if named
         if (el[5] && !result.planName) result.planName = el[5];
       }
@@ -90,5 +101,8 @@ export function parseEdi271(payload: string): Edi271Result {
     }
   }
 
+  if (!hasCoverageDetermination && !result.rejectReason) {
+    result.rejectReason = "NC Tracks did not confirm active or inactive coverage. Verify coverage by hand.";
+  }
   return result;
 }

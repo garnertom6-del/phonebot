@@ -2,17 +2,14 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
-import { loadAnswers, saveAnswers, syncStructuredRows } from "@/lib/intakeData";
+import { loadAnswerSnapshot, saveAnswerSnapshotChanges } from "@/lib/intakeData";
+import { AnswerConflictError } from "@/lib/answerRevisions";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import {
   applyNcTracksResult,
   lookupNcTracks,
   ncTracksConfigured,
 } from "@/lib/ncTracksLookup";
-
-function s(v: unknown): string {
-  return typeof v === "string" ? v.trim() : "";
-}
 
 export async function POST(_req: Request, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -33,7 +30,8 @@ export async function POST(_req: Request, props: { params: Promise<{ id: string 
     }, { status: 501 });
   }
 
-  const current = await loadAnswers(intake.id);
+  const baseline = await loadAnswerSnapshot(intake.id);
+  const current = baseline.answers;
   try {
     const result = await lookupNcTracks({
       intakeId: intake.id,
@@ -48,16 +46,7 @@ export async function POST(_req: Request, props: { params: Promise<{ id: string 
     });
     const { next, filled } = applyNcTracksResult(current, result);
     const defaults = applyOperationalDefaults(next);
-    await saveAnswers(intake.id, defaults);
-    await syncStructuredRows(intake.id, defaults);
-    await prisma.client.update({
-      where: { id: intake.clientId },
-      data: {
-        midNumber: s(defaults.mid_number) || intake.client.midNumber,
-        recordNumber: s(defaults.record_number) || intake.client.recordNumber,
-        phone: s(defaults.client_phone_cell) || intake.client.phone,
-      },
-    });
+    await saveAnswerSnapshotChanges(intake.id, baseline, defaults, { syncClient: true, expectedClientIdentity: intake.client });
     await audit("nctracks_lookup_completed", {
       providerId: provider!.id,
       intakeId: intake.id,
@@ -66,6 +55,7 @@ export async function POST(_req: Request, props: { params: Promise<{ id: string 
     });
     return NextResponse.json({ ok: true, filled, count: filled.length });
   } catch (e) {
+    if (e instanceof AnswerConflictError) return NextResponse.json({ ...e.toJSON(), error: "The intake changed during the NC Tracks lookup. Review the saved answers and run the lookup again." }, { status: 409 });
     const error = e instanceof Error ? e.message : "NC Tracks lookup failed";
     await audit("nctracks_lookup_failed", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: error });
     return NextResponse.json({ error }, { status: 502 });

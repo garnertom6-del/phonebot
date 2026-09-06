@@ -2194,6 +2194,7 @@ async function main() {
     const followUpGet = await getClientFollowUp(followUpGetRequest, { params: Promise.resolve({ token: secureFollowUpToken }) });
     const followUpGetBody = await followUpGet.json() as {
       questions?: Array<{ key: string }>;
+      answerRevisions: Record<string, number>;
     };
     assert.equal(followUpGet.status, 200);
     assert.equal(followUpGet.headers.get("cache-control"), "private, no-store, max-age=0");
@@ -2225,11 +2226,32 @@ async function main() {
       weight: "170",
       presenting_problem: "Staff edit made after the client opened the follow-up",
     });
-    const validFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
+    const staleFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         answers: { height: "5'8\"", weight: "160" },
+        expectedAnswerRevisions: followUpGetBody.answerRevisions,
+        skippedKeys: ["preferred_emergency_facility"],
+        attested: true,
+      }),
+    });
+    const staleFollowUp = await submitClientFollowUp(staleFollowUpRequest, {
+      params: Promise.resolve({ token: secureFollowUpToken }),
+    });
+    assert.equal(staleFollowUp.status, 409, "follow-up must ask for an explicit choice on a newer answer");
+    const staleFollowUpBody = await staleFollowUp.json();
+    assert.equal(staleFollowUpBody.code, "ANSWER_CONFLICT");
+    assert.equal(staleFollowUpBody.conflicts[0].key, "weight");
+    assert.equal(staleFollowUpBody.conflicts[0].serverValue, "170");
+    assert.equal((await loadAnswers(followUpIntake.id)).height, undefined, "conflicting follow-up must roll back all its answers");
+    assert.equal((await prisma.intakeFollowUp.findUnique({ where: { id: followUpRow.id } }))?.status, "OPEN");
+    const validFollowUpRequest = new NextRequest(`http://localhost/api/follow-up/${secureFollowUpToken}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        answers: { height: "5'8\"", weight: "170" },
+        expectedAnswerRevisions: { ...followUpGetBody.answerRevisions, weight: staleFollowUpBody.conflicts[0].serverRevision },
         skippedKeys: ["preferred_emergency_facility"],
         attested: true,
       }),
@@ -2251,7 +2273,7 @@ async function main() {
     assert.equal(completedFollowUp?.status, "COMPLETED");
     assert(completedFollowUp?.completedAt, "completed follow-up needs a completion time");
     assert(completedFollowUp?.attestedAt, "completed follow-up needs client attestation time");
-    assert.equal(completedFollowUp?.savedCount, 1);
+    assert.equal(completedFollowUp?.savedCount, 2);
     assert(completedFollowUp?.attestationJson, "attestation must preserve the exact answer snapshot");
     assert.match(completedFollowUp?.attestationSha256 || "", /^[a-f0-9]{64}$/);
     assert.equal(
@@ -2278,6 +2300,7 @@ async function main() {
       { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(originalLinkAfterFollowUp.status, 200, "invalidated content must reopen only for review and re-signing");
+    const reviewedFollowUp = await originalLinkAfterFollowUp.json();
     const identityMismatchAfterFollowUp = await saveClientSignatureByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
         method: "POST",
@@ -2289,11 +2312,30 @@ async function main() {
           relationship: "client",
           signedDate: "08/29/2026",
           dobCheck: "1990-01-01",
+          expectedContentRevision: reviewedFollowUp.contentRevision,
         }),
       }),
       { params: Promise.resolve({ token: followUpIntake.token }) },
     );
     assert.equal(identityMismatchAfterFollowUp.status, 409, "a different printed identity must not replace the signature");
+    await saveAnswers(followUpIntake.id, { presenting_problem: "A newer change the signer has not reviewed" });
+    for (const expectedContentRevision of [undefined, reviewedFollowUp.contentRevision]) {
+      const staleSignature = await saveClientSignatureByToken(
+        new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ role: "client", imageData: "data:image/png;base64,iVBORw0KGgo=", printedName: followUpClient.fullName,
+            relationship: "client", signedDate: "08/29/2026", dobCheck: followUpClient.dob, expectedContentRevision }),
+        }), { params: Promise.resolve({ token: followUpIntake.token }) },
+      );
+      assert.equal(staleSignature.status, 409, "signing must reject missing or unseen content revisions");
+      assert.equal((await staleSignature.json()).code, "CONTENT_REVISION_CONFLICT");
+      assert((await prisma.signature.findUnique({ where: { intakeId_role: { intakeId: followUpIntake.id, role: "client" } } }))?.invalidatedAt,
+        "rejected signatures cannot validate unseen content");
+    }
+    const currentReviewedFollowUp = await (await getClientIntakeByToken(
+      new NextRequest(`http://localhost/api/intake/${followUpIntake.token}`),
+      { params: Promise.resolve({ token: followUpIntake.token }) },
+    )).json();
     const replacementSignature = await saveClientSignatureByToken(
       new NextRequest(`http://localhost/api/intake/${followUpIntake.token}/signature`, {
         method: "POST",
@@ -2305,6 +2347,7 @@ async function main() {
           relationship: "client",
           signedDate: "08/29/2026",
           dobCheck: followUpClient.dob,
+          expectedContentRevision: currentReviewedFollowUp.contentRevision,
         }),
       }),
       { params: Promise.resolve({ token: followUpIntake.token }) },

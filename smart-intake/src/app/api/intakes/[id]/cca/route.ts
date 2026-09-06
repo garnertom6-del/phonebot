@@ -6,7 +6,8 @@ import { ccaConfigured, extractFromCca } from "@/lib/ccaExtract";
 import { saveFile } from "@/lib/storage";
 import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApply";
 import { appSnapshotFromAnswers, finalizeCcaReview } from "@/lib/ccaMedicalNecessity";
-import { loadAnswers } from "@/lib/intakeData";
+import { loadAnswerSnapshot } from "@/lib/intakeData";
+import { AnswerConflictError } from "@/lib/answerRevisions";
 
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
@@ -38,6 +39,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   const buffer = Buffer.from(await file.arrayBuffer());
+  const baseline = await loadAnswerSnapshot(intake.id);
   let extraction;
   try {
     extraction = await extractFromCca(buffer, mime);
@@ -45,11 +47,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: e instanceof Error ? e.message : "CCA reading failed" }, { status: 502 });
   }
 
-  const currentAnswers = await loadAnswers(intake.id);
   extraction = {
     ...extraction,
     review: finalizeCcaReview(extraction.review, {
-      app: appSnapshotFromAnswers(currentAnswers, intake.client),
+      app: appSnapshotFromAnswers(baseline.answers, intake.client),
     }),
   };
 
@@ -57,6 +58,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   try {
     applied = await applyCcaAnswers({
       intakeId: intake.id,
+      baseline,
+      expectedClientIdentity: intake.client,
       clientId: intake.clientId,
       currentMid: intake.client.midNumber,
       currentRecord: intake.client.recordNumber,
@@ -67,6 +70,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
       confirmInvalidateSignatures,
     });
   } catch (error) {
+    if (error instanceof AnswerConflictError) return NextResponse.json({ ...error.toJSON(), error: "The intake changed while the CCA was being read. Review the saved answers and retry the CCA import." }, { status: 409 });
     if (error instanceof CcaSignaturesWouldInvalidateError) {
       return NextResponse.json({
         code: error.code,
@@ -97,10 +101,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   await prisma.intake.update({
     where: { id: intake.id },
     data: {
-      status: intake.status === "SUBMITTED" ? "NEEDS_REVIEW" : intake.status,
       lastActivityAt: new Date(),
     },
   });
+  await prisma.intake.updateMany({ where: { id: intake.id, status: "SUBMITTED" }, data: { status: "NEEDS_REVIEW" } });
   await audit("cca_imported", {
     providerId: provider!.id,
     intakeId: intake.id, userId: user!.id,

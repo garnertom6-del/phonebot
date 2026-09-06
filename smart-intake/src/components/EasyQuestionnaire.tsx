@@ -18,7 +18,7 @@ import {
   COMPLETED_COPY_DELIVERY_KEY,
   completedCopyDeliveryChannels,
   completedCopyDeliveryOptions,
-  hasUsableClientEmail,
+  hasUsableCompletedCopyEmail,
 } from "@/lib/clientCopyDelivery";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
@@ -26,6 +26,12 @@ import ProgressBar from "./ProgressBar";
 import IntakeOrientationAudio from "./IntakeOrientationAudio";
 import ConsentAudio from "./ConsentAudio";
 import { interstitialGuardUntil, isInterstitialClickGuarded } from "@/lib/easyInterstitialGuard";
+import { createAnswerSaveQueue } from "@/lib/answerSaveQueue";
+import type { AnswerConflict, AnswerRevisions } from "@/lib/answerRevisions";
+import AnswerConflictPanel from "./AnswerConflictPanel";
+import ContentRevisionReview from "./ContentRevisionReview";
+import { nextReviewedContentRevision } from "@/lib/contentRevision";
+import { insurancePlanDisplayLabel } from "@/lib/insurancePlans";
 
 type Answers = Record<string, string | boolean | number | string[]>;
 type Phase = "welcome" | "question" | "break" | "photos" | "signature" | "done";
@@ -38,7 +44,7 @@ const easyQ = (q: Question, providerName?: string, supportPhone?: string) =>
 const easyHelp = (q: Question, providerName?: string, supportPhone?: string) =>
   brandText(EASY[q.key]?.help ?? q.help, { name: providerName, phone: supportPhone });
 const easyOpt = (q: Question, opt: string, providerName?: string, supportPhone?: string) =>
-  brandText(EASY[q.key]?.options?.[opt] ?? opt, { name: providerName, phone: supportPhone });
+  brandText(q.key === "mco" || q.key === "provider_choice_plan" ? insurancePlanDisplayLabel(opt) : EASY[q.key]?.options?.[opt] ?? opt, { name: providerName, phone: supportPhone });
 
 const SURVEY_OPTIONS = ["1", "2", "3"];
 
@@ -86,8 +92,10 @@ const GATE_KEYS: string[] = [...new Set([
   ...SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)),
 ])];
 
-export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialStatus, signed, quick = false, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
+export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialAnswerRevisions = {}, initialContentRevision = 0, initialStatus, signed, quick = false, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string; initialAnswers: Answers; initialStatus: string;
+  initialAnswerRevisions?: AnswerRevisions;
+  initialContentRevision?: number;
   signed: { client?: boolean; guardian?: boolean }; quick?: boolean; ccaAttestationReady?: boolean; progressVersion?: string;
   resignMode?: "assessment" | "record" | null; reviewQuestionKeys?: string[];
 }) {
@@ -101,7 +109,12 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const [justPicked, setJustPicked] = useState<string | null>(null);
   const [nudge, setNudge] = useState("");
   const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
   const [saveError, setSaveError] = useState("");
+  const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
+  const reviewedContentRevisionRef = useRef(initialContentRevision);
+  const [contentReviewRequired, setContentReviewRequired] = useState(false);
+  const [signing, setSigning] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [missing, setMissing] = useState<{ key: string; label: string }[]>([]);
@@ -114,7 +127,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   );
 
   const gateFingerprint = JSON.stringify(GATE_KEYS.map((k) => answers[k]));
-  const copyEmailAvailable = hasUsableClientEmail(answers);
+  const copyEmailAvailable = hasUsableCompletedCopyEmail(answers);
   const prefilledRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   const flat = useMemo(
@@ -130,8 +143,14 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clickGuardUntilRef = useRef(0);
   const [clickGuardUntil, setClickGuardUntil] = useState(0);
-  // what the server already has - autosaves send only the diff, not all 200+ answers
-  const savedRef = useRef<Answers>({ ...applyOperationalDefaults(initialAnswers) as Answers });
+  const saveQueueRef = useRef<ReturnType<typeof createAnswerSaveQueue> | null>(null);
+  if (!saveQueueRef.current) saveQueueRef.current = createAnswerSaveQueue(answers, initialAnswerRevisions);
+  const pendingSavesRef = useRef(0);
+  const finalActionInFlightRef = useRef(false);
+
+  useEffect(() => {
+    setDirty(saveQueueRef.current!.hasUnsavedChanges(answers));
+  }, [answers]);
 
   const progressKey = `smart-intake-progress:v2:${token}:${progressVersion}:${resignMode || "initial"}:${reviewQuestionKeys.join(",")}`;
 
@@ -187,71 +206,88 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   /* ------------------------------ saving ------------------------------ */
 
   const saveNow = useCallback(async (event?: "started" | "completed"): Promise<boolean> => {
+    if (saveTimer.current) {
+      clearTimeout(saveTimer.current);
+      saveTimer.current = null;
+    }
+    const section = flatRef.current[idxRef.current]?.sectionKey;
+    pendingSavesRef.current += 1;
     setSaving(true);
-    // send only answers that changed since the last successful save
-    const snapshot = event === "completed"
-      ? applyOperationalDefaults(applySkippedClientPlaceholders(answersRef.current)) as Answers
-      : answersRef.current;
-    if (event === "completed") {
-      answersRef.current = snapshot;
-      setAnswers(snapshot);
-    }
-    const changed: Answers = {};
-    for (const [k, v] of Object.entries(snapshot)) {
-      if (JSON.stringify(v) !== JSON.stringify(savedRef.current[k])) changed[k] = v;
-    }
-    if (!Object.keys(changed).length && !event) { setSaving(false); return true; }
     try {
-      const res = await fetch(`/api/intake/${token}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          answers: changed,
-          section: flatRef.current[idxRef.current]?.sectionKey,
-          event,
-        }),
+      const saved = await saveQueueRef.current!.save({
+        force: !!event,
+        readSnapshot: () => {
+          const snapshot = event === "completed"
+            ? applyOperationalDefaults(applySkippedClientPlaceholders(answersRef.current)) as Answers
+            : answersRef.current;
+          if (event === "completed") {
+            answersRef.current = snapshot;
+            setAnswers(snapshot);
+          }
+          return snapshot;
+        },
+        write: async (changed, expectedAnswerRevisions) => {
+          const res = await fetch(`/api/intake/${token}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ answers: changed, expectedAnswerRevisions, section, event }),
+          });
+          const body = await res.json().catch(() => ({}));
+          if (res.status === 409 && body.code === "ANSWER_CONFLICT") {
+            setSaveError(body.error);
+            setHasSignature(false);
+            return { ok: false, conflicts: body.conflicts };
+          }
+          if ([403, 404, 409, 410].includes(res.status)) {
+            setSaveError(body.error || `This link has stopped working. Please call ${providerPhone(supportPhone, providerName)} and we will text you a new one.`);
+            return false;
+          }
+          if (!res.ok) throw new Error("Save failed");
+          reviewedContentRevisionRef.current = nextReviewedContentRevision(reviewedContentRevisionRef.current, body.previousContentRevision, body.contentRevision);
+          return { ok: true, answerRevisions: body.answerRevisions };
+        },
       });
-      if (res.status === 404) {
-        // the link expired mid-session - tell the client what to do, not "check connection"
-        const body = await res.json().catch(() => ({} as { error?: string }));
-        setSaveError(body.error || `This link has stopped working. Please call ${providerPhone(supportPhone, providerName)} and we will text you a new one.`);
-        return false;
-      }
-      if (!res.ok) throw new Error("Save failed");
-      savedRef.current = { ...savedRef.current, ...changed };
-      setSaveError("");
-      return true;
+      if (saved) setSaveError("");
+      return saved;
     } catch {
       setSaveError("Not saved. Check connection.");
       return false;
     }
-    finally { setSaving(false); }
-  }, [token]);
+    finally {
+      pendingSavesRef.current -= 1;
+      setSaving(pendingSavesRef.current > 0);
+      setDirty(saveQueueRef.current!.hasUnsavedChanges(answersRef.current));
+      setAnswerConflicts(saveQueueRef.current!.conflicts());
+    }
+  }, [token, supportPhone, providerName]);
 
   const queueSave = useCallback(() => {
     if (saveTimer.current) clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(() => { void saveNow(); }, 800);
+    saveTimer.current = setTimeout(() => {
+      saveTimer.current = null;
+      void saveNow();
+    }, 800);
   }, [saveNow]);
 
   const set = useCallback((key: string, value: Answers[string]) => {
-    if (isInterstitialClickGuarded(clickGuardUntilRef.current)) return;
-    setAnswers((a) => {
-      const next: Answers = { ...a, [key]: value };
-      if (key === "race") {
-        const ethnicity = ethnicityForRace(value);
-        if (ethnicity) next.ethnicity = ethnicity;
-      }
-      if (key === "has_pcp" && value === "No") next.pcp_name = "I do not have a primary care";
-      return next;
-    });
+    if (finalActionInFlightRef.current || isInterstitialClickGuarded(clickGuardUntilRef.current)) return;
+    const next: Answers = { ...answersRef.current, [key]: value };
+    if (key === "race") {
+      const ethnicity = ethnicityForRace(value);
+      if (ethnicity) next.ethnicity = ethnicity;
+    }
+    if (key === "has_pcp" && value === "No") next.pcp_name = "I do not have a primary care";
+    answersRef.current = next;
+    setAnswers(next);
+    setDirty(saveQueueRef.current!.hasUnsavedChanges(next));
     setNudge("");
-    setSaveError("");
     queueSave();
   }, [queueSave]);
 
   /* ---------------------------- navigation ---------------------------- */
 
   const goNext = useCallback(() => {
+    if (finalActionInFlightRef.current) return;
     const list = flatRef.current;
     const i = idxRef.current;
     const currentQ = list[i]?.q;
@@ -287,6 +323,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, [branding, isResign, saveNow]);
 
   const goBack = useCallback(() => {
+    if (finalActionInFlightRef.current) return;
     setJustPicked(null);
     setNudge("");
     if (phase === "signature") {
@@ -383,35 +420,53 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
 
   /* --------------------------- submit / sign -------------------------- */
 
-  const isGuardian = answers.is_minor_or_incompetent === "Yes";
+  const isGuardian = answers.is_minor_or_incompetent === "Yes" || answers.is_minor_or_incompetent === true;
   const signRole: "client" | "guardian" = isGuardian ? "guardian" : "client";
   const signDefaultName = String(
     (isGuardian ? answers.guardian_name : answers.client_full_name) ?? clientName ?? "");
 
   async function captureSignature(d: { imageData: string; printedName: string; relationship?: string; signedDate: string; dobCheck?: string }) {
+    if (finalActionInFlightRef.current) return;
+    finalActionInFlightRef.current = true;
+    setSigning(true);
     setSubmitError("");
-    if (isResign) {
-      if (saveTimer.current) clearTimeout(saveTimer.current);
+    try {
+      if (advanceTimer.current) {
+        clearTimeout(advanceTimer.current);
+        advanceTimer.current = null;
+      }
+      // Signing always waits for pending writes, including an initial intake.
+      // Otherwise an autosave can arrive after signing and invalidate it.
       const saved = await saveNow();
       if (!saved) {
-        setSubmitError("We could not save your review. Check your connection and try again.");
+        setSubmitError("We could not save your latest answers. Check your connection and try again.");
         return;
       }
+      const relationship = d.relationship || (signRole === "guardian" ? "guardian" : "client");
+      const res = await fetch(`/api/intake/${token}/signature`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ role: signRole, ...d, relationship, expectedContentRevision: reviewedContentRevisionRef.current }),
+      });
+      if (res.ok) {
+        setHasSignature(true);
+        if (isResign) setPhase("done");
+      } else {
+        const body = await res.json().catch(() => ({} as { error?: string }));
+        if (body.code === "CONTENT_REVISION_CONFLICT") setContentReviewRequired(true);
+        setSubmitError(body.error || "The signature did not save. Please try again.");
+      }
+    } catch {
+      setSubmitError("The signature did not save. Check your connection and try again.");
+    } finally {
+      finalActionInFlightRef.current = false;
+      setSigning(false);
     }
-    const relationship = d.relationship || (signRole === "guardian" ? "guardian" : "client");
-    const res = await fetch(`/api/intake/${token}/signature`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ role: signRole, ...d, relationship }),
-    });
-    if (res.ok) {
-      setHasSignature(true);
-      if (isResign) setPhase("done");
-    }
-    else setSubmitError((await res.json()).error || "The signature did not save. Please try again.");
   }
 
   async function submit() {
+    if (finalActionInFlightRef.current) return;
+    finalActionInFlightRef.current = true;
     setSubmitting(true);
     setSubmitError("");
     setMissing([]);
@@ -431,7 +486,10 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       }
     } catch {
       setSubmitError("Something went wrong. Check your connection and try again.");
-    } finally { setSubmitting(false); }
+    } finally {
+      finalActionInFlightRef.current = false;
+      setSubmitting(false);
+    }
   }
 
   function jumpToFirstMissing() {
@@ -446,6 +504,35 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }
 
   /* ------------------------------ screens ----------------------------- */
+
+  if (contentReviewRequired) return (
+    <ContentRevisionReview endpoint={`/api/intake/${token}`} baselineAnswers={saveQueueRef.current!.savedAnswers()}
+      labelForKey={(key) => SECTIONS.flatMap((section) => section.questions).find((question) => question.key === key)?.label || key}
+      onReviewed={(snapshot) => {
+        answersRef.current = snapshot.answers;
+        setAnswers(snapshot.answers);
+        saveQueueRef.current = createAnswerSaveQueue(snapshot.answers, snapshot.answerRevisions);
+        reviewedContentRevisionRef.current = snapshot.contentRevision;
+        setContentReviewRequired(false);
+        setHasSignature(false);
+        setSubmitError("");
+      }} />
+  );
+
+  if (answerConflicts.length) return (
+    <div className="mx-auto max-w-xl">
+      <AnswerConflictPanel conflicts={answerConflicts} localAnswers={answers}
+        labelForKey={(key) => SECTIONS.flatMap((section) => section.questions).find((question) => question.key === key)?.label || key}
+        onResolve={(key, choice) => {
+          const next = saveQueueRef.current!.resolveConflict(key, choice, answersRef.current);
+          answersRef.current = next;
+          setAnswers(next);
+          setAnswerConflicts(saveQueueRef.current!.conflicts());
+          setDirty(saveQueueRef.current!.hasUnsavedChanges(next));
+          setSaveError("Your choices are ready. Retry saving to continue.");
+        }} />
+    </div>
+  );
 
   if (phase === "done") {
     return (
@@ -568,7 +655,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
               Back
             </button>
-            <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
+            <SaveIndicator saving={saving} dirty={dirty} saveError={saveError} onRetry={() => { void saveNow(); }} />
           </div>
         </div>
       </div>
@@ -590,12 +677,14 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
               Signature saved. Thank you!
             </p>
           ) : (
+            <fieldset disabled={signing || submitting}>
             <SignaturePad
               roleLabel={isGuardian ? "Parent or guardian signs here" : "Sign here"}
               expectedRole={signRole}
               defaultName={signDefaultName}
               askDob
               onCapture={(d) => { void captureSignature(d); }} />
+            </fieldset>
           )}
         </div>
 
@@ -620,7 +709,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
         )}
 
         <button type="button" className="btn-primary mt-6 min-h-[72px] w-full text-2xl"
-          disabled={!hasSignature || submitting} onClick={() => { void submit(); }}>
+          disabled={!hasSignature || signing || submitting} onClick={() => { void submit(); }}>
           {submitting ? "Sending..." : "Send my answers"}
         </button>
         {!hasSignature && (
@@ -635,7 +724,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             <button type="button" className="btn-secondary min-h-[56px] flex-1 text-lg" onClick={goBack}>
               Back
             </button>
-            <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
+            <SaveIndicator saving={saving} dirty={dirty} saveError={saveError} onRetry={() => { void saveNow(); }} />
           </div>
         </div>
       </div>
@@ -686,7 +775,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
             <button type="button" className="btn-secondary min-h-[56px] w-20 shrink-0 text-base" onClick={goBack}>
               Back
             </button>
-            <SaveIndicator saving={saving} saveError={saveError} onRetry={() => { void saveNow(); }} />
+            <SaveIndicator saving={saving} dirty={dirty} saveError={saveError} onRetry={() => { void saveNow(); }} />
             <button type="button" className="btn-primary min-h-[56px] flex-1 text-lg font-extrabold" onClick={() => { void nextFromInput(); }}>
               Next
             </button>
@@ -702,8 +791,9 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   );
 }
 
-function SaveIndicator({ saving, saveError, onRetry }: {
+function SaveIndicator({ saving, dirty, saveError, onRetry }: {
   saving: boolean;
+  dirty: boolean;
   saveError: string;
   onRetry: () => void;
 }) {
@@ -715,6 +805,7 @@ function SaveIndicator({ saving, saveError, onRetry }: {
       </button>
     );
   }
+  if (dirty) return <span className="min-w-[76px] text-center text-xs text-amber-700">Not saved yet</span>;
   return <span className="min-w-[76px] text-center text-xs text-slate-400">Saved</span>;
 }
 

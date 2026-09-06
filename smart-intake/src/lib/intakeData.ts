@@ -8,10 +8,14 @@ import { ELIGIBILITY_KEYS } from "./eligibilityState";
 import { STAFF_PREFILLED_CLIENT_FIELDS_KEY } from "@/config/mooreDivineQuestions";
 import { signatureIntegrity } from "@/lib/recordIntegrity";
 import { COMPLETED_COPY_DELIVERY_KEY } from "@/lib/clientCopyDelivery";
+import { AnswerConflictError, findAnswerConflicts, type AnswerRevisions } from "./answerRevisions";
+import { clientUpdateFromAnswers } from "./clientAnswerSync";
 
 export type SaveAnswersOptions = {
   invalidateSignatures?: boolean;
   invalidationReason?: string;
+  expectedAnswerRevisions?: unknown;
+  requireExpectedRevisions?: boolean;
 };
 
 const NON_MATERIAL_ANSWER_KEYS = new Set([
@@ -65,6 +69,28 @@ export async function loadAnswers(intakeId: string): Promise<Answers> {
   return decodeAnswerRows(rows);
 }
 
+export async function loadAnswerSnapshot(intakeId: string) {
+  return prisma.$transaction(async (tx) => {
+    const intake = await tx.intake.findUniqueOrThrow({ where: { id: intakeId }, select: { contentRevision: true } });
+    const rows = await tx.intakeAnswer.findMany({ where: { intakeId } });
+    return {
+      answers: decodeAnswerRows(rows),
+      answerRevisions: Object.fromEntries(rows.map((row) => [row.key, row.revision])) as AnswerRevisions,
+      contentRevision: intake.contentRevision,
+    };
+  }, { isolationLevel: "Serializable" });
+}
+
+export type AnswerSnapshot = { answers: Answers; answerRevisions: AnswerRevisions };
+export type SourceClientIdentity = { fullName: string; dob: string; midNumber: string | null };
+export type SaveAnswersResult = {
+  changedKeys: string[];
+  signaturesInvalidated: boolean;
+  answerRevisions: AnswerRevisions;
+  previousContentRevision: number;
+  contentRevision: number;
+};
+
 export function decodeAnswerRows(rows: Array<{ key: string; value: string }>): Answers {
   const out: Answers = {};
   for (const r of rows) {
@@ -78,11 +104,18 @@ export async function saveAnswersInTransaction(
   intakeId: string,
   answers: Answers,
   options: SaveAnswersOptions = {},
-): Promise<{ changedKeys: string[]; signaturesInvalidated: boolean }> {
+): Promise<SaveAnswersResult> {
+  // Every answer writer locks the intake row before reading revisions. This
+  // covers absent answer rows too and serializes public/staff writers atomically.
+  const locked = await db.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
   const current = await db.intakeAnswer.findMany({
     where: { intakeId, key: { in: Object.keys(answers) } },
-    select: { key: true, value: true },
+    select: { key: true, value: true, revision: true },
   });
+  if (options.requireExpectedRevisions || options.expectedAnswerRevisions !== undefined) {
+    const conflicts = findAnswerConflicts(answers, current, options.expectedAnswerRevisions);
+    if (conflicts.length) throw new AnswerConflictError(conflicts);
+  }
   const currentByKey = new Map(current.map((row) => [row.key, row.value]));
   const changedEntries = Object.entries(answers).filter(([key, value]) => (
     currentByKey.get(key) !== JSON.stringify(value)
@@ -91,7 +124,7 @@ export async function saveAnswersInTransaction(
     await db.intakeAnswer.upsert({
       where: { intakeId_key: { intakeId, key } },
       create: { intakeId, key, value: JSON.stringify(value) },
-      update: { value: JSON.stringify(value) },
+      update: { value: JSON.stringify(value), revision: { increment: 1 } },
     });
   }
   const materialKeys = changedEntries.map(([key]) => key).filter((key) => !NON_MATERIAL_ANSWER_KEYS.has(key));
@@ -103,18 +136,73 @@ export async function saveAnswersInTransaction(
       options.invalidationReason || "Intake content changed after signature capture.",
     );
   }
-  return { changedKeys: changedEntries.map(([key]) => key), signaturesInvalidated };
+  const changedKeys = changedEntries.map(([key]) => key);
+  const changedSet = new Set(changedKeys);
+  const revisions = new Map(current.map((row) => [row.key, row.revision]));
+  const answerRevisions = Object.fromEntries(Object.keys(answers).map((key) => [
+    key, (revisions.get(key) ?? 0) + (changedSet.has(key) ? 1 : 0),
+  ]));
+  return {
+    changedKeys, signaturesInvalidated, answerRevisions,
+    previousContentRevision: locked.contentRevision,
+    contentRevision: locked.contentRevision + (materialKeys.length && options.invalidateSignatures !== false ? 1 : 0),
+  };
 }
 
 export async function saveAnswers(
   intakeId: string,
   answers: Answers,
   options: SaveAnswersOptions = {},
-): Promise<{ changedKeys: string[]; signaturesInvalidated: boolean }> {
+): Promise<SaveAnswersResult> {
   return prisma.$transaction(async (db) => {
     const result = await saveAnswersInTransaction(db, intakeId, answers, options);
     await db.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
     return result;
+  });
+}
+
+/** Apply an asynchronous lookup only to fields unchanged since it started. */
+export async function saveAnswerSnapshotChanges(
+  intakeId: string,
+  baseline: AnswerSnapshot,
+  proposed: Answers,
+  options: SaveAnswersOptions & { syncClient?: boolean; expectedClientIdentity?: SourceClientIdentity } = {},
+) {
+  const patch = Object.fromEntries(Object.entries(proposed).filter(([key, value]) => (
+    JSON.stringify(value) !== JSON.stringify(baseline.answers[key])
+  )));
+  return prisma.$transaction(async (tx) => {
+    if (options.expectedClientIdentity) {
+      await tx.intake.update({ where: { id: intakeId }, data: { lastActivityAt: new Date() } });
+      const current = await tx.intake.findUniqueOrThrow({ where: { id: intakeId }, include: { client: true } });
+      const identityKeys = [["fullName", "client_full_name"], ["dob", "dob"], ["midNumber", "mid_number"]] as const;
+      const changedIdentity = identityKeys.filter(([field]) => current.client[field] !== options.expectedClientIdentity![field]);
+      if (changedIdentity.length) {
+        const rows = await tx.intakeAnswer.findMany({ where: { intakeId, key: { in: changedIdentity.map(([, key]) => key) } } });
+        throw new AnswerConflictError(changedIdentity.map(([field, key]) => ({
+          key,
+          serverValue: current.client[field],
+          serverRevision: rows.find((row) => row.key === key)?.revision ?? 0,
+          localValue: options.expectedClientIdentity![field],
+        })));
+      }
+    }
+    const saved = await saveAnswersInTransaction(tx, intakeId, patch, {
+      ...options,
+      expectedAnswerRevisions: baseline.answerRevisions,
+      requireExpectedRevisions: true,
+    });
+    const rows = await tx.intakeAnswer.findMany({ where: { intakeId } });
+    const answers = decodeAnswerRows(rows);
+    if (options.syncClient) {
+      const intake = await tx.intake.findUniqueOrThrow({ where: { id: intakeId }, include: { client: true } });
+      await tx.client.update({
+        where: { id: intake.clientId },
+        data: clientUpdateFromAnswers(intake.client, answers, saved.changedKeys),
+      });
+      await syncStructuredRowsInTransaction(tx, intakeId, answers);
+    }
+    return { ...saved, answers };
   });
 }
 
