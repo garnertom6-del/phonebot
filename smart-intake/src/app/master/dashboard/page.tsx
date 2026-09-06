@@ -218,11 +218,15 @@ export default function MasterDashboard() {
   const [contextBusyProviderId, setContextBusyProviderId] = useState("");
   const [statusBusyProviderId, setStatusBusyProviderId] = useState("");
   const [deleteBusyProviderId, setDeleteBusyProviderId] = useState("");
+  const deleteBusyRef = useRef(false);
+  const [deleteConfirmationProvider, setDeleteConfirmationProvider] = useState<ProviderRow | null>(null);
+  const [deleteConfirmationName, setDeleteConfirmationName] = useState("");
+  const [deleteConfirmationError, setDeleteConfirmationError] = useState("");
+  const deleteReturnFocusRef = useRef<HTMLButtonElement | null>(null);
   const [providerNotifyBusy, setProviderNotifyBusy] = useState("");
   const [openSummary, setOpenSummary] = useState<SummaryKey | null>(null);
   const [workflowView, setWorkflowView] = useState<WorkflowView>("manage");
   const [openMenuId, setOpenMenuId] = useState("");
-  const menuRef = useRef<HTMLDivElement | null>(null);
   const aiStopRequested = useRef(false);
 
   const load = useCallback(async () => {
@@ -268,9 +272,31 @@ export default function MasterDashboard() {
   useEffect(() => { void load(); }, [load]);
 
   useEffect(() => {
+    function openLinkedSection() {
+      const view = window.location.hash === "#provider-packet-setup" ? "packet"
+        : window.location.hash === "#provider-admin-access" ? "access" : null;
+      if (view) setWorkflowView(view);
+    }
+    openLinkedSection();
+    window.addEventListener("hashchange", openLinkedSection);
+    return () => window.removeEventListener("hashchange", openLinkedSection);
+  }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    const target = workflowView === "packet" ? "provider-packet-setup"
+      : workflowView === "access" ? "provider-admin-access" : "";
+    if (target && window.location.hash === `#${target}`) {
+      document.getElementById(target)?.scrollIntoView({ block: "start" });
+    }
+  }, [loading, workflowView]);
+
+  useEffect(() => {
     if (!openMenuId) return;
     function onPointerDown(event: PointerEvent) {
-      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
+      // Mobile and desktop lists both remain mounted; a single ref would point
+      // at the hidden desktop copy and dismiss taps inside the mobile menu.
+      if (!(event.target instanceof Element) || !event.target.closest('[data-provider-action-menu="open"]')) {
         setOpenMenuId("");
       }
     }
@@ -393,14 +419,15 @@ export default function MasterDashboard() {
   }
 
   async function deleteProviderProfile(provider: ProviderRow) {
-    const confirmation = window.prompt(
-      `This permanently deletes ${provider.name}, its provider login memberships, clients, intakes, uploaded files, generated packets, and packet templates. Type the provider name exactly to continue:`,
-    );
+    if (!isMaster || deleteBusyRef.current || deleteConfirmationProvider?.id !== provider.id) return;
+    const confirmation = deleteConfirmationName;
     if (confirmation !== provider.name) {
-      if (confirmation !== null) setError("Provider deletion cancelled. The name did not match exactly.");
+      setDeleteConfirmationError("No records were deleted. Type the provider name exactly to confirm permanent deletion.");
       return;
     }
+    deleteBusyRef.current = true;
     setDeleteBusyProviderId(provider.id);
+    setDeleteConfirmationError("");
     setError("");
     setNote("");
     try {
@@ -412,11 +439,15 @@ export default function MasterDashboard() {
       const body = await response.json().catch(() => ({}));
       if (!response.ok) throw new Error(body.error || "Provider profile could not be deleted.");
       if (selectedProviderId === provider.id) setSelectedProviderId("");
+      setDeleteConfirmationProvider(null);
+      setDeleteConfirmationName("");
+      setProviders((current) => current.filter((item) => item.id !== provider.id));
       setNote(`${provider.name} and its provider records were permanently deleted.`);
       await load();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Provider profile could not be deleted.");
+      setDeleteConfirmationError(err instanceof Error ? err.message : "Provider profile could not be deleted.");
     } finally {
+      deleteBusyRef.current = false;
       setDeleteBusyProviderId("");
     }
   }
@@ -687,13 +718,16 @@ export default function MasterDashboard() {
         ) : (
           <span className={`rounded-lg bg-slate-100 text-center text-slate-500 ${buttonClass}`}>Inactive</span>
         )}
-        <div className={`relative ${mobile ? "w-full" : ""}`} ref={menuOpen ? menuRef : undefined}>
+        <div className={`relative ${mobile ? "w-full" : ""}`} data-provider-action-menu={menuOpen ? "open" : undefined}>
           <button
             type="button"
             className={`btn-ghost ${buttonClass} ${mobile ? "w-full" : ""}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
-            onClick={() => setOpenMenuId((current) => current === provider.id ? "" : provider.id)}
+            onClick={(event) => {
+              deleteReturnFocusRef.current = event.currentTarget;
+              setOpenMenuId((current) => current === provider.id ? "" : provider.id);
+            }}
           >
             More
           </button>
@@ -778,8 +812,13 @@ export default function MasterDashboard() {
                     type="button"
                     role="menuitem"
                     className="w-full rounded-md px-3 py-2 text-left text-sm font-semibold text-red-800 hover:bg-red-50 disabled:cursor-not-allowed disabled:opacity-60"
-                    disabled={deleteBusyProviderId === provider.id}
-                    onClick={() => { setOpenMenuId(""); void deleteProviderProfile(provider); }}
+                    disabled={!!deleteBusyProviderId}
+                    onClick={() => {
+                      setOpenMenuId("");
+                      setDeleteConfirmationProvider(provider);
+                      setDeleteConfirmationName("");
+                      setDeleteConfirmationError("");
+                    }}
                   >
                     {deleteBusyProviderId === provider.id ? "Deleting..." : "Delete profile"}
                   </button>
@@ -1064,6 +1103,43 @@ export default function MasterDashboard() {
         </section>
       )}
 
+      {isMaster && deleteConfirmationProvider && (
+        <section className="mt-4 rounded-xl border-2 border-red-300 bg-red-50 p-4 text-red-950"
+          aria-labelledby="delete-provider-heading">
+          <h2 id="delete-provider-heading" className="text-lg font-bold">Confirm permanent provider deletion</h2>
+          <p id="delete-provider-warning" className="mt-2 text-sm">
+            This permanently deletes <strong>{deleteConfirmationProvider.name}</strong>, its provider login memberships,
+            clients, intakes, uploaded files, generated packets, and packet templates. This cannot be undone.
+          </p>
+          <form className="mt-3" noValidate aria-label="Confirm permanent provider deletion"
+            aria-busy={!!deleteBusyProviderId}
+            onSubmit={(event) => { event.preventDefault(); void deleteProviderProfile(deleteConfirmationProvider); }}>
+            <label htmlFor="delete-provider-name" className="block text-sm font-semibold">Type the provider name exactly</label>
+            <p id="delete-provider-name-help" className="mt-1 break-words text-sm font-bold">{deleteConfirmationProvider.name}</p>
+            <input id="delete-provider-name" type="text" className="input mt-2 max-w-xl" autoFocus autoComplete="off" required
+              value={deleteConfirmationName} disabled={!!deleteBusyProviderId}
+              aria-describedby={`delete-provider-warning delete-provider-name-help${deleteConfirmationError ? " delete-provider-error" : ""}`}
+              aria-invalid={!!deleteConfirmationError}
+              onChange={(event) => {
+                setDeleteConfirmationName(event.target.value);
+                setDeleteConfirmationError(event.target.value && event.target.value !== deleteConfirmationProvider.name
+                  ? "The name does not match exactly. No records will be deleted unless the name matches and you confirm below."
+                  : "");
+              }} />
+            {deleteConfirmationError && <p id="delete-provider-error" role="alert" className="mt-2 text-sm font-semibold text-red-800">{deleteConfirmationError}</p>}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" className="btn-secondary" disabled={!!deleteBusyProviderId} onClick={() => {
+                setDeleteConfirmationProvider(null); setDeleteConfirmationName(""); setDeleteConfirmationError("");
+                deleteReturnFocusRef.current?.focus();
+              }}>Cancel deletion</button>
+              <button type="submit" className="rounded-lg bg-red-700 px-4 py-2 text-sm font-bold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-50"
+                disabled={!!deleteBusyProviderId || deleteConfirmationName !== deleteConfirmationProvider.name}>
+                {deleteBusyProviderId ? "Deleting provider…" : "Permanently delete provider"}
+              </button>
+            </div>
+          </form>
+        </section>
+      )}
       {note && <p role="status" aria-live="polite" className="sticky top-2 z-20 mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">{note}</p>}
       {error && (
         <div role="alert" className="sticky top-2 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
@@ -1184,8 +1260,9 @@ export default function MasterDashboard() {
                     placeholder="(555) 555-5555"
                     value={form.phone}
                     onFocus={(event) => {
+                      const input = event.currentTarget;
                       window.requestAnimationFrame(() => {
-                        event.currentTarget.scrollIntoView({ behavior: "auto", block: "center" });
+                        if (input.isConnected) input.scrollIntoView({ behavior: "auto", block: "center" });
                       });
                     }}
                     onChange={(event) => updateField("phone", event.target.value)}

@@ -17,3 +17,14 @@ export function nextReviewedContentRevision(reviewed: number, previous: unknown,
   return previous === reviewed && typeof current === "number" && Number.isSafeInteger(current)
     ? current : reviewed;
 }
+
+/** Legacy reviews retain their timestamp gate; new reviews also bind the exact content revision. */
+export function staffReviewIsCurrent(
+  review: { createdAt: Date; detail: string | null } | null | undefined,
+  currentContentRevision: number,
+  latestMaterialUpdatedAt?: Date | null,
+): boolean {
+  if (!review || (latestMaterialUpdatedAt && review.createdAt < latestMaterialUpdatedAt)) return false;
+  const recorded = /(?:^|;\s*)contentRevision:(\d+)(?:;|$)/.exec(review.detail || "");
+  return !recorded || Number(recorded[1]) === currentContentRevision;
+}

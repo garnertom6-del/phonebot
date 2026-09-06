@@ -1,6 +1,7 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { isMasterUser, requireStaff } from "@/lib/staffGuard";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 
 function cleanPacketLabel(value: string): string {
   return value.replace(/\.pdf$/i, "").replace(/[-_]+/g, " ").trim();
@@ -12,8 +13,12 @@ function packetDisplayName(providerName: string, packetName: string | null): str
   return `${providerName} Client Intake Package`;
 }
 
-export async function GET() {
-  const { user, provider, membership, deny } = await requireStaff();
+export async function GET(request: NextRequest) {
+  const providerId = request.nextUrl.searchParams.get("providerId");
+  if (providerId !== null && !providerId.trim()) {
+    return NextResponse.json({ error: "Choose a provider before creating an intake." }, { status: 400 });
+  }
+  const { user, provider, membership, deny } = await requireStaff({ providerId, write: true });
   if (deny) return deny;
 
   const packet = await providerPacketReadiness(provider!.id);
@@ -37,7 +42,7 @@ export async function GET() {
     access: {
       canManageProvider,
       packetSetupHref: canManageProvider
-        ? (isMaster ? "/master/dashboard#provider-packet-setup" : "/provider/settings")
+        ? providerWorkflowHref(isMaster ? "/master/dashboard#provider-packet-setup" : "/provider/settings", provider!.id)
         : null,
     },
   });

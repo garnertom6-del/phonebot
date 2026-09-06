@@ -36,6 +36,7 @@ import {
 } from "../src/lib/providerPacketTemplates";
 import { saveProviderPacketMappings } from "../src/lib/providerPacketMappingWrites";
 import { sendCompletedCopiesLink } from "../src/lib/sendCompletedCopies";
+import { ensureCompletedCopyToken } from "../src/lib/copyTokens";
 import { packetDownloadFileName } from "../src/lib/draftPdf";
 import { bindTestCookies } from "../src/lib/requestCookies";
 import { createSessionValue, SESSION_COOKIE } from "../src/lib/auth";
@@ -3109,9 +3110,8 @@ async function main() {
         req: new Request("http://localhost"),
       });
       assert.notEqual(delivered.status, 410, "expired Easy Mode tokens must not block completed-copy delivery");
-      const copyLink = String(delivered.body.link || "");
-      assert(copyLink.includes("/copies/"), "completed-copy delivery must mint a copies URL");
-      const copyToken = copyLink.split("/copies/")[1] || "";
+      assert.equal(delivered.status, 409, "A fixture without required review/signatures cannot send a completed-copy link");
+      const { copyToken } = await ensureCompletedCopyToken(copyIntake.id);
       assert(copyToken && copyToken !== expiredIntakeToken, "copies link must use a dedicated copy token");
       const stored = await prisma.intake.findUnique({
         where: { id: copyIntake.id },
@@ -3148,7 +3148,7 @@ async function main() {
         { params: Promise.resolve({ token: expiredIntakeToken }) },
       );
       assert.equal(packetDenied.status, 404, "the expired Easy Mode token must not serve copies");
-      ok("completed-copy delivery mints a working copy token; expired Easy Mode token still rejects");
+      ok("unready copy delivery is blocked; dedicated copy token stays separate from expired Easy Mode token");
     } finally {
       await prisma.generatedPdf.deleteMany({ where: { intakeId: copyIntake.id } });
       await prisma.intake.deleteMany({ where: { id: { in: [copyIntake.id, openExpiredIntake.id] } } });

@@ -96,6 +96,7 @@ const GATE_KEYS: string[] = [...new Set([
   "race",
   ...SECTIONS.flatMap((s) => s.questions.map((q) => q.askIf?.key).filter((k): k is string => !!k)),
 ])];
+const QUESTION_CATALOG_KEYS = SECTIONS.flatMap((section) => section.questions.map((question) => question.key));
 
 export default function EasyQuestionnaire({ token, clientName, providerName, providerPhone: supportPhone, initialAnswers, initialAnswerRevisions = {}, initialContentRevision = 0, initialStatus, signed, quick = false, ccaAttestationReady = false, progressVersion = "initial", resignMode = null, reviewQuestionKeys = [] }: {
   token: string; clientName: string; providerName?: string; providerPhone?: string; initialAnswers: Answers; initialStatus: string;
@@ -108,7 +109,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   const [answers, setAnswers] = useState<Answers>(() => applyOperationalDefaults(initialAnswers) as Answers);
   const [phase, setPhase] = useState<Phase>(
     ["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus) ? "done" : "welcome");
-  const [idx, setIdx] = useState(0);
+  const [questionKey, setQuestionKey] = useState<string | null>(null);
   const [progressRestored, setProgressRestored] = useState(false);
   const [breakText, setBreakText] = useState("");
   const [justPicked, setJustPicked] = useState<string | null>(null);
@@ -142,11 +143,18 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     () => flattenVisible(answers, prefilledRef.current, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName),
     [gateFingerprint, copyEmailAvailable, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName],
   );
+  // Conditional answers may insert or remove earlier questions. The active
+  // question stays the same; only its displayed number changes.
+  const idx = questionKey === null ? 0 : resumeVisibleIndex(flat.map((item) => item.q.key), questionKey, QUESTION_CATALOG_KEYS, answers);
 
   // Refs so timers (auto-advance) always see the latest state.
   const answersRef = useRef(answers); answersRef.current = answers;
   const flatRef = useRef(flat); flatRef.current = flat;
   const idxRef = useRef(idx); idxRef.current = idx;
+  const setIdx = useCallback((index: number) => {
+    const bounded = Math.min(Math.max(index, 0), Math.max(flatRef.current.length - 1, 0));
+    setQuestionKey(flatRef.current[bounded]?.q.key ?? null);
+  }, []);
   const advanceTimer = useRef<ReturnType<typeof createQuestionAdvanceTimer> | null>(null);
   if (!advanceTimer.current) advanceTimer.current = createQuestionAdvanceTimer();
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -179,7 +187,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       if (saved && saved.phase && validPhases.includes(saved.phase)) {
         setPhase(saved.phase);
         const restoredIndex = resumeVisibleIndex(flatRef.current.map((item) => item.q.key), saved.questionKey,
-          SECTIONS.flatMap((section) => section.questions.map((question) => question.key)), answersRef.current);
+          QUESTION_CATALOG_KEYS, answersRef.current);
         setIdx(restoredIndex);
         if (saved.phase === "break") setBreakText(brandText(easyClientSectionIntro(flatRef.current[restoredIndex]?.sectionKey || "") || "Let’s continue your intake.", branding));
       }
@@ -190,9 +198,10 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
   }, [initialStatus, progressKey]);
 
   useEffect(() => {
-    if (!flat.length) return;
-    setIdx((current) => Math.min(Math.max(current, 0), flat.length - 1));
-  }, [flat.length]);
+    if (questionKey !== null && flat[idx] && flat[idx].q.key !== questionKey) {
+      setQuestionKey((current) => current === questionKey ? flat[idx].q.key : current);
+    }
+  }, [flat, idx, questionKey]);
 
   useEffect(() => {
     if (!progressRestored) return;
@@ -202,7 +211,7 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
     } catch {
       // Progress is also autosaved to the server; local storage is only resume help.
     }
-  }, [idx, phase, progressKey, progressRestored]);
+  }, [idx, questionKey, flat, phase, progressKey, progressRestored]);
 
   useEffect(() => () => {
     advanceTimer.current?.cancel();
@@ -307,12 +316,19 @@ export default function EasyQuestionnaire({ token, clientName, providerName, pro
       if (ethnicity) next.ethnicity = ethnicity;
     }
     if (key === "has_pcp" && value === "No") next.pcp_name = "I do not have a primary care";
+    if (GATE_KEYS.includes(key) || hasUsableCompletedCopyEmail(next) !== hasUsableCompletedCopyEmail(answersRef.current)) {
+      const originKey = flatRef.current[idxRef.current]?.q.key;
+      const nextFlat = flattenVisible(next, prefilledRef.current, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName);
+      flatRef.current = nextFlat;
+      idxRef.current = resumeVisibleIndex(nextFlat.map((item) => item.q.key), originKey, QUESTION_CATALOG_KEYS, next);
+      setIdx(idxRef.current);
+    }
     answersRef.current = next;
     setAnswers(next);
     setDirty(saveQueueRef.current!.hasUnsavedChanges(next));
     setNudge("");
     queueSave();
-  }, [queueSave]);
+  }, [queueSave, quick, ccaAttestationReady, isAssessmentResign, recordReviewKeys, providerName, setIdx]);
 
   /* ---------------------------- navigation ---------------------------- */
 

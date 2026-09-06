@@ -1,6 +1,9 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "next/navigation";
+import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
+import { copyTextToClipboard } from "@/lib/clipboardFeedback";
 import { insurancePlanDisplayLabel, PROVIDER_CHOICE_PLAN_OPTIONS, RECORD_NUMBER_GENERATOR_PLAN_OPTIONS, recordNumberPrefix } from "@/lib/insurancePlans";
 import { batchRetryDrafts, type BatchFailure } from "@/lib/batchRetryDrafts";
 import { generateBatchRecordNumbers } from "@/lib/batchRecordNumbers";
@@ -85,7 +88,7 @@ function parsePastedRows(text: string): Draft[] {
     });
 }
 
-export default function CreateManyIntakes() {
+function CreateManyIntakesForm({ requestedProviderId }: { requestedProviderId: string | null }) {
   const [rows, setRows] = useState<Draft[]>([blankDraft(), blankDraft(), blankDraft()]);
   const [recordPanel, setRecordPanel] = useState("");
   const [pasteText, setPasteText] = useState("");
@@ -95,6 +98,10 @@ export default function CreateManyIntakes() {
   const busyRef = useRef(false);
   const [error, setError] = useState("");
   const [created, setCreated] = useState<Created[]>([]);
+  const [copyNotice, setCopyNotice] = useState("");
+  const [manualCopyText, setManualCopyText] = useState("");
+  const [copyingLinks, setCopyingLinks] = useState(false);
+  const copyingLinksRef = useRef(false);
   const [failures, setFailures] = useState<BatchFailure[]>([]);
   const [providerId, setProviderId] = useState("");
   const [providerName, setProviderName] = useState("");
@@ -106,7 +113,7 @@ export default function CreateManyIntakes() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/intakes/context", { cache: "no-store" }).then(async (response) => {
+    fetch(providerWorkflowHref("/api/intakes/context", requestedProviderId), { cache: "no-store" }).then(async (response) => {
       const body = await response.json();
       if (!response.ok || !body.provider?.id?.trim()) throw new Error(body.error || "Provider context could not be loaded.");
       if (!active) return;
@@ -119,23 +126,27 @@ export default function CreateManyIntakes() {
       setContextLoaded(true);
     });
     return () => { active = false; };
-  }, []);
+  }, [requestedProviderId]);
 
   function updateRow(index: number, key: keyof Draft, value: string) {
+    setGenerationNote("");
     setRows((current) => current.map((row, i) => i === index ? { ...row, [key]: value } : row));
   }
 
   function addRows(count = 1) {
+    setGenerationNote("");
     setRows((current) => [...current, ...Array.from({ length: count }, blankDraft)].slice(0, 25));
   }
 
   function removeRow(index: number) {
+    setGenerationNote("");
     setRows((current) => current.length === 1 ? [blankDraft()] : current.filter((_, i) => i !== index));
   }
 
   function importPaste() {
     const imported = parsePastedRows(pasteText);
     if (!imported.length) return;
+    setGenerationNote("");
     setRows(imported);
     setPasteText("");
     setFailures([]);
@@ -154,12 +165,24 @@ export default function CreateManyIntakes() {
   }
 
   async function copyAllLinks() {
-    await navigator.clipboard.writeText(created.map((item) => `${item.clientName}: ${item.clientLink}`).join("\n"));
+    if (copyingLinksRef.current || !created.length) return;
+    copyingLinksRef.current = true;
+    setCopyingLinks(true);
+    setCopyNotice("");
+    const text = created.map((item) => `${item.clientName}: ${item.clientLink}`).join("\n");
+    try {
+      const copied = await copyTextToClipboard(text);
+      setManualCopyText(copied ? "" : text);
+      setCopyNotice(copied ? `${created.length} intake link${created.length === 1 ? "" : "s"} copied. No messages were sent.` : "Automatic copy is unavailable. Select and copy the links below using your device's copy command.");
+    } finally {
+      copyingLinksRef.current = false;
+      setCopyingLinks(false);
+    }
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (busyRef.current) return;
+    if (busyRef.current || copyingLinksRef.current) return;
     if (!providerContextReady) { setError(contextError || "Wait for the provider to load before creating these intakes."); return; }
     setError("");
     setFailures([]);
@@ -198,7 +221,12 @@ export default function CreateManyIntakes() {
       setCreated((current) => [...new Map([...current, ...newCreated].map((item) => [item.id, item])).values()]);
       const retry = batchRetryDrafts(rows, submittedRowIndexes, body.failures || [], blankDraft);
       setFailures(retry.failures);
-      if (newCreated.length) setRows(retry.drafts);
+      if (newCreated.length) {
+        setGenerationNote("");
+        setRows(retry.drafts);
+        setCopyNotice("");
+        setManualCopyText("");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create intakes");
     } finally {
@@ -211,11 +239,11 @@ export default function CreateManyIntakes() {
     <main className="mx-auto max-w-7xl p-6">
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <Link href="/dashboard" className="text-sm text-brand hover:underline">Dashboard</Link>
+          <Link href={providerWorkflowHref("/dashboard", providerId || requestedProviderId)} className="text-sm text-brand hover:underline">Dashboard</Link>
           <h1 className="mt-1 text-2xl font-bold">Create Many Intakes</h1>
           <p className="mt-1 text-sm text-slate-600" role="status">{providerContextReady ? `Saving to ${providerName}` : contextError || "Loading provider…"}</p>
         </div>
-        <Link href="/intakes/new" className="btn-secondary">Create one</Link>
+        <Link href={providerWorkflowHref("/intakes/new", providerId || requestedProviderId)} className="btn-secondary">Create one</Link>
       </div>
 
       <section className="card mb-4">
@@ -342,8 +370,8 @@ export default function CreateManyIntakes() {
 
         {error && <p className="mt-3 text-sm font-semibold text-red-600">{error}</p>}
         <div className="mt-5 flex flex-wrap gap-2">
-          <button className="btn-primary" disabled={busy || !providerContextReady || activeRows.length === 0}>{busy ? "Creating..." : "Create Many"}</button>
-          <button type="button" className="btn-ghost" onClick={() => setRows([blankDraft(), blankDraft(), blankDraft()])}>Clear</button>
+          <button className="btn-primary" disabled={busy || copyingLinks || !providerContextReady || activeRows.length === 0}>{busy ? "Creating..." : "Create Many"}</button>
+          <button type="button" className="btn-ghost" onClick={() => { setRows([blankDraft(), blankDraft(), blankDraft()]); setGenerationNote(""); }}>Clear</button>
         </div>
         </fieldset>
       </form>
@@ -352,8 +380,12 @@ export default function CreateManyIntakes() {
         <section className="card mt-4">
           <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold">Batch result</h2>
-            {created.length > 0 && <button className="btn-secondary" onClick={copyAllLinks}>Copy all links</button>}
+            {created.length > 0 && <button type="button" className="btn-secondary" disabled={copyingLinks || busy} onClick={() => void copyAllLinks()}>{copyingLinks ? "Copying…" : "Copy all links"}</button>}
           </div>
+          {copyNotice && <p className={`mb-3 text-sm font-semibold ${manualCopyText ? "text-amber-900" : "text-emerald-800"}`} role="status">{copyNotice}</p>}
+          {manualCopyText && <label className="mb-3 block text-sm font-semibold">Select and copy all intake links
+            <textarea className="input mt-2 min-h-32 w-full font-mono text-xs" readOnly value={manualCopyText} onFocus={(event) => event.currentTarget.select()} />
+          </label>}
           {created.length > 0 && (
             <div className="space-y-2">
               {created.map((item) => (
@@ -380,4 +412,13 @@ export default function CreateManyIntakes() {
       )}
     </main>
   );
+}
+
+function CreateManyIntakesForProvider() {
+  const requestedProviderId = useSearchParams().get("providerId");
+  return <CreateManyIntakesForm key={requestedProviderId ?? "selected-provider"} requestedProviderId={requestedProviderId} />;
+}
+
+export default function CreateManyIntakes() {
+  return <Suspense fallback={<main className="p-6" role="status">Loading provider…</main>}><CreateManyIntakesForProvider /></Suspense>;
 }

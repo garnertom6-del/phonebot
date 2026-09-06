@@ -18,6 +18,7 @@ export type WorkflowFacts = {
   deliveryConfirmed: boolean; deliveryFailed: boolean; deliveryAttempted: boolean;
   openFollowUp: boolean;
   clientLinkExpired?: boolean; clientLinkReached?: boolean;
+  generationBlockers?: Array<{ code: string; message: string; unmetGates?: string[] }>;
 };
 
 /** A single next step, ordered so work that invalidates signatures comes first. */
@@ -31,9 +32,16 @@ export function nextWorkflowAction(f: WorkflowFacts): WorkflowAction {
   if (!f.submittedAt) return action("CLIENT_RESPONSE", "Review client progress", f.status === "NOT_STARTED" ? "The client has not started or submitted the intake." : "The client has not submitted the intake.", "Client / guardian");
   if (f.expectCca && !f.hasCca) return action("CCA", "Upload and review CCA", "The expected clinician assessment is missing.", "Assigned staff / clinician", `${intake}#cca`);
   if (f.openFollowUp) return action("CLIENT_RESPONSE", "Review requested client answers", "A client follow-up is still open.", "Client / guardian");
+  const ccaBlocker = f.generationBlockers?.find(b => ["cca_review_pending", "cca_accuracy", "cca_identity"].includes(b.code));
+  if (ccaBlocker) return action("CCA", "Review CCA accuracy", ccaBlocker.message, "Assigned staff / clinician", `${intake}#cca`);
   if (f.missingRequiredCount > 0 || !f.staffReviewed) return action("STAFF_REVIEW", "Review required information", f.missingRequiredCount ? `${f.missingRequiredCount} required item(s) need review. Request client answers only where needed.` : "The current answers need a staff review.", "Assigned staff", `${intake}/review`);
+  const reviewBlocker = f.generationBlockers?.find(b => ["record_conflict", "preflight_required", "preflight_finding"].includes(b.code)
+    || b.code === "plan_incomplete" && (!b.unmetGates?.length || b.unmetGates.some(gate => gate !== "signatures")));
+  if (reviewBlocker) return action("STAFF_REVIEW", reviewBlocker.code === "preflight_required" ? "Run current preflight review" : "Resolve packet review findings", reviewBlocker.message, "Assigned staff", reviewBlocker.code.startsWith("preflight") ? intake : `${intake}/review`);
   if (!f.hasClientSignature) return action("CLIENT_RESPONSE", "Review client signature request", "A current client or guardian signature is required.", "Client / guardian");
   if (!f.hasStaffSignature) return action("QP_SIGNATURE", "Add current Staff / QP signature", "The current content needs the qualified professional's signature.", "Qualified professional", `${intake}/review`);
+  const extraSignature = f.generationBlockers?.find(b => ["additional_signature_missing", "additional_signature_invalid"].includes(b.code));
+  if (extraSignature) return action("QP_SIGNATURE", "Collect required packet signatures", extraSignature.message, "Required signer", `${intake}/review`);
   if (!f.providerPacketReady) return action("PACKET_SETUP", "Review provider packet setup", "The provider packet must be mapped and approved.", "Master administrator");
   if (f.packetState !== "current") return action("PACKET_REGENERATION", f.packetState === "stale" ? "Regenerate updated packet" : "Generate reviewed packet", f.packetState === "stale" ? "The packet no longer matches the current answers, signatures, or template." : "A current packet has not been generated.", "Assigned staff");
   if (f.status !== "COMPLETED") return action("STAFF_REVIEW", "Complete final staff review", "Verify the packet and completion checks before marking completed.", "Assigned staff");

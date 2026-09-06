@@ -19,6 +19,7 @@ import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 import { AnswerConflictError, type AnswerRevisions } from "@/lib/answerRevisions";
+import { assertReviewedContentRevision, ContentRevisionConflictError } from "@/lib/contentRevision";
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -133,6 +134,9 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
   const body = await req.json();
+  if (body.recordStaffReview === true && (!body.answers || body.clientDetails)) {
+    return NextResponse.json({ error: "Record a staff review from the intake review screen." }, { status: 400 });
+  }
   if (body.clientDetails && body.answers) {
     return NextResponse.json({ error: "Save client details and intake answers separately." }, { status: 400 });
   }
@@ -196,6 +200,13 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // older open tab from overwriting newer answers from another section.
     const answers = parsed.data;
     await prisma.$transaction(async (tx) => {
+      if (body.recordStaffReview === true) {
+        // Compare the staff member's viewed revision under the same write lock
+        // used by every answer writer. Even an empty patch must be current.
+        await tx.$executeRaw`UPDATE "Intake" SET "id" = "id" WHERE "id" = ${intake.id}`;
+        const current = await tx.intake.findUniqueOrThrow({ where: { id: intake.id }, select: { contentRevision: true } });
+        assertReviewedContentRevision(body.expectedContentRevision, current.contentRevision);
+      }
       const saved = await saveAnswersInTransaction(tx, intake.id, answers, {
         expectedAnswerRevisions: body.expectedAnswerRevisions,
         requireExpectedRevisions: true,
@@ -210,9 +221,14 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         where: { id: intake.clientId },
         data: clientUpdateFromAnswers(intake.client, mergedAnswers, Object.keys(answers)),
       });
+      if (body.recordStaffReview === true) {
+        await tx.auditLog.create({ data: {
+          event: "staff_reviewed", providerId: provider!.id, intakeId: intake.id, userId: user!.id,
+          detail: `contentRevision:${saved.contentRevision}`,
+        } });
+      }
     });
     await audit("answers_updated", { providerId: provider!.id, intakeId: intake.id, userId: user!.id, detail: "staff edit" });
-    await audit("staff_reviewed", { providerId: provider!.id, intakeId: intake.id, userId: user!.id });
   }
   if (body.status) {
     const allowed = ["NOT_STARTED", "IN_PROGRESS", "SUBMITTED", "NEEDS_REVIEW", "SIGNED", "COMPLETED"];
@@ -256,6 +272,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   return NextResponse.json({ ok: true, completionDelivery, answerRevisions, previousContentRevision, contentRevision });
   } catch (error) {
     if (error instanceof AnswerConflictError) return NextResponse.json(error.toJSON(), { status: 409 });
+    if (error instanceof ContentRevisionConflictError) return NextResponse.json({ ...error.toJSON(), error: "The intake changed in another window. Review the updated answers before recording the staff review. Your review has not been saved." }, { status: 409 });
     throw error;
   }
 }

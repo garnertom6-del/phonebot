@@ -5,8 +5,24 @@ import { isolatedSqlite } from "./isolatedSqlite";
 import { createProviderContextReady } from "../src/lib/newIntakeReadiness";
 import { generateBatchRecordNumbers } from "../src/lib/batchRecordNumbers";
 import { makeRecordNumber } from "../src/lib/insurancePlans";
+import { providerWorkflowHref } from "../src/lib/providerWorkflowHref";
 
 async function main() {
+  for (const path of ["/intakes/new", "/intakes/new-many", "/api/intakes/context", "/dashboard"]) {
+    assert.equal(providerWorkflowHref(path, "provider-a"), `${path}?providerId=provider-a`);
+  }
+  assert.equal(providerWorkflowHref("/master/dashboard#provider-packet-setup", "provider a"), "/master/dashboard?providerId=provider+a#provider-packet-setup");
+  assert.equal(providerWorkflowHref("/dashboard?tab=waiting", "provider-a"), "/dashboard?tab=waiting&providerId=provider-a");
+  assert.equal(providerWorkflowHref("/api/intakes/context", null), "/api/intakes/context", "Direct create navigation remains compatible with the selected provider");
+  assert.equal(providerWorkflowHref("/api/intakes/context", " "), "/api/intakes/context?providerId=", "An explicitly invalid provider must not silently turn into a cookie fallback");
+  for (const page of ["src/app/intakes/new/page.tsx", "src/app/intakes/new-many/page.tsx"]) {
+    const source = readFileSync(page, "utf8");
+    assert.match(source, /fetch\(providerWorkflowHref\("\/api\/intakes\/context", requestedProviderId\)/);
+    assert.match(source, /key=\{requestedProviderId \?\? "selected-provider"\}/, "Changing the provider route must start a fresh form, never carry a prior provider's draft into it");
+  }
+  const dashboard = readFileSync("src/app/dashboard/page.tsx", "utf8");
+  assert.match(dashboard, /providerWorkflowHref\("\/intakes\/new", activeProviderId\)/);
+  assert.match(dashboard, /providerWorkflowHref\("\/intakes\/new-many", activeProviderId\)/);
   assert.equal(createProviderContextReady("provider-a", false, ""), false, "A pending provider request cannot enable Create");
   assert.equal(createProviderContextReady("", true, ""), false, "An incomplete context response cannot enable Create");
   assert.equal(createProviderContextReady("provider-a", true, "Unavailable"), false);
@@ -49,6 +65,7 @@ async function main() {
   const { SELECTED_PROVIDER_COOKIE } = await import("../src/lib/staffGuard");
   const { POST: single } = await import("../src/app/api/intakes/route");
   const { POST: batch } = await import("../src/app/api/intakes/batch/route");
+  const { GET: context } = await import("../src/app/api/intakes/context/route");
   try {
     const agencyA = await prisma.provider.create({ data: { name: "Synthetic Agency A", slug: "synthetic-create-a" } });
     const agencyB = await prisma.provider.create({ data: { name: "Synthetic Agency B", slug: "synthetic-create-b" } });
@@ -61,7 +78,16 @@ async function main() {
     const request = (path: string, body: object) => new NextRequest(`http://localhost${path}`, { method: "POST", body: JSON.stringify(body) });
     const runSingle = (body: object) => single(request("/api/intakes", body));
     const runBatch = (body: object) => batch(request("/api/intakes/batch", body));
+    const readContext = (providerId?: string | null) => context(new NextRequest(`http://localhost${providerWorkflowHref("/api/intakes/context", providerId)}`));
     asUser(master.id);
+    let contextResponse = await readContext(agencyA.id);
+    assert.equal(contextResponse.status, 200, await contextResponse.clone().text());
+    let contextBody = await contextResponse.json();
+    assert.equal(contextBody.provider.id, agencyA.id, "Opening Create from dashboard A keeps provider A even if another tab selected B");
+    assert.match(contextBody.access.packetSetupHref, new RegExp(`providerId=${agencyA.id}#provider-packet-setup$`));
+    assert.equal((await (await readContext()).json()).provider.id, agencyB.id, "Direct create URL still resolves the selected provider");
+    assert.equal((await readContext("missing")).status, 404, "An invalid explicit provider never falls back to B");
+    assert.equal((await readContext(" ")).status, 400);
     let response = await runSingle({ ...client("SINGLE-A"), providerId: agencyA.id });
     assert.equal(response.status, 200, await response.clone().text());
     let body = await response.json();
@@ -77,13 +103,22 @@ async function main() {
     assert.equal((await runBatch({ intakes: [client("NO-PROVIDER-BATCH")] })).status, 400);
     assert.equal((await runBatch({ providerId: "missing", intakes: [client("MISSING")] })).status, 404);
     asUser(staff.id);
+    contextResponse = await readContext(agencyA.id);
+    assert.equal(contextResponse.status, 200);
+    contextBody = await contextResponse.json();
+    assert.equal(contextBody.provider.id, agencyA.id);
+    assert.equal(contextBody.access.packetSetupHref, null, "Staff do not receive administrator setup links");
+    assert.equal((await readContext(agencyB.id)).status, 403, "The explicit create context enforces active membership");
     assert.equal((await runSingle({ ...client("STAFF-A"), providerId: agencyA.id })).status, 200, "Authorized staff remain compatible with explicit page context");
     assert.equal((await runBatch({ providerId: agencyB.id, intakes: [client("FORBIDDEN")] })).status, 403);
     asUser(reviewer.id);
+    assert.equal((await readContext(agencyA.id)).status, 403, "Read-only accounts cannot enable the create form");
     assert.equal((await runSingle({ ...client("REVIEWER"), providerId: agencyA.id })).status, 403);
     assert.equal((await runBatch({ providerId: agencyA.id, intakes: [client("REVIEWER-BATCH")] })).status, 403);
     assert.equal(await prisma.intake.count({ where: { providerId: agencyB.id } }), 0, "The selected-cookie provider receives no records");
-    console.log("Create workflow: pending context guards, real-DB single/batch provider binding, membership restrictions and mixed-plan numbers passed.");
+    bindTestCookies({ get: () => undefined });
+    assert.equal((await readContext(agencyA.id)).status, 401);
+    console.log("Create workflow: navigation and context binding across provider-cookie changes, pending guards, real-DB single/batch binding, role restrictions and mixed-plan numbers passed.");
   } finally {
     bindTestCookies(null);
     await prisma.$disconnect();

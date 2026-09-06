@@ -1,8 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
 import { requireWritableStaffForIntake } from "@/lib/staffGuard";
-import { audit } from "@/lib/auditLog";
-import { loadAnswers } from "@/lib/intakeData";
+import { loadPreflightSnapshot, recordPreflightReview } from "@/lib/preflightSnapshot";
 import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import {
   buildRulePreflight,
@@ -20,21 +18,11 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   const params = await props.params;
   const { user, provider, deny } = await requireWritableStaffForIntake(params.id);
   if (deny) return deny;
-  const intake = await prisma.intake.findFirst({
-    where: { id: params.id, providerId: provider!.id },
-    include: {
-      client: { select: { fullName: true, dob: true } },
-      signatures: { select: { role: true } },
-      uploadedDocuments: {
-        where: { docType: "CCA" },
-        orderBy: { createdAt: "desc" },
-        select: { docType: true, reviewJson: true },
-      },
-    },
-  });
-  if (!intake) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const snapshot = await loadPreflightSnapshot(params.id, provider!.id);
+  if (!snapshot) return NextResponse.json({ error: "Not found" }, { status: 404 });
+  const { intake } = snapshot;
 
-  const answers = applyOperationalDefaults(await loadAnswers(intake.id));
+  const answers = applyOperationalDefaults(snapshot.answers);
   const hasClientSignature = intake.signatures.some((signature) => signature.role === "client" || signature.role === "guardian");
   const missingOptions = {
     skipClinicalAssessmentAttestation: !clientCcaAttestationReady(intake.uploadedDocuments[0]?.reviewJson),
@@ -66,12 +54,12 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
       aiMessage = error instanceof Error ? `Automatic checks completed; AI review was unavailable: ${error.message}` : "Automatic checks completed; AI review was unavailable.";
     }
   }
-  await audit("preflight_reviewed", {
-    providerId: provider!.id,
-    intakeId: intake.id,
-    userId: user!.id,
-    detail: `${findings.length} preflight finding${findings.length === 1 ? "" : "s"}; AI ${aiUsed ? "used" : "not used"}`,
-  });
+  const recorded = await recordPreflightReview(snapshot, provider!.id, user!.id,
+    `${findings.length} preflight finding${findings.length === 1 ? "" : "s"}; AI ${aiUsed ? "used" : "not used"}`);
+  if (!recorded) return NextResponse.json({
+    code: "PREFLIGHT_SOURCE_CHANGED",
+    error: "The intake changed while preflight was running. Refresh the intake and run preflight again.",
+  }, { status: 409 });
   return NextResponse.json({
     ok: true,
     aiUsed,

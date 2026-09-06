@@ -266,6 +266,34 @@ function foldName(value: unknown): string {
     .toLowerCase();
 }
 
+/** Confirm the document's identity before applying any extracted clinical data.
+ * A stable intake snapshot alone does not establish that this is its client's CCA.
+ */
+export function checkCcaSourceIdentity(
+  review: Pick<CcaReview, "sourceClientName" | "sourceClientDob">,
+  client: { fullName: string; dob: string },
+  extracted: Record<string, unknown> = {},
+): { matches: boolean; code: "CCA_IDENTITY_UNVERIFIED" | "CCA_IDENTITY_MISMATCH" | null; fields: string[] } {
+  const sourceName = foldName(review.sourceClientName);
+  const recordName = foldName(client.fullName);
+  const sourceDob = normalizeDateInput(review.sourceClientDob);
+  const recordDob = normalizeDateInput(client.dob);
+  const absent = [
+    ...(!sourceName || !recordName ? ["sourceClientName"] : []),
+    ...(!sourceDob || !recordDob ? ["sourceClientDob"] : []),
+  ];
+  if (absent.length) return { matches: false, code: "CCA_IDENTITY_UNVERIFIED", fields: absent };
+  const conflicts = [
+    ...(sourceName !== recordName ? ["sourceClientName"] : []),
+    ...(sourceDob !== recordDob ? ["sourceClientDob"] : []),
+    ...(text(extracted.client_full_name) && foldName(extracted.client_full_name) !== recordName ? ["client_full_name"] : []),
+    ...(text(extracted.dob) && normalizeDateInput(extracted.dob) !== recordDob ? ["dob"] : []),
+  ];
+  return conflicts.length
+    ? { matches: false, code: "CCA_IDENTITY_MISMATCH", fields: conflicts }
+    : { matches: true, code: null, fields: [] };
+}
+
 function diagnosisTokens(value: string): Set<string> {
   const tokens = new Set<string>();
   const code = icdCode(value);

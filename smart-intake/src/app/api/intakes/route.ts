@@ -8,15 +8,14 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { autoEmailProviderPacketEnabled, autoSendCompletedCopiesEnabled } from "@/lib/completedCopies";
 import { insuranceSummary, recordNumberPrefix, resolveCreateRecordNumber, staffInsurancePlanReady } from "@/lib/insurancePlans";
-import { buildDashboardReadiness } from "@/lib/dashboardWorkflow";
 import {
   evaluatePacketFreshness,
   packetFreshnessIgnoredAnswerKeys,
 } from "@/lib/packetFreshness";
-import { buildCompletionReadiness } from "@/lib/completionReadiness";
+import { completionReadinessFromSnapshot } from "@/lib/completionReadiness";
+import { generationReadinessFromSnapshot } from "@/lib/generationReadiness";
 import { fileExists } from "@/lib/storage";
-import { providerPacketReadiness } from "@/lib/providerPacketTemplates";
-import { buildSignatureStatuses } from "@/lib/signatureStatus";
+import { providerPacketReadiness, signatureSlotProfileForProvider } from "@/lib/providerPacketTemplates";
 import { clientCcaAttestationReady } from "@/lib/ccaReview";
 import { deliveryFacts, nextWorkflowAction, summarizeWorkflowIntervals, FAILURE_STATUSES } from "@/lib/workflowOutcomes";
 import { observeIntakeWorkflow } from "@/lib/workflowTracking";
@@ -42,6 +41,7 @@ export async function GET(req: NextRequest) {
     });
     if (deny) return deny;
     const providerPacket = await providerPacketReadiness(provider!.id);
+    const signatureSlotProfile = await signatureSlotProfileForProvider(provider!.id, providerPacket.templateId);
     // Lean list query: no signature image blobs, no per-row follow-up queries.
     // Active and archived rows are returned together so every count stays accurate.
     const intakes = await prisma.intake.findMany({
@@ -69,7 +69,7 @@ export async function GET(req: NextRequest) {
         uploadedDocuments: {
           where: { docType: "CCA" },
           orderBy: { createdAt: "desc" },
-          select: { id: true, reviewJson: true },
+          select: { id: true, createdAt: true, reviewJson: true },
           take: 1,
         },
         generatedPdfs: {
@@ -85,7 +85,7 @@ export async function GET(req: NextRequest) {
                 "copies_link_sent",
                 "provider_packet_email_sent",
                 "docusign_completed",
-                "staff_reviewed", "workflow_delivery_confirmed", "copies_link_failed",
+                "staff_reviewed", "preflight_reviewed", "preflight_overridden", "workflow_delivery_confirmed", "copies_link_failed",
               ],
             },
           },
@@ -168,14 +168,13 @@ export async function GET(req: NextRequest) {
     const clientActivityAt = new Map(clientActivityGroups.filter(r => !!r.intakeId).map(r => [r.intakeId!, r._max.createdAt]));
     const rows = intakes.map((i) => {
       const answers = applyOperationalDefaults(answersByIntake.get(i.id) || {});
-      const signatureStatuses = buildSignatureStatuses(i.signatures, {
-        client: i.client,
-        currentContentRevision: i.contentRevision,
-        latestMaterialUpdatedAt: latestPacketAnswerAt.get(i.id),
+      const generation = generationReadinessFromSnapshot({
+        intake: { ...i, provider: provider! }, answers,
+        latestMaterialAnswer: latestPacketAnswerAt.has(i.id) ? { updatedAt: latestPacketAnswerAt.get(i.id)! } : null,
+        providerPacket, signatureSlotProfile,
       });
-      const docusignCompletedAt = i.auditLogs.find((a) => a.event === "docusign_completed")?.createdAt;
-      const signed = signatureStatuses.some((status) => status.key === "client_guardian" && status.state === "captured")
-        || !!(docusignCompletedAt && (!latestPacketAnswerAt.get(i.id) || docusignCompletedAt >= latestPacketAnswerAt.get(i.id)!));
+      const signatureStatuses = generation.signatureStatuses;
+      const signed = signatureStatuses.some((status) => status.key === "client_guardian" && status.state === "captured");
       const hasStaffSignature = signatureStatuses.some((status) => status.key === "staff_qp" && status.state === "captured");
       const ccaLog = i.auditLogs.find((a) => a.event === "cca_imported");
       const copiesLog = i.auditLogs.find((a) => a.event === "copies_link_sent");
@@ -194,23 +193,13 @@ export async function GET(req: NextRequest) {
           : null,
         currentContentRevision: i.contentRevision,
       });
-      const completion = buildCompletionReadiness({
-        archived: i.archived,
-        submittedAt: i.submittedAt,
-        missingRequired: required,
-        expectCca: i.expectCca,
-        hasCca,
-        hasStaffSignature,
-        providerPacketReady: providerPacket.ready,
-        providerPacketMessage: providerPacket.message,
-        packetState: packet.state,
-      });
-      const reviewedAt = i.auditLogs.find(l => l.event === "staff_reviewed")?.createdAt;
+      const completion = completionReadinessFromSnapshot(generation, packet);
       const nextAction = nextWorkflowAction({ id: i.id, status: i.status, submittedAt: i.submittedAt, archived: i.archived, abandonedAt: i.abandonedAt,
         expectCca: i.expectCca, hasCca, hasClientSignature: signed, hasStaffSignature,
         missingRequiredCount: required.filter(r => r.key !== "signature").length,
-        staffReviewed: !!(reviewedAt && (!latestPacketAnswerAt.get(i.id) || reviewedAt >= latestPacketAnswerAt.get(i.id)!)),
+        staffReviewed: !generation.blockers.some(blocker => blocker.code === "staff_review_required"),
         providerPacketReady: providerPacket.ready, packetState: packet.state, openFollowUp: !!i.followUps.length,
+        generationBlockers: generation.blockers,
         clientLinkExpired: i.tokenExpiresAt < new Date(), clientLinkReached: !!i.linkSentAt || !!lastLinkOpenedAt.get(i.id) || !!reminderCountByIntake.get(i.id),
         ...deliveryFacts(i.messageDeliveries, i.auditLogs, packet.generatedAt, packet.pdfId) });
       nextAction.packetId = packet.pdfId;
@@ -236,15 +225,11 @@ export async function GET(req: NextRequest) {
         autoSendCopies: autoSendCompletedCopiesEnabled(answers),
         autoEmailProviderPacket: autoEmailProviderPacketEnabled(answers),
         providerPacketEmailedAt: providerPacketLog?.createdAt || null,
-        readiness: buildDashboardReadiness({
-          status: i.status,
-          missingRequiredCount: required.length,
-          packetState: packet.state,
-          hasCca,
-          expectCca: i.expectCca,
-          hasStaffSignature,
-          providerPacketReady: providerPacket.ready,
-        }),
+        readiness: {
+          state: nextAction.label,
+          tone: nextAction.stage === "COMPLETE" ? "good" : nextAction.stage === "CLIENT_RESPONSE" ? "brand" : "warn",
+          issues: completion.blockers.length ? completion.blockers.map(blocker => blocker.message) : [nextAction.reason],
+        },
         completionReady: completion.ready,
         completionBlockers: completion.blockers,
         docusignEnvelopeId: i.docusignEnvelopeId,
