@@ -7,6 +7,8 @@ export const SUPPORT_REFERRAL_LABELS: Record<SupportReferralStatus, string> = {
   APPROVED: "Approved", DENIED: "Denied", UNAVAILABLE: "Unavailable", DECLINED: "Declined",
 };
 export const SUPPORT_PROGRESS_STATUSES = new Set<string>(["WANTS_HELP", "CONTACTED", "APPLIED", "WAITING", "APPROVED", "DENIED"]);
+// Approval may still need follow-up to confirm that assistance was received.
+export const SUPPORT_CLOSED_STATUSES = new Set<string>(["DENIED", "UNAVAILABLE", "DECLINED"]);
 const date = z.string().datetime({ offset: true });
 export const createSupportReferralSchema = z.object({
   resourceId: z.string().trim().min(1).max(100),

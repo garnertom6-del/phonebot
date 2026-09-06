@@ -1,16 +1,19 @@
 import { NextRequest, NextResponse } from "next/server";
 import { batchIntakesSchema } from "@/lib/validation";
-import { requireWritableStaff } from "@/lib/staffGuard";
+import { attachSelectedProviderCookie, requireStaff } from "@/lib/staffGuard";
 import { createStaffIntake } from "@/lib/staffIntakes";
 import { generatePacketForIntake } from "@/lib/generatePacket";
 import { prisma } from "@/lib/prisma";
 import { generationReadinessForIntake } from "@/lib/generationReadiness";
 
 export async function POST(req: NextRequest) {
-  const { user, provider, deny } = await requireWritableStaff();
+  const raw = await req.json().catch(() => null);
+  const providerId = typeof raw?.providerId === "string" ? raw.providerId.trim() : "";
+  if (!providerId) return NextResponse.json({ error: "Provider context is required. Reload the batch page before saving these intakes." }, { status: 400 });
+  const { user, provider, deny } = await requireStaff({ write: true, providerId });
   if (deny) return deny;
 
-  const parsed = batchIntakesSchema.safeParse(await req.json());
+  const parsed = batchIntakesSchema.safeParse(raw);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
     return NextResponse.json({
@@ -81,9 +84,9 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  return NextResponse.json({
+  return attachSelectedProviderCookie(NextResponse.json({
     created,
     failures,
     ok: failures.length === 0,
-  }, { status: failures.length && !created.length ? 400 : 200 });
+  }, { status: failures.length && !created.length ? 400 : 200 }), provider!.id);
 }

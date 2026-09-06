@@ -15,6 +15,7 @@ export interface CoverageSnapshot {
   effectiveDate?: string;
   rejectReason?: string;
   checkedAt?: string;   // ISO
+  identityFingerprint?: string;
   source: "nctracks_edi";
 }
 
@@ -26,6 +27,7 @@ export const ELIGIBILITY_KEYS = {
   effectiveDate: "eligibility_effective_date",
   reject: "eligibility_reject",
   checkedAt: "eligibility_checked_at",
+  identityFingerprint: "eligibility_subject_fingerprint",
 } as const;
 
 /** Turn a parsed 271 into the coverage snapshot the UI shows. */
@@ -55,21 +57,30 @@ export function snapshotToAnswers(s: CoverageSnapshot): Record<string, string> {
     [ELIGIBILITY_KEYS.effectiveDate]: s.effectiveDate || "",
     [ELIGIBILITY_KEYS.reject]: s.rejectReason || "",
     [ELIGIBILITY_KEYS.checkedAt]: s.checkedAt || "",
+    [ELIGIBILITY_KEYS.identityFingerprint]: s.identityFingerprint || "",
   };
 }
 
 /** Read a snapshot back out of an answer map (for the UI / status endpoint). */
-export function snapshotFromAnswers(a: Record<string, unknown>): CoverageSnapshot {
+export function snapshotFromAnswers(a: Record<string, unknown>, currentIdentityFingerprint?: string): CoverageSnapshot {
   const raw = String(a[ELIGIBILITY_KEYS.status] || "").trim();
   const status: CoverageStatus =
     raw === "active" || raw === "inactive" || raw === "needs_review" ? raw : "not_checked";
+  const savedFingerprint = str(a[ELIGIBILITY_KEYS.identityFingerprint]);
+  const identityChanged = status !== "not_checked" && currentIdentityFingerprint !== undefined
+    && savedFingerprint !== currentIdentityFingerprint;
   return {
-    status,
+    status: identityChanged ? "needs_review" : status,
     planName: str(a[ELIGIBILITY_KEYS.plan]),
     memberId: str(a[ELIGIBILITY_KEYS.memberId]),
     effectiveDate: str(a[ELIGIBILITY_KEYS.effectiveDate]),
-    rejectReason: str(a[ELIGIBILITY_KEYS.reject]),
+    rejectReason: identityChanged
+      ? savedFingerprint
+        ? "The client's name, date of birth or MID changed after this check. Re-check coverage for the current details."
+        : "This saved result is not linked to the current client details. Re-check coverage."
+      : str(a[ELIGIBILITY_KEYS.reject]),
     checkedAt: str(a[ELIGIBILITY_KEYS.checkedAt]),
+    identityFingerprint: savedFingerprint,
     source: "nctracks_edi",
   };
 }

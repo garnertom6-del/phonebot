@@ -18,6 +18,11 @@ import AnswerConflictPanel from "./AnswerConflictPanel";
 import ContentRevisionReview from "./ContentRevisionReview";
 import { nextReviewedContentRevision } from "@/lib/contentRevision";
 import { insurancePlanDisplayLabel } from "@/lib/insurancePlans";
+import { leaveAfterSave, resumeVisibleIndex } from "@/lib/clientProgress";
+import { useClientDraftNavigation } from "./useClientDraftNavigation";
+import IntakePaused from "./IntakePaused";
+import { useVoiceDraftGuard } from "./useVoiceDraftGuard";
+import type { VoiceDraftState } from "@/lib/voiceDraft";
 import VoiceInput from "./VoiceInput";
 import SignaturePad from "./SignaturePad";
 import ProgressBar from "./ProgressBar";
@@ -50,6 +55,10 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const [stepIdx, setStepIdx] = useState(0);
   const [progressRestored, setProgressRestored] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [paused, setPaused] = useState(false);
+  const [leaving, setLeaving] = useState(false);
+  const voiceDraft = useVoiceDraftGuard();
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [dirty, setDirty] = useState(false);
   const [signing, setSigning] = useState(false);
   const finalActionRef = useRef(false);
@@ -78,7 +87,11 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   const saveQueueRef = useRef<ReturnType<typeof createAnswerSaveQueue> | null>(null);
   if (!saveQueueRef.current) saveQueueRef.current = createAnswerSaveQueue(answers, initialAnswerRevisions);
   const pendingSavesRef = useRef(0);
-  useEffect(() => { setDirty(saveQueueRef.current!.hasUnsavedChanges(answers)); }, [answers]);
+  useEffect(() => {
+    const unsaved = saveQueueRef.current!.hasUnsavedChanges(answers);
+    setDirty(unsaved);
+    if (unsaved) setHasSignature(false);
+  }, [answers]);
   const progressKey = `smart-intake-full-progress:v2:${token}:${progressVersion}:${resignMode || "initial"}:${reviewQuestionKeys.join(",")}`;
 
   const fastMode = answers.intake_mode === "Fast Intake - required questions first";
@@ -101,13 +114,19 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   // Keep the current section when a phone briefly leaves the page for its camera.
   useEffect(() => {
     if (["SUBMITTED", "SIGNED", "COMPLETED"].includes(initialStatus)) {
-      localStorage.removeItem(progressKey);
+      try { localStorage.removeItem(progressKey); } catch { /* Storage is optional. */ }
       setProgressRestored(true);
       return;
     }
     try {
-      const saved = JSON.parse(localStorage.getItem(progressKey) || "null") as { stepIdx?: number } | null;
-      if (saved) setStepIdx(Math.max(0, Math.min(Number(saved.stepIdx) || 0, Math.max(steps.length - 1, 0))));
+      const saved = JSON.parse(localStorage.getItem(progressKey) || "null") as { stepKey?: string; stepIdx?: number } | null;
+      if (saved) setStepIdx(resumeVisibleIndex(steps.map((item) => item.key), saved.stepKey,
+        [...SECTIONS.map((section) => section.key), "__signature"],
+        Object.fromEntries(steps.map((section) => [section.key, section.questions.every((question) => {
+          const value = answersRef.current[question.key];
+          return !isClientQuestionVisible(question, answersRef.current, prefilledRef.current)
+            || (value !== undefined && value !== "" && value !== false && !(Array.isArray(value) && !value.length));
+        }) ? "answered" : undefined]))));
     } catch {
       // Server autosave remains the source of truth if local storage is blocked.
     }
@@ -118,7 +137,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
     if (!progressRestored) return;
     try {
       if (done) localStorage.removeItem(progressKey);
-      else localStorage.setItem(progressKey, JSON.stringify({ stepIdx }));
+      else localStorage.setItem(progressKey, JSON.stringify({ stepKey: step.key }));
     } catch {
       // This is only resume help; answers are still saved to the server.
     }
@@ -130,20 +149,21 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
         ? !q.staffOnly && q.type !== "info" && q.type !== "heading"
         : isClientQuestionVisible(q, answers, prefilledRef.current));
 
-  const set = (key: string, value: Answers[string]) =>
-    setAnswers((a) => {
-      if (finalActionRef.current) return a;
-      const next: Answers = { ...a, [key]: value };
+  const set = (key: string, value: Answers[string]) => {
+      if (finalActionRef.current) return;
+      if (JSON.stringify(answersRef.current[key]) !== JSON.stringify(value)) setHasSignature(false);
+      const next: Answers = { ...answersRef.current, [key]: value };
       if (key === "race") {
         const ethnicity = ethnicityForRace(value);
         if (ethnicity) next.ethnicity = ethnicity;
       }
       if (key === "has_pcp" && value === "No") next.pcp_name = "I do not have a primary care";
       answersRef.current = next;
-      return next;
-    });
+      setAnswers(next);
+  };
 
   const save = useCallback(async (sectionKey?: string, event?: string): Promise<boolean> => {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null; }
     pendingSavesRef.current += 1;
     setSaving(true);
     try {
@@ -180,11 +200,28 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   }, [token]);
 
   useEffect(() => {
+    if (!saveQueueRef.current!.hasUnsavedChanges(answers)) return;
+    saveTimer.current = setTimeout(() => { saveTimer.current = null; void save(); }, 800);
+    return () => { if (saveTimer.current) clearTimeout(saveTimer.current); };
+  }, [answers, save]);
+
+  const saveBeforeLeaving = useCallback(async () => {
+    if (!voiceDraft.canLeave()) return false;
+    if (finalActionRef.current || advancingRef.current) return false;
+    finalActionRef.current = true;
+    setLeaving(true);
+    try { return await save(); }
+    finally { finalActionRef.current = false; setLeaving(false); }
+  }, [save, voiceDraft.canLeave]);
+  useClientDraftNavigation(dirty || saving || voiceDraft.pending, `/rights/${token}`, saveBeforeLeaving, voiceDraft.canLeave);
+
+  useEffect(() => {
     if (step && step.key !== "__signature") void save(step.key, "started");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [stepIdx]);
 
   async function next() {
+    if (!voiceDraft.canLeave()) return;
     // A second tap can arrive before React renders the disabled button.
     if (advancingRef.current || finalActionRef.current) return;
     advancingRef.current = true;
@@ -297,6 +334,8 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
     return total ? Math.round((filled / total) * 100) : 0;
   }, [answers, providerName]);
 
+  if (paused) return <IntakePaused onResume={() => setPaused(false)} />;
+
   if (contentReviewRequired) return (
     <ContentRevisionReview endpoint={`/api/intake/${token}`} baselineAnswers={saveQueueRef.current!.savedAnswers()}
       labelForKey={(key) => SECTIONS.flatMap((section) => section.questions).find((question) => question.key === key)?.label || key}
@@ -341,7 +380,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
             When it is completed, your secure copy link will be sent by {completedCopyDeliveryChannels(answers).label} when that contact information is available.
           </p>
         )}
-        <a className="btn-secondary mt-5 min-h-[56px] w-full text-base" href={`/rights/${token}`}>
+        <a className="btn-secondary mt-5 min-h-[56px] w-full text-base" href={`/rights/${encodeURIComponent(token)}?mode=full`}>
           View or save my rights &amp; privacy
         </a>
         <p className="mt-4 text-sm text-slate-500">Questions? Call {providerPhone(supportPhone, providerName)}.</p>
@@ -350,7 +389,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
   }
 
   return (
-    <div className="mx-auto max-w-2xl pb-28">
+    <div className="mx-auto max-w-2xl pb-40">
       <ProgressBar percent={answeredCount}
         label={brandText(`You are ${answeredCount}% complete - Step ${stepIdx + 1} of ${steps.length}: ${step.title}`, branding)} />
 
@@ -384,7 +423,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
         {stepIdx === 0 && <IntakeOrientationAudio providerName={providerName} providerPhone={supportPhone} compact />}
 
         <div className="mt-4 space-y-5">
-          {visibleQuestions(step).map((q) => <QuestionField key={q.key} q={q} answers={answers} set={set} providerName={providerName} providerPhone={supportPhone} />)}
+          {visibleQuestions(step).map((q) => <QuestionField key={q.key} q={q} answers={answers} set={set} onVoiceDraft={voiceDraft.update} providerName={providerName} providerPhone={supportPhone} />)}
         </div>
 
         {step.key === "__signature" && (
@@ -393,7 +432,9 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
         )}
       </div>
 
-      {error && <p className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+      {error && <p role="alert" className="mt-3 rounded-lg bg-red-50 p-3 text-sm font-semibold text-red-700">{error}</p>}
+      {saveError && <p role="alert" className="mt-3 text-sm text-red-700">{saveError}</p>}
+      {voiceDraft.message && <p role="alert" className="mt-3 rounded-lg bg-amber-50 p-3 text-sm font-semibold text-amber-800">{voiceDraft.message}</p>}
 
       <div
         className="fixed inset-x-0 bottom-0 border-t border-slate-200 bg-white p-3"
@@ -401,7 +442,7 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
       >
         <div className="mx-auto flex max-w-2xl gap-3">
           <button className="btn-secondary w-28" disabled={stepIdx === 0 || advancing || signing || submitting}
-            onClick={() => { if (advancingRef.current || finalActionRef.current) return; setStepIdx((i) => i - 1); window.scrollTo(0, 0); }}>Back</button>
+            onClick={() => { if (!voiceDraft.canLeave() || advancingRef.current || finalActionRef.current) return; setStepIdx((i) => i - 1); window.scrollTo(0, 0); }}>Back</button>
           <SaveIndicator saving={saving} dirty={dirty} saveError={saveError} onRetry={() => { if (!finalActionRef.current) void save(step.key); }} />
           {step.key !== "__signature" && (
             <button className="btn-primary flex-1" disabled={advancing} onClick={next}>
@@ -409,13 +450,20 @@ export default function ClientQuestionnaire({ token, clientName, providerName, p
             </button>
           )}
         </div>
+        <div className="mx-auto max-w-2xl">
+          <button type="button" className="btn-ghost min-h-[44px] w-full text-sm" disabled={leaving || advancing || signing || submitting}
+            onClick={() => { void leaveAfterSave(saveBeforeLeaving, () => setPaused(true)); }}>
+            {leaving ? "Saving your progress..." : "Save & exit"}
+          </button>
+        </div>
       </div>
     </div>
   );
 }
 
-function QuestionField({ q, answers, set, providerName, providerPhone: supportPhone }: {
+function QuestionField({ q, answers, set, onVoiceDraft, providerName, providerPhone: supportPhone }: {
   q: Question; answers: Answers; set: (k: string, v: Answers[string]) => void;
+  onVoiceDraft: (key: string, state: VoiceDraftState) => void;
   providerName?: string; providerPhone?: string;
 }) {
   const branding = { name: providerName, phone: supportPhone };
@@ -545,6 +593,7 @@ function QuestionField({ q, answers, set, providerName, providerPhone: supportPh
       )}
       {q.voice ? (
         <VoiceInput id={inputId} ariaLabel={accessibleLabel} value={String(v ?? "")} onChange={(x) => set(q.key, x)} multiline={multiline}
+          onDraftStateChange={(state) => onVoiceDraft(q.key, state)}
           placeholder={q.placeholder}
           inputMode={q.type === "phone" ? "tel" : q.type === "email" ? "email" : "text"} />
       ) : multiline ? (
@@ -566,6 +615,7 @@ function SignatureStep({ answers, hasSignature, submitting, onCapture, onSubmit,
 }) {
   const isMinor = answers.is_minor_or_incompetent === "Yes" || answers.is_minor_or_incompetent === true;
   const [signedRoles, setSignedRoles] = useState<string[]>([]);
+  useEffect(() => { if (!hasSignature) setSignedRoles([]); }, [hasSignature]);
   const consentCount = Object.keys(answers).filter((k) => k.startsWith("consent_") && answers[k] === true).length;
 
   return (
@@ -574,7 +624,7 @@ function SignatureStep({ answers, hasSignature, submitting, onCapture, onSubmit,
         You sign <b>once</b> below. Your signature and initials are applied only to the{" "}
         <b>{consentCount} form(s) you agreed to</b> - on paper you would sign about 15 separate times.
       </p>
-      {!hasSignature || signedRoles.length === 0 ? (
+      {!hasSignature ? (
         <SignaturePad roleLabel={isMinor ? "Parent / Legal Guardian signature" : "Client signature"}
           expectedRole={isMinor ? "guardian" : "client"}
           defaultName={String((isMinor ? answers.guardian_name : answers.client_full_name) ?? "")}
@@ -606,7 +656,7 @@ function SignatureStep({ answers, hasSignature, submitting, onCapture, onSubmit,
           <ul className="list-inside list-disc">{missing.map((m) => <li key={m.key}>{m.label}</li>)}</ul>
         </div>
       )}
-      <button className="btn-primary w-full" disabled={submitting || (!hasSignature && signedRoles.length === 0)} onClick={onSubmit}>
+      <button className="btn-primary w-full" disabled={submitting || !hasSignature} onClick={onSubmit}>
         {submitting ? "Sending..." : "Send my answers"}
       </button>
     </div>

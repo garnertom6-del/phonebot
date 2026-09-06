@@ -25,6 +25,13 @@ async function eligibilityRegressions() {
   process.env.NCTRACKS_SUBMITTER_ID = "SYNTHETIC";
   process.env.NCTRACKS_PROVIDER_NPI = "1234567890";
   try {
+    const responseFor = (segments: string[]) => ["ST*271*0001", ...segments, `SE*${segments.length + 2}*0001`].join("~") + "~";
+    const matchedSegments = ["HL*3*2*22*0", "NM1*IL*1*CLIENT*SYNTHETIC****MI*SYNTHETIC", "DMG*D8*20000101", "EB*1*IND*30**SYNTHETIC PLAN"];
+    const matching = responseFor(matchedSegments);
+    const parsedMatching = parseEdi271(matching);
+    assert.equal(parsedMatching.subscriberFirstName, "SYNTHETIC");
+    assert.equal(parsedMatching.subscriberLastName, "CLIENT");
+    assert.equal(parsedMatching.subscriberDob, "2000-01-01");
     const uncertainResponses = [
       "",
       "<html>Temporary upstream error</html>",
@@ -35,6 +42,15 @@ async function eligibilityRegressions() {
       "ST*271*0001~EB*D*IND*30**SYNTHETIC~SE*3*0001~",
       fixture("271-notfound.edi"),
       "ST*271*0001~EB*1*IND*30**SYNTHETIC~AAA*Y**75*C~SE*4*0001~",
+      fixture("271-active.edi"), // a different echoed name and DOB, with no requested MID
+      matching.replace("CLIENT*SYNTHETIC", "OTHER*SYNTHETIC"),
+      matching.replace("DMG*D8*20000101~", ""),
+      matching.replace("DMG*D8*20000101", "DMG*D8*20000230"),
+      matching.replace("DMG*D8*20000101", "DMG*D8*20010101"),
+      matching + matching,
+      responseFor([...matchedSegments, "NM1*IL*1*OTHER*CLIENT****MI*OTHER", "EB*1*IND*30**OTHER PLAN"]),
+      responseFor([...matchedSegments, "HL*4*3*23*0", "NM1*QC*1*OTHER*CLIENT", "EB*1*IND*30**OTHER PLAN"]),
+      responseFor([...matchedSegments, "DMG*D8*20000101"]),
     ];
     for (const payload of uncertainResponses) {
       globalThis.fetch = async () => new Response(payload, { status: 200 });
@@ -54,11 +70,33 @@ async function eligibilityRegressions() {
       const payload = fixture(file);
       globalThis.fetch = async () => new Response(payload, { status: 200 });
       const checked = await checkNcTracksEligibility({
-        fullName: "Synthetic Client", dob: "01/01/2000", controlNumber: 1,
+        fullName: "Tameka Gant", dob: "07/31/2004", medicaidId: "987654321A", controlNumber: 1,
         traceNumber: "SYNTHETIC", now: at,
       });
       assert.equal(snapshotFrom271(parseEdi271(payload), at).status, status);
       assert.equal(checked.mapped.has_medicaid, coverage);
+    }
+    for (const [payload, requestName] of [
+      [matching, "Synthetic Client"],
+      [matching.replace("CLIENT*SYNTHETIC****", "CLIENT*SYNTHETIC*MIDDLE***"), "Synthetic Middle Client"],
+    ]) {
+      globalThis.fetch = async () => new Response(payload, { status: 200 });
+      const checked = await checkNcTracksEligibility({ fullName: requestName, dob: "01/01/2000", controlNumber: 1, traceNumber: "SYNTHETIC", now: at });
+      assert.equal(checked.result.active, true, "Exact echoed first/middle/last and DOB can confirm a name-only inquiry");
+      assert.equal(checked.mapped.mid_number, "SYNTHETIC");
+    }
+    for (const payload of [
+      matching.replace("*MI*SYNTHETIC", "*MI*OTHER"),
+      matching.replace("*MI*SYNTHETIC", ""),
+      matching.replace("DMG*D8*20000101", "DMG*D8*20010101"),
+      matching + matching,
+    ]) {
+      globalThis.fetch = async () => new Response(payload, { status: 200 });
+      const checked = await checkNcTracksEligibility({ fullName: "Synthetic Client", dob: "01/01/2000", medicaidId: "SYNTHETIC", controlNumber: 1, traceNumber: "SYNTHETIC", now: at });
+      assert.equal(snapshotFrom271(checked.result, at).status, "needs_review", "Known MID cannot override a mismatched DOB or ambiguous response");
+      assert.deepEqual(checked.mapped, {});
+      const prior = { has_medicaid: "Yes", mid_number: "SYNTHETIC", mco: "Previously verified plan" };
+      assert.deepEqual(applyNcTracksResult(prior, checked.mapped).next, prior);
     }
   } finally {
     globalThis.fetch = originalFetch;

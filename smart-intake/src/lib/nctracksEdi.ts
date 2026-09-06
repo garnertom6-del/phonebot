@@ -12,6 +12,7 @@
 import { buildEdi270, type Edi270Config, type Edi270Member } from "./edi270";
 import { parseEdi271, type Edi271Result } from "./edi271";
 import type { NcTracksLookupResult } from "./ncTracksLookup";
+import { normalizeDateInput } from "./normalizeDateInput";
 
 export function nctracksEdiConfigured(): boolean {
   return !!(process.env.NCTRACKS_EDI_URL && process.env.NCTRACKS_SUBMITTER_ID &&
@@ -90,6 +91,27 @@ export async function checkNcTracksEligibility(input: CheckInput): Promise<Eligi
     const text = await res.text();
     if (!res.ok) throw new Error(`NC Tracks EDI returned ${res.status}`);
     const result = parseEdi271(text);
+    const rejected = (rejectReason: string): EligibilityCheck => ({ result: { active: false, raw: "", rejectReason }, mapped: {} });
+    if (!result.rejectReason) {
+      const requestedMid = (input.medicaidId || "").replace(/\s+/g, "").toUpperCase();
+      const returnedMid = (result.memberId || "").replace(/\s+/g, "").toUpperCase();
+      const requestedDob = normalizeDateInput(input.dob);
+      if (requestedMid && requestedMid !== returnedMid) {
+        return rejected("The returned MID does not match the requested client. Verify the client details and check again.");
+      }
+      if (result.subscriberDob && (!requestedDob || result.subscriberDob !== requestedDob)) {
+        return rejected("The returned date of birth does not match the requested client. Verify the client details and check again.");
+      }
+      if (!requestedMid) {
+        const normalizeName = (name: string) => name.trim().replace(/\s+/g, " ").toUpperCase();
+        const requestedName = normalizeName(input.fullName);
+        const echoedName = normalizeName(result.subscriberFullName || "");
+        if (!requestedName || !result.subscriberFirstName || !result.subscriberLastName || echoedName !== requestedName
+          || !requestedDob || !result.subscriberDob || result.subscriberDob !== requestedDob) {
+          return rejected("The returned subscriber name and date of birth could not be matched to this client. Verify the client details and check again.");
+        }
+      }
+    }
     return { result, mapped: toMapped(result) };
   } finally {
     clearTimeout(timer);

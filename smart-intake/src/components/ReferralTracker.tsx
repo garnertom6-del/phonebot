@@ -76,7 +76,7 @@ export default function ReferralTracker({ intakeId, readOnly = false }: { intake
   }
 
   return (
-    <section className="card mt-5 min-w-0" aria-labelledby={`referrals-heading-${intakeId}`}>
+    <section id="support-referrals" className="card mt-5 min-w-0 scroll-mt-6" aria-labelledby={`referrals-heading-${intakeId}`}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 id={`referrals-heading-${intakeId}`} className="text-xl font-bold">Benefits & support follow-up</h2>

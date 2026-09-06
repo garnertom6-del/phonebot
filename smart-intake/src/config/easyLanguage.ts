@@ -421,7 +421,7 @@ export const EASY: Record<string, EasyText> = {
   /* ---------- substance ---------- */
   sa_status: {
     q: "Do you drink alcohol or use drugs?",
-    help: "Be honest - we are here to help, not to judge. Nobody gets in trouble.",
+    help: "Your answers help your care team understand what support you may need. You can skip this question.",
     options: { "No": "No, not right now", "Denies": "No, and I never have" },
   },
 
@@ -627,7 +627,7 @@ export const SECTION_INTROS: Record<string, string> = {
   mental_health: "How have you been feeling?",
   medical: "Now a bit about your health and your doctor.",
   medications: "",
-  legal: "A few quick legal questions. Honest answers help - nobody gets in trouble.",
+  legal: "A few questions about legal matters and who can sign your intake.",
   emergency: "Who should we call if you ever need help fast?",
   substance: "Some honest questions now. No judging here - ever.",
   provider_choice: "You get to pick who helps you.",

@@ -24,7 +24,7 @@ import {
   extractedNoteFieldState,
   type IntakeNoteField,
 } from "@/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness, newIntakeCreateLabel, newIntakeQrCreateLabel } from "@/lib/newIntakeReadiness";
+import { buildNewIntakeReadiness, createProviderContextReady, newIntakeCreateLabel, newIntakeQrCreateLabel } from "@/lib/newIntakeReadiness";
 import {
   DEFAULT_INTAKE_STATE,
   canOfferCompletedPacketEmail,
@@ -154,6 +154,7 @@ export default function NewIntake() {
     setForm((current) => current.intakeDate ? current : { ...current, intakeDate: currentDate });
   }, []);
   const formRef = useRef<HTMLFormElement>(null);
+  const providerContextReady = createProviderContextReady(providerId, packetContextLoaded, packetContextError);
 
   const assignedPreview = assignIntakeContacts(form.email || "", form.phone || "");
   const smsPhone = assignedPreview.error ? "" : assignedPreview.phone;
@@ -182,7 +183,7 @@ export default function NewIntake() {
 
   useEffect(() => {
     let active = true;
-    fetch("/api/intakes/context").then(async (res) => {
+    fetch("/api/intakes/context", { cache: "no-store" }).then(async (res) => {
       const body = await readResponse(res) as {
         error?: string;
         provider?: { id?: string; name?: string; phone?: string };
@@ -190,7 +191,7 @@ export default function NewIntake() {
         access?: { canManageProvider?: boolean; packetSetupHref?: string | null };
       };
       if (!active) return;
-      if (!res.ok) {
+      if (!res.ok || !body.provider?.id?.trim()) {
         setPacketReady(false);
         setPacketContextError(body.error || "Provider context could not be loaded. Sign in again before creating an intake.");
         setPacketContextLoaded(true);
@@ -444,6 +445,7 @@ export default function NewIntake() {
   }
 
   function startCreate(intent: "create" | "qr") {
+    if (!providerContextReady) return;
     setIntent(intent);
     if (!intakeReadiness.ready) {
       focusFirstMissing();
@@ -455,6 +457,10 @@ export default function NewIntake() {
   async function submit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (creatingRef.current || result) return;
+    if (!providerContextReady) {
+      setError(packetContextError || "Wait for the provider to load before creating this intake.");
+      return;
+    }
     const nextForm = readFieldValues(e.currentTarget, form);
     const assigned = assignIntakeContacts(nextForm.email, nextForm.phone);
     setError("");
@@ -719,6 +725,7 @@ export default function NewIntake() {
       <form ref={formRef} method="post" onSubmit={submit} className="card mt-3" noValidate>
         <h1 className="mb-1 text-xl font-bold">Create New Intake</h1>
         <div className="mb-4 flex min-h-[1.75rem] flex-wrap items-center gap-2 text-sm text-slate-600" role="status" aria-live="polite">
+          {providerContextReady && <span className="w-full font-medium text-slate-800">Saving to {providerName}</span>}
           <span>
             {packetContextError
               ? "Provider context unavailable"
@@ -852,7 +859,15 @@ export default function NewIntake() {
                 autoComplete={key === "fullName" ? "name" : key === "dob" ? "bday" : "off"}
                 autoCapitalize={key === "fullName" ? "words" : undefined}
                 enterKeyHint="next"
-                onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
+                onInput={type === "date" ? (e) => {
+                  // Native date controls can emit input before a committed change.
+                  const value = e.currentTarget.value;
+                  setForm((f) => f[key] === value ? f : { ...f, [key]: value });
+                } : undefined}
+                onChange={(e) => {
+                  const value = e.currentTarget.value;
+                  setForm((f) => ({ ...f, [key]: value }));
+                }} />
             </div>
           ))}
           <div id="new-intake-contact" className="scroll-mt-28 sm:col-span-2 rounded-xl border border-slate-200 bg-slate-50 p-4">
@@ -942,7 +957,7 @@ export default function NewIntake() {
                 type="button"
                 data-testid="create-and-show-qr"
                 className="btn-secondary mt-3 min-h-11 w-full disabled:cursor-not-allowed disabled:opacity-70"
-                disabled={isCreating || !!packetContextError}
+                disabled={isCreating || !providerContextReady}
                 onClick={() => startCreate("qr")}
               >
                 {qrSubmitLabel}
@@ -1033,8 +1048,9 @@ export default function NewIntake() {
             <span className="label">Record#{recordMode === "lookup" ? " *" : " (optional)"}</span>
             <input className="input" id="new-intake-recordNumber" name="recordNumber" value={form.recordNumber || ""}
               onChange={(e) => {
+                const recordNumber = e.currentTarget.value;
                 setRecordNumberWasGenerated(false);
-                setForm((current) => ({ ...current, recordNumber: e.target.value }));
+                setForm((current) => ({ ...current, recordNumber }));
               }}
               placeholder={recordMode === "lookup" ? "Enter the official lookup Record#" : recordMode === "manual" ? "Enter official or leave blank for a temporary number" : "Generate, type, or leave blank"} />
           </label>
@@ -1124,7 +1140,14 @@ export default function NewIntake() {
                   spellCheck={key === "midNumber" ? false : undefined}
                   placeholder={key === "location" ? "Office or city" : undefined}
                   enterKeyHint="next"
-                  onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))} />
+                  onInput={type === "date" ? (e) => {
+                    const value = e.currentTarget.value;
+                    setForm((f) => f[key] === value ? f : { ...f, [key]: value });
+                  } : undefined}
+                  onChange={(e) => {
+                    const value = e.currentTarget.value;
+                    setForm((f) => ({ ...f, [key]: value }));
+                  }} />
               </div>
             ))}
             <label>
@@ -1156,7 +1179,10 @@ export default function NewIntake() {
               <label className="mt-3 block">
                 <span className="label">Living arrangement</span>
                 <input className="input" name="livingArrangement" value={form.livingArrangement || ""}
-                  onChange={(e) => setForm((current) => ({ ...current, livingArrangement: e.target.value }))} />
+                  onChange={(e) => {
+                    const livingArrangement = e.currentTarget.value;
+                    setForm((current) => ({ ...current, livingArrangement }));
+                  }} />
               </label>
             )}
           </div>
@@ -1278,7 +1304,7 @@ export default function NewIntake() {
           <button
             type="submit"
             className="btn-primary min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isCreating || !!packetContextError}
+            disabled={isCreating || !providerContextReady}
             onClick={() => setIntent("create")}
           >
             {submitLabel}
@@ -1287,7 +1313,7 @@ export default function NewIntake() {
             type="button"
             data-testid="create-and-show-qr-footer"
             className="btn-secondary min-h-12 w-full disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isCreating || !!packetContextError}
+            disabled={isCreating || !providerContextReady}
             onClick={() => startCreate("qr")}
           >
             {qrSubmitLabel}
@@ -1311,7 +1337,7 @@ export default function NewIntake() {
             <button
               type="button"
               className="btn-primary min-h-12 flex-1 disabled:cursor-not-allowed disabled:opacity-70"
-              disabled={isCreating || !!packetContextError}
+              disabled={isCreating || !providerContextReady}
               onClick={() => startCreate("create")}
             >
               {intakeReadiness.ready ? submitLabel : intakeReadiness.title}
@@ -1321,7 +1347,7 @@ export default function NewIntake() {
             type="button"
             data-testid="create-and-show-qr-mobile"
             className="btn-secondary min-h-11 w-full disabled:cursor-not-allowed disabled:opacity-70"
-            disabled={isCreating || !!packetContextError}
+            disabled={isCreating || !providerContextReady}
             onClick={() => startCreate("qr")}
           >
             {qrSubmitLabel}

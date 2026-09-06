@@ -5,13 +5,16 @@
  * it into the answer - nothing is auto-submitted.
  */
 import { useEffect, useRef, useState } from "react";
+import { stopSpeechRecognition, type VoiceDraftState } from "@/lib/voiceDraft";
 
 interface Props {
   id?: string;
   ariaLabel?: string;
+  ariaDescribedBy?: string;
   value: string;
   onChange: (v: string) => void;
   onPendingValueChange?: (v: string | null) => void;
+  onDraftStateChange?: (state: VoiceDraftState) => void;
   multiline?: boolean;
   placeholder?: string;
   inputMode?: "text" | "tel" | "email";
@@ -64,12 +67,26 @@ function mergeTranscriptChunks(chunks: string[]): string {
   return merged.join(" ");
 }
 
-export default function VoiceInput({ id, ariaLabel, value, onChange, onPendingValueChange, multiline, placeholder, inputMode, enterKeyHint, autoComplete, onEnter }: Props) {
+export default function VoiceInput({ id, ariaLabel, ariaDescribedBy, value, onChange, onPendingValueChange, onDraftStateChange, multiline, placeholder, inputMode, enterKeyHint, autoComplete, onEnter }: Props) {
   const [supported, setSupported] = useState(false);
   const [recording, setRecording] = useState(false);
   const [preview, setPreview] = useState<string | null>(null);
   const recRef = useRef<SR | null>(null);
   const finalRef = useRef("");
+  const draftRef = useRef<VoiceDraftState>({ recording: false, hasPreview: false });
+  const onDraftRef = useRef(onDraftStateChange);
+  onDraftRef.current = onDraftStateChange;
+  function publishDraft(change: Partial<VoiceDraftState>) {
+    draftRef.current = { ...draftRef.current, ...change };
+    onDraftRef.current?.(draftRef.current);
+  }
+
+  useEffect(() => () => {
+    const recognition = recRef.current;
+    recRef.current = null;
+    stopSpeechRecognition(recognition);
+    onDraftRef.current?.({ recording: false, hasPreview: false });
+  }, []);
 
   useEffect(() => {
     const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
@@ -86,10 +103,12 @@ export default function VoiceInput({ id, ariaLabel, value, onChange, onPendingVa
     const w = window as unknown as { SpeechRecognition?: new () => SR; webkitSpeechRecognition?: new () => SR };
     const Ctor = w.SpeechRecognition || w.webkitSpeechRecognition;
     if (!Ctor) return;
+    if (draftRef.current.hasPreview) return;
     const rec = new Ctor();
     rec.lang = "en-US"; rec.interimResults = true; rec.continuous = true;
     finalRef.current = "";
     rec.onresult = (e) => {
+      if (recRef.current !== rec) return;
       // Android Chrome and some mobile browsers can re-deliver already-final
       // transcript pieces or send a longer chunk that starts with the exact
       // words from a previous chunk. Rebuild from the full result set and
@@ -105,27 +124,43 @@ export default function VoiceInput({ id, ariaLabel, value, onChange, onPendingVa
       }
       finalRef.current = mergeTranscriptChunks(finals);
       setPreview(mergeTranscriptChunks([finalRef.current, ...interims]));
+      publishDraft({ hasPreview: true });
     };
-    rec.onend = () => setRecording(false);
-    rec.onerror = () => setRecording(false);
+    const ended = () => { if (recRef.current === rec) { setRecording(false); publishDraft({ recording: false }); } };
+    rec.onend = ended;
+    rec.onerror = ended;
     recRef.current = rec;
     setPreview(""); setRecording(true);
-    rec.start();
+    publishDraft({ recording: true, hasPreview: true });
+    try { rec.start(); } catch { discard(); }
   }
 
-  function stop() { recRef.current?.stop(); setRecording(false); }
+  function stop() {
+    try { recRef.current?.stop(); } catch { /* The browser may already have ended recording. */ }
+    setRecording(false);
+    publishDraft({ recording: false });
+  }
+  function discard() {
+    const recognition = recRef.current;
+    recRef.current = null;
+    stopSpeechRecognition(recognition);
+    setRecording(false);
+    setPreview(null);
+    publishDraft({ recording: false, hasPreview: false });
+  }
   function accept() {
     if (preview) onChange(value ? `${value} ${preview}`.trim() : preview);
-    setPreview(null);
+    discard();
   }
 
   const field = multiline ? (
-    <textarea id={id} aria-label={ariaLabel} className="input min-h-[110px]" value={value} placeholder={placeholder}
+    <textarea id={id} aria-label={ariaLabel} aria-describedby={ariaDescribedBy} className="input min-h-[110px]" value={value} placeholder={placeholder}
       onChange={(e) => onChange(e.target.value)} />
   ) : (
     <input
       id={id}
       aria-label={ariaLabel}
+      aria-describedby={ariaDescribedBy}
       className="input min-h-[56px] text-lg"
       type={inputMode === "tel" ? "tel" : inputMode === "email" ? "email" : "text"}
       value={value}
@@ -149,20 +184,21 @@ export default function VoiceInput({ id, ariaLabel, value, onChange, onPendingVa
         <div className="flex-1">{field}</div>
         {supported && (
           <button type="button" aria-label={recording ? "Stop recording" : "Speak your answer"}
+            disabled={!recording && preview !== null}
             onClick={recording ? stop : start}
             className={`min-h-[56px] min-w-[72px] shrink-0 rounded-lg border px-3 text-sm font-bold ${recording ? "animate-pulse border-red-400 bg-red-50 text-red-700" : "border-slate-300 bg-white text-brand"}`}>
             {recording ? "Stop" : "Speak"}
           </button>
         )}
       </div>
-      {recording && <p className="mt-1 text-sm text-red-600">Listening... tap Stop when you finish speaking.</p>}
+      {recording && <div className="mt-1 text-sm text-red-600"><p>Listening... tap Stop when you finish speaking.</p><button type="button" className="btn-ghost mt-1 min-h-11 text-sm" onClick={discard}>Discard recording</button></div>}
       {preview !== null && !recording && (
         <div className="mt-2 rounded-lg border border-brand/40 bg-brand-light p-3">
           <p className="mb-1 text-xs font-semibold text-brand">Here is what we heard. Fix it if needed, then tap &quot;Use this answer&quot;:</p>
           <textarea aria-label={`${ariaLabel || "Answer"} speech preview`} className="input mb-2 min-h-[60px]" value={preview} onChange={(e) => setPreview(e.target.value)} />
           <div className="flex gap-2">
             <button type="button" className="btn-primary px-3 py-1.5 text-sm" onClick={accept}>Use this answer</button>
-            <button type="button" className="btn-ghost px-3 py-1.5 text-sm" onClick={() => setPreview(null)}>Discard</button>
+            <button type="button" className="btn-ghost px-3 py-1.5 text-sm" onClick={discard}>Discard</button>
           </div>
         </div>
       )}

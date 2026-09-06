@@ -130,8 +130,9 @@ function IntakeInner({ token }: { token: string }) {
   );
 }
 
-export default function ClientIntakePage(props: { params: Promise<{ token: string }> }) {
+export default function ClientIntakePage(props: { params: Promise<{ token: string }>; searchParams: Promise<{ mode?: string | string[] }> }) {
   const params = use(props.params);
+  const query = use(props.searchParams);
   return (
     <main className="min-h-screen">
       <header className="sticky top-0 z-20 flex items-center justify-between gap-3 bg-brand p-3 text-white shadow-md">
@@ -141,7 +142,7 @@ export default function ClientIntakePage(props: { params: Promise<{ token: strin
         </div>
         <a
           className="inline-flex min-h-[48px] shrink-0 items-center justify-center rounded-xl border-2 border-white bg-white px-3 text-sm font-extrabold text-brand shadow-sm focus-visible:outline focus-visible:outline-4 focus-visible:outline-offset-2 focus-visible:outline-white"
-          href={`/rights/${params.token}`}
+          href={`/rights/${encodeURIComponent(params.token)}${query.mode === "full" ? "?mode=full" : ""}`}
         >
           Rights &amp; privacy
         </a>

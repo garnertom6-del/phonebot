@@ -8,6 +8,11 @@ export type NewIntakeReadinessInput = {
   packetReady: boolean;
 };
 
+/** Creation requires a confirmed provider, even while packet setup is pending. */
+export function createProviderContextReady(providerId: string, loaded: boolean, error: string): boolean {
+  return loaded && !!providerId.trim() && !error;
+}
+
 export type NewIntakeReadinessItem = {
   key: "identity" | "contact";
   label: string;

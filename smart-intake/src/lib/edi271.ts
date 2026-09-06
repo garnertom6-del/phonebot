@@ -3,11 +3,17 @@
  * simple result the app can act on. Robust to the common shapes; exact plan
  * naming can be refined against real 271s once the connection is live.
  */
+import { normalizeDateInput } from "./normalizeDateInput";
 
 export interface Edi271Result {
   active: boolean;            // any active health-benefit coverage found
   planName?: string;          // plan / MCO / product description (EB05)
   memberId?: string;          // member ID echoed by the payer (NM1*IL)
+  subscriberFirstName?: string;
+  subscriberMiddleName?: string;
+  subscriberLastName?: string;
+  subscriberFullName?: string;
+  subscriberDob?: string;     // normalized ISO date from subscriber DMG02
   effectiveDate?: string;     // MM/DD/YYYY plan-begin, if present
   rejectReason?: string;      // AAA reject description, if the inquiry failed
   raw: string;                // the original 271 (for audit/debugging)
@@ -44,27 +50,53 @@ export function parseEdi271(payload: string): Edi271Result {
     .map((s) => s.split("*"));
 
   const result: Edi271Result = { active: false, raw };
-  const transaction = segments.find((el) => el[0] === "ST" && el[1] === "271");
-  const hasMatchingTrailer = transaction?.[2] && segments.some((el) => (
-    el[0] === "SE" && el[2] === transaction[2]
-  ));
-  if (!transaction || !hasMatchingTrailer) {
+  const transactions = segments.filter((el) => el[0] === "ST");
+  const trailers = segments.filter((el) => el[0] === "SE");
+  if (transactions.length > 1 || trailers.length > 1) {
+    return { active: false, raw, rejectReason: "NC Tracks returned multiple eligibility transactions. Verify coverage for one client at a time." };
+  }
+  const transaction = transactions[0];
+  const start = segments.indexOf(transaction);
+  const end = segments.findIndex((el) => el[0] === "SE");
+  if (!transaction || transaction[1] !== "271" || !transaction[2] || end <= start || trailers[0]?.[2] !== transaction[2]) {
     result.rejectReason = "NC Tracks did not return a complete eligibility response. Verify coverage by hand.";
     return result;
   }
 
+  const body = segments.slice(start + 1, end);
+  const subjects = body.filter((el) => el[0] === "NM1" && ["IL", "QC"].includes(el[1]));
+  const subjectLoops = body.filter((el) => el[0] === "HL" && ["22", "23"].includes(el[3]));
+  if (subjects.length > 1 || subjectLoops.length > 1 || subjects.some((el) => el[1] === "QC") || subjectLoops.some((el) => el[3] === "23")) {
+    return { active: false, raw, rejectReason: "NC Tracks returned more than one or an ambiguous subscriber identity. Verify coverage for one client at a time." };
+  }
+
   let inSubscriberLoop = false;
+  let demographicCount = 0;
   let hasCoverageDetermination = false;
-  for (const el of segments) {
+  for (const el of body) {
     const tag = el[0];
 
     if (tag === "NM1" && el[1] === "IL") {
       inSubscriberLoop = true;
-      // member id is element 9 when the id qualifier (el 8) is MI/etc.
-      if (el[8] && el[9]) result.memberId = el[9];
+      if (el[2] !== "1") return { active: false, raw, rejectReason: "The eligibility response did not identify an individual subscriber. Verify coverage by hand." };
+      // NM103/104/105 = last/first/middle; DMG02 below is DOB (DMG03 is gender).
+      // Element reference: CMS HETS 270/271 Companion Guide, subscriber loop 2100C.
+      result.subscriberLastName = el[3]?.trim() || undefined;
+      result.subscriberFirstName = el[4]?.trim() || undefined;
+      result.subscriberMiddleName = el[5]?.trim() || undefined;
+      result.subscriberFullName = [el[6], el[4], el[5], el[3], el[7]].filter((value) => value?.trim()).join(" ");
+      if (el[8] === "MI" && el[9]?.trim()) result.memberId = el[9].trim();
       continue;
     }
     if (tag === "HL") inSubscriberLoop = false; // a new loop started
+
+    if (tag === "DMG" && inSubscriberLoop) {
+      demographicCount++;
+      const dob = el[1] === "D8" && /^\d{8}$/.test(el[2] || "") ? normalizeDateInput(d8ToUs(el[2])) : "";
+      if (demographicCount > 1 || !dob) return { active: false, raw, rejectReason: "The eligibility response contains an invalid or ambiguous subscriber date of birth. Verify coverage by hand." };
+      result.subscriberDob = dob;
+      continue;
+    }
 
     if (tag === "AAA") {
       // AAA*Y**<reason>*<followup>  (reject) - only record real rejects
@@ -77,7 +109,7 @@ export function parseEdi271(payload: string): Edi271Result {
       continue;
     }
 
-    if (tag === "EB") {
+    if (tag === "EB" && inSubscriberLoop) {
       const code = el[1];
       if (ACTIVE.has(code)) {
         hasCoverageDetermination = true;
