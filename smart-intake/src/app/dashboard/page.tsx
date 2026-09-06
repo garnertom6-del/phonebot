@@ -18,6 +18,7 @@ import AnswerConflictPanel from "@/components/AnswerConflictPanel";
 import { revisionsForKeys, type AnswerConflict, type AnswerRevisions } from "@/lib/answerRevisions";
 import { clientDetailsAnswerPatch } from "@/lib/clientDetails";
 import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
+import { providerSignInHref } from "@/lib/safeReturnPath";
 import { createClientEditSaveLock } from "@/lib/clientEditSaveLock";
 import { copyTextToClipboard } from "@/lib/clipboardFeedback";
 import { DOCUSIGN_SEND_CONFIRM, DOCUSIGN_COMPLETION_LIMITATION } from "@/lib/signatureStatus";
@@ -203,6 +204,7 @@ function Dashboard() {
   const tabFromUrl = requestedTab || "action";
   const [tabOverride, setTabOverride] = useState<string | null>(null);
   const tab = tabOverride ?? tabFromUrl;
+  const [authGate, setAuthGate] = useState<"checking" | "signed_out" | "ready">("checking");
   const [rows, setRows] = useState<Row[] | null>(null);
   const [note, setNote] = useState("");
   const [noticeKind, setNoticeKind] = useState<"success" | "warning" | "error">("success");
@@ -240,7 +242,9 @@ function Dashboard() {
       const query = params.toString() ? `?${params.toString()}` : "";
       const response = await fetch(`/api/intakes${query}`);
       if (response.status === 401) {
-        router.push("/provider");
+        setAuthGate("signed_out");
+        const next = `/dashboard${query}`;
+        router.replace(providerSignInHref(next));
         return;
       }
       const text = await response.text();
@@ -256,10 +260,12 @@ function Dashboard() {
       setCanManageProvider(!!body.canManageProvider);
       setReadOnly(!!body.readOnly);
       setProviderPacketReadiness(body.providerPacketReadiness || null);
+      setAuthGate("ready");
       if (!preserveNotice) setNote("");
     } catch (err) {
       setNoticeKind("error");
       setNote(err instanceof Error ? err.message : "Couldn't load the intake list right now.");
+      setAuthGate((current) => current === "signed_out" ? current : "ready");
       setRows((current) => current ?? []);
     } finally {
       setRefreshing(false);
@@ -681,17 +687,35 @@ function Dashboard() {
     showNote(`Downloaded a workflow report with ${filteredRows.length} intake${filteredRows.length === 1 ? "" : "s"}.`);
   }
 
+  if (authGate !== "ready") {
+    return (
+      <main className="mx-auto max-w-7xl p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-6" data-testid="dashboard-auth-gate">
+        <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm" role="status" aria-live="polite">
+          <div className="h-6 w-48 animate-pulse rounded bg-slate-200" />
+          <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-3">
+            <div className="h-20 animate-pulse rounded-2xl bg-slate-100" />
+            <div className="h-20 animate-pulse rounded-2xl bg-slate-100" />
+            <div className="h-20 animate-pulse rounded-2xl bg-slate-100" />
+          </div>
+          <p className="mt-4 text-sm text-slate-500">
+            {authGate === "signed_out" ? "Redirecting to sign in…" : "Checking sign-in…"}
+          </p>
+        </section>
+      </main>
+    );
+  }
+
   return (
-    <main className="mx-auto max-w-7xl p-4 sm:p-6">
-      {isMaster && (
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 shadow-sm">
-          <p className="font-semibold">Viewing as {providerName}</p>
-          <Link href="/master/dashboard" className="btn-ghost border-sky-300 bg-white px-3 py-1.5 text-xs text-sky-950 hover:bg-sky-100">
-            Return to master
-          </Link>
-        </div>
-      )}
+    <main className="mx-auto max-w-7xl p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-6">
       <section className="rounded-2xl bg-gradient-to-br from-brand via-brand-dark to-slate-900 px-5 py-6 text-white shadow-xl sm:px-6 sm:py-7">
+        {isMaster && (
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-white/20 bg-white/10 px-4 py-3 text-sm text-white">
+            <p className="font-semibold">Viewing as {providerName}</p>
+            <Link href="/master/dashboard" className="btn-ghost min-h-11 border-white/30 bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/20">
+              Return to master
+            </Link>
+          </div>
+        )}
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
             <p className="text-xs font-semibold uppercase tracking-[0.24em] text-brand-light/90">Staff Workspace</p>
@@ -707,8 +731,8 @@ function Dashboard() {
             {isMaster && <Link href="/master/dashboard" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Master: providers &amp; packets</Link>}
             {!isMaster && canManageProvider && <Link href="/provider/settings" className="btn-ghost border-white/30 bg-white/10 text-white hover:bg-white/20">Provider: packet settings</Link>}
             <details className="relative [&>summary::-webkit-details-marker]:hidden">
-              <summary className="btn-secondary cursor-pointer list-none bg-white/15 text-white hover:bg-white/25">More tools</summary>
-              <div className="absolute right-0 z-30 mt-2 grid min-w-56 gap-1 rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-xl">
+              <summary className="btn-secondary min-h-11 cursor-pointer list-none bg-white/15 text-white hover:bg-white/25">More tools</summary>
+              <div className="absolute right-0 z-30 mt-2 max-h-[min(24rem,calc(100vh-1rem))] min-w-56 overflow-y-auto rounded-lg border border-slate-200 bg-white p-2 text-slate-800 shadow-xl [right:max(0px,calc(100%-100vw+1rem))]">
                 {!readOnly && activeProviderId && <Link href={providerWorkflowHref("/intakes/new-many", activeProviderId)} className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Create many intakes</Link>}
                 {(isMaster || canManageProvider) && <Link href="/admin/users" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">Staff logins</Link>}
                 {isMaster && <Link href="/admin/pdf-mapping" className="rounded-md px-3 py-2 text-sm font-semibold hover:bg-slate-100">PDF mapping</Link>}

@@ -33,7 +33,7 @@ const PORTAL_COPY: Record<Portal, {
   },
 };
 
-export default function PortalLoginForm({ portal, returnTo }: { portal: Portal; returnTo?: "/nctracks" }) {
+export default function PortalLoginForm({ portal, returnTo }: { portal: Portal; returnTo?: string }) {
   const router = useRouter();
   const copy = PORTAL_COPY[portal];
   const [email, setEmail] = useState("");
@@ -49,7 +49,7 @@ export default function PortalLoginForm({ portal, returnTo }: { portal: Portal; 
       const res = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ email, password, returnTo, portal }),
       });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
@@ -58,7 +58,7 @@ export default function PortalLoginForm({ portal, returnTo }: { portal: Portal; 
       }
 
       const destination = body.destination || "/dashboard";
-      router.push(portal === "provider" && returnTo === "/nctracks" ? "/nctracks" : portal === "provider" && destination === "/master/dashboard" ? "/dashboard" : destination);
+      router.push(destination);
     } catch {
       setError("Sign in could not be completed. Check your connection and try again.");
     } finally {
@@ -81,6 +81,8 @@ export default function PortalLoginForm({ portal, returnTo }: { portal: Portal; 
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoComplete="username"
+          autoCapitalize="none"
+          spellCheck={false}
           autoFocus
           required
         />

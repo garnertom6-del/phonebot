@@ -1,3 +1,5 @@
+import { effectiveMappingScore } from "@/lib/effectiveMappingScore";
+
 export type PacketDisplayStatus = "draft" | "needs_review" | "approved_active" | "mapping";
 
 export type PacketStatusView = {
@@ -63,9 +65,11 @@ export function packetDisplayStatus(template: PacketStatusInput | null | undefin
     };
   }
 
+  const score = effectiveMappingScore(template);
+
   const approvedLive = template.mappingStatus === "APPROVED"
     && template.isActive === true
-    && validScore(template.mappingScore)
+    && validScore(score)
     && !!template.approvedAt;
 
   if (approvedLive) {
@@ -86,8 +90,8 @@ export function packetDisplayStatus(template: PacketStatusInput | null | undefin
     return {
       key: "approved_active",
       label: "Approved-active",
-      detail: `Live packet${validScore(template.mappingScore) ? ` at ${template.mappingScore}/100` : ""}`,
-      scoreLabel: validScore(template.mappingScore) ? `${template.mappingScore}/100` : "Active",
+      detail: `Live packet${validScore(score) ? ` at ${score}/100` : ""}`,
+      scoreLabel: validScore(score) ? `${score}/100` : "Active",
       className: "bg-emerald-100 text-emerald-800",
     };
   }
@@ -99,21 +103,21 @@ export function packetDisplayStatus(template: PacketStatusInput | null | undefin
       detail: template.isActive
         ? "Marked approved but missing a valid score or approval timestamp. Re-check mapping before use."
         : "Approved history exists, but this file is not the live packet.",
-      scoreLabel: validScore(template.mappingScore) ? `${template.mappingScore}/100` : "Review",
+      scoreLabel: validScore(score) ? `${score}/100` : "Review",
       className: "bg-amber-100 text-amber-900",
     };
   }
 
   const issues = parseIssues(template.mappingIssues);
   const blocking = Array.isArray(issues.blockingIssues) ? issues.blockingIssues.length : 0;
-  if (validScore(template.mappingScore) || blocking > 0) {
+  if (validScore(score) || blocking > 0) {
     return {
       key: "needs_review",
       label: "Needs review",
-      detail: validScore(template.mappingScore)
-        ? `Mapping score ${template.mappingScore}/100. Review missing fields, then approve.`
+      detail: validScore(score)
+        ? `Mapping score ${score}/100. Review missing fields, then approve.`
         : "Review mapping and approve before use",
-      scoreLabel: validScore(template.mappingScore) ? `${template.mappingScore}/100` : "Draft",
+      scoreLabel: validScore(score) ? `${score}/100` : "Draft",
       className: "bg-amber-100 text-amber-900",
     };
   }

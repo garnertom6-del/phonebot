@@ -1,3 +1,11 @@
+import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
+import { mappingContextFrom } from "@/lib/mappingCatalog";
+import { assessMapping } from "@/lib/mappingHealth";
+import {
+  loadTemplateFile,
+  packetFieldsForTemplate,
+  packetTemplateSha256,
+} from "@/lib/providerPacketTemplates";
 import { prisma } from "./prisma";
 
 export type ProviderPacketMappingWrite = {
@@ -5,6 +13,10 @@ export type ProviderPacketMappingWrite = {
   page?: unknown;
   [key: string]: unknown;
 };
+
+function parseStoredMappings(rows: Array<{ fieldKey: string; page: number; data: string }>): FieldMapping[] {
+  return rows.map((row) => ({ fieldKey: row.fieldKey, page: row.page, ...JSON.parse(row.data) }));
+}
 
 export async function saveProviderPacketMappings(input: {
   templateId: string;
@@ -48,11 +60,49 @@ export async function saveProviderPacketMappings(input: {
     }
 
     if (input.replaceExisting || fields.length > 0) {
+      const template = await tx.pdfTemplate.findUnique({
+        where: { id: input.templateId },
+        include: {
+          fieldMappings: true,
+          provider: { select: { name: true, slug: true } },
+        },
+      });
+      let mappingScore: number | null = null;
+      let mappingIssues: string | null = null;
+      if (template) {
+        const overrides = parseStoredMappings(template.fieldMappings);
+        const liveFields = packetFieldsForTemplate({
+          name: template.name,
+          originalFileName: template.originalFileName,
+          pageCount: template.pageCount,
+          providerSpecific: !!template.providerId,
+          sha256: packetTemplateSha256(loadTemplateFile(template.filePath)),
+        }, overrides);
+        const health = assessMapping(
+          liveFields,
+          template.pageCount,
+          template.pageWidth || PACKET_MAP.pageWidth,
+          template.pageHeight || PACKET_MAP.pageHeight,
+          template.fieldMappings.length,
+          mappingContextFrom({
+            originalFileName: template.originalFileName,
+            provider: template.provider,
+          }),
+        );
+        mappingScore = health.score;
+        mappingIssues = JSON.stringify({
+          score: health.score,
+          blockingIssues: health.blockingIssues,
+          warnings: health.warnings,
+          missingRequired: health.missingRequired,
+        });
+      }
       await tx.pdfTemplate.update({
         where: { id: input.templateId },
         data: {
           mappingStatus: "DRAFT",
-          mappingScore: null,
+          mappingScore,
+          mappingIssues,
           approvedAt: null,
           approvedByUserId: null,
         },

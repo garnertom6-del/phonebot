@@ -7,6 +7,7 @@ import { INTAKE_STATUS_LABELS, staffReviewCountFromSummary } from "@/lib/dashboa
 import { packetDisplayStatus } from "@/lib/packetDisplayStatus";
 import { filterProvidersBySearch, providerSearchFieldsFromRow, type ProviderSearchMatch } from "@/lib/providerSearch";
 import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
+import ViewportMenu from "@/components/ViewportMenu";
 
 type ProviderRow = {
   id: string;
@@ -721,7 +722,7 @@ export default function MasterDashboard() {
         <div className={`relative ${mobile ? "w-full" : ""}`} data-provider-action-menu={menuOpen ? "open" : undefined}>
           <button
             type="button"
-            className={`btn-ghost ${buttonClass} ${mobile ? "w-full" : ""}`}
+            className={`btn-ghost min-h-11 ${buttonClass} ${mobile ? "w-full" : ""}`}
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             onClick={(event) => {
@@ -732,10 +733,7 @@ export default function MasterDashboard() {
             More
           </button>
           {menuOpen && (
-            <div
-              role="menu"
-              className={`absolute z-30 mt-2 w-64 rounded-xl border border-slate-200 bg-white p-2 text-slate-800 shadow-xl ${mobile ? "left-0 right-0 w-full" : "right-0"}`}
-            >
+            <ViewportMenu open={menuOpen} className={mobile ? "left-0 right-0 w-full" : "right-0"} widthClass={mobile ? "w-full" : "w-64"}>
               <button
                 type="button"
                 role="menuitem"
@@ -824,7 +822,7 @@ export default function MasterDashboard() {
                   </button>
                 </div>
               )}
-            </div>
+            </ViewportMenu>
           )}
         </div>
       </div>
@@ -917,7 +915,7 @@ export default function MasterDashboard() {
   }
 
   return (
-    <main className="mx-auto min-w-0 max-w-7xl p-4 sm:p-6">
+    <main className="mx-auto min-w-0 max-w-7xl overflow-x-hidden p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-6">
       <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-brand-dark to-brand px-6 py-7 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">
@@ -1140,9 +1138,9 @@ export default function MasterDashboard() {
           </form>
         </section>
       )}
-      {note && <p role="status" aria-live="polite" className="sticky top-2 z-20 mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">{note}</p>}
+      {note && <p role="status" aria-live="polite" className="sticky top-[max(0.5rem,env(safe-area-inset-top))] z-20 mt-4 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 shadow-sm">{note}</p>}
       {error && (
-        <div role="alert" className="sticky top-2 z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
+        <div role="alert" className="sticky top-[max(0.5rem,env(safe-area-inset-top))] z-20 mt-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-semibold text-red-700 shadow-sm">
           <span>{error}</span>
           {loadFailed && (
             <button type="button" className="btn-ghost border-red-300 px-3 py-1.5 text-xs text-red-800 hover:bg-red-100" onClick={() => void load()}>
@@ -1438,7 +1436,14 @@ export default function MasterDashboard() {
                       {view.filenameWarning && (
                         <p className="mt-2 rounded-md border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-900">{view.filenameWarning}</p>
                       )}
-                      <p className="mt-1 text-slate-500">Staff review: {reviewQueue} · Open work: {openWork}</p>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        <button type="button" className="min-h-11 rounded-full bg-amber-50 px-3 py-1 text-[11px] font-semibold text-amber-800" onClick={() => void openProviderDashboard(provider.id)}>
+                          Staff review {reviewQueue}
+                        </button>
+                        <button type="button" className="min-h-11 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-semibold text-slate-700" onClick={() => void openProviderDashboard(provider.id)}>
+                          Open work {openWork}
+                        </button>
+                      </div>
                     </div>
 
                     <div className="mt-3">{providerActions(provider, true)}</div>
@@ -1495,8 +1500,20 @@ export default function MasterDashboard() {
                             <div className="mt-1 text-xs text-slate-500">{[provider.email, provider.phone].filter(Boolean).join(" • ")}</div>
                           )}
                           <div className="mt-2 flex flex-wrap gap-1 text-[11px] font-semibold">
-                            <span className="rounded-full bg-amber-50 px-2 py-0.5 text-amber-800">Staff review {providerStaffReviewCount(provider)}</span>
-                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">Open work {providerOpenWorkCount(provider)}</span>
+                            <button
+                              type="button"
+                              className="min-h-11 rounded-full bg-amber-50 px-3 py-1 text-amber-800 hover:bg-amber-100"
+                              onClick={() => void openProviderDashboard(provider.id)}
+                            >
+                              Staff review {providerStaffReviewCount(provider)}
+                            </button>
+                            <button
+                              type="button"
+                              className="min-h-11 rounded-full bg-slate-100 px-3 py-1 text-slate-700 hover:bg-slate-200"
+                              onClick={() => void openProviderDashboard(provider.id)}
+                            >
+                              Open work {providerOpenWorkCount(provider)}
+                            </button>
                           </div>
                         </td>
                         <td className="px-4 py-3">

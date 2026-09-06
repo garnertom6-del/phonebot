@@ -60,7 +60,7 @@ import {
   INVALID_CONTACT_MESSAGE,
 } from "../src/lib/intakeContacts";
 import { emptyExtractedNoteFields, extractIntakeNoteFields, extractedNoteFieldState, parseHelperNotes } from "../src/lib/parseIntakeNotes";
-import { buildNewIntakeReadiness, newIntakeCreateLabel, newIntakeQrCreateLabel } from "../src/lib/newIntakeReadiness";
+import { buildCreateIntakeStages, buildNewIntakeReadiness, newIntakeCreateLabel, newIntakeQrCreateLabel } from "../src/lib/newIntakeReadiness";
 import {
   canOfferCompletedPacketEmail,
   defaultIntakeLocation,
@@ -69,6 +69,12 @@ import {
 import { makeRecordNumber, resolveCreateRecordNumber } from "../src/lib/insurancePlans";
 import { buildDashboardReadiness, needsStaffAction, staffReviewCountFromSummary } from "../src/lib/dashboardWorkflow";
 import { filterProvidersBySearch } from "../src/lib/providerSearch";
+import { effectiveMappingScore } from "../src/lib/effectiveMappingScore";
+import { missingRequiredAnswerCount, missingRequiredAnswers } from "../src/lib/missingRequiredAnswers";
+import { loginDestination, providerSignInHref, safeStaffReturnPath } from "../src/lib/safeReturnPath";
+import { buildCaseStatusTimeline } from "../src/lib/caseStatusTimeline";
+import { clientLinkExpiryView } from "../src/lib/clientLinkState";
+import { insurancePlanSelectLabel } from "../src/lib/insurancePlans";
 import { packetDisplayStatus } from "../src/lib/packetDisplayStatus";
 import { packetDisplayStatus as packetMapperStatus } from "../src/lib/mappingStatus";
 import { packetFilenameWarning } from "../src/lib/packetFilenameGuard";
@@ -743,7 +749,14 @@ async function main() {
   assert.ok((moorHits[0].searchMatch?.length || 0) >= 3, "search highlights the matched text");
   assert.equal(filterProvidersBySearch(searchProviders, "mo").filter((hit) => hit.name !== "Moore Divine Care").length, 0);
   assert.equal(filterProvidersBySearch(searchProviders, "aliyah")[0]?.name, "Welliance Care");
+  const pocHits = filterProvidersBySearch([
+    ...searchProviders,
+    { name: "Prayers of Care Packet", slug: "poc-packet", packetFileNames: ["POC-Working-Intake-Packet-USE-THIS-ONE-ONLY.pdf"] },
+  ], "poc");
+  assert.equal(pocHits[0]?.searchMatch?.field, "packet");
+  assert.match(pocHits[0]?.searchMatch?.haystack || "", /POC-Working/i);
   ok("provider search uses a relevance floor instead of loose subsequence matching");
+  ok("short poc query matches POC-Working packet filenames at a token boundary");
 
   const missingScoreBadge = packetDisplayStatus({
     originalFileName: "prayers-of-care-packet.pdf",
@@ -1815,7 +1828,8 @@ async function main() {
     }), 1, "repeating the same remap should remain deterministic");
     const revokedTemplate = await prisma.pdfTemplate.findUnique({ where: { id: remapTemplate.id } });
     assert.equal(revokedTemplate?.mappingStatus, "DRAFT");
-    assert.equal(revokedTemplate?.mappingScore, null);
+    assert.equal(typeof revokedTemplate?.mappingScore, "number");
+    assert.equal(revokedTemplate?.mappingScore != null && revokedTemplate.mappingScore >= 0, true);
     assert.equal(revokedTemplate?.approvedAt, null);
     assert.equal(revokedTemplate?.approvedByUserId, null);
     assert.equal(
@@ -1997,7 +2011,91 @@ async function main() {
     assert(!createSrc.includes("Returning to the dashboard"), "SMS success stays on the create success screen");
     assert(!createSrc.includes("setRedirecting"), "post-create SMS does not start a dashboard redirect");
     assert(createSrc.includes("Done — dashboard"), "staff leave the success screen with an explicit Dashboard / Done link");
+    assert(createSrc.includes('data-testid="create-intake-locked"'), "logged-out create shows a compact locked state");
+    assert(createSrc.includes('data-testid="create-intake-sticky-footer"'), "mobile create footer is marked");
+    assert(createSrc.includes('data-testid="create-intake-scroll-clearance"'), "create page has scroll clearance for the sticky footer");
+    assert(createSrc.includes("env(safe-area-inset-bottom)"), "create footer uses safe-area padding");
+    assert(createSrc.includes('data-testid="create-intake-stepper"'), "create page shows staged progress");
+    assert(!createSrc.includes('data-testid="create-and-show-qr-mobile"'), "sticky footer does not duplicate the QR CTA");
+    assert(createSrc.includes("InsurancePlanSelect"), "create insurance uses the mobile-safe searchable control");
     ok("create page shows Record#, NC Tracks, and a home-screen Create and show QR action");
+  }
+
+  {
+    const rightsTokenSrc = fs.readFileSync(path.join(process.cwd(), "src/app/rights/[token]/page.tsx"), "utf8");
+    const dashboardSrc = fs.readFileSync(path.join(process.cwd(), "src/app/dashboard/page.tsx"), "utf8");
+    const loginSrc = fs.readFileSync(path.join(process.cwd(), "src/components/PortalLoginForm.tsx"), "utf8");
+    assert(!rightsTokenSrc.includes("notFound("), "contextual rights links must not 404 unknown tokens");
+    assert(rightsTokenSrc.includes("ClientRightsView"), "unknown tokens still render rights content");
+    const rightsFallbackSrc = rightsTokenSrc.slice(rightsTokenSrc.indexOf("fallbackNotice"));
+    assert(!rightsFallbackSrc.includes("token="), "unknown tokens do not offer a return link to a missing intake");
+    assert(rightsTokenSrc.includes("token={params.token}"), "valid tokens still keep a branded return path");
+    assert(dashboardSrc.includes('data-testid="dashboard-auth-gate"'), "dashboard gates auth before painting cards");
+    assert(dashboardSrc.includes('authGate !== "ready"'), "dashboard does not paint zero-count cards before auth");
+    assert.equal(loginSrc.includes("useState(\"\")"), true);
+    assert(!/value=\{"(?:admin|demo|staff|test)@/i.test(loginSrc), "login form must not ship seeded emails");
+    assert(!/useState\("[^"]*pass/i.test(loginSrc), "login form must not ship seeded passwords");
+    assert.equal(safeStaffReturnPath("/intakes/new"), "/intakes/new");
+    assert.equal(safeStaffReturnPath("https://evil.example/intakes/new"), null);
+    assert.equal(safeStaffReturnPath("//evil.example"), null);
+    assert.equal(providerSignInHref("/intakes/new"), "/provider?next=%2Fintakes%2Fnew");
+    assert.equal(loginDestination({
+      isMaster: false,
+      portal: "provider",
+      requested: "/intakes/new",
+      defaultDestination: "/dashboard",
+    }), "/intakes/new");
+    const missing = missingRequiredAnswers([
+      { key: "client_full_name", label: "Name" },
+      { key: "signature", label: "Signature" },
+    ]);
+    assert.equal(missing.length, 1);
+    assert.equal(missingRequiredAnswerCount([
+      { key: "a", label: "A" },
+      { key: "signature", label: "Signature" },
+      { key: "b", label: "B" },
+    ]), 2);
+    const expired = clientLinkExpiryView("2000-01-01T00:00:00.000Z", Date.parse("2026-09-06T00:00:00.000Z"));
+    const live = clientLinkExpiryView("2099-01-01T00:00:00.000Z", Date.parse("2026-09-06T00:00:00.000Z"));
+    const sameDay = clientLinkExpiryView("2026-09-06", Date.parse("2026-09-06T12:00:00"));
+    const previousDay = clientLinkExpiryView("2026-09-05", Date.parse("2026-09-06T00:00:01"));
+    assert.equal(expired.expired, true);
+    assert.match(expired.headerLabel, /Expired/);
+    assert.equal(live.expired, false);
+    assert.match(live.headerLabel, /Expires/);
+    assert.equal(sameDay.expired, false, "date-only expiry lasts through the local calendar day");
+    assert.equal(previousDay.expired, true);
+    assert.equal(effectiveMappingScore({
+      mappingScore: null,
+      mappingIssues: JSON.stringify({ score: 88 }),
+    }), 88);
+    assert.equal(packetDisplayStatus({
+      isActive: true,
+      mappingStatus: "APPROVED",
+      mappingScore: null,
+      approvedAt: new Date(),
+      mappingIssues: JSON.stringify({ score: 88, missingRequired: [] }),
+    }, "Provider").scoreLabel, "88%");
+    const stages = buildCreateIntakeStages({
+      identityReady: true,
+      contactReady: true,
+      insuranceReady: false,
+      recordReady: false,
+    });
+    assert.deepEqual(stages.map((stage) => stage.key), ["identity", "contact", "insurance", "record", "create"]);
+    const timeline = buildCaseStatusTimeline({
+      linkSentAt: "2026-09-01T12:00:00.000Z",
+      lastOpenedAt: "2026-09-02T12:00:00.000Z",
+      missingRequiredCount: 2,
+      signatureStatuses: [],
+      tokenExpiresAt: "2099-01-01T00:00:00.000Z",
+      status: "IN_PROGRESS",
+    });
+    assert.deepEqual(timeline.map((event) => event.key), ["link_sent", "client_progress", "missing", "signatures", "expiry"]);
+    assert.equal(timeline.find((event) => event.key === "missing")?.label, "2 required answers missing");
+    assert.equal(insurancePlanSelectLabel("Wellcare"), "WellCare (hist.)");
+    assert.equal(insurancePlanSelectLabel("Carolina Complete"), "Carolina Complete");
+    ok("rights fallback, auth gate, missing-count, create lock, return URL, and mapping score stay consistent");
   }
 
   // Lookup-only plans must point staff at a real provider-portal sign-in, never a

@@ -1,4 +1,5 @@
 import { isValidProviderPacketMappingScore } from "@/lib/packetMappingScore";
+import { effectiveMappingScore } from "@/lib/effectiveMappingScore";
 import { packetFilenameWarning } from "@/lib/packetFilenameGuard";
 
 export type PacketDisplayTemplate = {
@@ -24,8 +25,9 @@ export type PacketDisplayStatus = {
 const SCORE_UNAVAILABLE = "Score unavailable";
 
 function scoreLabelFor(template: PacketDisplayTemplate, fallback: string): string {
-  if (isValidProviderPacketMappingScore(template.mappingScore)) {
-    return `${template.mappingScore}%`;
+  const score = effectiveMappingScore(template);
+  if (isValidProviderPacketMappingScore(score)) {
+    return `${score}%`;
   }
   return fallback;
 }
@@ -77,16 +79,18 @@ export function packetDisplayStatus(
     providerName,
     otherProviderNames,
   )?.message ?? null;
-  const validScore = isValidProviderPacketMappingScore(template.mappingScore);
+  const resolvedScore = effectiveMappingScore(template);
+  const validScore = isValidProviderPacketMappingScore(resolvedScore);
+  const templateWithScore = validScore ? { ...template, mappingScore: resolvedScore } : template;
   const issueSummary = mappingIssueSummary(template.mappingIssues);
 
   if (template.isActive && (template.mappingStatus !== "APPROVED" || !validScore || !template.approvedAt)) {
     const label = "Not ready - approval required";
-    const scoreLabel = scoreLabelFor(template, SCORE_UNAVAILABLE);
+    const scoreLabel = scoreLabelFor(templateWithScore, SCORE_UNAVAILABLE);
     return {
       label,
       scoreLabel,
-      detail: validScore ? `Mapping score ${template.mappingScore}/100` : "Mapping score and approval timestamp are missing.",
+      detail: validScore ? `Mapping score ${resolvedScore}/100` : "Mapping score and approval timestamp are missing.",
       className: "bg-amber-100 text-amber-900",
       badge: badge(label, scoreLabel),
       filenameWarning,
@@ -107,11 +111,11 @@ export function packetDisplayStatus(
       };
     }
     const label = "Active";
-    const scoreLabel = scoreLabelFor(template, SCORE_UNAVAILABLE);
+    const scoreLabel = scoreLabelFor(templateWithScore, SCORE_UNAVAILABLE);
     return {
       label,
       scoreLabel,
-      detail: validScore ? `Approved active packet at ${template.mappingScore}/100` : "Approved active packet. Mapping score is missing.",
+      detail: validScore ? `Approved active packet at ${resolvedScore}/100` : "Approved active packet. Mapping score is missing.",
       className: "bg-emerald-100 text-emerald-800",
       badge: badge(label, scoreLabel),
       filenameWarning,
@@ -132,7 +136,7 @@ export function packetDisplayStatus(
 
   if (template.mappingStatus === "APPROVED") {
     const label = "Approved history";
-    const scoreLabel = scoreLabelFor(template, SCORE_UNAVAILABLE);
+    const scoreLabel = scoreLabelFor(templateWithScore, SCORE_UNAVAILABLE);
     return {
       label,
       scoreLabel,
@@ -144,11 +148,11 @@ export function packetDisplayStatus(
   }
 
   const label = "Needs review";
-  const scoreLabel = scoreLabelFor(template, SCORE_UNAVAILABLE);
+  const scoreLabel = scoreLabelFor(templateWithScore, SCORE_UNAVAILABLE);
   return {
     label,
     scoreLabel,
-    detail: validScore ? `Mapping score ${template.mappingScore}/100` : "Mapping score is missing. Open packet mapping to check this draft.",
+    detail: validScore ? `Mapping score ${resolvedScore}/100` : "Mapping score is missing. Open packet mapping to check this draft.",
     className: "bg-amber-100 text-amber-900",
     badge: badge(label, scoreLabel),
     filenameWarning,

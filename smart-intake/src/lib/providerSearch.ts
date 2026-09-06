@@ -144,8 +144,9 @@ export function scoreProviderSearch(
 
   let best: ProviderSearchMatch | null = null;
   for (const item of searchableFields) {
-    if (item.field === "packet" && q.length < PROVIDER_SEARCH_PACKET_MIN_LENGTH) continue;
     const exact = exactOrPrefixHit(item.value, q);
+    const tokenBoundaryPacketHit = item.field === "packet" && !!exact && exact.quality >= 0.96;
+    if (item.field === "packet" && q.length < PROVIDER_SEARCH_PACKET_MIN_LENGTH && !tokenBoundaryPacketHit) continue;
     const fuzzy = exact ? null : fuzzyTokenHit(item.value, q);
     const hit = exact || fuzzy;
     if (!hit) continue;

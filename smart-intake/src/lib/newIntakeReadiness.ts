@@ -20,6 +20,30 @@ export type NewIntakeReadinessItem = {
   help: string;
 };
 
+export type CreateIntakeStageKey = "identity" | "contact" | "insurance" | "record" | "create";
+
+export type CreateIntakeStage = {
+  key: CreateIntakeStageKey;
+  label: string;
+  ready: boolean;
+  optional?: boolean;
+};
+
+export function buildCreateIntakeStages(input: {
+  identityReady: boolean;
+  contactReady: boolean;
+  insuranceReady: boolean;
+  recordReady?: boolean;
+}): CreateIntakeStage[] {
+  return [
+    { key: "identity", label: "Identity", ready: input.identityReady },
+    { key: "contact", label: "Contact", ready: input.contactReady },
+    { key: "insurance", label: "Insurance", ready: input.insuranceReady },
+    { key: "record", label: "Record# / NC Tracks", ready: !!input.recordReady, optional: true },
+    { key: "create", label: "Create / QR", ready: input.identityReady && input.contactReady },
+  ];
+}
+
 export function buildNewIntakeReadiness(input: NewIntakeReadinessInput) {
   const identityReady = (input.fullName || "").trim().length >= 2 && !!(input.dob || "").trim();
   const items: NewIntakeReadinessItem[] = [

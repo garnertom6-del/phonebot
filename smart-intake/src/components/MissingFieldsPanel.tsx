@@ -10,7 +10,7 @@ export default function MissingFieldsPanel({
   headlineCount?: number;
 }) {
   const requiredComplete = required.length === 0;
-  const total = headlineCount ?? required.length;
+  const total = required.length;
   return (
     <div className="card">
       <h3 className="mb-2 font-bold">Missing field checklist</h3>
