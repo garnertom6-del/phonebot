@@ -11,6 +11,7 @@ import {
 } from "@/lib/providerPacketTemplates";
 import { packetFreshnessForIntake } from "@/lib/packetFreshness";
 import { packetDownloadFileName } from "@/lib/draftPdf";
+import { packetPdfContentDisposition } from "@/lib/adobeAcrobatPrep";
 
 function jsonError(error: string, status: number, extra: Record<string, unknown> = {}) {
   return NextResponse.json({ error, ...extra }, { status });
@@ -83,7 +84,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     const response = new NextResponse(bytes as unknown as BodyInit, {
       headers: {
         "Content-Type": "application/pdf",
-        "Content-Disposition": `inline; filename="${name}"`,
+        "Content-Disposition": packetPdfContentDisposition(name, explicitDownload ? "attachment" : "inline"),
         "X-Smart-Intake-Document-State": documentState,
         ...(fillWarnings.length
           ? { "X-Smart-Intake-Fill-Warnings": String(fillWarnings.length) }

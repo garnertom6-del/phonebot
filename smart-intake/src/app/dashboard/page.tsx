@@ -23,6 +23,8 @@ import { providerSignInHref } from "@/lib/safeReturnPath";
 import { createClientEditSaveLock } from "@/lib/clientEditSaveLock";
 import { copyTextToClipboard } from "@/lib/clipboardFeedback";
 import { DOCUSIGN_SEND_CONFIRM, DOCUSIGN_COMPLETION_LIMITATION } from "@/lib/signatureStatus";
+import AcrobatPrepTip from "@/components/AcrobatPrepTip";
+import { acrobatDownloadLabel, packetAcrobatDownloadHref } from "@/lib/adobeAcrobatPrep";
 
 interface Row {
   nextAction: WorkflowAction;
@@ -1056,7 +1058,17 @@ function Dashboard() {
                         Preview PDF unavailable
                       </button>
                     ) : (
-                      <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
+                      <>
+                        <Link href={`/intakes/${row.id}/pdf-preview`} className="btn-ghost px-3 py-2 text-sm">Preview PDF</Link>
+                        <a
+                          className="btn-ghost px-3 py-2 text-sm"
+                          data-testid="download-for-acrobat"
+                          href={packetAcrobatDownloadHref(row.id, row.packetState === "current" ? "CURRENT_FINAL" : "DRAFT_PREVIEW")}
+                          download
+                        >
+                          {acrobatDownloadLabel(row.packetState === "current" ? "CURRENT_FINAL" : "DRAFT_PREVIEW")}
+                        </a>
+                      </>
                     )}
                     {!readOnly && !row.archived && (
                       <>
@@ -1366,6 +1378,7 @@ function CcaAiPanel({ row, onImported }: { row: Row; onImported: () => Promise<v
                 Add the clinician&apos;s Comprehensive Clinical Assessment as a PDF or photo. The AI will read it,
                 fill matching intake answers, and leave consent and signature for the client.
               </p>
+              <AcrobatPrepTip variant="scan" className="mt-3 max-w-2xl" />
             </div>
             {hasUploaded && <span className="badge bg-emerald-100 text-emerald-800">CCA uploaded</span>}
           </div>
