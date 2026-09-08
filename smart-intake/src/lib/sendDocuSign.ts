@@ -8,9 +8,8 @@ import {
   ProviderPacketNotReadyError,
   requireProviderPacketForCompletion,
 } from "@/lib/providerPacketTemplates";
-import { answeredClientFields } from "@/lib/clientAnswerSync";
 import { applyOperationalDefaults } from "./answerDefaults";
-import { preferredIntakeDeliveryRole } from "./clientDeliveryContacts";
+import { resolveDocuSignRecipients } from "./docuSignRecipients";
 
 export type DocuSignSendResult =
   | { status: "sent"; envelopeId: string; message: string }
@@ -52,24 +51,6 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
       message: "DocuSign is not set up yet, so the packet stayed in the intake app.",
     };
   }
-  const snapshot = await loadAnswerSnapshot(intake.id);
-  if (snapshot.contentRevision !== intake.contentRevision) {
-    return { status: "failed", message: "The intake changed. Review it again before sending DocuSign." };
-  }
-  const answers = snapshot.answers;
-  const effective = applyOperationalDefaults({ ...answers, dob: intake.client.dob });
-  if (preferredIntakeDeliveryRole(intake.client, effective) === "guardian") {
-    return { status: "unsupported_recipient", message: "DocuSign currently sends only to the client's email. Collect the guardian signature through the secure intake app." };
-  }
-  const answeredClient = answeredClientFields(answers);
-  const clientEmail = intake.client.email || answeredClient.email;
-  const clientName = intake.client.fullName || answeredClient.fullName;
-  if (!clientEmail) {
-    return {
-      status: "missing_email",
-      message: "Add a client email before DocuSign can be sent automatically.",
-    };
-  }
   if (intake.docusignEnvelopeId) {
     return {
       status: "already_sent",
@@ -77,13 +58,20 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
       message: "DocuSign was already sent for this intake.",
     };
   }
+  const snapshot = await loadAnswerSnapshot(intake.id);
+  if (snapshot.contentRevision !== intake.contentRevision) {
+    return { status: "failed", message: "The intake changed. Review it again before sending DocuSign." };
+  }
+  const answers = snapshot.answers;
+  const effective = applyOperationalDefaults({ ...answers, dob: intake.client.dob });
   const consents = consentsFromAnswers(answers);
   const signatures = await loadSignatures(intake.id);
-  if (signatures.guardian && !signatures.client) {
-    return { status: "unsupported_recipient", message: "DocuSign currently sends only to the client's email. Collect the guardian signature through the secure intake app." };
-  }
   if (!signatures.staff) {
     return { status: "unsupported_recipient", message: "Capture the current Staff / QP signature in the review screen first. DocuSign does not route staff signatures." };
+  }
+  const recipients = resolveDocuSignRecipients(intake.client, effective, consents, packetTemplate.fields);
+  if (!recipients.ok) {
+    return { status: recipients.status, message: recipients.message };
   }
   delete signatures.client;
   delete signatures.guardian;
@@ -120,14 +108,14 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
   try {
     const { envelopeId } = await createDocuSignEnvelope(
       Buffer.from(result.pdfBytes),
-      clientEmail,
-      clientName,
+      recipients.signers,
       answers,
       consents,
       packetTemplate.fields,
       intake.provider?.name || "Moore Divine Care, Inc.",
       packetTemplate.pageHeight,
       attemptId,
+      recipients.documentName,
     );
     envelopeCreated = true;
     await prisma.$transaction(async (tx) => {
@@ -141,7 +129,11 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
     return {
       status: "sent",
       envelopeId,
-      message: "DocuSign was sent to the client email. The signed PDF is saved for reference; Smart Intake still enforces its in-app signature and completion checks.",
+      message: recipients.signers.every((signer) => signer.role === "guardian")
+        ? "DocuSign was sent to the guardian email. The signed PDF is saved for reference; Smart Intake still enforces its in-app signature and completion checks."
+        : recipients.signers.some((signer) => signer.role === "guardian")
+          ? "DocuSign was sent to the client, then the guardian. The signed PDF is saved for reference; Smart Intake still enforces its in-app signature and completion checks."
+          : "DocuSign was sent to the client email. The signed PDF is saved for reference; Smart Intake still enforces its in-app signature and completion checks.",
     };
   } catch (error) {
     console.error("DocuSign send failed", error);

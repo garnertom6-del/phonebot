@@ -200,9 +200,11 @@ async function main() {
       await prisma.intake.update({ where: { id: intake.id }, data: { docusignEnvelopeId: null } });
       const noStaff = await sendIntakeToDocuSign({ intakeId: intake.id, providerId: provider.id, userId: user.id });
       assert.equal(noStaff.status, "unsupported_recipient"); assert.match(noStaff.message, /Staff \/ QP/);
-      await prisma.client.update({ where: { id: client.id }, data: { dob: "2014-01-01", guardianName: "Synthetic Guardian", email: null } });
+      const staffRevision = (await loadAnswerSnapshot(intake.id)).contentRevision;
+      await prisma.signature.create({ data: { intakeId: intake.id, role: "staff", printedName: user.name, imageData: "synthetic-not-rendered", signedDate: "2026-09-06", contentRevision: staffRevision } });
+      await prisma.client.update({ where: { id: client.id }, data: { dob: "2014-01-01", guardianName: "Synthetic Guardian", guardianEmail: null, email: null } });
       const guardian = await sendIntakeToDocuSign({ intakeId: intake.id, providerId: provider.id, userId: user.id });
-      assert.equal(guardian.status, "unsupported_recipient"); assert.match(guardian.message, /guardian signature/);
+      assert.equal(guardian.status, "missing_email"); assert.match(guardian.message, /guardian/i);
       assert.equal((await prisma.intake.findUniqueOrThrow({ where: { id: intake.id } })).docusignEnvelopeId, null, "Unsupported routes never create an envelope");
     } finally {
       for (const [key, value] of previousDocuSign) if (value === undefined) delete process.env[key]; else process.env[key] = value;

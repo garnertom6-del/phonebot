@@ -20,7 +20,7 @@ function sentRevision(details: Array<{ detail: string | null }>, envelopeId: str
 
 /** Import once, reserving a version and its completion audit under the intake lock. */
 export async function recordDocuSignPacket(input: {
-  intakeId: string; providerId: string; envelopeId: string; filePath: string; sha256: string; userId: string;
+  intakeId: string; providerId: string; envelopeId: string; filePath: string; sha256: string; userId?: string;
 }) {
   return prisma.$transaction(async (tx) => {
     await tx.$executeRaw`UPDATE "Intake" SET "id" = "id" WHERE "id" = ${input.intakeId} AND "providerId" = ${input.providerId}`;

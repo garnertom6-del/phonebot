@@ -29,7 +29,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
     case "not_found":
       return NextResponse.json({ error: "Not found" }, { status: 404 });
     case "missing_email":
-      return NextResponse.json({ error: "Client has no email on file" }, { status: 400 });
+      return NextResponse.json({ error: result.message }, { status: 400 });
     case "packet_not_ready":
       return NextResponse.json({ code: "PROVIDER_PACKET_NOT_READY", error: result.message }, { status: 409 });
     case "unsupported_recipient":

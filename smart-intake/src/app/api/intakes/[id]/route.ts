@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { appBaseUrl } from "@/lib/baseUrl";
-import { attachSelectedProviderCookie, requireStaffForIntake, requireWritableStaffForIntake } from "@/lib/staffGuard";
+import { attachSelectedProviderCookie, isMasterUser, requireStaffForIntake, requireWritableStaffForIntake } from "@/lib/staffGuard";
 import { audit } from "@/lib/auditLog";
 import { loadAnswers, loadAnswerSnapshot, decodeAnswerRows, saveAnswersInTransaction, syncStructuredRowsInTransaction } from "@/lib/intakeData";
 import { answersSchema, clientDetailsSchema, missingRequired, missingOptional, percentComplete } from "@/lib/validation";
@@ -23,7 +23,7 @@ import { assertReviewedContentRevision, ContentRevisionConflictError } from "@/l
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
-  const { provider, deny } = await requireStaffForIntake(params.id);
+  const { user, provider, membership, deny } = await requireStaffForIntake(params.id);
   if (deny) return deny;
   const intake = await prisma.intake.findFirst({
     where: { id: params.id, providerId: provider!.id },
@@ -125,6 +125,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     accuracyConflicts: generationReadiness?.conflicts || [],
     planCompleteness: generationReadiness?.planCompleteness || null,
     providerPacketReadiness: packetReadiness,
+    canManageProvider: isMasterUser(user!) || membership?.role === "PROVIDER_ADMIN",
   });
   return attachSelectedProviderCookie(payload, provider!.id);
 }
