@@ -29,10 +29,11 @@ export async function POST(req: NextRequest) {
   }
 
   const intake = await prisma.intake.findFirst({
-    where: { docusignEnvelopeId: payload.envelopeId },
-    select: { id: true, providerId: true, contentRevision: true, docusignEnvelopeId: true },
+    where: { docusignEnvelopeId: payload.envelopeId, providerId: { not: null } },
+    select: { id: true, providerId: true, contentRevision: true },
   });
-  if (!intake) {
+  const providerId = intake?.providerId;
+  if (!intake || !providerId) {
     return NextResponse.json({ ok: true, ignored: true });
   }
 
@@ -42,8 +43,8 @@ export async function POST(req: NextRequest) {
     }
     const result = await applyDocuSignEnvelopeUpdate({
       intakeId: intake.id,
-      providerId: intake.providerId,
-      envelopeId: intake.docusignEnvelopeId!,
+      providerId,
+      envelopeId: payload.envelopeId,
       status: payload.status,
       contentRevision: intake.contentRevision,
     });

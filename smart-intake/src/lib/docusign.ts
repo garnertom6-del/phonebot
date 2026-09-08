@@ -164,7 +164,9 @@ export function docuSignTabsForRoles(
   roles: Array<"client" | "guardian" | "auto">,
 ): { signHereTabs: DocuSignTab[]; dateSignedTabs: DocuSignTab[] } {
   const allowed = new Set(roles);
-  const applicable = (f: FieldMapping) => appliesToDocuSignSigner(f, answers, consents) && allowed.has(f.role);
+  const applicable = (f: FieldMapping) => (
+    appliesToDocuSignSigner(f, answers, consents) && allowed.has(f.role as "client" | "guardian" | "auto")
+  );
   return {
     signHereTabs: fields
       .filter((f) => f.type === "signature" || f.type === "signature_small")

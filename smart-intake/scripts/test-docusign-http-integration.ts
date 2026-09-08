@@ -252,8 +252,12 @@ async function main() {
     assert.equal(JSON.parse(sentAudit.detail!).contentRevision, pendingCase.revision);
     assert.equal(await prisma.auditLog.count({ where: { intakeId: pendingCase.intake.id, event: "docusign_send_pending" } }), 0);
     assert.equal(await prisma.auditLog.count({ where: { intakeId: pendingCase.intake.id, event: "docusign_reconcile_attached" } }), 1);
-    await expectResponse(await post(send, pendingCase.intake.id));
-    assert.equal(creates().filter(r => r.body?.transactionId === transactionId).length, 0, "Reconcile attach does not create another envelope");
+    const createsAfterAttach = creates().length;
+    const { sendIntakeToDocuSign } = await import("../src/lib/sendDocuSign");
+    const alreadyAttached = await sendIntakeToDocuSign({ intakeId: pendingCase.intake.id, providerId: provider.id, userId: master.id });
+    assert.equal(alreadyAttached.status, "already_sent");
+    assert.equal("envelopeId" in alreadyAttached ? alreadyAttached.envelopeId : "", recoveredId);
+    assert.equal(creates().length, createsAfterAttach, "Reconcile attach does not create another envelope");
 
     const failCase = await makeCase();
     await prisma.auditLog.create({ data: { providerId: provider.id, intakeId: failCase.intake.id, userId: master.id, event: "docusign_send_pending", detail: JSON.stringify({ transactionId: randomUUID(), contentRevision: failCase.revision }) } });

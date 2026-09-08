@@ -51,6 +51,13 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
       message: "DocuSign is not set up yet, so the packet stayed in the intake app.",
     };
   }
+  if (intake.docusignEnvelopeId) {
+    return {
+      status: "already_sent",
+      envelopeId: intake.docusignEnvelopeId,
+      message: "DocuSign was already sent for this intake.",
+    };
+  }
   const snapshot = await loadAnswerSnapshot(intake.id);
   if (snapshot.contentRevision !== intake.contentRevision) {
     return { status: "failed", message: "The intake changed. Review it again before sending DocuSign." };
@@ -65,13 +72,6 @@ export async function sendIntakeToDocuSign(opts: SendIntakeToDocuSignOptions): P
   const recipients = resolveDocuSignRecipients(intake.client, effective, consents, packetTemplate.fields);
   if (!recipients.ok) {
     return { status: recipients.status, message: recipients.message };
-  }
-  if (intake.docusignEnvelopeId) {
-    return {
-      status: "already_sent",
-      envelopeId: intake.docusignEnvelopeId,
-      message: "DocuSign was already sent for this intake.",
-    };
   }
   delete signatures.client;
   delete signatures.guardian;
