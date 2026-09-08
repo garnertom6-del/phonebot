@@ -193,6 +193,7 @@ interface Detail {
     pcp: { total: number; completed: number; missing: string[]; state: string };
     crisis: { total: number; completed: number; missing: string[]; state: string };
   } | null;
+  canManageProvider?: boolean;
 }
 
 const HELPER_FORM_KEYS = [
@@ -311,6 +312,8 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const helperRevisionsRef = useRef<AnswerRevisions>({});
   const helperSaveBusyRef = useRef(false);
   const [answerConflicts, setAnswerConflicts] = useState<AnswerConflict[]>([]);
+  const [reconcileBusy, setReconcileBusy] = useState(false);
+  const [lookedUpEnvelopeId, setLookedUpEnvelopeId] = useState("");
 
   const load = useCallback(async () => {
     try {
@@ -421,11 +424,21 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
   const finalPacketCurrent = d.packetFreshness?.state === "current";
   // These are the same server snapshots combined by completionReadinessFromSnapshot.
   const completionReady = generationReady && finalPacketCurrent;
+  const docusignPending = !i.docusignEnvelopeId && i.auditLogs.some((entry) => entry.event === "docusign_send_pending");
+  const pendingSend = docusignPending
+    ? i.auditLogs.find((entry) => entry.event === "docusign_send_pending")
+    : undefined;
+  let pendingTransactionId = "";
+  try {
+    const parsed = JSON.parse(pendingSend?.detail || "");
+    if (typeof parsed.transactionId === "string") pendingTransactionId = parsed.transactionId;
+  } catch { /* Pending audits always include a transactionId when created by send. */ }
   const signatureSend = signatureSendHint({
     packetReady,
     packetMessage: d.providerPacketReadiness.message,
     statuses: d.signatureStatuses,
     docusignEnvelopeId: i.docusignEnvelopeId,
+    docusignSendPending: docusignPending,
   });
   const capturedSignatureCount = d.signatureStatuses.filter((status) => status.state === "captured").length;
   const firstGenerationBlocker = generationBlockers[0]?.message || "Complete readiness review before generating.";
@@ -1340,6 +1353,96 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
               </button>
             )}
           </div>
+          {docusignPending && (
+            <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950" data-testid="docusign-reconcile">
+              <p className="font-semibold">Unconfirmed DocuSign send</p>
+              <p className="mt-1">
+                DocuSign may have created an envelope. Do not send another.
+                {pendingTransactionId ? ` Transaction ID: ${pendingTransactionId}.` : ""}
+              </p>
+              {d.canManageProvider ? (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    className="btn-ghost px-3 py-2 text-sm"
+                    disabled={reconcileBusy}
+                    onClick={() => {
+                      void (async () => {
+                        setReconcileBusy(true);
+                        try {
+                          const r = await fetch(`/api/intakes/${i.id}/docusign/reconcile`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "lookup" }),
+                          });
+                          const b = await r.json().catch(() => ({}));
+                          if (typeof b.envelopeId === "string" && b.envelopeId) setLookedUpEnvelopeId(b.envelopeId);
+                          setNote(b.message || b.error || "DocuSign lookup finished.");
+                          await load();
+                        } finally {
+                          setReconcileBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    Look up transaction
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost px-3 py-2 text-sm"
+                    disabled={reconcileBusy}
+                    onClick={() => {
+                      if (!window.confirm("Attach the recovered DocuSign envelope without sending another?")) return;
+                      void (async () => {
+                        setReconcileBusy(true);
+                        try {
+                          const r = await fetch(`/api/intakes/${i.id}/docusign/reconcile`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "attach", envelopeId: lookedUpEnvelopeId || undefined }),
+                          });
+                          const b = await r.json().catch(() => ({}));
+                          setNote(b.message || b.error || "DocuSign attach finished.");
+                          await load();
+                        } finally {
+                          setReconcileBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    Attach recovered envelope
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-ghost px-3 py-2 text-sm"
+                    disabled={reconcileBusy}
+                    onClick={() => {
+                      if (!window.confirm("Mark this unconfirmed send failed so staff can retry? Only do this after confirming DocuSign never created the envelope.")) return;
+                      void (async () => {
+                        setReconcileBusy(true);
+                        try {
+                          const r = await fetch(`/api/intakes/${i.id}/docusign/reconcile`, {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ action: "mark_failed" }),
+                          });
+                          const b = await r.json().catch(() => ({}));
+                          setNote(b.message || b.error || "DocuSign reconcile finished.");
+                          await load();
+                        } finally {
+                          setReconcileBusy(false);
+                        }
+                      })();
+                    }}
+                  >
+                    Mark failed for retry
+                  </button>
+                </div>
+              ) : (
+                <p className="mt-1">Ask a provider admin to reconcile this pending transaction before anyone retries DocuSign.</p>
+              )}
+            </div>
+          )}
         </div>
         {completionMessage && (
           <p className={`mt-3 rounded-lg p-2 text-sm font-semibold ${completionError ? "bg-amber-100 text-amber-950" : "bg-emerald-100 text-emerald-950"}`}

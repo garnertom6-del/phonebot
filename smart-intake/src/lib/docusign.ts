@@ -122,7 +122,7 @@ function clampTabsToDocument(
   return { signHereTabs, dateSignedTabs };
 }
 
-function appliesToClientSigner(f: FieldMapping, answers: Answers, consents: Record<string, boolean>): boolean {
+export function appliesToDocuSignSigner(f: FieldMapping, answers: Answers, consents: Record<string, boolean>): boolean {
   if (!["client", "guardian", "auto"].includes(f.role)) return false;
   if (f.consentKey && !consents[f.consentKey]) return false;
 
@@ -137,48 +137,88 @@ function appliesToClientSigner(f: FieldMapping, answers: Answers, consents: Reco
   return true;
 }
 
-function toDocuSignTab(f: FieldMapping, kind: "sign" | "date", pageHeight: number): DocuSignTab {
+function toDocuSignTab(f: FieldMapping, kind: "sign" | "date", pageHeight: number, recipientId = "1"): DocuSignTab {
   return {
     documentId: "1",
     pageNumber: String(f.page),
-    recipientId: "1",
+    recipientId,
     tabLabel: `${kind}_${f.fieldKey}`,
     xPosition: String(Math.round(f.x)),
     yPosition: String(Math.round(pageHeight - f.y - f.height)),
   };
 }
 
-export function clientDocuSignTabs(
-  answers: Answers, consents: Record<string, boolean>, fields: FieldMapping[] = PACKET_MAP.fields,
-  pageHeight = PACKET_MAP.pageHeight,
+export type DocuSignSignerRole = "client" | "guardian";
+
+function rolesForSigner(role: DocuSignSignerRole, solo: boolean): Array<"client" | "guardian" | "auto"> {
+  if (solo) return ["client", "guardian", "auto"];
+  return role === "guardian" ? ["guardian"] : ["client", "auto"];
+}
+
+export function docuSignTabsForRoles(
+  answers: Answers,
+  consents: Record<string, boolean>,
+  fields: FieldMapping[],
+  pageHeight: number,
+  recipientId: string,
+  roles: Array<"client" | "guardian" | "auto">,
 ): { signHereTabs: DocuSignTab[]; dateSignedTabs: DocuSignTab[] } {
-  const signatureFields = fields
-    .filter((f) => f.type === "signature" || f.type === "signature_small")
-    .filter((f) => appliesToClientSigner(f, answers, consents));
-
-  const dateFields = fields
-    .filter((f) => f.source === "sign_date")
-    .filter((f) => appliesToClientSigner(f, answers, consents));
-
+  const allowed = new Set(roles);
+  const applicable = (f: FieldMapping) => appliesToDocuSignSigner(f, answers, consents) && allowed.has(f.role);
   return {
-    signHereTabs: signatureFields.map((f) => toDocuSignTab(f, "sign", pageHeight)),
-    dateSignedTabs: dateFields.map((f) => toDocuSignTab(f, "date", pageHeight)),
+    signHereTabs: fields
+      .filter((f) => f.type === "signature" || f.type === "signature_small")
+      .filter(applicable)
+      .map((f) => toDocuSignTab(f, "sign", pageHeight, recipientId)),
+    dateSignedTabs: fields
+      .filter((f) => f.source === "sign_date")
+      .filter(applicable)
+      .map((f) => toDocuSignTab(f, "date", pageHeight, recipientId)),
   };
 }
 
+export function clientDocuSignTabs(
+  answers: Answers, consents: Record<string, boolean>, fields: FieldMapping[] = PACKET_MAP.fields,
+  pageHeight = PACKET_MAP.pageHeight, recipientId = "1",
+): { signHereTabs: DocuSignTab[]; dateSignedTabs: DocuSignTab[] } {
+  return docuSignTabsForRoles(answers, consents, fields, pageHeight, recipientId, ["client", "guardian", "auto"]);
+}
+
+export type DocuSignEnvelopeSigner = {
+  email: string;
+  name: string;
+  role: DocuSignSignerRole;
+  recipientId: string;
+  routingOrder: string;
+};
+
 export async function createDocuSignEnvelope(
-  completedPdf: Buffer, clientEmail: string, clientName: string,
-  answers: Answers = {}, consents: Record<string, boolean> = {},
+  completedPdf: Buffer,
+  signers: DocuSignEnvelopeSigner[],
+  answers: Answers = {},
+  consents: Record<string, boolean> = {},
   fields: FieldMapping[] = PACKET_MAP.fields,
   providerName = "Moore Divine Care, Inc.",
   pageHeight = PACKET_MAP.pageHeight,
   transactionId?: string,
+  documentName?: string,
 ): Promise<{ envelopeId: string }> {
   if (!docusignConfigured()) throw new Error("DocuSign not configured");
+  if (!signers.length) throw new Error("No DocuSign recipients");
   const pageCount = (await PDFDocument.load(completedPdf)).getPageCount();
-  const tabs = clampTabsToDocument(clientDocuSignTabs(answers, consents, fields, pageHeight), pageCount);
-  if (tabs.signHereTabs.length === 0) throw new Error("No client DocuSign signature tabs found");
+  const solo = signers.length === 1;
+  const recipients = signers.map((signer) => {
+    const tabs = clampTabsToDocument(
+      docuSignTabsForRoles(answers, consents, fields, pageHeight, signer.recipientId, rolesForSigner(signer.role, solo)),
+      pageCount,
+    );
+    return { ...signer, tabs };
+  });
+  if (!recipients.some((signer) => signer.tabs.signHereTabs.length > 0)) {
+    throw new Error("No client DocuSign signature tabs found");
+  }
   const { token, base } = await getApiContext();
+  const packetName = documentName || signers[0]?.name || "Client";
   let res: Response;
   try { res = await fetch(
     `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes`,
@@ -191,14 +231,14 @@ export async function createDocuSignEnvelope(
         status: "sent",
         ...(transactionId ? { transactionId } : {}),
         documents: [{
-          documentId: "1", name: `Client Intake Package - ${clientName}`,
+          documentId: "1", name: `Client Intake Package - ${packetName}`,
           fileExtension: "pdf", documentBase64: completedPdf.toString("base64"),
         }],
         recipients: {
-          signers: [{
-            email: clientEmail, name: clientName, recipientId: "1", routingOrder: "1",
-            tabs,
-          }],
+          signers: recipients.map((signer) => ({
+            email: signer.email, name: signer.name, recipientId: signer.recipientId, routingOrder: signer.routingOrder,
+            tabs: signer.tabs,
+          })),
         },
       }),
     },
@@ -209,6 +249,28 @@ export async function createDocuSignEnvelope(
     if (typeof envelopeId !== "string" || !envelopeId.trim()) throw new Error("Missing envelope ID");
     return { envelopeId };
   } catch { throw new DocuSignEnvelopeError("DocuSign returned an unconfirmed envelope ID", true); }
+}
+
+/** Look up an envelope created with a transactionId. DocuSign retains these IDs for seven days. */
+export async function lookupEnvelopeByTransactionId(transactionId: string): Promise<{ envelopeId: string; status: string } | null> {
+  if (!docusignConfigured()) throw new Error("DocuSign not configured");
+  const { token, base } = await getApiContext();
+  const query = new URLSearchParams({ transaction_ids: transactionId });
+  const res = await fetch(
+    `${base}/v2.1/accounts/${process.env.DOCUSIGN_ACCOUNT_ID}/envelopes?${query}`,
+    { headers: { Authorization: `Bearer ${token}` } },
+  );
+  if (!res.ok) throw new Error(`DocuSign transaction lookup failed (HTTP ${res.status})`);
+  const payload: unknown = await res.json();
+  const envelopes = payload && typeof payload === "object" && "envelopes" in payload
+    ? (payload as { envelopes?: unknown }).envelopes
+    : undefined;
+  const first = Array.isArray(envelopes) ? envelopes[0] : null;
+  if (!first || typeof first !== "object") return null;
+  const envelopeId = "envelopeId" in first ? (first as { envelopeId?: unknown }).envelopeId : undefined;
+  const status = "status" in first ? (first as { status?: unknown }).status : undefined;
+  if (typeof envelopeId !== "string" || !envelopeId.trim()) return null;
+  return { envelopeId, status: typeof status === "string" && status.trim() ? status : "unknown" };
 }
 
 export async function sendCompletedPacketForSignature(intakeId: string): Promise<{ envelopeId: string }> {
