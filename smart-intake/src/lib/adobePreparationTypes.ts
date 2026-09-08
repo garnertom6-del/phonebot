@@ -62,8 +62,9 @@ export function estimatedAdobeUnits(operation: AdobeOperation, pages: number) {
 }
 export type PreparationFile = {
   id: string; name: string; mimeType: string; sha256: string; byteCount: number; pageCount: number | null;
-  inspection: { encrypted?: boolean; signed?: boolean; fieldCount?: number; fields?: string[]; warnings?: string[] };
+  inspection: { encrypted?: boolean; signed?: boolean; fieldCount?: number; fields?: string[]; warnings?: string[]; desktopEdited?: boolean };
   sourceFileId: string | null; jobId: string | null; promotedTemplateId: string | null; createdAt: string; createdByName: string;
+  template?: { id: string; mappingStatus: string; isActive: boolean } | null;
 };
 export type PreparationJob = {
   id: string; operation: AdobeOperation; status: string; estimatedUnits: number; inputIds: string[];

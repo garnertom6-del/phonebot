@@ -41,3 +41,11 @@ Input and output Adobe assets are deleted after success or confirmed failure; in
 - `scripts/test-adobe-preparation-live.ts`: opt-in live Adobe test for all tools, guarded to `codex-adobe-browser.db` and the synthetic fixture provider. Uses Adobe transactions. Reads credentials from an explicitly supplied local Developer Console JSON file without printing them. Never run against production or client data.
 
 Official references: [getting started and regional endpoints](https://developer.adobe.com/document-services/docs/overview/pdf-services-api/gettingstarted), [security and temporary storage](https://developer.adobe.com/document-services/docs/overview/security), [Acrobat Prepare Form](https://helpx.adobe.com/acrobat/using/pdf-forms.html).
+
+## Guided Acrobat desktop handoff
+
+The preparation workspace includes **Prepare Form & desktop editing**. Select a saved blank, unprotected PDF, download a working copy, use Acrobat Pro's desktop tools, and upload the revised PDF through the source-specific control. The returned version is linked to its source, and review opens the two PDFs together with page and form-field counts. The app cannot observe desktop editing or mark it complete based on a download.
+
+`POST /api/providers/:providerId/adobe/files/:fileId/desktop` requires provider-admin access and blank/synthetic confirmation. It rejects signed, encrypted, non-PDF and unchanged revisions, checks source integrity and provider ownership, and reuses a source/hash match on repeated uploads. This workflow creates no Adobe cloud jobs. Sources and revisions remain separate saved files. Revision metadata uses the existing inspection JSON; no schema migration is required.
+
+Mapping handoff still creates an inactive draft in the existing mapper. The workspace displays the linked template's current mapping/approval state. Master administrators can continue to packet setup to review and approve. PDF field detection is an inspection result, not proof that answers are correctly mapped or that a template is approved. The existing filling engine and DocuSign are unchanged.
