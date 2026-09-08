@@ -36,6 +36,7 @@ import {
 } from "@/lib/newIntakeHousing";
 import ManualSendPanel from "@/components/ManualSendPanel";
 import QrCodeSvg from "@/components/QrCodeSvg";
+import AcrobatPrepTip from "@/components/AcrobatPrepTip";
 
 const FIELDS = [
   ["fullName", "Client full name *", "text"], ["dob", "Date of birth *", "date"],
@@ -1151,6 +1152,7 @@ function NewIntakeForm({ requestedProviderId }: { requestedProviderId: string | 
                 Upload a screenshot, photo, or PDF from Downloads. After the intake is created, the app
                 scans it and fills MID, PCP, Medicaid plan, and other matching helper fields.
               </p>
+              <AcrobatPrepTip variant="scan" className="mt-3" />
               {ncTracksFile && <p className="mt-2 text-sm font-semibold text-slate-700">{ncTracksFile.name}</p>}
             </div>
           )}

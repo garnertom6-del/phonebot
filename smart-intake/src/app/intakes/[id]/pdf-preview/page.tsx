@@ -2,6 +2,8 @@
 import Link from "next/link";
 import { useEffect, useState, use } from "react";
 import PdfPreview from "@/components/PdfPreview";
+import AcrobatPrepTip from "@/components/AcrobatPrepTip";
+import { acrobatDownloadLabel, packetAcrobatDownloadHref } from "@/lib/adobeAcrobatPrep";
 import { messageForPdfPreviewFailure, parsePdfPreviewErrorBody } from "@/lib/pdfPreviewError";
 import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 
@@ -68,7 +70,16 @@ export default function PdfPreviewPage(props: { params: Promise<{ id: string }>;
         <div className="flex flex-wrap gap-2">
           <Link className="btn-secondary" href={providerWorkflowHref(`/intakes/${params.id}/documents`, query.providerId)}>Document Center</Link>
           <button className="btn-ghost" onClick={() => setBust(Date.now())}>Refresh</button>
-          {pdfUrl && <a className="btn-primary" href={pdfUrl} download>{documentState === "CURRENT_FINAL" ? "Download current final PDF" : "Download draft preview"}</a>}
+          {pdfUrl && documentState && (
+            <a
+              className="btn-primary"
+              data-testid="download-for-acrobat"
+              href={packetAcrobatDownloadHref(params.id, documentState)}
+              download
+            >
+              {acrobatDownloadLabel(documentState)}
+            </a>
+          )}
         </div>
       </div>
       {failure ? (
@@ -83,11 +94,14 @@ export default function PdfPreviewPage(props: { params: Promise<{ id: string }>;
       ) : (
         <>
           {pdfUrl && (
-            <p className={`mb-3 rounded-lg border p-3 text-sm font-semibold ${documentState === "CURRENT_FINAL" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-950"}`} role="status">
-              {documentState === "CURRENT_FINAL"
-                ? "Current final packet: this is the saved, generated record."
-                : "Draft preview: this reflects the current answers but is not the saved final record."}
-            </p>
+            <>
+              <p className={`mb-3 rounded-lg border p-3 text-sm font-semibold ${documentState === "CURRENT_FINAL" ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-amber-300 bg-amber-50 text-amber-950"}`} role="status">
+                {documentState === "CURRENT_FINAL"
+                  ? "Current final packet: this is the saved, generated record."
+                  : "Draft preview: this reflects the current answers but is not the saved final record."}
+              </p>
+              <AcrobatPrepTip variant="download" className="mb-3" />
+            </>
           )}
           {warning && (
             <p className="mb-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-sm font-semibold text-amber-950" role="status">

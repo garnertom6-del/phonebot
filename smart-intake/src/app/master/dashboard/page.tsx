@@ -8,6 +8,7 @@ import { packetDisplayStatus } from "@/lib/packetDisplayStatus";
 import { filterProvidersBySearch, providerSearchFieldsFromRow, type ProviderSearchMatch } from "@/lib/providerSearch";
 import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
 import ViewportMenu from "@/components/ViewportMenu";
+import AcrobatPrepTip from "@/components/AcrobatPrepTip";
 
 type ProviderRow = {
   id: string;
@@ -1614,6 +1615,7 @@ export default function MasterDashboard() {
                 onChange={(event) => setPacketFile(event.target.files?.[0] || null)}
               />
             </label>
+            <AcrobatPrepTip variant="template" />
 
             <button className="btn-primary w-full" disabled={packetBusy || aiMapBusy || !selectedProviderId || !packetFile}>
               {packetBusy

@@ -56,6 +56,8 @@ import { replaceRawFieldKeys, staffFacingFieldLabel } from "@/lib/staffFieldLabe
 import { beginSignatureSend, signatureSendHint } from "@/lib/signatureStatus";
 import { providerWorkflowHref } from "@/lib/providerWorkflowHref";
 import { acceptableOverrideReason } from "@/lib/overrideReason";
+import AcrobatPrepTip from "@/components/AcrobatPrepTip";
+import { acrobatDownloadLabel, packetAcrobatDownloadHref } from "@/lib/adobeAcrobatPrep";
 
 type PreflightFinding = {
   key: string;
@@ -1226,11 +1228,14 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
                 onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
                 Generate Completed Packet
               </button>
-              {finalPacketCurrent ? (
-                <a className="btn-ghost" href={`/api/intakes/${i.id}/pdf`} target="_blank">Download final PDF</a>
-              ) : (
-                <button className="btn-ghost" disabled title="Generate a current locked packet version before downloading the final PDF">Download final PDF</button>
-              )}
+              <a
+                className="btn-ghost"
+                data-testid="download-for-acrobat"
+                href={packetAcrobatDownloadHref(i.id, finalPacketCurrent ? "CURRENT_FINAL" : "DRAFT_PREVIEW")}
+                download
+              >
+                {acrobatDownloadLabel(finalPacketCurrent ? "CURRENT_FINAL" : "DRAFT_PREVIEW")}
+              </a>
             </>
           ) : (
             <button className="btn-secondary" disabled title="Master admin must approve and activate this provider's packet first">
@@ -1239,6 +1244,9 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           )}
         </div>
       </div>
+      {packetReady && (
+        <AcrobatPrepTip variant="download" className="mt-3" />
+      )}
       <section
         className={`mt-4 rounded-xl border p-4 ${
           caseStatus.tone === "good" ? "border-emerald-300 bg-emerald-50 text-emerald-950" :
@@ -1570,6 +1578,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
             Downloads folder) and the system reads it and fills the matching intake answers -
             same day or days later, and you can re-upload an updated CCA any time.
           </p>
+          <AcrobatPrepTip variant="scan" className="mb-3" />
           <label className={`btn-primary cursor-pointer ${ccaBusy ? "pointer-events-none opacity-60" : ""}`}>
             {ccaBusy ? "Reading CCA..." : "Choose CCA file & fill packet"}
             <input type="file" className="hidden" accept="application/pdf,image/*" disabled={ccaBusy}
@@ -2058,6 +2067,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
               </a>
             </div>
           </div>
+          <AcrobatPrepTip variant="scan" className="mt-3" />
           {ncTracksResult && <p className="mt-3 rounded-lg bg-slate-50 p-2 text-sm font-semibold text-slate-700">{ncTracksResult}</p>}
           <HelperDraftContext.Provider value={{ draft: helperDraft, setField: setHelperField }}>
           <form

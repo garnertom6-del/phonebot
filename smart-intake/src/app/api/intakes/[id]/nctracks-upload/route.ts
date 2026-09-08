@@ -8,6 +8,7 @@ import { applyOperationalDefaults } from "@/lib/answerDefaults";
 import { saveFile } from "@/lib/storage";
 import { applyNcTracksResult, describeNcTracksFields } from "@/lib/ncTracksLookup";
 import { extractFromNcTracksDocument, ncTracksDocumentConfigured } from "@/lib/ncTracksExtract";
+import { maybeOcrUploadedPdf } from "@/lib/adobePdfServices";
 
 export const maxDuration = 180;
 
@@ -40,7 +41,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const baseline = await loadAnswerSnapshot(intake.id);
   let extraction;
   try {
-    extraction = await extractFromNcTracksDocument(buffer, mime, {
+    const extractBytes = await maybeOcrUploadedPdf(buffer, mime);
+    extraction = await extractFromNcTracksDocument(extractBytes, mime, {
       fullName: intake.client.fullName,
       dob: intake.client.dob,
       midNumber: intake.client.midNumber,

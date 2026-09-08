@@ -4,7 +4,7 @@ import { PDFDocument, PDFDict, PDFName } from "pdf-lib";
 import { prisma } from "./prisma";
 import { isMasterUser } from "./staffProviderScope";
 import { readFile, saveFile, deleteFile } from "./storage";
-import { adobeConfigured, adobeMonthlyBudget, createAdobeTransport, AdobeRejectedOperation, type AdobeTransport } from "./adobePdfServices";
+import { adobeConfigured, adobeMonthlyBudget, createAdobeTransport, AdobeRejectedOperation, type AdobeTransport } from "./adobePreparationTransport";
 import { estimatedAdobeUnits, parsePageSelection, preparationJobSchema, type AdobeOperation, type PreparationFile } from "./adobePreparationTypes";
 
 export class AdobePreparationError extends Error { constructor(message: string, public status = 400) { super(message); } }

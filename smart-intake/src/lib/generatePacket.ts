@@ -19,6 +19,11 @@ import {
 import { normalizeDate as normalizeRecordDate, normalizeIdentityName as normalizeRecordIdentityName } from "@/lib/recordIntegrity";
 import { extractPdfText } from "@/lib/pdfText";
 
+// Codex: after Adobe PDF Services OCR/compress is implemented, call
+// maybeOptimizeGeneratedPacket() from `@/lib/adobePdfServices` on the assembled
+// bytes and recompute the stored SHA-256 if the payload changes. Do not require
+// Acrobat Pro on the server. DocuSign remains the live e-sign path.
+
 export class PacketIdentityMismatchError extends Error {
   code = "IDENTITY_MISMATCH" as const;
   recordName: string;

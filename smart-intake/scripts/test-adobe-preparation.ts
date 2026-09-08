@@ -4,7 +4,7 @@ import { PDFDocument, PDFName, PDFNumber } from "pdf-lib";
 import { NextRequest } from "next/server";
 import { prisma } from "../src/lib/prisma";
 import { uploadPreparationFile, readPreparationFile, startPreparationJob, refreshPreparationJob, listPreparation, promotePreparationFile } from "../src/lib/adobePreparation";
-import { createAdobeJob, validateAdobePollingUrl, AdobeRejectedOperation, type AdobeTransport } from "../src/lib/adobePdfServices";
+import { createAdobeJob, validateAdobePollingUrl, AdobeRejectedOperation, type AdobeTransport } from "../src/lib/adobePreparationTransport";
 import { safeStaffReturnPath } from "../src/lib/safeReturnPath";
 import { ADOBE_OPERATIONS, preparationOptionsSchema, estimatedAdobeUnits, parsePageSelection } from "../src/lib/adobePreparationTypes";
 import { createSessionValue, SESSION_COOKIE } from "../src/lib/auth";
