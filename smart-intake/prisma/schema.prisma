@@ -47,6 +47,56 @@ model Provider {
   ncTracksConfiguration NcTracksConfiguration?
   ncTracksHost NcTracksHost?
   ncTracksJobs NcTracksJob[]
+  adobeFiles AdobePreparationFile[]
+  adobeJobs AdobePreparationJob[]
+}
+
+// Blank forms and synthetic documents only. No automatic intake/CCA import into Adobe cloud.
+model AdobePreparationFile {
+  id                 String @id @default(uuid())
+  providerId         String
+  provider           Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  name               String
+  mimeType           String
+  filePath           String
+  sha256             String
+  byteCount          Int
+  pageCount          Int?
+  inspectionJson     String @default("{}")
+  sourceFileId       String?
+  jobId              String?
+  promotedTemplateId String?
+  createdByUserId     String
+  createdByName       String
+  createdAt          DateTime @default(now())
+  @@index([providerId, createdAt])
+  @@index([jobId])
+}
+
+model AdobePreparationJob {
+  id              String @id @default(uuid())
+  providerId      String
+  provider        Provider @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  idempotencyKey  String
+  requestHash     String
+  operation       String
+  inputIdsJson    String
+  optionsJson     String
+  estimatedUnits Int
+  status          String @default("SUBMITTING")
+  pollingUrl      String?
+  assetIdsJson    String @default("[]")
+  cleanupPending Boolean @default(false)
+  message         String?
+  leaseToken      String?
+  leaseUntil      DateTime?
+  nextPollAt      DateTime?
+  createdByUserId String
+  createdByName   String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  @@unique([providerId, idempotencyKey])
+  @@index([providerId, createdAt])
 }
 
 // Append-only directory ownership and review history; no intake/client data.

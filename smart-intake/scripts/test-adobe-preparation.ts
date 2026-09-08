@@ -1,0 +1,130 @@
+import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
+import { PDFDocument, PDFName, PDFNumber } from "pdf-lib";
+import { NextRequest } from "next/server";
+import { prisma } from "../src/lib/prisma";
+import { uploadPreparationFile, readPreparationFile, startPreparationJob, refreshPreparationJob, listPreparation, promotePreparationFile } from "../src/lib/adobePreparation";
+import { createAdobeJob, validateAdobePollingUrl, AdobeRejectedOperation, type AdobeTransport } from "../src/lib/adobePreparationTransport";
+import { safeStaffReturnPath } from "../src/lib/safeReturnPath";
+import { ADOBE_OPERATIONS, preparationOptionsSchema, estimatedAdobeUnits, parsePageSelection } from "../src/lib/adobePreparationTypes";
+import { createSessionValue, SESSION_COOKIE } from "../src/lib/auth";
+import { bindTestCookies } from "../src/lib/requestCookies";
+import { GET as getFile } from "../src/app/api/providers/[providerId]/adobe/files/[fileId]/route";
+import { POST as promoteRoute } from "../src/app/api/providers/[providerId]/adobe/files/[fileId]/promote/route";
+import { DELETE as deleteProvider } from "../src/app/api/master/providers/[id]/route";
+import { readFile, saveFile, deleteFile, fileExists } from "../src/lib/storage";
+
+async function main() {
+  assert.match(process.env.DATABASE_URL || "", /adobe-preparation-tests\.db$/);
+  const paths: string[] = [];
+  try {
+    const a = await prisma.provider.create({ data: { name: "Synthetic Preparation A", slug: randomUUID() } });
+    const b = await prisma.provider.create({ data: { name: "Synthetic Preparation B", slug: randomUUID() } });
+    const actor = await prisma.user.create({ data: { email: `${randomUUID()}@example.invalid`, name: "Synthetic Admin", passwordHash: "test", role: "staff", memberships: { create: { providerId: a.id, role: "PROVIDER_ADMIN" } } } });
+    const reviewer = await prisma.user.create({ data: { email: `${randomUUID()}@example.invalid`, name: "Synthetic Reviewer", passwordHash: "test", role: "reviewer", memberships: { create: { providerId: a.id, role: "REVIEWER" } } } });
+    const outsider = await prisma.user.create({ data: { email: `${randomUUID()}@example.invalid`, name: "Synthetic Outsider", passwordHash: "test", role: "staff", memberships: { create: { providerId: b.id, role: "PROVIDER_ADMIN" } } } });
+    const scope = { providerId: a.id, userId: actor.id };
+    const pdf = await PDFDocument.create(); pdf.addPage([612, 792]); pdf.addPage([612, 792]);
+    const blank = Buffer.from(await pdf.save());
+    await assert.rejects(() => uploadPreparationFile(scope, blank, "blank.pdf", false), /Confirm/);
+    await assert.rejects(() => uploadPreparationFile({ ...scope, userId: reviewer.id }, blank, "blank.pdf", true), /administrator/);
+    await assert.rejects(() => uploadPreparationFile(scope, Buffer.from("not pdf"), "blank.pdf", true), /not a PDF/);
+    const saved = await uploadPreparationFile(scope, blank, "../../synthetic-original.pdf", true);
+    const source = await readPreparationFile(scope, saved.id); paths.push(source.file.filePath);
+    assert.equal(source.file.name, "synthetic-original.pdf"); assert.equal(source.file.pageCount, 2);
+    await assert.rejects(() => readPreparationFile({ ...scope, userId: outsider.id }, saved.id), /not found/);
+    await assert.rejects(() => readPreparationFile({ providerId: b.id, userId: outsider.id }, saved.id), /not found/);
+    const fakeSignature = pdf.context.obj({ Type: PDFName.of("Sig"), ByteRange: pdf.context.obj([0, 1, 2, 3]), Contents: PDFNumber.of(0) });
+    pdf.context.register(fakeSignature);
+    const signedBytes = Buffer.from(await pdf.save());
+    await assert.rejects(() => uploadPreparationFile(scope, signedBytes, "signed.pdf", true), /digital signature/);
+    assert.deepEqual(parsePageSelection("2,1", 2), [2, 1]);
+    assert.throws(() => parsePageSelection("1,1", 2), /only once/);
+    assert.throws(() => parsePageSelection("0-3", 2), /between/);
+    assert.throws(() => validateAdobePollingUrl("http://127.0.0.1/operation/ocr"), /Unexpected/);
+    assert.equal(validateAdobePollingUrl("https://pdf-services-ue1.adobe.io/operation/ocr/test/status"), "https://pdf-services-ue1.adobe.io/operation/ocr/test/status");
+    assert.throws(() => validateAdobePollingUrl("https://pdf-services.adobe.io.evil.example/operation/ocr"), /Unexpected/);
+    assert.equal(estimatedAdobeUnits("autotag", 43), 430);
+    assert.equal(safeStaffReturnPath(`/adobe?providerId=${a.id}`), `/adobe?providerId=${a.id}`);
+    const options = preparationOptionsSchema.parse({ password: "SyntheticPasswordOnly!", pages: "1,2" });
+    for (const operation of ADOBE_OPERATIONS) {
+      const job = createAdobeJob(operation.id, ["urn:aaid:AS:UE1:synthetic-1", "urn:aaid:AS:UE1:synthetic-2"], options, 2);
+      assert(job, `SDK constructs ${operation.id}`);
+    }
+    let uploaded = 0, submitted = 0, results = 0, failRemoval = false, status: "running" | "done" | "failed" = "running";
+    const removed: string[] = [];
+    const transport: AdobeTransport = {
+      async upload() { return `synthetic-input-${++uploaded}`; },
+      async submit() { submitted++; return "https://pdf-services.adobe.io/operation/ocr/synthetic/status"; },
+      async status() { return status; },
+      async result(_op, _url, remember) { results++; await remember(["synthetic-output"]); return [{ bytes: blank, mimeType: "application/pdf", extension: "pdf" }]; },
+      async removeAsset(id) { if (failRemoval) throw new Error("Synthetic cleanup outage"); removed.push(id); },
+    };
+    const input = { idempotencyKey: randomUUID(), operation: "ocr", inputIds: [saved.id], options: {}, confirmedNoClientData: true, acknowledgedUnits: 1 };
+    await assert.rejects(() => startPreparationJob(scope, { ...input, inputIds: [saved.id, saved.id] }, transport), /only once/);
+    await assert.rejects(() => startPreparationJob(scope, { ...input, operation: "delete", options: { pages: "1-2" } }, transport), /Keep at least/);
+    await assert.rejects(() => startPreparationJob(scope, { ...input, operation: "reorder", options: { pages: "2" } }, transport), /every page/);
+    await assert.rejects(() => startPreparationJob(scope, { ...input, acknowledgedUnits: 9 }, transport), /estimated at 1/);
+    assert.equal(submitted, 0);
+    const started = await startPreparationJob(scope, input, transport);
+    assert.equal(submitted, 1);
+    assert.equal((await startPreparationJob(scope, input, transport)).id, started.id); assert.equal(submitted, 1, "Retry does not resubmit a paid operation");
+    await assert.rejects(() => startPreparationJob(scope, { ...input, operation: "compress" }, transport), /different work/);
+    let state = await listPreparation(scope);
+    assert.equal(state.jobs[0].status, "RUNNING");
+    assert(!JSON.stringify(state).includes("pollingUrl")); assert(!JSON.stringify(state).includes("assetIdsJson")); assert(!JSON.stringify(state).includes("filePath"));
+    await prisma.adobePreparationJob.update({ where: { id: started.id }, data: { nextPollAt: null } });
+    await refreshPreparationJob(scope, started.id, transport); assert.equal(results, 0);
+    await assert.rejects(() => refreshPreparationJob({ ...scope, userId: reviewer.id }, started.id, transport), /administrator/);
+    status = "done"; failRemoval = true;
+    await prisma.adobePreparationJob.update({ where: { id: started.id }, data: { nextPollAt: null } });
+    await Promise.all([refreshPreparationJob(scope, started.id, transport), refreshPreparationJob(scope, started.id, transport)]);
+    assert.equal(results, 1, "Concurrent status checks only save one result");
+    state = await listPreparation(scope); assert.equal(state.jobs[0].status, "DONE"); assert.equal(state.jobs[0].cleanupPending, true);
+    const outputs = await prisma.adobePreparationFile.findMany({ where: { jobId: started.id } }); assert.equal(outputs.length, 1); paths.push(outputs[0].filePath);
+    assert.equal(outputs[0].name, "synthetic-original-ocr-1.pdf", "Preparation retains source filename cues for provider identity checks");
+    assert.deepEqual(readFile(source.file.filePath), blank, "Adobe operations never overwrite the original");
+    failRemoval = false; await refreshPreparationJob(scope, started.id, transport); assert(removed.includes("synthetic-output"));
+    assert.equal((await listPreparation(scope)).jobs[0].cleanupPending, false);
+    const noChange = await startPreparationJob(scope, { ...input, idempotencyKey: randomUUID(), operation: "compress" }, transport);
+    await prisma.adobePreparationJob.update({ where: { id: noChange.id }, data: { nextPollAt: null } });
+    await refreshPreparationJob(scope, noChange.id, { ...transport, async status() { throw new AdobeRejectedOperation(true); } });
+    assert.equal((await prisma.adobePreparationJob.findUniqueOrThrow({ where: { id: noChange.id } })).status, "NO_CHANGE", "Already-compressed output is terminal, not an endless retry");
+    const masterTemplate = await prisma.pdfTemplate.create({ data: { providerId: a.id, name: "Existing approved source", filePath: source.file.filePath, pageCount: 2, isActive: true, mappingStatus: "APPROVED" } });
+    const promoted = await promotePreparationFile(scope, outputs[0].id, true);
+    const template = await prisma.pdfTemplate.findUniqueOrThrow({ where: { id: promoted.templateId } }); paths.push(template.filePath);
+    assert.equal(template.mappingStatus, "DRAFT"); assert.equal(template.isActive, false);
+    assert.equal((await prisma.pdfTemplate.findUniqueOrThrow({ where: { id: masterTemplate.id } })).isActive, true);
+    assert.equal((await promotePreparationFile(scope, outputs[0].id, true)).templateId, template.id);
+    assert.deepEqual(readFile(template.filePath), blank);
+    const passwordJob = await startPreparationJob(scope, { ...input, idempotencyKey: randomUUID(), operation: "protect", options: { password: "DoNotPersistThisPassword" } }, transport);
+    const passwordRecord = await prisma.adobePreparationJob.findUniqueOrThrow({ where: { id: passwordJob.id } });
+    assert(!JSON.stringify(passwordRecord).includes("DoNotPersistThisPassword"));
+    assert(!JSON.stringify(await prisma.auditLog.findMany()).includes("DoNotPersistThisPassword"));
+    const ambiguous = await startPreparationJob(scope, { ...input, idempotencyKey: randomUUID() }, { ...transport, async submit() { throw new Error("secret-url-and-credential-must-not-leak"); } });
+    const unknown = await prisma.adobePreparationJob.findUniqueOrThrow({ where: { id: ambiguous.id } });
+    assert.equal(unknown.status, "SUBMISSION_UNKNOWN"); assert(!unknown.message?.includes("secret-url"));
+    await startPreparationJob(scope, { ...input, idempotencyKey: unknown.idempotencyKey }, transport); assert.equal(submitted, 3);
+    process.env.ADOBE_PDF_SERVICES_MONTHLY_BUDGET = "1";
+    await assert.rejects(() => startPreparationJob(scope, { ...input, idempotencyKey: randomUUID() }, transport), /budget/);
+    delete process.env.ADOBE_PDF_SERVICES_MONTHLY_BUDGET;
+    saveFile(source.file.filePath, Buffer.from("tampered")); await assert.rejects(() => readPreparationFile(scope, saved.id), /integrity/); saveFile(source.file.filePath, blank);
+    const signIn = (id: string) => bindTestCookies({ get: name => name === SESSION_COOKIE ? { value: createSessionValue(id) } : undefined });
+    signIn(outsider.id);
+    const params = { params: Promise.resolve({ providerId: a.id, fileId: outputs[0].id }) };
+    assert.equal((await getFile(new NextRequest("http://localhost/api/test"), params)).status, 403);
+    signIn(reviewer.id);
+    assert.equal((await getFile(new NextRequest("http://localhost/api/test"), params)).status, 200);
+    assert.equal((await promoteRoute(new NextRequest("http://localhost/api/test", { method: "POST", body: JSON.stringify({ confirmedProviderForm: true }) }), params)).status, 403);
+    await prisma.user.update({ where: { id: actor.id }, data: { role: "master" } }); signIn(actor.id);
+    const deleteRequest = () => new NextRequest("http://localhost/api/test", { method: "DELETE", body: JSON.stringify({ confirmName: a.name }) });
+    assert.equal((await deleteProvider(deleteRequest(), { params: Promise.resolve({ id: a.id }) })).status, 409, "Active cloud work blocks provider purge");
+    await prisma.adobePreparationJob.updateMany({ where: { providerId: a.id }, data: { status: "DONE" } });
+    assert.equal((await deleteProvider(deleteRequest(), { params: Promise.resolve({ id: a.id }) })).status, 200);
+    assert.equal(await prisma.adobePreparationFile.count(), 0); assert.equal(await prisma.adobePreparationJob.count(), 0);
+    assert(paths.every(p => !fileExists(p)));
+    assert.equal(await prisma.generatedPdf.count(), 0); assert.equal(await prisma.signature.count(), 0); assert.equal(await prisma.messageDelivery.count(), 0);
+    console.log("Adobe preparation: 24 SDK operations, authorization, signed-file rejection, source integrity, request validation, idempotency, concurrency, budget, password secrecy, interrupted submissions, asset cleanup, inactive mapping handoff and provider purge passed.");
+  } finally { bindTestCookies(null); for (const file of paths) deleteFile(file); await prisma.$disconnect(); }
+}
+main().catch(error => { console.error(error); process.exitCode = 1; });

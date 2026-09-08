@@ -5,7 +5,7 @@
  * strings and download URLs help staff prepare packets and scans locally,
  * then re-upload them on the surfaces that already accept files.
  *
- * Cloud OCR / compress belongs in `adobePdfServices.ts` (Codex follow-up).
+ * Blank-form cloud preparation uses `adobePreparationTransport.ts`.
  */
 
 export const DOWNLOAD_FOR_ACROBAT_FINAL = "Download for Acrobat";

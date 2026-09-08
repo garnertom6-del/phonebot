@@ -6,7 +6,7 @@ Staff can open **Document Center** from a dashboard case, the intake page, or PD
 
 - Current draft copies call the existing `fillPacket` implementation and approved provider template. There is no second fill engine. Each page is marked as a draft, and field-rendering warnings remain visible.
 - Generated packet copies preserve the original PDF bytes, including existing certificates. Review copies and correction notes never change answers, signatures, packet readiness, or delivery status.
-- DocuSign remains the existing optional e-signature integration. This feature adds no Adobe Sign, OCR, PDF Services processing, or desktop edit-and-upload workflow.
+- DocuSign remains the existing optional e-signature integration. Client review copies are never sent to Adobe PDF Services. The separate [Adobe preparation workspace](README_ADOBE_PREPARATION.md) processes blank forms and synthetic samples and supports a versioned desktop edit-and-upload workflow.
 - Corrections are saved in Smart Intake's side panel, with page, assigned staff, resolution, audit history, and revision checks. Adobe annotation editing and PDF form filling are disabled to avoid unsaved edits.
 
 ## Adobe viewer setup

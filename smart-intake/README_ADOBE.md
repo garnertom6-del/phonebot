@@ -1,52 +1,13 @@
-# Adobe Acrobat / PDF Services (optional)
+# Adobe in Smart Intake
 
-Smart Intake does **not** install Adobe Acrobat Pro on Render. Desktop Acrobat
-is a staff workstation tool. This first slice adds in-app prep guidance and a
-**Download for Acrobat** action. Cloud OCR and packet optimization wait for
-Adobe PDF Services credentials plus a Codex follow-up.
+Smart Intake includes three connected workflows:
 
-DocuSign remains the live e-sign path. See `README_DOCUSIGN.md`. Acrobat Sign
-is not implemented here.
+- **Document Center:** staff review copies, Adobe PDF Embed viewing, assigned corrections and version history. See [Document Center](README_DOCUMENT_CENTER.md).
+- **Adobe preparation workspace:** 24 real PDF Services operations for blank forms and synthetic samples, provider-scoped jobs and immutable source versions, side-by-side review, and handoff to the existing template mapper. See [configuration, capabilities and testing](README_ADOBE_PREPARATION.md).
+- **Acrobat Pro desktop handoff:** download controls and tips on intake, preview, scan upload and packet setup pages. Desktop Edit PDF, Prepare Form, redaction and advanced print tools remain in Acrobat Pro. Re-upload an edited blank form in the preparation workspace to link it to its original.
 
-## Staff workflow (this slice)
+Set `ADOBE_PDF_EMBED_CLIENT_ID` for the browser viewer. Set the separate server-only `ADOBE_PDF_SERVICES_CLIENT_ID` and `ADOBE_PDF_SERVICES_CLIENT_SECRET` for preparation operations. API use has its own entitlement and transaction limits; an Acrobat Pro subscription does not embed the desktop app or supply unlimited API usage.
 
-1. **Packets** — on the intake case page or PDF preview, choose
-   **Download for Acrobat** (final) or **Download draft for Acrobat**. The
-   filename stays the existing staff-recognizable
-   `{Provider}-Intake-{Client}.pdf` or `-DRAFT.pdf` form.
-2. Open the file in **Adobe Acrobat Pro** on a workstation. Use OCR, fix
-   AcroForm fields, or redact, then save.
-3. Re-upload where the app already accepts files: master packet template,
-   case CCA, or NC Tracks upload.
-4. **Master packet templates** — prepare fillable AcroForm fields in Acrobat
-   Pro *before* mapping and approval.
-5. **CCA / NC Tracks scans** — if the file is a photo or image-only PDF, run
-   OCR in Acrobat Pro first so MID / PCP / plan extraction has real text.
+`src/lib/adobePreparationTransport.ts` contains the real SDK adapter. `src/lib/adobePdfServices.ts` intentionally keeps the existing CCA/NCTracks upload and completed-packet hooks as byte-preserving functions: they never upload client documents, alter signatures, or recompress a final packet. Those clinical callers remain separate from blank-form preparation even when the Adobe credentials are configured. There is no Adobe Sign integration or second answer-filling engine; DocuSign and the current packet generator remain in use.
 
-## Env placeholders (Codex: PDF Services)
-
-Leave these empty in production until Codex implements the API client. The app
-starts and runs without them.
-
-| Variable | Purpose |
-|---|---|
-| `PDF_SERVICES_CLIENT_ID` | Adobe PDF Services API client ID (Adobe Developer Console) |
-| `PDF_SERVICES_CLIENT_SECRET` | Adobe PDF Services API client secret |
-
-When both are set, `adobePdfServicesConfigured()` returns true, but OCR and
-compress stay **disabled** until Codex turns them on in
-`src/lib/adobePdfServices.ts`.
-
-## Files to extend (Codex)
-
-| File | Own next |
-|---|---|
-| `src/lib/adobePdfServices.ts` | Real PDF Services OCR + compress; keep no-throw when env is empty |
-| `src/app/api/intakes/[id]/cca/route.ts` | Already calls `maybeOcrUploadedPdf` before extract |
-| `src/app/api/intakes/[id]/nctracks-upload/route.ts` | Same OCR hook |
-| `src/lib/generatePacket.ts` | Call `maybeOptimizeGeneratedPacket` after assembly; rehash if bytes change |
-| `src/lib/adobeAcrobatPrep.ts` | Staff copy / download hrefs (this slice) |
-| `src/lib/docusign.ts` | Leave as the live e-sign path. Optional Acrobat Sign is a later slice. |
-
-Do not require Acrobat Pro on the server. Do not replace DocuSign with Acrobat
-Sign in the PDF Services follow-up unless product explicitly switches.
+Adobe preparation cannot establish provider identity, approve consent language or verify answer placement. The existing mapping, filled-preview and master-approval workflow is still required before a prepared provider template becomes active.

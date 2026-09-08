@@ -135,13 +135,16 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
     return NextResponse.json({ error: "Type the provider name exactly to confirm permanent deletion." }, { status: 400 });
   }
 
-  const [templates, generatedPdfs, uploadedDocuments, documentReviews] = await Promise.all([
+  const activeAdobeJobs = await prisma.adobePreparationJob.count({ where: { providerId: provider.id, status: { in: ["RUNNING", "SUBMITTING", "SUBMISSION_UNKNOWN"] }, createdAt: { gt: new Date(Date.now() - 24 * 60 * 60 * 1000) } } });
+  if (activeAdobeJobs) return NextResponse.json({ error: "Adobe preparation is still in progress or awaiting confirmation. Check the preparation workspace before deleting this provider." }, { status: 409 });
+  const [templates, generatedPdfs, uploadedDocuments, documentReviews, adobeFiles] = await Promise.all([
     prisma.pdfTemplate.findMany({ where: { providerId: provider.id }, select: { filePath: true } }),
     prisma.generatedPdf.findMany({ where: { intake: { providerId: provider.id } }, select: { filePath: true } }),
     prisma.uploadedDocument.findMany({ where: { intake: { providerId: provider.id } }, select: { filePath: true } }),
     prisma.documentReview.findMany({ where: { intake: { providerId: provider.id } }, select: { filePath: true } }),
+    prisma.adobePreparationFile.findMany({ where: { providerId: provider.id }, select: { filePath: true } }),
   ]);
-  const files = [...new Set([...templates, ...generatedPdfs, ...uploadedDocuments, ...documentReviews].map((file) => file.filePath).filter(Boolean))];
+  const files = [...new Set([...templates, ...generatedPdfs, ...uploadedDocuments, ...documentReviews, ...adobeFiles].map((file) => file.filePath).filter(Boolean))];
 
   const deleted = await prisma.$transaction(async (tx) => {
     // These records deliberately restrict cascading deletion during ordinary
@@ -170,6 +173,7 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
     prisma.generatedPdf.findMany({ select: { filePath: true } }),
     prisma.uploadedDocument.findMany({ select: { filePath: true } }),
     prisma.documentReview.findMany({ select: { filePath: true } }),
+    prisma.adobePreparationFile.findMany({ select: { filePath: true } }),
   ]);
   const fileIdentity = (file: string) => {
     const full = path.resolve(process.cwd(), "storage", file);

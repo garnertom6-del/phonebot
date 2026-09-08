@@ -5,7 +5,7 @@ const nextConfig = {
   // Keep PDF.js and its colocated worker outside the server bundle. The
   // server-side PDF reader loads the worker relative to the installed
   // package, not relative to .next/server/chunks.
-  serverExternalPackages: ["@prisma/client", "pdfjs-dist"],
+  serverExternalPackages: ["@prisma/client", "pdfjs-dist", "@adobe/pdfservices-node-sdk"],
   async headers() {
     return [
       {
