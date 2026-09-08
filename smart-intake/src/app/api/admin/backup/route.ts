@@ -31,7 +31,7 @@ export async function GET(req: NextRequest) {
 
   const [providers, users, memberships, clients, intakes, answers, signatures, releaseConsents, referrals,
     emergencyContacts, medications, substanceUseRows, uploadedDocuments,
-    generatedPdfs, auditLogs, followUps, documentReviews, documentCorrections] = await Promise.all([
+    generatedPdfs, auditLogs, followUps, documentReviews, documentCorrections, adobePreparationFiles, adobePreparationJobs] = await Promise.all([
     prisma.provider.findMany(),
     prisma.user.findMany({ select: { id: true, email: true, name: true, role: true, createdAt: true } }),
     prisma.userMembership.findMany(),
@@ -50,6 +50,8 @@ export async function GET(req: NextRequest) {
     prisma.intakeFollowUp.findMany(),
     prisma.documentReview.findMany(),
     prisma.documentCorrection.findMany(),
+    prisma.adobePreparationFile.findMany(),
+    prisma.adobePreparationJob.findMany(),
   ]);
 
   await audit("backup_downloaded", { userId: user!.id, detail: "PHI confirmed; live tokens redacted" });
@@ -66,7 +68,8 @@ export async function GET(req: NextRequest) {
     intakes: intakes.map((intake) => ({ ...intake, token: redactToken(intake.token) })),
     answers, signatures, releaseConsents, referrals,
     emergencyContacts, medications, substanceUseRows,
-    uploadedDocuments, generatedPdfs, auditLogs, documentReviews, documentCorrections,
+    uploadedDocuments, generatedPdfs, auditLogs, documentReviews, documentCorrections, adobePreparationFiles,
+    adobePreparationJobs: adobePreparationJobs.map(({ pollingUrl: _url, assetIdsJson: _assets, leaseToken: _lease, ...job }) => job),
     followUps: followUps.map((item) => ({ ...item, token: redactToken(item.token) })),
   };
 

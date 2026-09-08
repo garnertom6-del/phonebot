@@ -2,6 +2,8 @@ const STAFF_RETURN_PREFIXES = [
   "/dashboard",
   "/intakes",
   "/nctracks",
+  "/adobe",
+  "/documents/test",
   "/provider",
   "/admin/users",
   "/admin/pdf-mapping",

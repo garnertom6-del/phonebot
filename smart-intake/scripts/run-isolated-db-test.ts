@@ -3,6 +3,7 @@ import fs from "node:fs";
 import { isolatedSqlite } from "./isolatedSqlite";
 
 const suites = {
+  "adobe-preparation": { script: "scripts/test-adobe-preparation.ts", database: "adobe-preparation-tests.db" },
   "document-reviews": { script: "scripts/test-document-reviews.ts", database: "document-review-tests.db" },
   "nctracks-jobs": { script: "scripts/test-nctracks-jobs.ts", database: "nctracks-jobs-tests.db" },
   "nctracks-search": { script: "scripts/test-nctracks-search.ts", database: "nctracks-search-tests.db" },

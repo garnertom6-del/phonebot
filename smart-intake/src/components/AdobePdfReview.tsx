@@ -26,7 +26,7 @@ function loadAdobe() {
   return sdkPromise;
 }
 
-export default function AdobePdfReview({ src, reviewId, clientId }: { src: string; reviewId: string; clientId: string | null }) {
+export default function AdobePdfReview({ src, reviewId, clientId, purpose = "review" }: { src: string; reviewId: string; clientId: string | null; purpose?: "review" | "preparation" }) {
   const id = `adobe-${useId().replace(/:/g, "")}`;
   const [state, setState] = useState<"loading" | "ready" | "error">("loading");
   const [fallback, setFallback] = useState(!clientId);
@@ -54,10 +54,10 @@ export default function AdobePdfReview({ src, reviewId, clientId }: { src: strin
     void open();
     return () => { cancelled = true; controller.abort(); clearTimeout(timer); document.getElementById(id)?.replaceChildren(); };
   }, [clientId, fallback, id, reviewId, src]);
-  if (fallback) return <div className="space-y-3"><p className="text-sm text-slate-600">Standard PDF viewer. Correction notes are saved in Smart Intake.</p><PdfPreview src={src} /></div>;
+  if (fallback) return <div className="space-y-3"><p className="text-sm text-slate-600">{purpose === "preparation" ? "Standard PDF viewer. Review every page against the original." : "Standard PDF viewer. Correction notes are saved in Smart Intake."}</p><PdfPreview src={src} /></div>;
   return <section aria-label="Adobe PDF review" className="space-y-3">
     <a href="https://acrobat.adobe.com" target="_blank" rel="noreferrer" className="text-sm font-semibold text-brand underline">Powered by Adobe Document Cloud</a>
-    <div className="flex flex-wrap items-center justify-between gap-2"><p role="status" className="text-sm text-slate-600">{state === "ready" ? "Adobe viewer ready. Add saved corrections beside the document." : state === "loading" ? "Opening Adobe PDF viewer…" : "Adobe could not display this file. Use the standard viewer to continue."}</p><button className="btn-ghost text-sm" onClick={() => setFallback(true)}>Use standard viewer</button></div>
+    <div className="flex flex-wrap items-center justify-between gap-2"><p role="status" className="text-sm text-slate-600">{state === "ready" ? purpose === "preparation" ? "Adobe viewer ready. Review the prepared pages against the original." : "Adobe viewer ready. Add saved corrections beside the document." : state === "loading" ? "Opening Adobe PDF viewer…" : "Adobe could not display this file. Use the standard viewer to continue."}</p><button className="btn-ghost text-sm" onClick={() => setFallback(true)}>Use standard viewer</button></div>
     <div id={id} className={`${state === "error" ? "hidden" : "block"} h-[70vh] min-h-[420px] w-full overflow-hidden rounded-xl border border-slate-200 bg-white`} />
   </section>;
 }

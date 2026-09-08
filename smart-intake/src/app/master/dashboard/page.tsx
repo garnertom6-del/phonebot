@@ -1572,6 +1572,7 @@ export default function MasterDashboard() {
         </div>
 
         <section id="provider-packet-setup" className={`min-w-0 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm ${!isMaster || workflowView === "packet" ? "" : "hidden"}`}>
+          {selectedProviderId && <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-3"><p className="text-sm text-slate-700">Prepare the blank source with Adobe OCR, conversion and page tools before mapping. Review the returned copy and retain the original.</p><Link className="btn-ghost bg-white" href={`/adobe?providerId=${encodeURIComponent(selectedProviderId)}`}>Open Adobe preparation</Link></div>}
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <h2 className="text-lg font-bold">{isMaster ? "Step 2: Upload the Provider Packet" : "Provider Packet Upload"}</h2>

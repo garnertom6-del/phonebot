@@ -770,6 +770,7 @@ function Dashboard() {
       </section>
 
       <WorkflowOutcomesPanel data={outcomes} />
+      {activeProviderId && <section className="mt-4 rounded-2xl border border-red-200 bg-white p-4 sm:p-5"><div className="flex flex-wrap items-center justify-between gap-4"><div className="max-w-2xl"><h2 className="text-xl font-bold">Adobe document preparation</h2><p className="mt-1 text-sm text-slate-600">Prepare blank forms with OCR, conversion, page tools and accessibility checks. Review versions and send the right copy to packet mapping.</p></div><Link className="btn-primary inline-flex min-h-11 w-full items-center justify-center sm:w-auto" href={`/adobe?providerId=${encodeURIComponent(activeProviderId)}`}>Open Adobe tools</Link></div></section>}
       <ReferralFollowUpPanel referrals={referralFollowUps} staff={staff} />
       {activeProviderId && <DocumentCorrectionsPanel providerId={activeProviderId} />}
 
