@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from "node:crypto";
-import type { Prisma } from "@prisma/client";
+import type { Prisma, AdobePreparationFile } from "@prisma/client";
 import { PDFDocument, PDFDict, PDFName } from "pdf-lib";
 import { prisma } from "./prisma";
 import { isMasterUser } from "./staffProviderScope";
@@ -53,7 +53,7 @@ export async function createPreparationSample(scope: PreparationScope) {
   }
   return uploadPreparationFile(scope, Buffer.from(await pdf.save()), "SYNTHETIC-Adobe-Practice.pdf", true);
 }
-function publicFile(file: { inspectionJson: string; filePath: string; createdByUserId: string; providerId: string; [key: string]: unknown }) {
+function publicFile(file: AdobePreparationFile) {
   const { inspectionJson, filePath: _path, createdByUserId: _user, providerId: _provider, ...visible } = file;
   return { ...visible, inspection: JSON.parse(inspectionJson) };
 }
@@ -64,16 +64,18 @@ async function estimatedMonth(tx: Prisma.TransactionClient = prisma) {
 }
 export async function listPreparation(scope: PreparationScope) {
   const ctx = await preparationScope(prisma, scope);
-  const [files, jobs, monthlyEstimatedUnits] = await Promise.all([
+  const [files, jobs, monthlyEstimatedUnits, templates] = await Promise.all([
     prisma.adobePreparationFile.findMany({ where: { providerId: scope.providerId }, orderBy: { createdAt: "desc" }, take: 250 }),
     prisma.adobePreparationJob.findMany({ where: { providerId: scope.providerId }, orderBy: { createdAt: "desc" }, take: 100 }), estimatedMonth(),
+    prisma.pdfTemplate.findMany({ where: { providerId: scope.providerId }, select: { id: true, mappingStatus: true, isActive: true } }),
   ]);
+  const templateById = new Map(templates.map(t => [t.id, t]));
   return { providerId: ctx.provider.id, providerName: ctx.provider.name, canWrite: ctx.canWrite, isMaster: ctx.isMaster,
     configured: adobeConfigured(), adobeClientId: process.env.ADOBE_PDF_EMBED_CLIENT_ID?.trim() || null, monthlyEstimatedUnits, monthlyBudget: adobeMonthlyBudget(),
-    files: files.map(publicFile), jobs: jobs.map(j => ({ id: j.id, operation: j.operation, status: j.status, estimatedUnits: j.estimatedUnits, inputIds: JSON.parse(j.inputIdsJson), message: j.message, cleanupPending: j.cleanupPending, createdAt: j.createdAt, createdByName: j.createdByName, nextPollAt: j.nextPollAt })),
+    files: files.map(f => ({ ...publicFile(f), template: f.promotedTemplateId ? templateById.get(f.promotedTemplateId) || null : null })), jobs: jobs.map(j => ({ id: j.id, operation: j.operation, status: j.status, estimatedUnits: j.estimatedUnits, inputIds: JSON.parse(j.inputIdsJson), message: j.message, cleanupPending: j.cleanupPending, createdAt: j.createdAt, createdByName: j.createdByName, nextPollAt: j.nextPollAt })),
   };
 }
-export async function uploadPreparationFile(scope: PreparationScope, bytes: Buffer, name: string, confirmedNoClientData: boolean, sourceFileId?: string) {
+export async function uploadPreparationFile(scope: PreparationScope, bytes: Buffer, name: string, confirmedNoClientData: boolean, sourceFileId?: string, desktopRevision = false) {
   const { user } = await preparationScope(prisma, scope, true);
   if (!confirmedNoClientData) throw new AdobePreparationError("Confirm that the file is a blank form or synthetic sample with no client information.");
   if (!bytes.length || bytes.length > MAX_BYTES) throw new AdobePreparationError("Upload a nonempty file no larger than 25 MB.");
@@ -84,17 +86,32 @@ export async function uploadPreparationFile(scope: PreparationScope, bytes: Buff
   if (ext === "png" && bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new AdobePreparationError("Invalid PNG file.");
   if (["jpg", "jpeg"].includes(ext) && bytes.subarray(0, 3).toString("hex") !== "ffd8ff") throw new AdobePreparationError("Invalid JPEG file.");
   const inspection = mimeType === "application/pdf" ? await inspectPreparationPdf(bytes) : { pageCount: null };
+  if (desktopRevision) {
+    if (!sourceFileId) throw new AdobePreparationError("Select the original PDF before uploading an Acrobat revision.");
+    const source = await readPreparationFile(scope, sourceFileId);
+    if (source.file.mimeType !== "application/pdf" || JSON.parse(source.file.inspectionJson).encrypted) throw new AdobePreparationError("Choose an unprotected PDF as the Acrobat source.");
+    if (mimeType !== "application/pdf" || inspection.encrypted) throw new AdobePreparationError("Save the Acrobat revision as an unsigned PDF without password protection.");
+    if (source.file.sha256 === hash(bytes)) throw new AdobePreparationError("This is the unchanged source. Save your edits in Acrobat, then choose the revised PDF.", 409);
+    inspection.desktopEdited = true;
+  }
   if (sourceFileId && !(await prisma.adobePreparationFile.findFirst({ where: { id: sourceFileId, providerId: scope.providerId } }))) throw new AdobePreparationError("Original file not found in this provider.", 404);
   const id = randomUUID(), filePath = `adobe-preparation/${scope.providerId}/${id}.${ext}`;
   saveFile(filePath, bytes);
   try {
-    await prisma.$transaction(async tx => {
+    const result = await prisma.$transaction(async tx => {
       await preparationScope(tx, scope, true);
+      // A repeated upload after a lost response must not create duplicate revisions.
+      if (desktopRevision) {
+        const prior = await tx.adobePreparationFile.findFirst({ where: { providerId: scope.providerId, sourceFileId, sha256: hash(bytes), jobId: null } });
+        if (prior) return { id: prior.id, reused: true };
+      }
       await tx.adobePreparationFile.create({ data: { id, providerId: scope.providerId, name, mimeType, filePath, sha256: hash(bytes), byteCount: bytes.length, pageCount: inspection.pageCount, inspectionJson: JSON.stringify(inspection), sourceFileId, createdByUserId: user.id, createdByName: user.name } });
-      await tx.auditLog.create({ data: { providerId: scope.providerId, userId: user.id, event: "adobe_blank_form_uploaded", detail: JSON.stringify({ fileId: id, sourceFileId, confirmedNoClientData: true, sha256: hash(bytes) }) } });
+      await tx.auditLog.create({ data: { providerId: scope.providerId, userId: user.id, event: desktopRevision ? "acrobat_revision_uploaded" : "adobe_blank_form_uploaded", detail: JSON.stringify({ fileId: id, sourceFileId, confirmedNoClientData: true, sha256: hash(bytes) }) } });
+      return { id, reused: false };
     });
+    if (result.reused) deleteFile(filePath);
+    return result;
   } catch (error) { deleteFile(filePath); throw error; }
-  return { id };
 }
 export async function readPreparationFile(scope: PreparationScope, id: string) {
   await preparationScope(prisma, scope);

@@ -10,7 +10,9 @@ export async function GET(req: NextRequest, props: { params: Promise<{ providerI
   try {
     const { file, bytes } = await readPreparationFile({ providerId, userId: user!.id }, fileId);
     // Reports/Office outputs are attachments; never render returned HTML in the application origin.
-    const inline = req.nextUrl.searchParams.get("download") !== "1" && file.mimeType === "application/pdf";
-    return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": file.mimeType, "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${file.name.replace(/[^a-zA-Z0-9._ -]/g, "-")}"`, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": "sandbox" } });
+    const workingCopy = req.nextUrl.searchParams.get("workingCopy") === "1";
+    const inline = !workingCopy && req.nextUrl.searchParams.get("download") !== "1" && file.mimeType === "application/pdf";
+    const name = workingCopy ? file.name.replace(/\.pdf$/i, "-acrobat-working-copy.pdf") : file.name;
+    return new NextResponse(new Uint8Array(bytes), { headers: { "Content-Type": file.mimeType, "Content-Disposition": `${inline ? "inline" : "attachment"}; filename="${name.replace(/[^a-zA-Z0-9._ -]/g, "-")}"`, "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Content-Security-Policy": inline ? "sandbox" : "sandbox allow-downloads" } });
   } catch (error) { return adobeErrorResponse(error); }
 }
