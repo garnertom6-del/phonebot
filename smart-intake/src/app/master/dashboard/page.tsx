@@ -9,6 +9,7 @@ import { filterProvidersBySearch, providerSearchFieldsFromRow, type ProviderSear
 import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
 import ViewportMenu from "@/components/ViewportMenu";
 import AcrobatPrepTip from "@/components/AcrobatPrepTip";
+import DocuSignConnectionCard from "@/components/DocuSignConnectionCard";
 
 type ProviderRow = {
   id: string;
@@ -917,6 +918,7 @@ export default function MasterDashboard() {
 
   return (
     <main className="mx-auto min-w-0 max-w-7xl overflow-x-hidden p-4 pt-[max(1rem,env(safe-area-inset-top))] sm:p-6">
+      {isMaster && <DocuSignConnectionCard />}
       <section className="overflow-hidden rounded-[28px] bg-gradient-to-br from-slate-900 via-brand-dark to-brand px-6 py-7 text-white shadow-xl">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="max-w-3xl">

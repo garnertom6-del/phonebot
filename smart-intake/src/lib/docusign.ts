@@ -8,11 +8,28 @@ import crypto from "crypto";
 import { PDFDocument } from "pdf-lib";
 import { PACKET_MAP, type FieldMapping } from "@/config/mooreDivinePacketMap";
 import type { Answers } from "./fillPdf";
+import type { DocuSignConnection } from "./docuSignConnectionTypes";
 
 export function docusignConfigured(): boolean {
-  return !!(process.env.DOCUSIGN_INTEGRATION_KEY && process.env.DOCUSIGN_USER_ID &&
-    process.env.DOCUSIGN_ACCOUNT_ID && process.env.DOCUSIGN_PRIVATE_KEY);
+  return ["DOCUSIGN_INTEGRATION_KEY", "DOCUSIGN_USER_ID", "DOCUSIGN_ACCOUNT_ID", "DOCUSIGN_PRIVATE_KEY"]
+    .every(key => !!process.env[key]?.trim());
 }
+
+/** Configuration presence is deliberately separate from a successful connection. */
+export function docuSignConnectionConfiguration(): DocuSignConnection {
+  const missing = ["DOCUSIGN_INTEGRATION_KEY", "DOCUSIGN_USER_ID", "DOCUSIGN_ACCOUNT_ID", "DOCUSIGN_PRIVATE_KEY"]
+    .filter(key => !process.env[key]?.trim());
+  const base = process.env.DOCUSIGN_BASE_PATH?.trim();
+  return {
+    configured: missing.length === 0,
+    environment: !base ? "automatic" : base.toLowerCase().includes("demo") ? "sandbox" : "production",
+    status: missing.length ? "needs_setup" : "not_checked",
+    missing,
+    message: missing.length ? "DocuSign setup is incomplete. Add the missing server settings." : "Settings saved. Check the connection to verify account access.",
+  };
+}
+
+class DocuSignAuthError extends Error {}
 
 /** An uncertain create response must not invite another envelope/email. */
 export class DocuSignEnvelopeError extends Error {
@@ -24,7 +41,7 @@ function b64url(input: Buffer | string): string {
 }
 
 function authServerCandidates(): string[] {
-  const configuredBase = (process.env.DOCUSIGN_BASE_PATH || "").toLowerCase();
+  const configuredBase = (process.env.DOCUSIGN_BASE_PATH || "").trim().toLowerCase();
   if (configuredBase.includes("demo")) return ["account-d.docusign.com"];
   if (configuredBase) return ["account.docusign.com"];
   // Prefer production first, then fall back to demo when the base path was not set.
@@ -50,8 +67,17 @@ async function requestAccessToken(authServer: string): Promise<string> {
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer", assertion: jwt,
     }),
+    signal: AbortSignal.timeout(15000),
+    redirect: "error",
   });
-  if (!res.ok) throw new Error(`DocuSign auth failed (HTTP ${res.status})`);
+  if (!res.ok) {
+    const problem = await res.json().catch(() => null) as { error?: string; error_description?: string } | null;
+    // Never return raw OAuth responses, tokens, key material or upstream HTML.
+    if (problem?.error === "consent_required") throw new DocuSignAuthError("DocuSign consent is required for the configured integration and user in this environment.");
+    if (problem?.error_description === "issuer_not_found") throw new DocuSignAuthError("The integration key is not available in this DocuSign environment. Check the key and production go-live status.");
+    if (problem?.error_description === "user_not_found") throw new DocuSignAuthError("The configured user was not found in this DocuSign environment.");
+    throw new DocuSignAuthError(`DocuSign authentication failed (HTTP ${res.status}). Check the integration key, user, RSA key and consent.`);
+  }
   const token: unknown = (await res.json()).access_token;
   if (typeof token !== "string" || !token.trim()) throw new Error("DocuSign auth returned no access token");
   return token;
@@ -63,18 +89,64 @@ async function resolveRestBase(token: string, authServer: string): Promise<strin
 
   const res = await fetch(`https://${authServer}/oauth/userinfo`, {
     headers: { Authorization: `Bearer ${token}` },
+    signal: AbortSignal.timeout(15000), redirect: "error", cache: "no-store",
   });
-  if (!res.ok) throw new Error(`DocuSign userinfo failed: ${await res.text()}`);
+  if (!res.ok) throw new Error(`DocuSign userinfo failed (HTTP ${res.status})`);
 
   const info = await res.json() as {
     accounts?: Array<{ account_id?: string; base_uri?: string; is_default?: boolean }>;
   };
   const accountId = process.env.DOCUSIGN_ACCOUNT_ID;
-  const account = info.accounts?.find((item) => item.account_id === accountId)
-    ?? info.accounts?.find((item) => item.is_default);
+  const account = info.accounts?.find((item) => item.account_id === accountId);
   const baseUri = account?.base_uri?.trim();
   if (!baseUri) throw new Error("DocuSign userinfo did not include a REST base URI");
   return `${baseUri.replace(/\/+$/, "")}/restapi`;
+}
+
+function checkedDocuSignBase(value: string): string | null {
+  try {
+    const url = new URL(value);
+    if (url.protocol !== "https:" || !url.hostname.endsWith(".docusign.net") || url.port ||
+      url.username || url.password || url.search || url.hash || url.pathname.replace(/\/+$/, "") !== "/restapi") return null;
+    return `${url.origin}/restapi`;
+  } catch { return null; }
+}
+
+/** OAuth and account metadata only: no envelopes, documents, signatures or mail. */
+export async function checkDocuSignConnection(): Promise<DocuSignConnection> {
+  const config = docuSignConnectionConfiguration();
+  const checkedAt = new Date().toISOString();
+  if (!config.configured) return { ...config, checkedAt };
+  const configuredBase = process.env.DOCUSIGN_BASE_PATH?.trim();
+  if (configuredBase && !checkedDocuSignBase(configuredBase)) {
+    return { ...config, checkedAt, status: "failed", message: "The server address must be a DocuSign HTTPS REST API address ending in /restapi." };
+  }
+  let message = "DocuSign could not be reached or the RSA key could not be read. Check the server settings and try again.";
+  for (const host of authServerCandidates()) {
+    try {
+      const token = await requestAccessToken(host);
+      const response = await fetch(`https://${host}/oauth/userinfo`, {
+        headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000), redirect: "error", cache: "no-store",
+      });
+      if (!response.ok) throw new DocuSignAuthError(`DocuSign account verification failed (HTTP ${response.status}).`);
+      const info = await response.json() as { sub?: string; accounts?: Array<{ account_id?: string; account_name?: string; base_uri?: string }> };
+      if (info.sub !== process.env.DOCUSIGN_USER_ID) throw new DocuSignAuthError("The authenticated user does not match the configured DocuSign user.");
+      const account = info.accounts?.find(item => item.account_id === process.env.DOCUSIGN_ACCOUNT_ID);
+      if (!account) throw new DocuSignAuthError("The configured DocuSign account is not accessible to this user. Check the API account ID and membership.");
+      const actualBase = account.base_uri && checkedDocuSignBase(`${account.base_uri.replace(/\/+$/, "")}/restapi`);
+      const environment = host === "account-d.docusign.com" ? "sandbox" : "production";
+      if (!actualBase || (new URL(actualBase).hostname === "demo.docusign.net") !== (environment === "sandbox")) {
+        throw new DocuSignAuthError("DocuSign returned an unexpected account server address. Review the account configuration.");
+      }
+      if (configuredBase && checkedDocuSignBase(configuredBase) !== actualBase) throw new DocuSignAuthError("The saved server address does not match this DocuSign account. Update the account base URI in server settings.");
+      return { ...config, environment, checkedAt, status: "connected", accountName: account.account_name?.slice(0, 120), message: environment === "sandbox"
+        ? "Test account access verified. Live signing requires a production integration and account configuration."
+        : "Live account access verified. Packet approval and signer requirements still apply." };
+    } catch (error) {
+      if (error instanceof DocuSignAuthError) message = error.message;
+    }
+  }
+  return { ...config, checkedAt, status: "failed", message };
 }
 
 async function getApiContext(): Promise<{ token: string; base: string }> {

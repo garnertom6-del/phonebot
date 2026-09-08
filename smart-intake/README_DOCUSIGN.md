@@ -20,6 +20,15 @@ integration with Acrobat Sign.
 
 ## One-time setup
 
+Master dashboard → **DocuSign connection** shows whether the server is configured
+for sandbox or live use. **Check DocuSign connection** verifies the JWT grant,
+exact user and account membership, and account base URI. Saved settings alone
+are labeled unverified. This master-only check returns no credentials and does
+not send an envelope, fetch a client document, or change any intake. Sandbox
+success does not establish a production connection, signing, delivery or Connect
+webhook readiness. Run `npx tsx scripts/test-docusign-connection.ts` for isolated
+authentication, configuration, redaction and access-control regression coverage.
+
 1. Create a developer account at https://developers.docusign.com.
 2. Admin → Apps & Keys → Add App & Integration Key.
 3. Generate an RSA keypair on the app; store the private key in `DOCUSIGN_PRIVATE_KEY`.
