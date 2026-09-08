@@ -128,7 +128,7 @@ export default function PdfPreview({ src }: { src: string }) {
         <div>
           <h2 id="pdf-preview-title" className="font-bold text-slate-900">Packet PDF preview</h2>
           <p className="text-xs text-slate-500">
-            {documentState === "DRAFT_PREVIEW" ? "Draft preview — generation locks the final packet version." : "Current locked packet version."}
+            {documentState === "DRAFT_PREVIEW" ? "Draft preview — generation locks the final packet version." : documentState === "REVIEW_COPY" ? "Saved review copy. Check the current intake before using it for delivery." : "Current locked packet version."}
           </p>
         </div>
         {state === "ready" && (
