@@ -93,7 +93,7 @@ async function main() {
     assert.equal(masterOldLogin.status, 200);
     assert.equal((await masterReset(newPassword, "synthetic-token")).status, 200);
     assert.equal((await makeLogin(master.email, oldPassword)).status, 401);
-    const newMasterLogin = await makeLogin(master.email, newPassword);
+    const newMasterLogin = await login(request("/api/auth/login", "POST", { email: master.email, password: newPassword, portal: "master" }));
     assert.equal(newMasterLogin.status, 200);
     assert.equal((await newMasterLogin.json()).destination, "/master/dashboard");
     useCookie(masterOldLogin.cookies.get(SESSION_COOKIE)!.value);
