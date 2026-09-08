@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { currentUser } from "@/lib/auth";
 import { isMasterUser } from "@/lib/staffGuard";
 import PdfMappingEditor from "@/components/PdfMappingEditor";
+import AcrobatPrepTip from "@/components/AcrobatPrepTip";
 
 function firstParam(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
@@ -46,6 +47,7 @@ export default async function PdfMappingPage(
           ? "Map the selected provider's uploaded packet. These placements are saved only for that provider template."
           : "The base map was generated from the actual PDF. Adjustments here are saved as default packet overrides."}
       </p>
+      <AcrobatPrepTip variant="template" className="mb-4" />
       <PdfMappingEditor providerId={providerId} templateId={templateId} />
     </main>
   );

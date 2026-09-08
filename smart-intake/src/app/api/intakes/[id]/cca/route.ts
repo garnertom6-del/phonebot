@@ -8,6 +8,7 @@ import { applyCcaAnswers, CcaSignaturesWouldInvalidateError } from "@/lib/ccaApp
 import { appSnapshotFromAnswers, checkCcaSourceIdentity, finalizeCcaReview } from "@/lib/ccaMedicalNecessity";
 import { loadAnswerSnapshot } from "@/lib/intakeData";
 import { AnswerConflictError } from "@/lib/answerRevisions";
+import { maybeOcrUploadedPdf } from "@/lib/adobePdfServices";
 
 export const maxDuration = 300; // CCA reading can take a couple of minutes
 
@@ -42,7 +43,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const baseline = await loadAnswerSnapshot(intake.id);
   let extraction;
   try {
-    extraction = await extractFromCca(buffer, mime);
+    const extractBytes = await maybeOcrUploadedPdf(buffer, mime);
+    extraction = await extractFromCca(extractBytes, mime);
   } catch (e) {
     return NextResponse.json({ error: e instanceof Error ? e.message : "CCA reading failed" }, { status: 502 });
   }

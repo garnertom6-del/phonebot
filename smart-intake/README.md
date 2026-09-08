@@ -145,4 +145,6 @@ the client name flows into the welcome letter, consents, CCA and Tailored Plan p
 ## Deployment
 
 See `README_DEPLOYMENT.md` (Vercel or Render + Supabase/PostgreSQL, custom
-domain, public client links) and `README_DOCUSIGN.md` for optional DocuSign.
+domain, public client links), `README_DOCUSIGN.md` for optional DocuSign (the
+live e-sign path), and `README_ADOBE.md` for Acrobat Pro workstation prep and
+the optional Adobe PDF Services stub.

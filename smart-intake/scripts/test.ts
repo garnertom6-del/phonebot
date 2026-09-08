@@ -3283,7 +3283,18 @@ async function main() {
       assert.equal(preview.headers.get("x-smart-intake-document-state"), "DRAFT_PREVIEW");
       const previewDisposition = preview.headers.get("content-disposition") || "";
       assert(previewDisposition.includes("DRAFT"), "preview Content-Disposition must say DRAFT");
+      assert(previewDisposition.startsWith("inline;"), "preview without download=1 stays inline");
       await preview.arrayBuffer();
+
+      const acrobatDraft = await getIntakePdf(
+        new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf?preview=1&download=1`),
+        { params: Promise.resolve({ id: angela!.intakes[0].id }) },
+      );
+      assert.equal(acrobatDraft.status, 200);
+      const acrobatDraftDisposition = acrobatDraft.headers.get("content-disposition") || "";
+      assert(acrobatDraftDisposition.startsWith("attachment;"), "Download for Acrobat must use attachment");
+      assert(acrobatDraftDisposition.includes("DRAFT"), "draft Acrobat download keeps -DRAFT.pdf in the filename");
+      await acrobatDraft.arrayBuffer();
 
       const finalPdf = await getIntakePdf(
         new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf`),
@@ -3293,8 +3304,18 @@ async function main() {
         assert.equal(finalPdf.headers.get("x-smart-intake-document-state"), "CURRENT_FINAL");
         const finalDisposition = finalPdf.headers.get("content-disposition") || "";
         assert(!finalDisposition.includes("DRAFT"), "final Content-Disposition must not say DRAFT");
+        assert(finalDisposition.startsWith("inline;"), "final view without download=1 stays inline");
         assert.notEqual(finalDisposition, previewDisposition);
         await finalPdf.arrayBuffer();
+        const acrobatFinal = await getIntakePdf(
+          new NextRequest(`http://localhost/api/intakes/${angela!.intakes[0].id}/pdf?download=1`),
+          { params: Promise.resolve({ id: angela!.intakes[0].id }) },
+        );
+        assert.equal(acrobatFinal.status, 200);
+        const acrobatFinalDisposition = acrobatFinal.headers.get("content-disposition") || "";
+        assert(acrobatFinalDisposition.startsWith("attachment;"), "final Download for Acrobat must use attachment");
+        assert(!acrobatFinalDisposition.includes("DRAFT"), "final Acrobat download must not say DRAFT");
+        await acrobatFinal.arrayBuffer();
       }
       ok("draft/preview PDFs are labeled by filename and response state without a watermark");
     } finally {
