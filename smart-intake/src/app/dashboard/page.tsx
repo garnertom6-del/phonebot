@@ -12,6 +12,7 @@ import PhiBackupDownloadButton from "@/components/PhiBackupDownloadButton";
 import WorkflowActionCard from "@/components/WorkflowActionCard";
 import WorkflowOutcomesPanel, { type WorkflowOutcomes } from "@/components/WorkflowOutcomesPanel";
 import ReferralFollowUpPanel from "@/components/ReferralFollowUpPanel";
+import DocumentCorrectionsPanel from "@/components/DocumentCorrectionsPanel";
 import type { ReferralFollowUp } from "@/lib/referralFollowUp";
 import type { WorkflowAction } from "@/lib/workflowOutcomes";
 import AnswerConflictPanel from "@/components/AnswerConflictPanel";
@@ -772,6 +773,7 @@ function Dashboard() {
 
       <WorkflowOutcomesPanel data={outcomes} />
       <ReferralFollowUpPanel referrals={referralFollowUps} staff={staff} />
+      {activeProviderId && <DocumentCorrectionsPanel providerId={activeProviderId} />}
 
       {providerPacketReadiness && !providerPacketReadiness.ready && (
         <section role="alert" className="mt-4 flex flex-wrap items-start justify-between gap-4 rounded-xl border border-amber-300 bg-amber-50 p-4 text-amber-950">
@@ -1039,6 +1041,7 @@ function Dashboard() {
                 </button>
                 )}
                 <Link href={`/intakes/${row.id}/review`} className="btn-ghost px-3 py-2 text-sm">Review packet answers</Link>
+                <Link href={`/intakes/${row.id}/documents`} className="btn-ghost px-3 py-2 text-sm">Document Center</Link>
                 {!readOnly && !row.archived && row.status !== "COMPLETED" && row.completionReady && (
                   <button className="btn-ghost px-3 py-2 text-sm" disabled={rowBusy}
                     onClick={() => void runRowAction(row.id, () => markCompleted(row))}>

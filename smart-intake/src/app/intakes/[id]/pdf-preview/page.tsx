@@ -67,7 +67,8 @@ export default function PdfPreviewPage(props: { params: Promise<{ id: string }>;
     <main className="mx-auto max-w-5xl p-6">
       <div className="mb-3 flex items-center justify-between">
         <Link href={providerWorkflowHref(`/intakes/${params.id}`, query.providerId)} className="text-sm text-brand hover:underline">Back to intake</Link>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          <Link className="btn-secondary" href={providerWorkflowHref(`/intakes/${params.id}/documents`, query.providerId)}>Document Center</Link>
           <button className="btn-ghost" onClick={() => setBust(Date.now())}>Refresh</button>
           {pdfUrl && documentState && (
             <a

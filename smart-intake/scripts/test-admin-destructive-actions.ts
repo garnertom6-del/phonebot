@@ -28,7 +28,7 @@ async function main() {
   const outsideFile = path.join(database.directory, "outside-storage-sentinel.txt");
   const request = (url: string, method: string, body?: unknown, headers: Record<string, string> = {}) => new NextRequest(`http://localhost${url}`, { method, headers: { "content-type": "application/json", ...headers }, ...(body === undefined ? {} : { body: JSON.stringify(body) }) });
   const oldPassword = "SyntheticOld2026!", newPassword = "SyntheticNew2026!";
-  const makeLogin = (email: string, password: string) => login(request("/api/auth/login", "POST", { email, password }));
+  const makeLogin = (email: string, password: string, portal: "provider" | "master" = "provider") => login(request("/api/auth/login", "POST", { email, password, portal }));
   const signIn = (id: string | null) => bindTestCookies({ get: (name) => name === SESSION_COOKIE && id ? { value: createSessionValue(id) } : undefined });
   const useCookie = (value: string) => bindTestCookies({ get: (name) => name === SESSION_COOKIE ? { value } : undefined });
   try {
@@ -93,7 +93,9 @@ async function main() {
     assert.equal(masterOldLogin.status, 200);
     assert.equal((await masterReset(newPassword, "synthetic-token")).status, 200);
     assert.equal((await makeLogin(master.email, oldPassword)).status, 401);
-    const newMasterLogin = await login(request("/api/auth/login", "POST", { email: master.email, password: newPassword, portal: "master" }));
+    const providerMasterLogin = await makeLogin(master.email, newPassword);
+    assert.equal((await providerMasterLogin.json()).destination, "/dashboard", "Provider portal retains the requested workspace for master users");
+    const newMasterLogin = await makeLogin(master.email, newPassword, "master");
     assert.equal(newMasterLogin.status, 200);
     assert.equal((await newMasterLogin.json()).destination, "/master/dashboard");
     useCookie(masterOldLogin.cookies.get(SESSION_COOKIE)!.value);

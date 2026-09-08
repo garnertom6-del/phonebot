@@ -1223,6 +1223,7 @@ export default function IntakeDetail(props: { params: Promise<{ id: string }> })
           {packetReady ? (
             <>
               <Link href={providerWorkflowHref(`/intakes/${i.id}/pdf-preview`, i.providerId)} className="btn-secondary">Preview PDF</Link>
+              <Link href={providerWorkflowHref(`/intakes/${i.id}/documents`, i.providerId)} className="btn-secondary">Document Center</Link>
               <button className="btn-secondary" disabled={!generationReady} title={generationReady ? "Generate a locked packet version" : firstGenerationBlocker}
                 onClick={() => act("Generate Completed Packet", () => fetch(`/api/intakes/${i.id}/generate`, { method: "POST" }))}>
                 Generate Completed Packet

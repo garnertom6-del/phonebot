@@ -134,6 +134,7 @@ model Intake {
   sections          IntakeSection[]
   signatures        Signature[]
   generatedPdfs     GeneratedPdf[]
+  documentReviews   DocumentReview[]
   auditLogs         AuditLog[]
   uploadedDocuments UploadedDocument[]
   releaseConsents   ReleaseConsent[]
@@ -268,6 +269,46 @@ model GeneratedPdf {
   createdAt DateTime @default(now())
 
   @@unique([intakeId, packetVersion])
+}
+
+// Immutable review copies; never replace the generated/signed packet.
+model DocumentReview {
+  id String @id @default(uuid())
+  intakeId String
+  intake Intake @relation(fields: [intakeId], references: [id], onDelete: Cascade)
+  source String // DRAFT | GENERATED
+  sourcePacketId String?
+  packetVersion Int?
+  contentRevision Int
+  filePath String
+  sha256 String // complete review file fingerprint
+  pageCount Int
+  fillWarningCount Int @default(0)
+  createdByUserId String
+  createdByName String
+  createdAt DateTime @default(now())
+  corrections DocumentCorrection[]
+  @@index([intakeId, createdAt])
+}
+
+model DocumentCorrection {
+  id String @id @default(uuid())
+  reviewId String
+  review DocumentReview @relation(fields: [reviewId], references: [id], onDelete: Cascade)
+  page Int
+  comment String
+  assignedUserId String
+  assignedName String
+  createdByUserId String
+  createdByName String
+  status String @default("OPEN") // OPEN | RESOLVED
+  resolutionNote String?
+  resolvedByName String?
+  resolvedAt DateTime?
+  revision Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([reviewId, status])
 }
 
 model MessageDelivery {
