@@ -1,7 +1,7 @@
 # START HERE — Example Peer Recovery Services, Inc.
 ### Your CARF accreditation system, and exactly what to do with it
 
-Generated 2026-09-06. Target survey: 2027-06.
+Generated 2026-09-10. Target survey: 2027-06.
 
 ---
 

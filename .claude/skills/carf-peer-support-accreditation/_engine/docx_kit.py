@@ -10,6 +10,8 @@ Renders a small, predictable subset of Markdown into a styled Word document:
 Anything else becomes a body paragraph.
 """
 import re
+
+from md_fold import fold
 from docx import Document
 from docx.shared import Pt, Inches, RGBColor
 from docx.enum.text import WD_ALIGN_PARAGRAPH, WD_BREAK
@@ -117,7 +119,7 @@ def _table(doc, rows):
 
 def render_markdown(doc, md, base_level=1):
     """Render the supported Markdown subset into doc."""
-    lines = md.split("\n")
+    lines = fold(md).split("\n")
     i = 0
     while i < len(lines):
         line = lines[i].rstrip()

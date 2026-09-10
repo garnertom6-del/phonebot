@@ -4,6 +4,8 @@ Renders the same Markdown subset as docx_kit, straight to PDF with ReportLab, so
 the packet does not depend on LibreOffice or any other converter being installed.
 """
 import re
+
+from md_fold import fold
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER
 from reportlab.lib.pagesizes import letter
@@ -16,6 +18,7 @@ NAVY = colors.HexColor("#1F3B63")
 GREY = colors.HexColor("#555555")
 RED = colors.HexColor("#A81C1C")
 HEADFILL = colors.HexColor("#E8EDF5")
+QUOTEFILL = colors.HexColor("#F2F5FA")
 
 _ss = getSampleStyleSheet()
 S = {
@@ -38,6 +41,8 @@ S = {
                            fontSize=7, leading=8.6),
     "cellhead": ParagraphStyle("cellhead", parent=_ss["Normal"],
                                fontName="Helvetica-Bold", fontSize=7, leading=8.6),
+    "quote": ParagraphStyle("quote", parent=_ss["Normal"], fontName="Helvetica",
+                            fontSize=8.6, leading=11.4, textColor=colors.HexColor("#22303F")),
     "notice": ParagraphStyle("notice", parent=_ss["Normal"], fontName="Helvetica-Bold",
                              fontSize=9.5, leading=12, textColor=RED, spaceAfter=6),
     "t_agency": ParagraphStyle("t_agency", parent=_ss["Normal"], fontName="Helvetica-Bold",
@@ -106,8 +111,23 @@ def _table(rows):
     return t
 
 
+def _callout(text):
+    """A Markdown blockquote: an indented, shaded note with a navy bar down its left edge."""
+    p = Paragraph(esc(text), S["quote"])
+    t = Table([[p]], colWidths=[AVAIL - 0.22 * inch], hAlign="RIGHT")
+    t.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, -1), QUOTEFILL),
+        ("LINEBEFORE", (0, 0), (0, -1), 2.2, NAVY),
+        ("LEFTPADDING", (0, 0), (-1, -1), 7),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    return t
+
+
 def render_markdown(story, md, base_level=1):
-    lines = md.split("\n")
+    lines = fold(md).split("\n")
     i = 0
     while i < len(lines):
         stripped = lines[i].strip()
@@ -136,6 +156,15 @@ def render_markdown(story, md, base_level=1):
                                style=TableStyle([("LINEBELOW", (0, 0), (-1, -1), 0.7, NAVY)])))
             story.append(Spacer(1, 5))
             i += 1
+            continue
+
+        if stripped.startswith(">"):
+            block = []
+            while i < len(lines) and lines[i].strip().startswith(">"):
+                block.append(lines[i].strip()[1:].strip())
+                i += 1
+            story.append(_callout(" ".join(b for b in block if b)))
+            story.append(Spacer(1, 6))
             continue
 
         m = re.match(r"^(#{1,4})\s+(.*)$", stripped)

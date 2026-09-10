@@ -84,6 +84,10 @@ should be handed the filed record rather than a verbal answer. File copies in th
   needs supervision and competency assessment like any other staff member, and someone other
   than her must review her documentation
 - Licence types, numbers and insurance policies held (JD-01 section 3, item 14)
+- **Folder path where leadership minutes are filed**, who may access them, and where the
+  backup copy is held (MTG-01 section J)
+- **Record retention period in the payer contract and under NC rules** — MTG-01 sets three
+  years from LEAD-01; if either the contract or the state requires longer, the longer wins
 
 ## Binder progress
 
@@ -95,3 +99,4 @@ should be handed the filed record rather than a verbal answer. File copies in th
 | JD-01 | Job Description — CEO / Owner | 1.I, 1.A | Draft — awaiting FLSA/employment status from the accountant |
 | JD-02 | Job Description — Peer Support Specialist | 1.I, 2.A, 2.C, 3.C | Draft — awaiting credential name, caseload cap, note timeframe |
 | ETH-01 | Code of Ethics and Conduct | 1.A, 1.J, 1.I | Draft — **blocked**: cannot be adopted until the reporting routes are named |
+| MTG-01 | Leadership Meeting — Agenda and Minutes | 1.A | Draft — awaiting Program Supervisor name, minutes filing path, and the ETH-01 independent person |
