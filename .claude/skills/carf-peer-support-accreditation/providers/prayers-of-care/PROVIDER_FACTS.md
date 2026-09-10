@@ -28,9 +28,13 @@ is inferred. Anything not listed is still unknown and must not be guessed.
 - Staff roster: name, role, hire date
 - Whether a Program Supervisor is designated, and who
 - Whether the Consumer-Run specialty designation (5.D, p.318) is being considered
+- Who holds Privacy Officer and Compliance Officer (neither was on the agency's own org chart)
+- What independent check exists on the Owner's own work — bank reconciliation, record review,
+  and where a complaint about the Owner goes
 
 ## Binder progress
 
 | Doc | Title | CARF area | Status |
 |---|---|---|---|
 | MVV-01 | Mission, Vision and Values | 1.A | Draft — awaiting adoption signature |
+| ORG-01 | Organizational Chart and Function Assignment | 1.A, 1.I, 2.A | Draft — awaiting staff roster |
