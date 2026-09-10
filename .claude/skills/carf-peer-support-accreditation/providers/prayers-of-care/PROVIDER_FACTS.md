@@ -55,7 +55,11 @@ should be handed the filed record rather than a verbal answer. File copies in th
 - DBA if the agency trades under a different name
 - Physical address, city, state, ZIP; counties actually served
 - Website, if there is one
-- Exact name of the state peer credential staff hold
+- **Exact name of the state peer credential staff hold, and the issuing body** — needed on JD-02
+  and on every credential verification. Confirm against the payer's own requirement, not just
+  the state's; the payer sometimes requires more
+- **Maximum active caseload per peer specialist**, and the reasoning behind the number
+- **Documentation timeframe** — how many hours a peer specialist has to complete a note
 - Which EHR the agency documents in
 - Payers
 - Target survey month
@@ -81,3 +85,4 @@ should be handed the filed record rather than a verbal answer. File copies in th
 | ORG-01 | Organizational Chart and Function Assignment | 1.A, 1.I, 2.A | Draft — awaiting staff roster |
 | LEAD-01 | Leadership Policy | 1.A | Draft — awaiting backup name and Program Supervisor |
 | JD-01 | Job Description — CEO / Owner | 1.I, 1.A | Draft — awaiting FLSA/employment status from the accountant |
+| JD-02 | Job Description — Peer Support Specialist | 1.I, 2.A, 2.C, 3.C | Draft — awaiting credential name, caseload cap, note timeframe |
