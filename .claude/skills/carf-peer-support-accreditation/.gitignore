@@ -4,3 +4,6 @@ providers/*/data/
 !providers/example-peer-agency/output/
 !providers/example-peer-agency/data/
 __pycache__/
+
+# Client identifiers (EIN, account numbers) stay out of version control.
+providers/*/IDENTIFIERS.local.md

@@ -1,4 +1,4 @@
-# Prayers of Care | CARF Community Integration (BH) Binder
+# Prayers of Care Inc | CARF Community Integration (BH) Binder
 # Organizational Chart and Function Assignment
 
 | | |
@@ -6,13 +6,16 @@
 | **Document ID** | ORG-01 |
 | **Version** | Draft 1 |
 | **Status** | Draft → Approved → Trained → In use → Tested → Monitoring *(circle the current state)* |
-| **Owner** | Tom Garner, Owner / Executive Director |
+| **Owner** | Nicky Ingram, Owner / Executive Director |
 | **Approval date** | ____________ |
 | **Effective date** | ____________ |
 | **Chart date** | ____________ |
 | **Review interval** | Annually, and within 14 days of any role change |
 | **Next review due** | ____________ |
 | **CARF areas served** | 1.A Leadership (p.31); 1.I Workforce Development and Management (p.80); 2.A Program/Service Structure (p.116) |
+| **Legal entity** | Prayers of Care Inc |
+| **NPI** | 1043895022 |
+| **Consultant** | Successful Solutions (Tom Garner) — consultant only; not an officer or employee of Prayers of Care Inc |
 
 > **Do not date this chart until the names are real.** A chart dated before it was filled in is
 > a chart nobody used.
@@ -37,7 +40,7 @@ function with nobody's name against it.
 
 | # | Function | CARF area | Who holds it | Also their other role? | Backup if unavailable |
 |---|---|---|---|---|---|
-| 1 | Chief Executive / Executive Director | 1.A | Tom Garner | Owner | `[FILL IN]` |
+| 1 | Chief Executive / Executive Director | 1.A | Nicky Ingram | Owner | `[FILL IN]` |
 | 2 | Program Director / Program Supervisor | 1.A, 2.A | `[FILL IN]` | | `[FILL IN]` |
 | 3 | Supervisor of the peer workforce | 1.I | `[FILL IN]` | | `[FILL IN]` |
 | 4 | Quality Improvement lead | 1.L, 1.M | `[FILL IN]` | | `[FILL IN]` |
@@ -59,7 +62,7 @@ one correct form of answer, and it is a person's name. Add them even if they are
 
 ```
 Owner / Executive Director
-Tom Garner
+Nicky Ingram
 Email: [FILL IN] | Phone: [FILL IN]
 Supervised by: nobody — sole owner. See section 5.
 |
@@ -92,7 +95,7 @@ break with `<br/>`, not `\n` — with `\n` the labels come out as one run-on lin
 
 ```mermaid
 flowchart TD
-  ED["Owner / Executive Director<br/>Tom Garner"]
+  ED["Owner / Executive Director<br/>Nicky Ingram"]
   PS["Program Supervisor<br/>[FILL IN]"]
   PSS1["Peer Support Specialist<br/>[FILL IN]"]
   PSS2["Peer Support Specialist<br/>[FILL IN]"]
@@ -124,7 +127,7 @@ What CARF asks is that it be **written down and honest**.
 1. Write **both titles** on the chart, in the function table, and in the person's job
    description. A title that exists only in someone's head is not assigned.
 2. Where a role is temporary, say so and say until when:
-   `Tom Garner — Owner/ED + acting QI Lead until a QI lead is designated`.
+   `Nicky Ingram — Owner/ED + acting QI Lead until a QI lead is designated`.
 3. Where one person holds a role that is supposed to check another role they also hold, that is
    a **separation-of-duties issue**, not just a dual role. See section 5.
 

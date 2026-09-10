@@ -1,4 +1,4 @@
-# Prayers of Care | CARF Community Integration (BH) Binder
+# Prayers of Care Inc | CARF Community Integration (BH) Binder
 # Mission, Vision and Values
 
 | | |
@@ -6,14 +6,17 @@
 | **Document ID** | MVV-01 |
 | **Version** | Draft 1 |
 | **Status** | Draft → Approved → Trained → In use → Tested → Monitoring *(circle the current state)* |
-| **Owner** | Tom Garner, Owner / Executive Director |
-| **Approver** | Tom Garner, Owner / Executive Director |
+| **Owner** | Nicky Ingram, Owner / Executive Director |
+| **Approver** | Nicky Ingram, Owner / Executive Director |
 | **Approval date** | ____________ |
 | **Effective date** | ____________ |
 | **Review interval** | Annually |
 | **Next review due** | ____________ |
 | **Published at** | ____________ |
 | **CARF areas served** | 1.A Leadership (p.31); referenced by 2.A Program/Service Structure (p.116) and 1.J Rights of Persons Served (p.89) |
+| **Legal entity** | Prayers of Care Inc |
+| **NPI** | 1043895022 |
+| **Consultant** | Successful Solutions (Tom Garner) — consultant only; not an officer or employee of Prayers of Care Inc |
 
 > **Do not date this document until it is signed.** A policy that carries an effective date
 > earlier than its adoption is backdated, and one backdated date makes a surveyor doubt every
@@ -152,7 +155,7 @@ short, honest task now, and an awkward gap at survey if it is left.
 
 | Role | Name | Signature | Date |
 |---|---|---|---|
-| Owner / Executive Director | Tom Garner | ____________________ | ____________ |
+| Owner / Executive Director | Nicky Ingram | ____________________ | ____________ |
 | Program Supervisor | `[FILL IN — name]` | ____________________ | ____________ |
 
 **Governing body:** Prayers of Care has **no board of directors**. The Owner performs the
