@@ -68,7 +68,15 @@ should be handed the filed record rather than a verbal answer. File copies in th
 - Staff roster: name, role, hire date, credential — **the agency will supply this later**
 - Whether a Program Supervisor is designated, and who
 - Who holds Privacy Officer and Compliance Officer
-- What independent check exists on the Owner's own work, and where a complaint about the Owner goes
+- **What independent check exists on the Owner's own work, and where a complaint about the
+  Owner goes.** This now blocks ETH-01 as well as ORG-01. Two things are needed: a real
+  anonymous method (a locked box at a named location, or a free anonymous web form), and a
+  named independent person outside the chain of command — the external accountant, the
+  attorney, or the consultant
+- Contact details for the external reporting routes: state licensing authority, the health plan
+  or MCO, NC protection and advocacy, CARF, and the county DSS
+- **Confirmation of NC mandatory reporting citations, receiving agency and timeframe** — for
+  counsel or the county DSS to confirm, not a consultant
 - Backup for the Owner / Executive Director
 - Whether the Consumer-Run specialty designation (5.D, p.318) is being considered
 - **CEO FLSA status and employment status** — a question for the accountant, not a template
@@ -86,3 +94,4 @@ should be handed the filed record rather than a verbal answer. File copies in th
 | LEAD-01 | Leadership Policy | 1.A | Draft — awaiting backup name and Program Supervisor |
 | JD-01 | Job Description — CEO / Owner | 1.I, 1.A | Draft — awaiting FLSA/employment status from the accountant |
 | JD-02 | Job Description — Peer Support Specialist | 1.I, 2.A, 2.C, 3.C | Draft — awaiting credential name, caseload cap, note timeframe |
+| ETH-01 | Code of Ethics and Conduct | 1.A, 1.J, 1.I | Draft — **blocked**: cannot be adopted until the reporting routes are named |
