@@ -67,6 +67,11 @@ should be handed the filed record rather than a verbal answer. File copies in th
 - What independent check exists on the Owner's own work, and where a complaint about the Owner goes
 - Backup for the Owner / Executive Director
 - Whether the Consumer-Run specialty designation (5.D, p.318) is being considered
+- **CEO FLSA status and employment status** — a question for the accountant, not a template
+- **Does the CEO deliver direct peer support?** If yes: her credential must be verified, she
+  needs supervision and competency assessment like any other staff member, and someone other
+  than her must review her documentation
+- Licence types, numbers and insurance policies held (JD-01 section 3, item 14)
 
 ## Binder progress
 
@@ -75,3 +80,4 @@ should be handed the filed record rather than a verbal answer. File copies in th
 | MVV-01 | Mission, Vision and Values | 1.A | Draft — awaiting adoption signature |
 | ORG-01 | Organizational Chart and Function Assignment | 1.A, 1.I, 2.A | Draft — awaiting staff roster |
 | LEAD-01 | Leadership Policy | 1.A | Draft — awaiting backup name and Program Supervisor |
+| JD-01 | Job Description — CEO / Owner | 1.I, 1.A | Draft — awaiting FLSA/employment status from the accountant |
