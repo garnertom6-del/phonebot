@@ -5,14 +5,14 @@ unknown and must not be guessed.
 
 | Field | Confirmed | Notes |
 |---|---|---|
-| Legal entity | **Prayers of Care Inc** | Incorporated |
-| Owner / Executive Director | **Nicky Ingram** | Sole owner |
+| Legal entity | **Prayers of Care Inc** | Incorporated. Confirmed. |
+| Chief Executive Officer / Owner | **Nicky Ingram** | CEO and sole owner of the corporation |
 | NPI | 1043895022 | |
 | EIN | held in IDENTIFIERS.local.md | Not committed to the repository |
 | Phone | (336) 509-5025 | |
 | Alternate email | prayersofcare@outlook.com | |
 | Consultant | Successful Solutions (Tom Garner) | **Consultant only** — not an officer or employee of Prayers of Care Inc |
-| Governance | Owner-operated, no board at this time | Owner performs governance functions personally and records them in the LEAD-01 Decision Log. See the corporation note below. |
+| Governance | Incorporated; CEO-led, no board at this time | Owner performs governance functions personally and records them in the LEAD-01 Decision Log. See the corporation note below. |
 | Workforce | Owner plus 4–10 people | Individual names, roles and hire dates not yet collected |
 | Operating status | Already serving people | Service history exists — the evidence clock has started |
 | Faith-based activity | **None** | Name-only. No prayer, worship or devotional activity offered as part of services |
@@ -41,12 +41,14 @@ BEFORE any document goes out saying otherwise:
 
 ## Corporation note
 
-Prayers of Care Inc is incorporated. A corporation normally has at least one director and
-corporate records — articles, bylaws, and an annual consent or minute in place of a meeting.
-"Owner-operated, no board" and "incorporated" are not in conflict; a single-director
-corporation is ordinary. What matters is that the binder matches what was actually filed.
-**Confirm with the agency's accountant or attorney and file the corporate records in the
-binder.**
+Confirmed: Prayers of Care Inc is incorporated, with **Nicky Ingram as CEO and owner**, and no
+board at this time. A single-officer corporation is ordinary and is not in conflict with
+"owner-operated".
+
+**Outstanding:** the corporate records themselves — articles of incorporation, bylaws, the list
+of officers and directors, and the annual consent or minute in place of a meeting. Those are
+the evidence behind the governance answer. A surveyor who asks how the corporation is governed
+should be handed the filed record rather than a verbal answer. File copies in the binder.
 
 ## Still needed before the full packet can be built
 
@@ -59,7 +61,7 @@ binder.**
 - Target survey month
 - Date the program started delivering services (drives every due date)
 - Shifts that deliver service, sites controlled, vehicles used
-- Staff roster: name, role, hire date, credential
+- Staff roster: name, role, hire date, credential — **the agency will supply this later**
 - Whether a Program Supervisor is designated, and who
 - Who holds Privacy Officer and Compliance Officer
 - What independent check exists on the Owner's own work, and where a complaint about the Owner goes

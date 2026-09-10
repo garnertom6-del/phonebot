@@ -6,7 +6,7 @@
 | **Document ID** | LEAD-01 |
 | **Version** | Draft 1 |
 | **Status** | Draft → Approved → Trained → In use → Tested → Monitoring *(circle the current state)* |
-| **Owner** | Nicky Ingram, Owner / Executive Director |
+| **Owner** | Nicky Ingram, Chief Executive Officer / Owner |
 | **Approval date** | ____________ |
 | **Effective date** | ____________ |
 | **Review interval** | Annually |
@@ -42,7 +42,7 @@ Leadership of Prayers of Care Inc is responsible for:
 5. **Culture** — respect, inclusion, recovery orientation, and **no retaliation** against
    anyone who raises a concern in good faith.
 
-The Owner / Executive Director holds final accountability. Delegated leads own their assigned
+The CEO / Owner holds final accountability. Delegated leads own their assigned
 areas and report progress.
 
 **No leadership function is left unassigned.** Where the agency is too small to have a separate
@@ -63,11 +63,12 @@ person in a role, the role is assigned in writing to a named position — see OR
 4. Because there is no board, **major decisions are recorded in the Decision Log in section G**.
    A decision that exists only in the Owner's memory cannot be shown to anyone.
 
-> **Note for a corporation.** Prayers of Care Inc is incorporated. A corporation normally has at
-> least one director and corporate records — articles, bylaws, and an annual consent or minute
-> in place of a meeting. Confirm with your accountant or attorney what your incorporation
-> actually requires, and file whatever exists in this binder. It is entirely possible to be a
-> single-director corporation; what matters is that the binder matches the filed reality.
+> **Corporate records.** Prayers of Care Inc is incorporated, with Nicky Ingram as CEO and
+> owner. A corporation carries records a sole proprietorship does not — articles of
+> incorporation, bylaws, the list of officers and directors, and an annual consent or minute in
+> place of a meeting. **File copies of those in this binder.** They are the evidence behind
+> "owner-operated, no board": a surveyor who asks how the corporation is governed should be
+> handed the filed record, not a verbal answer.
 
 ### B. Leadership meetings
 
@@ -116,8 +117,7 @@ person in a role, the role is assigned in writing to a named position — see OR
 ### F. Delegation, backup and non-retaliation
 
 1. Dual roles and backups are recorded in writing in ORG-01, not held in anyone's memory.
-2. **Someone must be able to cover if the Owner is unavailable.** Backup for the Owner /
-   Executive Director: `[FILL IN — name and role]`
+2. **Someone must be able to cover if the CEO is unavailable.** Backup for the CEO / Owner: `[FILL IN — name and role]`
 3. At least two people can reach the record system, the bank, the payer portals, the building
    and the alarm. Where only the Owner can do something, it is recorded as a known risk.
 4. **A concern about the Owner must have somewhere to go that is not the Owner.** The route is
@@ -147,7 +147,7 @@ who finds them disagreeing has found a real problem.
 
 | | |
 |---|---|
-| Overall leadership | Nicky Ingram, Owner / Executive Director |
+| Overall leadership | Nicky Ingram, Chief Executive Officer / Owner |
 | Everything else | See ORG-01, section 1 |
 
 ---
@@ -164,7 +164,7 @@ who finds them disagreeing has found a real problem.
 
 | Role | Name | Signature | Date |
 |---|---|---|---|
-| Owner / Executive Director | Nicky Ingram | ____________________ | ____________ |
+| Chief Executive Officer / Owner | Nicky Ingram | ____________________ | ____________ |
 | Program Supervisor | `[FILL IN]` | ____________________ | ____________ |
 
 ---

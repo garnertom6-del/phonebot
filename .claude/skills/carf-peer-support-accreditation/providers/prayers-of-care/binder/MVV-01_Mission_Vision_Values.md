@@ -6,8 +6,8 @@
 | **Document ID** | MVV-01 |
 | **Version** | Draft 1 |
 | **Status** | Draft → Approved → Trained → In use → Tested → Monitoring *(circle the current state)* |
-| **Owner** | Nicky Ingram, Owner / Executive Director |
-| **Approver** | Nicky Ingram, Owner / Executive Director |
+| **Owner** | Nicky Ingram, Chief Executive Officer / Owner |
+| **Approver** | Nicky Ingram, Chief Executive Officer / Owner |
 | **Approval date** | ____________ |
 | **Effective date** | ____________ |
 | **Review interval** | Annually |
@@ -155,7 +155,7 @@ short, honest task now, and an awkward gap at survey if it is left.
 
 | Role | Name | Signature | Date |
 |---|---|---|---|
-| Owner / Executive Director | Nicky Ingram | ____________________ | ____________ |
+| Chief Executive Officer / Owner | Nicky Ingram | ____________________ | ____________ |
 | Program Supervisor | `[FILL IN — name]` | ____________________ | ____________ |
 
 **Governing body:** Prayers of Care has **no board of directors**. The Owner performs the
