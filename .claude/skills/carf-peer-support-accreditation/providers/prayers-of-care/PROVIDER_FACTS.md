@@ -63,7 +63,9 @@ should be handed the filed record rather than a verbal answer. File copies in th
 - Which EHR the agency documents in
 - Payers
 - Target survey month
-- Date the program started delivering services (drives every due date)
+- **Date the program started delivering services** (drives every due date). A draft supplied by
+  the consultant stated **November 2025**. That is not confirmed by the agency, so it was removed
+  from STRAT-01 rather than carried forward. Confirm it with Nicky Ingram
 - Shifts that deliver service, sites controlled, vehicles used
 - Staff roster: name, role, hire date, credential — **the agency will supply this later**
 - Whether a Program Supervisor is designated, and who
@@ -88,6 +90,12 @@ should be handed the filed record rather than a verbal answer. File copies in th
   backup copy is held (MTG-01 section J)
 - **Record retention period in the payer contract and under NC rules** — MTG-01 sets three
   years from LEAD-01; if either the contract or the state requires longer, the longer wins
+- **The ten strategic-planning inputs in STRAT-01 section 3** — surveys, community data, budget,
+  technology, workforce, risk and performance results, each with the date gathered. This is the
+  part of 1.C that is actually tested; goals without it are opinions
+- Budget figures, training budget, insurance, and **the external accountant or bookkeeper who
+  provides the second look on finances** — separation of duties in a one-owner agency (1.F)
+- Which position owns community partnerships (STRAT-01 Goal 4) and health and safety (Goal 5)
 
 ## Binder progress
 
@@ -100,3 +108,4 @@ should be handed the filed record rather than a verbal answer. File copies in th
 | JD-02 | Job Description — Peer Support Specialist | 1.I, 2.A, 2.C, 3.C | Draft — awaiting credential name, caseload cap, note timeframe |
 | ETH-01 | Code of Ethics and Conduct | 1.A, 1.J, 1.I | Draft — **blocked**: cannot be adopted until the reporting routes are named |
 | MTG-01 | Leadership Meeting — Agenda and Minutes | 1.A | Draft — awaiting Program Supervisor name, minutes filing path, and the ETH-01 independent person |
+| STRAT-01 | Strategic Plan — three-year | 1.C | Draft — **blocked on section 3**: goals cannot be adopted before the inputs behind them are recorded |

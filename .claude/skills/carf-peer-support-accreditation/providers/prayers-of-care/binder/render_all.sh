@@ -57,3 +57,11 @@ $R "$HERE/MTG-01_Leadership_Meeting_Agenda_and_Minutes.md" --id MTG-01 \
   --meta "Completed once per leadership meeting — minimum monthly" \
   --meta "Evidence for LEAD-01 sections B, D, E, F and G" \
   --meta "$STATUS" --meta "$PREP"
+
+$R "$HERE/STRAT-01_Strategic_Plan.md" --id STRAT-01 \
+  --subtitle "CARF Community Integration (BH) Binder — document STRAT-01" \
+  --warning "$NOTDATED" \
+  --meta "Nicky Ingram, Chief Executive Officer / Owner" \
+  --meta "Three-year plan — inputs in section 3 before goals in section 5" \
+  --meta "CARF 1.C Strategic Planning (p.49)" \
+  --meta "$STATUS" --meta "$PREP"
